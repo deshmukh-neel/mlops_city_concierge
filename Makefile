@@ -4,7 +4,6 @@ SHELL := /bin/bash
 # ─── Variables ────────────────────────────────────────────────────────────────
 DOCKER_COMPOSE := docker compose
 PYTHON         := python3
-PIP            := pip3
 
 .PHONY: help
 help: ## Show this help message
@@ -85,11 +84,11 @@ typecheck: ## Run mypy type checker
 # ─── Install ──────────────────────────────────────────────────────────────────
 .PHONY: install
 install: ## Install production dependencies
-	$(PIP) install -r requirements.txt
+	poetry install --only main
 
 .PHONY: install-dev
-install-dev: ## Install development dependencies
-	$(PIP) install -r requirements-dev.txt
+install-dev: ## Install all dependencies (dev + mlflow)
+	poetry install
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 .PHONY: clean
