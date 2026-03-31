@@ -55,6 +55,14 @@ migration: ## Create a new Alembic migration (usage: make migration MSG="add cit
 ingest: ## Run the data ingestion pipeline
 	$(PYTHON) scripts/ingest.py
 
+.PHONY: ingest-places
+ingest-places: ## Pull SF Google Places data into Postgres
+	$(PYTHON) scripts/ingest_places_sf.py
+
+.PHONY: embed-places
+embed-places: ## Generate pgvector embeddings for places
+	$(PYTHON) scripts/embed_places_pgvector.py
+
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
 test: ## Run the full test suite
