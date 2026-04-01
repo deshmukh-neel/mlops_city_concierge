@@ -87,7 +87,7 @@ CHECKPOINT_RESET_CONTAINS = [
 ]
 
 LEAN_FIELDS = [
-    # Lean mode is optimized for lower cost and semantic usefulness.
+    # "Lean" is optimized for lower cost and semantic usefulness.
     "places.id",
     "places.displayName",
     "places.formattedAddress",
