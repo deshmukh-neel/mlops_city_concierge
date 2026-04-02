@@ -39,23 +39,6 @@ All dependencies are managed in a single `pyproject.toml` using Poetry dependenc
 | **MLflow VM** | `poetry install --only main,mlflow` | App deps + MLflow |
 | **CI / testing** | `poetry install --with dev` | App deps + dev/test tools |
 
-### Docker Usage
-
-In your `Dockerfile` for the app container, install only production dependencies:
-
-```dockerfile
-COPY pyproject.toml poetry.lock ./
-RUN poetry install --only main --no-root
-```
-
-For a dedicated MLflow container or VM, include the mlflow group:
-
-```dockerfile
-COPY pyproject.toml poetry.lock ./
-RUN poetry install --only main,mlflow --no-root
-```
-
-This keeps container images lean — each environment only pulls in what it actually needs.
 
 ## Run FastAPI Without Docker
 
