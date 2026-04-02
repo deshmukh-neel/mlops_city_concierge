@@ -63,6 +63,10 @@ ingest-places: ## Pull SF Google Places data into Postgres
 embed-places: ## Generate pgvector embeddings for places
 	$(PYTHON) scripts/embed_places_pgvector.py
 
+.PHONY: train-simple-model
+train-simple-model: ## Train a simple baseline model from places data
+	$(PYTHON) scripts/train_simple_model.py
+
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
 test: ## Run the full test suite
