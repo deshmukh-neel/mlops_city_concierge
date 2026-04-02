@@ -39,23 +39,54 @@ All dependencies are managed in a single `pyproject.toml` using Poetry dependenc
 | **MLflow VM** | `poetry install --only main,mlflow` | App deps + MLflow |
 | **CI / testing** | `poetry install --with dev` | App deps + dev/test tools |
 
-### Docker Usage
 
-In your `Dockerfile` for the app container, install only production dependencies:
+## Run FastAPI Without Docker
 
-```dockerfile
-COPY pyproject.toml poetry.lock ./
-RUN poetry install --only main --no-root
+From the repository root:
+
+```bash
+# 1. Install dependencies
+poetry install
+
+# 2. Ensure .env exists
+cp .env.example .env
+# Fill required values (for example: POSTGRES_PASSWORD, DATABASE_URL, GEMINI_API_KEY)
+
+# 3. Run the FastAPI app
+poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-For a dedicated MLflow container or VM, include the mlflow group:
+Open:
 
-```dockerfile
-COPY pyproject.toml poetry.lock ./
-RUN poetry install --only main,mlflow --no-root
+- http://localhost:8000/root
+- http://localhost:8000/health
+- http://localhost:8000/health/db
+- http://localhost:8000/predict
+- http://localhost:8000/docs
+
+## Build and Run Docker Container (Without Compose)
+
+From the repository root:
+
+```bash
+# 1. Build image
+docker build -t mlops-city-concierge:latest .
+
+# 2. Run container
+docker run --rm -p 8000:8000 --env-file .env mlops-city-concierge:latest
 ```
 
-This keeps container images lean — each environment only pulls in what it actually needs.
+Open:
+
+- http://localhost:8000/root
+- http://localhost:8000/health
+- http://localhost:8000/health/db
+- http://localhost:8000/docs
+
+Notes:
+
+- The standalone container still needs a reachable Postgres database via `DATABASE_URL`.
+- If Postgres is running in Docker Compose, use the `docker compose up --build` workflow instead.
 
 ## Common Commands
 
@@ -65,24 +96,6 @@ docker compose up --build       # Start all services (Postgres + app)
 docker compose up --build -d    # Start in background
 docker compose down             # Stop all containers
 docker compose up -d db         # Start only Postgres
-
-# Database
-alembic upgrade head                           # Run migrations
-alembic revision --autogenerate -m "message"   # Create a migration
-
-# Data
-python scripts/seed.py          # Generate sample JSONL data
-python scripts/ingest.py        # Run ingestion pipeline
-
-# Testing
-pytest tests/ -v                # Full test suite
-pytest tests/unit/ -v           # Unit tests only
-pytest tests/integration/ -v    # Integration tests (requires DB + APP_ENV=integration)
-
-# Linting & formatting
-ruff check .                    # Lint
-ruff format .                   # Format
-mypy app/                       # Type check
 ```
 
 All of the above are also available via `make` — run `make help` to see all targets.
