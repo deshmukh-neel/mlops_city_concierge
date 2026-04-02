@@ -63,6 +63,7 @@ Open:
 - http://localhost:8000/health/db
 - http://localhost:8000/predict
 - http://localhost:8000/docs
+- Calling /predict will call the Gemini client with a built-in prompt from main.py. Eventually this will be a user query.
 
 ## Build and Run Docker Container (Without Compose)
 
@@ -82,6 +83,7 @@ Open:
 - http://localhost:8000/health
 - http://localhost:8000/health/db
 - http://localhost:8000/docs
+- http://localhost:8000/predict
 
 Notes:
 
