@@ -57,6 +57,53 @@ RUN poetry install --only main,mlflow --no-root
 
 This keeps container images lean — each environment only pulls in what it actually needs.
 
+## Run FastAPI Without Docker
+
+From the repository root:
+
+```bash
+# 1. Install dependencies
+poetry install
+
+# 2. Ensure .env exists
+cp .env.example .env
+# Fill required values (for example: POSTGRES_PASSWORD, DATABASE_URL, GEMINI_API_KEY)
+
+# 3. Run the FastAPI app
+poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Open:
+
+- http://localhost:8000/root
+- http://localhost:8000/health
+- http://localhost:8000/health/db
+- http://localhost:8000/docs
+
+## Build and Run Docker Container (Without Compose)
+
+From the repository root:
+
+```bash
+# 1. Build image
+docker build -t mlops-city-concierge:latest .
+
+# 2. Run container
+docker run --rm -p 8000:8000 --env-file .env mlops-city-concierge:latest
+```
+
+Open:
+
+- http://localhost:8000/root
+- http://localhost:8000/health
+- http://localhost:8000/health/db
+- http://localhost:8000/docs
+
+Notes:
+
+- The standalone container still needs a reachable Postgres database via `DATABASE_URL`.
+- If Postgres is running in Docker Compose, use the `docker compose up --build` workflow instead.
+
 ## Common Commands
 
 ```bash
