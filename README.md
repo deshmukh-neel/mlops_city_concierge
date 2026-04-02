@@ -78,6 +78,7 @@ Open:
 - http://localhost:8000/root
 - http://localhost:8000/health
 - http://localhost:8000/health/db
+- http://localhost:8000/predict
 - http://localhost:8000/docs
 
 ## Build and Run Docker Container (Without Compose)
