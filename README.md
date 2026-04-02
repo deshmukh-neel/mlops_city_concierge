@@ -113,24 +113,6 @@ docker compose up --build       # Start all services (Postgres + app)
 docker compose up --build -d    # Start in background
 docker compose down             # Stop all containers
 docker compose up -d db         # Start only Postgres
-
-# Database
-alembic upgrade head                           # Run migrations
-alembic revision --autogenerate -m "message"   # Create a migration
-
-# Data
-python scripts/seed.py          # Generate sample JSONL data
-python scripts/ingest.py        # Run ingestion pipeline
-
-# Testing
-pytest tests/ -v                # Full test suite
-pytest tests/unit/ -v           # Unit tests only
-pytest tests/integration/ -v    # Integration tests (requires DB + APP_ENV=integration)
-
-# Linting & formatting
-ruff check .                    # Lint
-ruff format .                   # Format
-mypy app/                       # Type check
 ```
 
 All of the above are also available via `make` — run `make help` to see all targets.
