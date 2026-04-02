@@ -42,7 +42,9 @@ class PlaceRow:
 
 
 def compose_embedding_text(record: dict) -> str:
-    # Keep this deterministic so re-runs only occur when source content changes.
+    """
+    Creates one string with all fields to generate embeddings. Only updates with new information
+    """
     opening_hours = record.get("regular_opening_hours") or {}
     weekday_descriptions = opening_hours.get("weekdayDescriptions") or []
 
