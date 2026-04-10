@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -29,14 +27,13 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-city_concierge}
+      DATABASE_URL: ${DATABASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://35.223.147.177:5000}
+      MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME:-city-concierge-rag}
     ports:
       - "${APP_PORT:-8000}:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - .:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:

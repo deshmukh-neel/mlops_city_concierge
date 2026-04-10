@@ -63,6 +63,10 @@ ingest-places: ## Pull SF Google Places data into Postgres
 embed-places: ## Generate pgvector embeddings for places
 	$(PYTHON) scripts/embed_places_pgvector.py
 
+.PHONY: log-mlflow
+log-mlflow: ## Log a RAG configuration and sample outputs to MLflow
+	$(PYTHON) scripts/log_model_to_mlflow.py
+
 .PHONY: train-simple-model
 train-simple-model: ## Train a simple baseline model from places data
 	$(PYTHON) scripts/train_simple_model.py
@@ -99,7 +103,7 @@ install: ## Install production dependencies
 	poetry install --only main
 
 .PHONY: install-dev
-install-dev: ## Install all dependencies (dev + mlflow)
+install-dev: ## Install all dependencies (app + dev tools)
 	poetry install
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
