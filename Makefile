@@ -65,7 +65,7 @@ embed-places: ## Generate pgvector embeddings for places
 
 .PHONY: log-mlflow
 log-mlflow: ## Log a RAG configuration and sample outputs to MLflow
-	$(PYTHON) scripts/log_model_to_mlflow.py
+	$(PYTHON) scripts/log_model_to_mlflow.py --config configs/experiments.yaml
 
 .PHONY: train-simple-model
 train-simple-model: ## Train a simple baseline model from places data
