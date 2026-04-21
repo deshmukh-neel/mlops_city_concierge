@@ -51,7 +51,12 @@ python scripts/seed.py    # Generate sample JSONL data
 - **LangChain RAG chain** supports OpenAI or Gemini chat models, selected from MLflow Model Registry params
 - **Scripts**: `scripts/ingest_places_sf.py` loads raw Google Places data, `scripts/embed_places_pgvector.py` refreshes embeddings, and `scripts/log_model_to_mlflow.py` logs experiment runs
 - **Alembic** for database migrations (not yet initialized beyond Makefile targets)
+<<<<<<< HEAD
 - **MLflow** for experiment tracking and model-registry-backed runtime selection (shared GCP server)
+=======
+- **MLflow** for experiment tracking (shared GCP server)
+- **React and Vite** for the frontend where user inputs prompt and preferences
+>>>>>>> b086152 (feat: add SF concierge frontend with chat, map, and list views)
 
 ## Key Conventions
 
