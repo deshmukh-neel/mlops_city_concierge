@@ -107,6 +107,7 @@ jobs:
           ignore-unfixed: true
           severity: HIGH,CRITICAL
           vuln-type: os,library
+          trivyignores: .trivyignore
 
       - name: Push image to Artifact Registry
         uses: docker/build-push-action@v6
