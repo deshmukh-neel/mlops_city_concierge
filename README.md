@@ -94,7 +94,48 @@ make down         # Stop all containers
 
 Note: The app container reads `DATABASE_URL` from `.env`. Set it to Cloud SQL for production data, or leave it pointing to the local `db` container for local development.
 
-### Build and Run Standalone
+- http://localhost:8000/root
+- http://localhost:8000/health
+- http://localhost:8000/health/db
+- http://localhost:8000/docs
+
+Notes:
+
+- The standalone container still needs a reachable Postgres database via `DATABASE_URL`.
+- If Postgres is running in Docker Compose, use the `docker compose up --build` workflow instead.
+
+## Cloud SQL
+
+The ingestion and embedding scripts can write directly to Cloud SQL.
+
+Use either:
+
+```bash
+# Option A: explicit connection string
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/city_concierge
+```
+
+or:
+
+```bash
+# Option B: build from component vars
+POSTGRES_DB=city_concierge
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your-password
+
+# Public IP / proxy / private IP
+POSTGRES_HOST=your-cloud-sql-host
+POSTGRES_PORT=5432
+POSTGRES_SSLMODE=require
+
+# Or Cloud SQL Unix sockets
+CLOUD_SQL_INSTANCE_CONNECTION_NAME=your-project:your-region:your-instance
+CLOUD_SQL_SOCKET_DIR=/cloudsql
+```
+
+When `DATABASE_URL` is unset, the app and scripts now build the connection string from `POSTGRES_*`, and if `CLOUD_SQL_INSTANCE_CONNECTION_NAME` is present they connect through the Cloud SQL socket path automatically. For direct-host Cloud SQL connections, `POSTGRES_SSLMODE` and `POSTGRES_SSLROOTCERT` are also supported.
+
+## Common Commands
 
 ```bash
 docker build -t city-concierge .

@@ -11,7 +11,10 @@ Usage:
 
 Optional env vars:
     GOOGLE_PLACES_API_KEY      Google Places API key
-    DATABASE_URL               Postgres connection URL
+    DATABASE_URL               Postgres/Cloud SQL connection URL
+    CLOUD_SQL_INSTANCE_CONNECTION_NAME Cloud SQL instance connection name for socket auth
+    CLOUD_SQL_SOCKET_DIR       Cloud SQL Unix socket directory (default: /cloudsql)
+    POSTGRES_SSLMODE           Optional sslmode for env-built direct DB connections
     PLACES_MAX_PAGES_PER_QUERY Max pages per query (default: 1)
     PLACES_QUERY_LIMIT         Optional cap on number of generated queries
     PLACES_MAX_API_CALLS       Optional hard cap on API calls per run (0 = no cap)
@@ -29,12 +32,13 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from urllib.parse import quote_plus
 
 import psycopg2
 import requests
 from dotenv import load_dotenv
 from psycopg2.extras import Json
+
+from app.config import resolve_database_url
 
 load_dotenv()
 
@@ -42,26 +46,7 @@ load_dotenv()
 
 BASE_URL = "https://places.googleapis.com/v1/places:searchText"
 GOOGLE_KEY = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE-PLACES-API-KEY")
-
-
-def resolve_database_url() -> str | None:
-    explicit = os.getenv("DATABASE_URL")
-    if explicit:
-        return explicit
-
-    user = os.getenv("POSTGRES_USER")
-    password = os.getenv("POSTGRES_PASSWORD")
-    dbname = os.getenv("POSTGRES_DB")
-    host = os.getenv("POSTGRES_HOST", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
-
-    if not (user and password and dbname):
-        return None
-
-    return f"postgresql://{user}:{quote_plus(password)}@{host}:{port}/{dbname}"
-
-
-DATABASE_URL = resolve_database_url()
+DATABASE_URL = resolve_database_url(os.environ)
 MAX_PAGES_PER_QUERY = int(os.getenv("PLACES_MAX_PAGES_PER_QUERY", "1"))
 QUERY_LIMIT = int(os.getenv("PLACES_QUERY_LIMIT", "0"))
 MAX_API_CALLS = int(os.getenv("PLACES_MAX_API_CALLS", "1800"))
@@ -99,6 +84,7 @@ LEAN_FIELDS = [
     "places.editorialSummary",
 ]
 
+# TODO: add additional fields for richer semantic searches
 ENRICHED_EXTRA_FIELDS = [
     "places.primaryTypeDisplayName",
     "places.websiteUri",
@@ -462,6 +448,9 @@ def mark_query_progress(
     rows_changed: int,
     last_error: str | None = None,
 ) -> None:
+    """Save query checkpoints into a Postgres table during the API call loop,
+    so ingestion can resume after interruptions.
+    """
     sql = """
     INSERT INTO places_ingest_query_checkpoints (
         query_text,
