@@ -20,7 +20,7 @@ sqlalchemy = ">=2.0.29,<3.0.0"
 alembic = ">=1.13.1,<2.0.0"
 
 # AI / embeddings
-openai = ">=1.30.0,<2.0.0"
+openai = ">=1.30.0,<3.0.0"
 google-genai = ">=0.7.0,<1.0.0"
 langchain = ">=0.2.0,<1.0.0"
 langchain-community = ">=0.2.0,<1.0.0"
