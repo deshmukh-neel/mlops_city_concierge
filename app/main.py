@@ -5,6 +5,7 @@ from typing import Any
 
 import mlflow
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from psycopg2.extensions import connection
 from pydantic import BaseModel, Field
 
@@ -134,11 +135,20 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    return FastAPI(
+    app = FastAPI(
         title=settings.api_title,
         version=settings.api_version,
         lifespan=lifespan,
     )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://localhost:3000"],
+        allow_origin_regex=r"https://.*\.vercel\.app$",
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
+    return app
 
 
 app = create_app()
