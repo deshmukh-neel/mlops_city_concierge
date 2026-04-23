@@ -3,7 +3,7 @@ from collections.abc import Generator
 import psycopg2
 from psycopg2.extensions import connection
 
-from .config import settings
+from .config import get_settings
 
 
 def get_db() -> Generator[connection, None, None]:

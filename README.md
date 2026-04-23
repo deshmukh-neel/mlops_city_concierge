@@ -2,7 +2,34 @@
 
 Course: USF MSDS 603 - MLOps
 
-A RAG (Retrieval-Augmented Generation) application for city information, powered by FastAPI, PostgreSQL + pgvector, and OpenAI embeddings.
+A RAG (Retrieval-Augmented Generation) application for San Francisco restaurant and place recommendations, powered by FastAPI, PostgreSQL + pgvector, LangChain, and MLflow.
+
+## Architecture
+
+```
+User Query
+    |
+    v
+FastAPI (/predict)
+    |
+    v
+MLflow Model Registry  -->  Selects LLM config (OpenAI or Gemini)
+    |
+    v
+LangChain RetrievalQA Chain
+    |
+    +---> PgVectorRetriever (cosine similarity search on Cloud SQL)
+    +---> LLM (OpenAI gpt-4o-mini or Gemini 2.5 Flash)
+    |
+    v
+Response + Source Places
+```
+
+- **Vector Store**: PostgreSQL 16 + pgvector on Cloud SQL with HNSW cosine index (4,356 SF place embeddings)
+- **Embeddings**: OpenAI `text-embedding-3-small` (1536 dims)
+- **LLM**: Configurable via MLflow Model Registry — supports OpenAI and Gemini
+- **MLflow**: Shared tracking server at http://35.223.147.177:5000
+- **Container Registry**: GCP Artifact Registry (`us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge`)
 
 ## Getting Started
 
@@ -10,7 +37,7 @@ A RAG (Retrieval-Augmented Generation) application for city information, powered
 
 - Python 3.10+
 - [Poetry](https://python-poetry.org/docs/#installation)
-- Docker & Docker Compose
+- Docker & Docker Compose (optional, for containerized runs)
 
 ### Setup
 
@@ -19,64 +46,53 @@ A RAG (Retrieval-Augmented Generation) application for city information, powered
 
 # 2. Create your .env file
 cp .env.example .env
-# Fill in your secrets (POSTGRES_PASSWORD, OPENAI_API_KEY, etc.)
+# Fill in: DATABASE_URL, OPENAI_API_KEY, GEMINI_API_KEY (optional)
 
-# 3. Install dependencies (see "Installing Dependencies" below)
+# 3. Install dependencies
 poetry install
 
-# 4. Start services
-docker compose up --build
+# 4. Run the app
+poetry run uvicorn app.main:app --reload
 ```
 
-## Installing Dependencies
+The app reads the `production` alias from the MLflow Model Registry at startup and builds the matching RAG chain.
 
-All dependencies are managed in a single `pyproject.toml` using Poetry dependency groups. Install only what you need for your context:
+### Installing Dependencies
 
 | Context | Command | What it installs |
 |---|---|---|
-| **Local dev** | `poetry install` | Everything (app + mlflow + dev tools) |
-| **App container** | `poetry install --only main` | Production app deps only |
-| **MLflow VM** | `poetry install --only main,mlflow` | App deps + MLflow |
-| **CI / testing** | `poetry install --with dev` | App deps + dev/test tools |
+| **Local dev / CI** | `poetry install` | App + dev/test tools |
+| **App container** | `poetry install --only main` | Production deps only |
 
+## API Endpoints
 
-## Run FastAPI Without Docker
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/root` | Welcome message |
+| GET | `/health` | Active model config (provider, model) |
+| GET | `/health/db` | Database connectivity check |
+| POST | `/predict` | RAG query endpoint |
+| GET | `/docs` | Interactive API docs (Swagger) |
 
-From the repository root:
-
-```bash
-# 1. Install dependencies
-poetry install
-
-# 2. Ensure .env exists
-cp .env.example .env
-# Fill required values (for example: POSTGRES_PASSWORD, DATABASE_URL, GEMINI_API_KEY)
-
-# 3. Run the FastAPI app
-poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Open:
-
-- http://localhost:8000/root
-- http://localhost:8000/health
-- http://localhost:8000/health/db
-- http://localhost:8000/predict
-- http://localhost:8000/docs
-
-## Build and Run Docker Container (Without Compose)
-
-From the repository root:
+### Example Request
 
 ```bash
-# 1. Build image
-docker build -t mlops-city-concierge:latest .
-
-# 2. Run container
-docker run --rm -p 8000:8000 --env-file .env mlops-city-concierge:latest
+curl -X POST http://localhost:8000/predict \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "Best tacos in the Mission", "limit": 5}'
 ```
 
-Open:
+## Docker
+
+### Build and Run with Docker Compose
+
+```bash
+make dev          # Build and start (app + local Postgres)
+make dev-detached # Start in background
+make down         # Stop all containers
+```
+
+Note: The app container reads `DATABASE_URL` from `.env`. Set it to Cloud SQL for production data, or leave it pointing to the local `db` container for local development.
 
 - http://localhost:8000/root
 - http://localhost:8000/health
@@ -122,42 +138,66 @@ When `DATABASE_URL` is unset, the app and scripts now build the connection strin
 ## Common Commands
 
 ```bash
-# Docker services
-docker compose up --build       # Start all services (Postgres + app)
-docker compose up --build -d    # Start in background
-docker compose down             # Stop all containers
-docker compose up -d db         # Start only Postgres
+docker build -t city-concierge .
+docker run --rm -p 8000:8000 --env-file .env city-concierge
 ```
 
-All of the above are also available via `make` — run `make help` to see all targets.
+### Push to GCP Artifact Registry
 
-## MLflow Tracking Server
+```bash
+gcloud auth configure-docker us-central1-docker.pkg.dev
+docker tag city-concierge us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge:latest
+docker push us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge:latest
+```
 
-The team shares an MLflow tracking server on GCP.
+## MLflow
 
 **Dashboard:** http://35.223.147.177:5000
 
 ### Logging Experiments
 
-```python
-import mlflow
+```bash
+# Log an OpenAI run with default sample queries
+poetry run python scripts/log_model_to_mlflow.py
 
-mlflow.set_tracking_uri("http://35.223.147.177:5000")
-mlflow.set_experiment("city-concierge-analysis")
-
-with mlflow.start_run(run_name="Your_Name_Run"):
-    mlflow.log_param("model_type", "regression")
-    mlflow.log_metric("rmse", 0.123)
+# Log and register a Gemini-backed config
+poetry run python scripts/log_model_to_mlflow.py \
+  --llm-provider gemini \
+  --chat-model gemini-2.5-flash \
+  --k 5 \
+  --temperature 0.2 \
+  --register-model
 ```
 
-Or set the URI once per terminal session:
+### Setting the Production Model
+
+1. Run experiments with different configs using the script above
+2. Compare results in the MLflow UI
+3. Register the best run with `--register-model`
+4. In the MLflow UI (or via script), assign the `production` alias to the desired model version:
 
 ```bash
-export MLFLOW_TRACKING_URI="http://35.223.147.177:5000"
+poetry run python -c "
+import mlflow
+mlflow.set_tracking_uri('http://35.223.147.177:5000')
+client = mlflow.MlflowClient()
+client.set_registered_model_alias('city-concierge-rag', 'production', '<VERSION>')
+"
 ```
 
-### Best Practices
+5. Restart the app — it picks up the new config automatically
 
-- Use `mlflow.set_experiment("city-concierge-analysis")` to keep all team runs in the same view
-- Always provide a `run_name` (e.g., `"James_Baseline"`) so we can identify who generated which results
-- If the script hangs, check your network/VPN allows outgoing traffic on port 5000
+## Common Commands
+
+Run `make help` to see all targets. Key ones:
+
+```bash
+make install-dev    # Install all dependencies
+make test           # Full test suite with coverage
+make test-unit      # Unit tests only
+make lint           # Ruff linter
+make format         # Auto-format code
+make ingest-places  # Pull SF Google Places data
+make embed-places   # Generate pgvector embeddings
+make log-mlflow     # Log a RAG config to MLflow
+```

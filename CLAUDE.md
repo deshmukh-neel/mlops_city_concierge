@@ -39,22 +39,24 @@ make typecheck            # mypy app/
 
 # Data
 make ingest               # Run ingestion pipeline (python scripts/ingest.py)
+make log-mlflow          # Log a RAG config + sample outputs to MLflow
 python scripts/seed.py    # Generate sample JSONL data
 ```
 
 ## Architecture
 
-- **FastAPI app** served via uvicorn at port 8000 (entrypoint: `app.main:app`, not yet created)
-- **PostgreSQL 16 + pgvector** for vector storage; `city_chunks` table stores text chunks with 1536-dim embeddings (matching `text-embedding-3-small`)
-- **HNSW index** on embeddings using cosine similarity
-- **Scripts**: `scripts/ingest.py` reads JSONL, chunks text, embeds, and upserts; `scripts/seed.py` generates sample data
+- **FastAPI app** served via uvicorn at port 8000 (`app.main:app`) with a startup-loaded RAG chain
+- **PostgreSQL 16 + pgvector** stores Google Places metadata in `places_raw` and semantic vectors in `place_embeddings`
+- **Retriever stack** uses OpenAI embeddings for query vectors and pgvector HNSW cosine similarity search for source retrieval
+- **LangChain RAG chain** supports OpenAI or Gemini chat models, selected from MLflow Model Registry params
+- **Scripts**: `scripts/ingest_places_sf.py` loads raw Google Places data, `scripts/embed_places_pgvector.py` refreshes embeddings, and `scripts/log_model_to_mlflow.py` logs experiment runs
 - **Alembic** for database migrations (not yet initialized beyond Makefile targets)
-- **MLflow** for experiment tracking (shared GCP server)
+- **MLflow** for experiment tracking and model-registry-backed runtime selection (shared GCP server)
 
 ## Key Conventions
 
 - Python 3.10+; ruff for linting/formatting (line-length 100, rules: E, F, I, N, UP, B, SIM)
-- Dependency management: single `pyproject.toml` with Poetry dependency groups (main, mlflow, dev)
+- Dependency management: single `pyproject.toml` with Poetry main dependencies plus a `dev` group
 - Tests use pytest with `asyncio_mode = "auto"`; conftest patches env vars so tests never hit real services
 - Integration tests are skipped unless `APP_ENV=integration` is set
 - Environment variables configured via `.env` (see `.env.example` for all required vars)

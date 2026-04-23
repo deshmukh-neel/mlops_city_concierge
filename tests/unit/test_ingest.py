@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 
 class TestIngestScript:
     """Tests for scripts/ingest.py logic (no real DB or API calls)."""
