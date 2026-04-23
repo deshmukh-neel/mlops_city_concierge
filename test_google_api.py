@@ -8,20 +8,23 @@ load_dotenv()
 GOOGLE_KEY = os.getenv("GOOGLE-PLACES-API-KEY")
 BASE_URL = "https://places.googleapis.com/v1/places:searchText"
 
-FIELDS = ",".join([
-    "places.id",
-    "places.displayName",
-    "places.formattedAddress",
-    "places.rating",
-    "places.userRatingCount",
-    "places.priceLevel",
-    "places.types",
-    "places.regularOpeningHours",
-    "places.websiteUri",
-    "places.editorialSummary",
-    "places.photos",
-    "places.location",
-])
+FIELDS = ",".join(
+    [
+        "places.id",
+        "places.displayName",
+        "places.formattedAddress",
+        "places.rating",
+        "places.userRatingCount",
+        "places.priceLevel",
+        "places.types",
+        "places.regularOpeningHours",
+        "places.websiteUri",
+        "places.editorialSummary",
+        "places.photos",
+        "places.location",
+    ]
+)
+
 
 def search_places(query: str, max_results: int = 20) -> list[dict]:
     headers = {
@@ -35,9 +38,9 @@ def search_places(query: str, max_results: int = 20) -> list[dict]:
         "locationBias": {
             "circle": {
                 "center": {"latitude": 37.7749, "longitude": -122.4194},
-                "radius": 10000.0  # 10km radius around SF
+                "radius": 10000.0,  # 10km radius around SF
             }
-        }
+        },
     }
     response = requests.post(BASE_URL, json=body, headers=headers, timeout=30)
     response.raise_for_status()
