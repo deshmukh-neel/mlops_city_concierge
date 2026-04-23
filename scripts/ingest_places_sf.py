@@ -41,13 +41,13 @@ load_dotenv()
 # Global variables dictating Google Places API limits and interactions (ie minimizing cost)
 
 BASE_URL = "https://places.googleapis.com/v1/places:searchText"
-GOOGLE_KEY = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE-PLACES-API-KEY")
+GOOGLE_KEY = os.getenv("GOOGLE-PLACES-API-KEY")
 
 
 def resolve_database_url() -> str | None:
-    explicit = os.getenv("DATABASE_URL")
-    if explicit:
-        return explicit
+    exists = os.getenv("DATABASE_URL")
+    if exists:
+        return exists
 
     user = os.getenv("POSTGRES_USER")
     password = os.getenv("POSTGRES_PASSWORD")
@@ -62,13 +62,13 @@ def resolve_database_url() -> str | None:
 
 
 DATABASE_URL = resolve_database_url()
-MAX_PAGES_PER_QUERY = int(os.getenv("PLACES_MAX_PAGES_PER_QUERY", "1"))
-QUERY_LIMIT = int(os.getenv("PLACES_QUERY_LIMIT", "0"))
-MAX_API_CALLS = int(os.getenv("PLACES_MAX_API_CALLS", "1800"))
-MIN_REQUEST_INTERVAL_SECONDS = float(os.getenv("PLACES_MIN_REQUEST_INTERVAL_SECONDS", "0.25"))
-API_MAX_RETRIES = int(os.getenv("PLACES_API_MAX_RETRIES", "4"))
-API_BACKOFF_BASE_SECONDS = float(os.getenv("PLACES_API_BACKOFF_BASE_SECONDS", "1.0"))
-API_BACKOFF_MAX_SECONDS = float(os.getenv("PLACES_API_BACKOFF_MAX_SECONDS", "20.0"))
+MAX_PAGES_PER_QUERY = 1
+QUERY_LIMIT = 0
+MAX_API_CALLS = 1800
+MIN_REQUEST_INTERVAL_SECONDS = 0.25
+API_MAX_RETRIES = 4
+API_BACKOFF_BASE_SECONDS = 1.0
+API_BACKOFF_MAX_SECONDS = 20.0
 FIELD_MODE = os.getenv("PLACES_FIELD_MODE", "lean").strip().lower()
 
 
@@ -98,7 +98,7 @@ LEAN_FIELDS = [
     "places.location",
     "places.editorialSummary",
 ]
-
+# plan to add additional fields for richer semantic searches
 ENRICHED_EXTRA_FIELDS = [
     "places.primaryTypeDisplayName",
     "places.websiteUri",
@@ -449,6 +449,7 @@ def get_completed_queries(conn: psycopg2.extensions.connection) -> set[str]:
     return {row[0] for row in rows}
 
 
+
 def mark_query_progress(
     conn: psycopg2.extensions.connection,
     *,
@@ -460,6 +461,14 @@ def mark_query_progress(
     rows_changed: int,
     last_error: str | None = None,
 ) -> None:
+    
+    """
+    Saves query checkpoints into a Postgres tablle
+    during API call loop just in case of interruptions.
+
+    """
+
+    
     sql = """
     INSERT INTO places_ingest_query_checkpoints (
         query_text,
