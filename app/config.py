@@ -40,7 +40,7 @@ def build_database_url(
     return database_url
 
 
-def resolve_database_url(env: Mapping[str, str]) -> str | None:
+def resolve_database_url(env: Mapping[str, str | None]) -> str | None:
     explicit = env.get("DATABASE_URL")
     if explicit:
         return explicit
@@ -89,22 +89,19 @@ class Settings(BaseSettings):
 
     @property
     def resolved_database_url(self) -> str | None:
-        if self.database_url:
-            return self.database_url
-
-        if not (self.postgres_user and self.postgres_password and self.postgres_db):
-            return None
-
-        return build_database_url(
-            user=self.postgres_user,
-            password=self.postgres_password,
-            dbname=self.postgres_db,
-            host=self.postgres_host,
-            port=self.postgres_port,
-            cloud_sql_instance=self.cloud_sql_instance_connection_name,
-            cloud_sql_socket_dir=self.cloud_sql_socket_dir,
-            sslmode=self.postgres_sslmode,
-            sslrootcert=self.postgres_sslrootcert,
+        return resolve_database_url(
+            {
+                "DATABASE_URL": self.database_url,
+                "POSTGRES_DB": self.postgres_db,
+                "POSTGRES_USER": self.postgres_user,
+                "POSTGRES_PASSWORD": self.postgres_password,
+                "POSTGRES_HOST": self.postgres_host,
+                "POSTGRES_PORT": str(self.postgres_port),
+                "CLOUD_SQL_INSTANCE_CONNECTION_NAME": self.cloud_sql_instance_connection_name,
+                "CLOUD_SQL_SOCKET_DIR": self.cloud_sql_socket_dir,
+                "POSTGRES_SSLMODE": self.postgres_sslmode,
+                "POSTGRES_SSLROOTCERT": self.postgres_sslrootcert,
+            }
         )
 
 

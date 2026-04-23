@@ -44,7 +44,7 @@ load_dotenv()
 # Global variables dictating Google Places API limits and interactions (ie minimizing cost)
 
 BASE_URL = "https://places.googleapis.com/v1/places:searchText"
-GOOGLE_KEY = os.getenv("GOOGLE-PLACES-API-KEY")
+GOOGLE_KEY = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE-PLACES-API-KEY")
 DATABASE_URL = resolve_database_url(os.environ)
 MAX_PAGES_PER_QUERY = 1
 QUERY_LIMIT = 0
