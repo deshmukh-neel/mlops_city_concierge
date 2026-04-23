@@ -9,10 +9,13 @@ Usage:
     python scripts/embed_places_pgvector.py
 
 Required env vars:
-    DATABASE_URL
     OPENAI_API_KEY
 
 Optional env vars:
+    DATABASE_URL              Postgres/Cloud SQL connection URL
+    CLOUD_SQL_INSTANCE_CONNECTION_NAME Cloud SQL instance connection name for socket auth
+    CLOUD_SQL_SOCKET_DIR      Cloud SQL Unix socket directory (default: /cloudsql)
+    POSTGRES_SSLMODE          Optional sslmode for env-built direct DB connections
     PLACES_EMBED_MODEL       (default: text-embedding-3-small)
     PLACES_EMBED_BATCH_SIZE  (default: 50)
 """
@@ -23,12 +26,13 @@ import os
 from dataclasses import dataclass
 
 import psycopg2
+from app.config import resolve_database_url
 from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = resolve_database_url(os.environ)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 EMBED_MODEL = os.getenv("PLACES_EMBED_MODEL", "text-embedding-3-small")
 BATCH_SIZE = int(os.getenv("PLACES_EMBED_BATCH_SIZE", "500"))
