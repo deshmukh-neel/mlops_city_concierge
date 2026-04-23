@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from langchain.chains import RetrievalQA
+from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from .config import get_settings
 from .retriever import PgVectorRetriever
@@ -25,12 +27,13 @@ def build_rag_chain(
     )
 
     provider = llm_provider.lower()
+    llm: BaseChatModel
     if provider == "openai":
-        llm = ChatOpenAI(model=chat_model, api_key=api_key, temperature=temperature)
+        llm = ChatOpenAI(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)
     elif provider == "gemini":
         llm = ChatGoogleGenerativeAI(
             model=chat_model,
-            google_api_key=api_key,
+            google_api_key=SecretStr(api_key),
             temperature=temperature,
         )
     else:

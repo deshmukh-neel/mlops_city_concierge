@@ -5,6 +5,7 @@ from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
+from pydantic import SecretStr
 
 from .config import get_settings
 
@@ -31,7 +32,7 @@ class PgVectorRetriever(BaseRetriever):
         if not api_key:
             raise RuntimeError("Missing OPENAI_API_KEY for query embedding generation.")
 
-        embeddings = OpenAIEmbeddings(model=self.embedding_model, api_key=api_key)
+        embeddings = OpenAIEmbeddings(model=self.embedding_model, api_key=SecretStr(api_key))
         vector_literal = vector_to_pg(embeddings.embed_query(query))
 
         sql = """
