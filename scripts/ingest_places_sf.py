@@ -47,13 +47,13 @@ load_dotenv()
 BASE_URL = "https://places.googleapis.com/v1/places:searchText"
 GOOGLE_KEY = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE-PLACES-API-KEY")
 DATABASE_URL = resolve_database_url(os.environ)
-MAX_PAGES_PER_QUERY = 1
-QUERY_LIMIT = 0
-MAX_API_CALLS = 1800
-MIN_REQUEST_INTERVAL_SECONDS = 0.25
-API_MAX_RETRIES = 4
-API_BACKOFF_BASE_SECONDS = 1.0
-API_BACKOFF_MAX_SECONDS = 20.0
+MAX_PAGES_PER_QUERY = int(os.getenv("PLACES_MAX_PAGES_PER_QUERY", "1"))
+QUERY_LIMIT = int(os.getenv("PLACES_QUERY_LIMIT", "0"))
+MAX_API_CALLS = int(os.getenv("PLACES_MAX_API_CALLS", "1800"))
+MIN_REQUEST_INTERVAL_SECONDS = float(os.getenv("PLACES_MIN_REQUEST_INTERVAL_SECONDS", "0.25"))
+API_MAX_RETRIES = int(os.getenv("PLACES_API_MAX_RETRIES", "4"))
+API_BACKOFF_BASE_SECONDS = float(os.getenv("PLACES_API_BACKOFF_BASE_SECONDS", "1.0"))
+API_BACKOFF_MAX_SECONDS = float(os.getenv("PLACES_API_BACKOFF_MAX_SECONDS", "20.0"))
 FIELD_MODE = os.getenv("PLACES_FIELD_MODE", "lean").strip().lower()
 
 
@@ -83,7 +83,8 @@ LEAN_FIELDS = [
     "places.location",
     "places.editorialSummary",
 ]
-# plan to add additional fields for richer semantic searches
+
+# TODO: add additional fields for richer semantic searches
 ENRICHED_EXTRA_FIELDS = [
     "places.primaryTypeDisplayName",
     "places.websiteUri",
@@ -447,12 +448,9 @@ def mark_query_progress(
     rows_changed: int,
     last_error: str | None = None,
 ) -> None:
+    """Save query checkpoints into a Postgres table during the API call loop,
+    so ingestion can resume after interruptions.
     """
-    Saves query checkpoints into a Postgres tablle
-    during API call loop just in case of interruptions.
-
-    """
-
     sql = """
     INSERT INTO places_ingest_query_checkpoints (
         query_text,
