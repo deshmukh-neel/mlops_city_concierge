@@ -95,8 +95,11 @@ def load_registered_rag_chain() -> tuple[Any, ActiveModelConfig]:
         run_id=model_version.run_id,
         model_version=str(model_version.version),
     )
+    database_url = settings.resolved_database_url
+    if not database_url:
+        raise RuntimeError("Missing DATABASE_URL or POSTGRES_* database settings.")
     chain = build_rag_chain(
-        connection_string=settings.database_url,
+        connection_string=database_url,
         api_key=resolve_llm_api_key(config.llm_provider),
         llm_provider=config.llm_provider,
         chat_model=config.chat_model,

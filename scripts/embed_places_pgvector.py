@@ -26,9 +26,10 @@ import os
 from dataclasses import dataclass
 
 import psycopg2
-from app.config import resolve_database_url
 from dotenv import load_dotenv
 from openai import OpenAI
+
+from app.config import resolve_database_url
 
 load_dotenv()
 

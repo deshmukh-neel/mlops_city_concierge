@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from functools import lru_cache
 from urllib.parse import quote_plus, urlencode
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -48,10 +49,7 @@ def resolve_database_url(env: Mapping[str, str | None]) -> str | None:
     user = env.get("POSTGRES_USER")
     password = env.get("POSTGRES_PASSWORD")
     dbname = env.get("POSTGRES_DB")
-    host = env.get("POSTGRES_HOST", "localhost")
-    port = env.get("POSTGRES_PORT", "5432")
     cloud_sql_instance = env.get("CLOUD_SQL_INSTANCE_CONNECTION_NAME")
-    cloud_sql_socket_dir = env.get("CLOUD_SQL_SOCKET_DIR", "/cloudsql")
     sslmode = env.get("POSTGRES_SSLMODE")
     sslrootcert = env.get("POSTGRES_SSLROOTCERT")
 
@@ -62,10 +60,10 @@ def resolve_database_url(env: Mapping[str, str | None]) -> str | None:
         user=user,
         password=password,
         dbname=dbname,
-        host=host,
-        port=port,
+        host=env.get("POSTGRES_HOST") or "localhost",
+        port=env.get("POSTGRES_PORT") or "5432",
         cloud_sql_instance=cloud_sql_instance,
-        cloud_sql_socket_dir=cloud_sql_socket_dir,
+        cloud_sql_socket_dir=env.get("CLOUD_SQL_SOCKET_DIR") or "/cloudsql",
         sslmode=sslmode,
         sslrootcert=sslrootcert,
     )

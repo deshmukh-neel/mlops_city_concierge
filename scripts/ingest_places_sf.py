@@ -35,9 +35,10 @@ from dataclasses import dataclass
 
 import psycopg2
 import requests
-from app.config import resolve_database_url
 from dotenv import load_dotenv
 from psycopg2.extras import Json
+
+from app.config import resolve_database_url
 
 load_dotenv()
 
@@ -435,7 +436,6 @@ def get_completed_queries(conn: psycopg2.extensions.connection) -> set[str]:
     return {row[0] for row in rows}
 
 
-
 def mark_query_progress(
     conn: psycopg2.extensions.connection,
     *,
@@ -447,14 +447,12 @@ def mark_query_progress(
     rows_changed: int,
     last_error: str | None = None,
 ) -> None:
-    
     """
     Saves query checkpoints into a Postgres tablle
     during API call loop just in case of interruptions.
 
     """
 
-    
     sql = """
     INSERT INTO places_ingest_query_checkpoints (
         query_text,
