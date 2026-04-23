@@ -1,4 +1,5 @@
 import os
+
 import requests
 from dotenv import load_dotenv
 
@@ -38,7 +39,7 @@ def search_places(query: str, max_results: int = 20) -> list[dict]:
             }
         }
     }
-    response = requests.post(BASE_URL, json=body, headers=headers)
+    response = requests.post(BASE_URL, json=body, headers=headers, timeout=30)
     response.raise_for_status()
     return response.json().get("places", [])
 

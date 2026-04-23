@@ -533,7 +533,7 @@ def reset_checkpoints_by_keywords(
     where_clause = " OR ".join(["LOWER(query_text) LIKE %s" for _ in keywords])
     params = [f"%{keyword}%" for keyword in keywords]
 
-    sql = f"DELETE FROM places_ingest_query_checkpoints WHERE {where_clause}"
+    sql = f"DELETE FROM places_ingest_query_checkpoints WHERE {where_clause}"  # noqa: S608
     with conn.cursor() as cur:
         cur.execute(sql, params)
         deleted = cur.rowcount
