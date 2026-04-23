@@ -120,40 +120,32 @@ jobs:
           cache-from: type=gha
 
   # ---------------------------------------------------------------------------
-  # Cloud Run deploy
+  # Cloud Run auto-deploy
   #
-  # Uncomment this job after you have created the Cloud Run service manually
-  # once (so env vars / Secret Manager mounts are wired up). After that, each
-  # merge to main will roll the service forward to the new image.
-  #
-  # Initial manual deploy (run once from your terminal):
-  #
-  #   gcloud run deploy city-concierge-api \
-  #     --image us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge:latest \
-  #     --region us-central1 \
-  #     --platform managed \
-  #     --allow-unauthenticated \
-  #     --set-env-vars APP_ENV=production \
-  #     --set-secrets OPENAI_API_KEY=OPENAI_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest
+  # Only runs on push to main (not on tags or manual dispatch). Swaps in the
+  # new image on the existing service; existing env vars, secret mounts, and
+  # Cloud SQL attachments are preserved by deploy-cloudrun@v2 when only
+  # `image` is specified. The service itself must already exist (created
+  # manually once via `gcloud run deploy ...`).
   # ---------------------------------------------------------------------------
-  #
-  # deploy:
-  #   name: Deploy to Cloud Run
-  #   needs: build-scan-push
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     contents: read
-  #     id-token: write
-  #   steps:
-  #     - name: Authenticate to Google Cloud
-  #       uses: google-github-actions/auth@v2
-  #       with:
-  #         workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-  #         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-  #
-  #     - name: Deploy new image to Cloud Run
-  #       uses: google-github-actions/deploy-cloudrun@v2
-  #       with:
-  #         service: ${{ env.CLOUD_RUN_SERVICE }}
-  #         region: ${{ env.CLOUD_RUN_REGION }}
-  #         image: ${{ needs.build-scan-push.outputs.image_uri }}
+  deploy:
+    name: Deploy to Cloud Run
+    needs: build-scan-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy new image to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.CLOUD_RUN_SERVICE }}
+          region: ${{ env.CLOUD_RUN_REGION }}
+          image: ${{ needs.build-scan-push.outputs.image_uri }}

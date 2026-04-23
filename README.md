@@ -135,14 +135,75 @@ CLOUD_SQL_SOCKET_DIR=/cloudsql
 
 When `DATABASE_URL` is unset, the app and scripts now build the connection string from `POSTGRES_*`, and if `CLOUD_SQL_INSTANCE_CONNECTION_NAME` is present they connect through the Cloud SQL socket path automatically. For direct-host Cloud SQL connections, `POSTGRES_SSLMODE` and `POSTGRES_SSLROOTCERT` are also supported.
 
-## Common Commands
+## Deployment
+
+### Live Environment
+
+- **Backend (Cloud Run):** https://city-concierge-api-6amzjx52nq-uc.a.run.app
+- **Frontend (Vercel):** see the `frontend/` directory; configure `VITE_API_URL` to the Cloud Run URL above
+- **Image registry:** `us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge`
+- **Cloud SQL instance:** `mlops-491820:us-central1:mlops--city-concierge` (Postgres 18, pgvector 0.8.1)
+
+### CI/CD Pipeline
+
+GitHub Actions handle everything from lint to deploy. Triggers and jobs:
+
+| Workflow | Trigger | Jobs |
+|---|---|---|
+| `.github/workflows/ci.yml` | Every push + PRs to `main` | Ruff lint (incl. bandit security rules), format check, mypy, pytest with coverage |
+| `.github/workflows/docker.yml` | Push to `main`, tags `v*`, manual | Buildx image build, Trivy vulnerability scan, push to Artifact Registry, **auto-deploy to Cloud Run** (on `main` only) |
+| `.github/dependabot.yml` | Weekly (Mondays) | PRs for Python, npm, GitHub Actions, and Docker base image updates |
+
+**Auto-deploy behavior:** every merge to `main` rebuilds the image, pushes to Artifact Registry, and rolls the Cloud Run service forward. Existing env vars, secret mounts, and Cloud SQL connections on the service are preserved — the workflow only swaps the image.
+
+### Secrets & Environment Variables
+
+**Secrets (Secret Manager, mounted into Cloud Run at runtime):**
+
+- `POSTGRES_PASSWORD`
+- `OPENAI_API_KEY`
+- `GEMINI_API_KEY`
+
+**Plain env vars (set directly on the Cloud Run service):**
+
+- `MLFLOW_TRACKING_URI`
+- `POSTGRES_DB`, `POSTGRES_USER`
+- `CLOUD_SQL_INSTANCE_CONNECTION_NAME`
+
+**Frontend (Vercel — `VITE_*` vars are compiled into the JS bundle and visible in the browser, so never put secrets here):**
+
+- `VITE_API_URL=https://city-concierge-api-6amzjx52nq-uc.a.run.app`
+- `VITE_USE_MOCK=false`
+
+### Initial Manual Deploy
+
+The Cloud Run service must exist before CI auto-deploy works. It was created once with:
+
+```bash
+gcloud run deploy city-concierge-api \
+  --image us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge:latest \
+  --region us-central1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --port 8000 \
+  --add-cloudsql-instances mlops-491820:us-central1:mlops--city-concierge \
+  --set-env-vars "MLFLOW_TRACKING_URI=http://35.223.147.177:5000,POSTGRES_DB=mlops-city-concierge,POSTGRES_USER=postgres,CLOUD_SQL_INSTANCE_CONNECTION_NAME=mlops-491820:us-central1:mlops--city-concierge" \
+  --set-secrets "POSTGRES_PASSWORD=POSTGRES_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
+  --project mlops-491820
+```
+
+Re-run this command only if you need to change env vars or secret mounts; otherwise merge to `main` and let CI handle image updates.
+
+### Manual Docker Build
 
 ```bash
 docker build -t city-concierge .
 docker run --rm -p 8000:8000 --env-file .env city-concierge
 ```
 
-### Push to GCP Artifact Registry
+### Manual Push to Artifact Registry
+
+Usually unnecessary — CI does this automatically on merge to `main`. For ad-hoc pushes:
 
 ```bash
 gcloud auth configure-docker us-central1-docker.pkg.dev
