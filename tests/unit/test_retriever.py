@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from pydantic import SecretStr
+
 from app.retriever import PgVectorRetriever
 
 
@@ -70,7 +72,7 @@ def test_get_relevant_documents_formats_vector_and_maps_metadata(mocker) -> None
 
     embeddings_cls.assert_called_once_with(
         model="text-embedding-3-small",
-        api_key="test-key",
+        api_key=SecretStr("test-key"),
     )
     embeddings.embed_query.assert_called_once_with("best tacos")
     assert "JOIN places_raw" in fake_cursor.executed_sql

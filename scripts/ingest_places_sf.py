@@ -362,7 +362,9 @@ def search_places(query: str, page_token: str | None = None) -> tuple[list[dict]
         if not _is_retryable_status(response.status_code) or attempt == API_MAX_RETRIES:
             response.raise_for_status()
 
-        sleep_seconds = min(API_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), API_BACKOFF_MAX_SECONDS)
+        sleep_seconds = min(
+            API_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), API_BACKOFF_MAX_SECONDS
+        )
         print(
             f"Retrying query after HTTP {response.status_code} "
             f"(attempt {attempt}/{API_MAX_RETRIES}, sleep {sleep_seconds:.1f}s)"
@@ -486,7 +488,16 @@ def mark_query_progress(
     with conn.cursor() as cur:
         cur.execute(
             sql,
-            (query_text, status, pages_processed, api_calls, rows_seen, rows_changed, last_error, status),
+            (
+                query_text,
+                status,
+                pages_processed,
+                api_calls,
+                rows_seen,
+                rows_changed,
+                last_error,
+                status,
+            ),
         )
     conn.commit()
 
@@ -533,7 +544,7 @@ def reset_checkpoints_by_keywords(
     where_clause = " OR ".join(["LOWER(query_text) LIKE %s" for _ in keywords])
     params = [f"%{keyword}%" for keyword in keywords]
 
-    sql = f"DELETE FROM places_ingest_query_checkpoints WHERE {where_clause}"
+    sql = f"DELETE FROM places_ingest_query_checkpoints WHERE {where_clause}"  # noqa: S608
     with conn.cursor() as cur:
         cur.execute(sql, params)
         deleted = cur.rowcount
@@ -541,7 +552,9 @@ def reset_checkpoints_by_keywords(
     return deleted
 
 
-def upsert_places(conn: psycopg2.extensions.connection, places: list[dict], source_query: str) -> int:
+def upsert_places(
+    conn: psycopg2.extensions.connection, places: list[dict], source_query: str
+) -> int:
     if not places:
         return 0
 

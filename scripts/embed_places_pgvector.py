@@ -177,7 +177,7 @@ def run() -> None:
         inputs = [row.text for row in rows]
         response = client.embeddings.create(model=EMBED_MODEL, input=inputs)
 
-        for row, item in zip(rows, response.data):
+        for row, item in zip(rows, response.data, strict=True):
             upsert_embedding(
                 conn,
                 place_id=row.place_id,

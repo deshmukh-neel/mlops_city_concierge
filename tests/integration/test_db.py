@@ -15,7 +15,6 @@ import os
 
 import pytest
 
-
 # Skip the entire module if we're not in an environment with a real DB.
 pytestmark = pytest.mark.skipif(
     os.getenv("APP_ENV", "test") != "integration",

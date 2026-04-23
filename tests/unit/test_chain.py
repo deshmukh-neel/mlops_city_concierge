@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import SecretStr
 
 from app.chain import build_rag_chain
 
@@ -27,7 +28,7 @@ def test_build_rag_chain_supports_openai(mocker) -> None:
     retriever_cls.assert_called_once()
     openai_cls.assert_called_once_with(
         model="gpt-4o-mini",
-        api_key="openai-key",
+        api_key=SecretStr("openai-key"),
         temperature=0.2,
     )
     from_chain.assert_called_once_with(
@@ -66,7 +67,7 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
 
     gemini_cls.assert_called_once_with(
         model="gemini-2.5-flash",
-        google_api_key="gemini-key",
+        google_api_key=SecretStr("gemini-key"),
         temperature=0.1,
     )
     assert result_chain.invoke({"query": "Pizza"}) == {

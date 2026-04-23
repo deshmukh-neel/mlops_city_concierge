@@ -26,7 +26,7 @@ class TestSeedScript:
             for record in sample:
                 fh.write(json.dumps(record) + "\n")
 
-        lines = [l for l in output.read_text().splitlines() if l.strip()]
+        lines = [line for line in output.read_text().splitlines() if line.strip()]
         assert len(lines) == 2
         assert json.loads(lines[0])["city"] == "New York"
         assert json.loads(lines[1])["city"] == "London"
