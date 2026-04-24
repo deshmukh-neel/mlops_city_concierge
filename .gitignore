@@ -206,3 +206,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Claude Code local settings
+.claude/
+
+# Local dev binaries / symlinks (machine-specific)
+cloud-sql-proxy
