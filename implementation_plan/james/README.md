@@ -19,14 +19,15 @@ Six workstreams that convert the system into a tool-calling agent grounded in yo
 
 | # | Workstream | File | Branch | Depends on |
 |---|---|---|---|---|
+| W0 | Infra hardening (cold starts, tracing, secrets, MLflow auth, cost telemetry) | [w0_infra.md](w0_infra.md) | `feature/agent-w0-infra` | — |
 | W1 | Unified place view + filterable retrieval tools | [w1_retrieval_tools.md](w1_retrieval_tools.md) | `feature/agent-w1-retrieval-tools` | — |
-| W2 | Agent loop + ItineraryState + `/chat` endpoint | [w2_agent_graph.md](w2_agent_graph.md) | `feature/agent-w2-agent-graph` | W1 |
+| W2 | Agent loop + ItineraryState + `/chat` endpoint | [w2_agent_graph.md](w2_agent_graph.md) | `feature/agent-w2-agent-graph` | W1 (and ideally W0 for tracing) |
 | W3 | Self-correction (within W2's graph) | [w3_self_correction.md](w3_self_correction.md) | `feature/agent-w3-self-correction` | W2 |
 | W4 | Booking handoff stub (`propose_booking`) | [w4_booking_stub.md](w4_booking_stub.md) | `feature/agent-w4-booking-stub` | W2 |
 | W5 | Coverage-gap ingestion agent | [w5_coverage_agent.md](w5_coverage_agent.md) | `feature/agent-w5-coverage-agent` | — (independent) |
 | W6 | Eval-loop agent | [w6_eval_agent.md](w6_eval_agent.md) | `feature/agent-w6-eval-agent` | W2 |
 
-Suggested merge order: **W1 → W2 → W3 → W4** (user-facing demo path), then **W5 and W6** in parallel (MLOps story). W5 is independent of the agent and can be built any time after W1.
+Suggested merge order: **W0 → W1 → W2 → W3 → W4** (user-facing demo path with infra in front), then **W5 and W6** in parallel (MLOps story). W0 and W5 are independent of the agent code and can land any time. If W0 is delayed, W2's tracing wiring degrades gracefully to a no-op (Langfuse env vars unset → empty callbacks list).
 
 ## Architecture
 
@@ -51,7 +52,7 @@ The agent driver is the existing MLflow-registry-selected model (Opus 4.7 / GPT-
 - **Booking automation is out of scope.** W4 ships an *assisted-handoff* stub — a deep-link to Resy/Tock/Google Maps with the booking pre-filled in the URL where supported. No credentials, no Playwright, no ToS risk. A future PR (not in this plan) adds Playwright behind `BOOKING_AUTOMATION_ENABLED` for your test account only.
 - **Frontend already expects the contract we're building.** `frontend/src/api/chat.js:28` calls `POST /chat` with `{message, history}` and expects `{reply, places, ragLabel}`. The current `/predict` (`app/main.py:183-196`) does not match. W2 makes `/chat` the primary endpoint and keeps `/predict` as a thin compatibility shim.
 - **Agent driver = MLflow-registry model.** No parallel model selection path. `load_registered_rag_chain` (`app/main.py:75-110`) and `parse_active_model_config` are reused as-is to pick the agent driver.
-- **`langgraph` is the only new top-level dependency.** No `pydantic-ai`, no custom orchestration. LangChain 0.2 is already pinned (`pyproject.toml:25`).
+- **New top-level dependencies:** `langgraph` (orchestration; W2), `pydantic-ai` (type-checked tool definitions; W2/W4), `langfuse` (per-request tracing; W0). LangChain 0.2 is already pinned (`pyproject.toml:25`). DSPy and a managed eval UI (Langfuse / Braintrust) are flagged as future directions in W6 but not added in this plan. We deliberately use LangGraph for the agent *loop* and Pydantic AI for *tool definitions* — each library where it's strongest, with a one-function adapter between them in `app/agent/tools.py`.
 
 ## Conventions for these plan files
 
