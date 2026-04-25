@@ -122,26 +122,40 @@ def _notes_for(provider: Provider) -> str:
 
 ### Modify: `app/agent/tools.py`
 
-Wire the tool into the agent:
+Wire the tool into the agent using the same Pydantic AI tool function +
+`_to_lc_tool` adapter pattern established in W2:
 
 ```python
-from app.tools.booking import propose_booking, BookingProposal
+from datetime import datetime
+from pydantic_ai import RunContext
 
-@tool("propose_booking")
-def propose_booking_tool(place_id: str, when_iso: str, party_size: int = 2) -> BookingProposal:
+from app.tools.booking import BookingProposal, propose_booking as _propose_booking
+
+
+def propose_booking(
+    ctx: RunContext[None],
+    place_id: str,
+    when_iso: str,
+    party_size: int = 2,
+) -> BookingProposal:
     """Generate a one-tap booking link for a place. Call this AFTER you've
     finalized which stops the user wants. `when_iso` is an ISO 8601 datetime
     string in local time."""
-    from datetime import datetime
-    return propose_booking(place_id, datetime.fromisoformat(when_iso), party_size)
+    return _propose_booking(place_id, datetime.fromisoformat(when_iso), party_size)
 
 
+# Append to the all_tools() list defined in W2:
 def all_tools():
     return [
-        semantic_search_tool, nearby_tool, get_details_tool,
-        kg_traverse_tool, propose_booking_tool,
+        _to_lc_tool("semantic_search",  semantic_search.__doc__,  semantic_search),
+        _to_lc_tool("nearby",           nearby.__doc__,           nearby),
+        _to_lc_tool("get_details",      get_details.__doc__,      get_details),
+        _to_lc_tool("kg_traverse",      kg_traverse.__doc__,      kg_traverse),
+        _to_lc_tool("propose_booking",  propose_booking.__doc__,  propose_booking),
     ]
 ```
+
+Pydantic AI validates `when_iso` as a string and `party_size` as an int at the tool boundary, so a malformed `propose_booking` call from the LLM (e.g. Gemini occasionally passing `party_size: "two"`) is rejected with a clear validation error rather than a silent `ValueError` deep in `app.tools.booking`.
 
 ### Modify: `app/agent/state.py`
 
