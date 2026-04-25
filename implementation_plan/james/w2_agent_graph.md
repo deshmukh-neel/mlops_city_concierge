@@ -18,13 +18,16 @@ After this PR:
 
 ### Modify: `pyproject.toml`
 
-Add `langgraph` to `[tool.poetry.dependencies]`:
+Add LangGraph for orchestration and Pydantic AI for tool definitions:
 
 ```toml
 langgraph = ">=0.2.0,<1.0.0"
+pydantic-ai = ">=0.0.40,<1.0.0"   # type-checked tool args, model-agnostic
 ```
 
-(LangChain 0.2 is already pinned at `pyproject.toml:25`, so this is the natural fit.)
+**Why both, not one:** LangGraph is the orchestration framework — `StateGraph`, durable execution, LangSmith integration, lowest token usage in benchmarks. Pydantic AI is the tool-definition framework — by the Pydantic team, gives compile-time type-checked tool args across 25+ providers, catches "the LLM passed a malformed filter dict" bugs at definition time. Pydantic AI tools are wrappable for LangGraph; we use each library where it's strongest.
+
+(LangChain 0.2 is already pinned at `pyproject.toml:25`.)
 
 ### New: `app/agent/__init__.py`
 
@@ -101,12 +104,21 @@ class PlaceCard(BaseModel):
 
 ### New: `app/agent/tools.py`
 
-```python
-"""Wrap W1's plain Python functions as LangChain @tool callables so the
-LLM can invoke them. We keep the underlying functions importable from
-app.tools.* because the eval agent (W6) and tests use them directly."""
+We use **Pydantic AI** to define tools because it gives us type-checked tool args at definition time and a clean function-tool decorator that's portable across providers. We then wrap those tools as LangChain `Tool` instances so the LangGraph node can call them via `llm.bind_tools(...)`. This is the smallest possible adapter — no architectural lock-in either way.
 
-from langchain_core.tools import tool
+```python
+"""Tool definitions. We author tools with Pydantic AI for type safety, and
+expose them as LangChain Tool instances so LangGraph's plan() node can bind
+them to the LLM. Underlying Python functions remain importable from
+app.tools.* for eval (W6) and tests."""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from langchain_core.tools import Tool
+from pydantic import BaseModel, Field
+from pydantic_ai import RunContext, Tool as PaiTool
 
 from app.tools.filters import SearchFilters
 from app.tools.retrieval import (
@@ -118,47 +130,95 @@ from app.tools.retrieval import (
 )
 
 
-@tool("semantic_search", args_schema=None)  # args_schema set explicitly below
-def semantic_search_tool(query: str, filters: SearchFilters | None = None,
-                         k: int = 8) -> list[PlaceHit]:
+# ---- Pydantic AI tool functions -------------------------------------------
+# These are the canonical definitions. Pydantic AI validates args via the
+# function's type hints. Keep tool docstrings tight — the LLM reads them.
+
+def semantic_search(
+    ctx: RunContext[None],
+    query: str,
+    filters: Optional[SearchFilters] = None,
+    k: int = 8,
+) -> list[PlaceHit]:
     """Search for places by meaning + structured filters.
 
-    Use for: "find me a romantic italian spot in north beach under $$$ open Sunday at 7pm".
-    The `filters` argument is preferred over packing constraints into `query`.
+    Use this for queries like "romantic italian in north beach under $$$ open
+    Sunday at 7pm". Prefer the structured `filters` argument over packing
+    constraints into `query`.
     """
     return _semantic_search(query=query, filters=filters, k=k)
 
 
-@tool("nearby")
-def nearby_tool(place_id: str, radius_m: int = 800,
-                filters: SearchFilters | None = None, k: int = 8) -> list[PlaceHit]:
-    """Find places within radius_m meters of an anchor place. Use this AFTER
+def nearby(
+    ctx: RunContext[None],
+    place_id: str,
+    radius_m: int = 800,
+    filters: Optional[SearchFilters] = None,
+    k: int = 8,
+) -> list[PlaceHit]:
+    """Find places within radius_m meters of an anchor place. Call this AFTER
     you've picked a first stop and need a second stop within walking distance."""
     return _nearby(place_id=place_id, radius_m=radius_m, filters=filters, k=k)
 
 
-@tool("get_details")
-def get_details_tool(place_id: str) -> PlaceDetails | None:
+def get_details(ctx: RunContext[None], place_id: str) -> Optional[PlaceDetails]:
     """Fetch the full record for a place: hours, website, ratings count, types."""
     return _get_details(place_id=place_id)
 
 
-@tool("kg_traverse")
-def kg_traverse_tool(place_id: str, relation: str = "co_mentioned") -> dict:
+def kg_traverse(ctx: RunContext[None], place_id: str,
+                relation: str = "co_mentioned") -> dict:
     """Traverse the editorial knowledge graph from `place_id`. NOT YET AVAILABLE.
 
-    This is a stub: the KG lands in a future PR after the editorial scrape is done.
+    Stub: the KG lands in a future PR after the editorial scrape is done.
     The tool exists now so the agent's tool surface is stable.
     """
     return {"available": False,
             "reason": "knowledge graph not yet built; use semantic_search instead"}
 
 
-def all_tools():
-    return [semantic_search_tool, nearby_tool, get_details_tool, kg_traverse_tool]
+# ---- LangGraph adapter -----------------------------------------------------
+# Convert a Pydantic AI tool function into a LangChain Tool that LangGraph's
+# plan() node can pass into llm.bind_tools(). The wrapper is one-line per tool.
+
+def _to_lc_tool(name: str, description: str, fn) -> Tool:
+    def _runner(**kwargs):
+        # ctx=None because we don't use RunContext deps in v1.
+        return fn(None, **kwargs)
+    return Tool.from_function(
+        name=name,
+        description=description,
+        func=_runner,
+        args_schema=_args_schema_for(fn),
+    )
+
+
+def _args_schema_for(fn):
+    """Reuse the tool function's annotations as a Pydantic args schema. Keeps
+    a single source of truth for arg validation."""
+    import inspect
+    from pydantic import create_model
+    sig = inspect.signature(fn)
+    fields = {}
+    for pname, param in sig.parameters.items():
+        if pname == "ctx":
+            continue
+        ann = param.annotation if param.annotation is not inspect._empty else str
+        default = param.default if param.default is not inspect._empty else ...
+        fields[pname] = (ann, default)
+    return create_model(f"{fn.__name__}_args", **fields)
+
+
+def all_tools() -> list[Tool]:
+    return [
+        _to_lc_tool("semantic_search", semantic_search.__doc__, semantic_search),
+        _to_lc_tool("nearby",          nearby.__doc__,          nearby),
+        _to_lc_tool("get_details",     get_details.__doc__,     get_details),
+        _to_lc_tool("kg_traverse",     kg_traverse.__doc__,     kg_traverse),
+    ]
 ```
 
-W4 will append `propose_booking_tool` to `all_tools()`.
+W4 will append `propose_booking` (Pydantic AI tool function) and a corresponding `_to_lc_tool` entry to `all_tools()`.
 
 ### New: `app/agent/prompts.py`
 
@@ -364,14 +424,21 @@ class ChatResponse(BaseModel):
     ragLabel: str
 
 # NEW endpoint:
+from app.observability import langgraph_callbacks, trace_request  # from W0
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request):
     graph = request.app.state.agent_graph
-    state = ItineraryState(messages=[
-        *(_history_to_messages(req.history)),
-        HumanMessage(content=req.message),
-    ])
-    final_state = await graph.ainvoke(state)
+    with trace_request("chat", message=req.message[:200]) as trace_id:
+        state = ItineraryState(messages=[
+            *(_history_to_messages(req.history)),
+            HumanMessage(content=req.message),
+        ])
+        final_state = await graph.ainvoke(
+            state,
+            config={"callbacks": langgraph_callbacks(),
+                    "metadata": {"trace_id": trace_id}},
+        )
     return state_to_response(final_state, request.app.state.rag_label)
 
 
@@ -534,4 +601,6 @@ Expected: at least one stop, all rows real (cross-check `place_id` against DB), 
 - **Session memory:** `history` is taken from the request, so no server-side state is needed. If we add server-side sessions later, it's an `app.state.sessions` cache, not a graph change.
 - **Cost ceiling:** `max_steps=8` with Opus 4.7 could be expensive per request. Add a `AGENT_MAX_STEPS` env var (default 8) and surface it in `app/config.py` so we can tune without redeploying. Add a per-request token-counter log line for visibility.
 - **Tool argument coercion:** LangChain's `@tool` parses Pydantic args from the LLM's JSON. Validate that `SearchFilters` (a nested model) deserializes correctly — add an explicit `args_schema` if not. Cover this in `test_agent_graph.py` with a tool call that includes filters.
-- **Provider parity:** Anthropic + OpenAI + Gemini all support tool-calling but with subtle differences (Gemini occasionally emits malformed tool args). LangChain abstracts this; if Gemini misbehaves in practice, downgrade Gemini to "tool-light" mode (single search call only) via a config flag.
+- **Provider parity:** Anthropic + OpenAI + Gemini all support tool-calling but with subtle differences (Gemini occasionally emits malformed tool args). Pydantic AI's strict type validation catches malformed args at the boundary instead of letting them propagate; if Gemini misbehaves in practice, the failure surface is "tool call rejected with validation error" (recoverable in W3's critique node) rather than "agent crashes downstream".
+
+- **Why not pure Pydantic AI for the orchestration?** Pydantic AI has its own `Agent` class and could replace LangGraph entirely. We don't because LangGraph's `StateGraph` gives us durable execution (resume after crash mid-tool-call), explicit critique node for W3, and direct LangSmith / Langfuse tracing. Using Pydantic AI for tool definitions only is the smallest commitment that gets us the type-safety win without locking us out of LangGraph's orchestration features. If LangGraph proves to be the wrong call later, swapping in Pydantic AI's `Agent` is a localized change in `app/agent/graph.py`.
