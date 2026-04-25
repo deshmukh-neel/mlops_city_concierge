@@ -357,6 +357,13 @@ In the MLflow UI, the run should have:
 - Artifact: `comparison_report.json` showing candidate vs baseline.
 - Run name format inherited from `scripts/log_model_to_mlflow.py:203`.
 
+## Future direction: DSPy + a managed eval UI
+
+This v1 hand-rolls metric calculations and a JSON judge. Two upgrades worth knowing about for the next iteration of W6, both deliberately out of scope here:
+
+- **DSPy for programmatic prompt optimization.** DSPy is purpose-built for "agent quality validation, regression testing, or research" and lets you optimize prompts against the metrics this PR defines (constraint satisfaction, judge score) using algorithms like MIPRO/BootstrapFewShot. Once we have ≥3 evals worth of run-to-run data, replacing the static system prompt in `app/agent/prompts.py` with a DSPy-compiled version is a natural next step. Keep this PR's metrics; swap the prompt source.
+- **Eval UI (Langfuse / LangSmith / Braintrust) instead of MLflow artifacts.** MLflow is great as a model registry but its UI is poor for diffing N agent runs across M queries with full traces. Langfuse (self-hostable, free tier) and Braintrust both offer purpose-built eval UIs that can ingest the metrics this PR computes. For now we keep MLflow as the gating mechanism (single source of truth for `@production`); a follow-up PR can mirror the same metrics to Langfuse/Braintrust for richer review.
+
 ## Risks / open questions
 
 - **Judge LLM bias.** Self-judging (using the same model as judge that generated the answer) is known to inflate scores. Use a different provider for the judge than the candidate (e.g. Gemini judge for OpenAI candidate). Configurable in `build_judge_llm()`.
