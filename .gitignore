@@ -212,3 +212,4 @@ __marimo__/
 
 # Local dev binaries / symlinks (machine-specific)
 cloud-sql-proxy
+frontend/node_modules/
