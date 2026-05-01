@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
 from .db import get_db
+from .providers import get_provider
 
 db_connection_dependency = Depends(get_db)
 
@@ -55,12 +56,8 @@ def parse_active_model_config(
 ) -> ActiveModelConfig:
     settings = get_settings()
     llm_provider = (params.get("llm_provider") or "openai").lower()
-    if llm_provider == "openai":
-        default_chat_model = settings.openai_chat_model
-    elif llm_provider == "gemini":
-        default_chat_model = settings.gemini_chat_model
-    else:
-        raise ValueError(f"Unsupported llm_provider: {llm_provider}")
+    provider = get_provider(llm_provider)
+    default_chat_model = provider.default_chat_model(settings)
 
     return ActiveModelConfig(
         llm_provider=llm_provider,

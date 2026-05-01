@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from langchain.chains import RetrievalQA
-from langchain_core.language_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
 
 from .config import get_settings
+from .providers import get_provider
 from .retriever import PgVectorRetriever
 
 
@@ -26,18 +23,7 @@ def build_rag_chain(
         openai_api_key=settings.openai_api_key,
     )
 
-    provider = llm_provider.lower()
-    llm: BaseChatModel
-    if provider == "openai":
-        llm = ChatOpenAI(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)
-    elif provider == "gemini":
-        llm = ChatGoogleGenerativeAI(
-            model=chat_model,
-            google_api_key=SecretStr(api_key),
-            temperature=temperature,
-        )
-    else:
-        raise ValueError(f"Unsupported llm_provider: {llm_provider}")
+    llm = get_provider(llm_provider).build_llm(chat_model, api_key, temperature)
 
     return RetrievalQA.from_chain_type(
         llm=llm,

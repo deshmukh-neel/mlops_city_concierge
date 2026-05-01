@@ -122,16 +122,9 @@ settings = get_settings()
 
 def resolve_llm_api_key(llm_provider: str) -> str:
     """Return the API key for the given LLM provider, or raise if missing."""
-    s = get_settings()
-    provider = llm_provider.lower()
+    from .providers import get_provider
 
-    if provider == "openai":
-        api_key = s.openai_api_key
-    elif provider == "gemini":
-        api_key = s.gemini_api_key
-    else:
-        raise ValueError(f"Unsupported llm_provider: {llm_provider}")
-
+    api_key = get_provider(llm_provider).api_key(get_settings())
     if not api_key:
         raise RuntimeError(f"Missing API key for llm_provider={llm_provider}.")
     return api_key

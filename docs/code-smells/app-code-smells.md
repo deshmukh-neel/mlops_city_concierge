@@ -4,15 +4,15 @@ Audit of `app/` (`main.py`, `config.py`, `db.py`, `chain.py`, `retriever.py`).
 
 ## Architecture / Design
 
-### 1. Duplicated provider-dispatch logic (DRY violation — highest priority)
+### 1. Duplicated provider-dispatch logic (DRY violation — highest priority) — ✅ FIXED
 
-The "openai vs gemini, else raise" branching exists in three places with slightly different shapes:
+The "openai vs gemini, else raise" branching previously existed in three places with slightly different shapes:
 
 - `app/main.py:57-63` — picks default chat model
 - `app/config.py:128-133` — picks API key
 - `app/chain.py:31-40` — instantiates the LLM
 
-Adding a third provider requires editing all three. Consolidate into a single registry/dispatch table — e.g., a `PROVIDERS` dict keyed by name with `{default_model, api_key_attr, llm_factory}`.
+**Resolution:** Consolidated into `app/providers.py` with a `PROVIDERS` dict keyed by name. Each entry holds `default_chat_model`, `api_key`, and `build_llm` callables. All three call sites now go through `get_provider(name)`.
 
 ### 2. Duplicated "missing DATABASE_URL" guard
 
