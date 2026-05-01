@@ -42,7 +42,7 @@ def test_predict_endpoint_returns_response_and_sources(mocker) -> None:
     with TestClient(app) as client:
         response = client.post(
             "/predict",
-            json={"query": "Best tacos in the Mission", "limit": 5},
+            json={"query": "Best tacos in the Mission"},
         )
 
     assert response.status_code == 200
@@ -58,6 +58,29 @@ def test_predict_endpoint_returns_response_and_sources(mocker) -> None:
         ],
     }
     fake_chain.invoke.assert_called_once_with({"query": "Best tacos in the Mission"})
+
+
+def test_predict_ignores_unknown_request_fields(mocker) -> None:
+    fake_chain = mocker.Mock()
+    fake_chain.invoke.return_value = {"result": "ok", "source_documents": []}
+    mocker.patch(
+        "app.main.load_registered_rag_chain",
+        return_value=(
+            fake_chain,
+            ActiveModelConfig(
+                llm_provider="openai", chat_model="gpt-4o-mini", k=5, temperature=0.0
+            ),
+        ),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/predict",
+            json={"query": "anything", "limit": 99, "made_up_field": True},
+        )
+
+    assert response.status_code == 200
+    fake_chain.invoke.assert_called_once_with({"query": "anything"})
 
 
 def test_health_reports_degraded_when_startup_fails(mocker) -> None:

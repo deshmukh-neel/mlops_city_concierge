@@ -77,9 +77,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Resolution:** Narrowed to `except MlflowException` (the base class for MLflow's API/network/protocol errors). Pragma removed. Added `test_load_registered_rag_chain_wraps_mlflow_exception` to verify the path. Programmer bugs now bubble up to the lifespan catch-all from #8 with a generic message — the right layered behavior.
 
-### 11. `serialize_sources` slices after retrieval
+### 11. `serialize_sources` slices after retrieval — ✅ FIXED
 
-`app/main.py:115` — `/predict` accepts `limit` up to 20, but the retriever fetches only `k` (e.g., 5) per MLflow config. If `k=5` and the user asks for `limit=20`, they silently get 5. Either clamp `limit` to `k` and document it, or thread `limit` through to the retriever.
+`/predict` accepted `limit` up to 20, but the retriever fetched only `k` per the MLflow config. `k=5` + `limit=20` silently returned 5 sources — the API contract was a lie.
+
+**Resolution:** Removed `limit` from `RecommendationRequest` entirely. `k` (set via MLflow) is now the single source-count knob, which fits the experiment-driven design. `RecommendationRequest` sets `extra="ignore"` so legacy clients that still send `limit` don't break. Frontend (`frontend/src/api/chat.js`) updated to drop the field. New `test_predict_ignores_unknown_request_fields` verifies forward-compat.
 
 ### 12. `del run_manager`
 

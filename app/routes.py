@@ -16,9 +16,9 @@ router = APIRouter()
 db_connection_dependency = Depends(get_db)
 
 
-def serialize_sources(source_documents: list[Any], limit: int) -> list[RecommendationSource]:
+def serialize_sources(source_documents: list[Any]) -> list[RecommendationSource]:
     sources: list[RecommendationSource] = []
-    for document in source_documents[:limit]:
+    for document in source_documents:
         metadata = getattr(document, "metadata", {}) or {}
         sources.append(
             RecommendationSource(
@@ -73,5 +73,5 @@ def predict(request_body: RecommendationRequest, request: Request) -> Recommenda
 
     return RecommendationResponse(
         response=response_text,
-        sources=serialize_sources(source_documents, request_body.limit),
+        sources=serialize_sources(source_documents),
     )

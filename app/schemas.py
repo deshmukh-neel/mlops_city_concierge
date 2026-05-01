@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RecommendationRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     query: str = Field(
         ...,
         description="User's recommendation query (for example, 'Best tacos in the Mission').",
-    )
-    limit: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-        description="Maximum number of source places to include in the response.",
     )
 
 
