@@ -1,0 +1,151 @@
+name: Docker build, scan & deploy
+
+# Builds the FastAPI container, scans it with Trivy, pushes to Google
+# Artifact Registry, and (optionally) deploys to Cloud Run.
+#
+# Triggers:
+#   - push to main          -> tag image as `latest` and commit SHA
+#   - push of a git tag v*  -> tag image with the semver tag
+#   - manual (workflow_dispatch) for ad-hoc runs
+#
+# Required repo-level configuration (Settings -> Secrets and variables -> Actions):
+#   Variables (not secrets — no credentials, safe to store as vars):
+#     GCP_PROJECT_ID                  = mlops-491820
+#     GCP_WORKLOAD_IDENTITY_PROVIDER  = projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+#     GCP_SERVICE_ACCOUNT             = github-actions-deployer@mlops-491820.iam.gserviceaccount.com
+#
+# The Cloud Run deploy step is commented out. Uncomment it after you have
+# created the Cloud Run service manually once with the env vars / secrets
+# your app needs. See docs/DEPLOY.md (or the project README) for the
+# initial `gcloud run deploy` command.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GAR_REGION: us-central1
+  GAR_REPO: ml-repo
+  IMAGE_NAME: city-concierge
+  CLOUD_RUN_SERVICE: city-concierge-api
+  CLOUD_RUN_REGION: us-central1
+
+jobs:
+  build-scan-push:
+    name: Build, scan, push to Artifact Registry
+    runs-on: ubuntu-latest
+
+    # Required for Workload Identity Federation (GitHub OIDC -> GCP)
+    permissions:
+      contents: read
+      id-token: write
+
+    outputs:
+      image_uri: ${{ steps.image.outputs.uri }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GAR_REGION }}-docker.pkg.dev --quiet
+
+      - name: Compute image tags
+        id: image
+        run: |
+          REGISTRY="${GAR_REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${GAR_REPO}/${IMAGE_NAME}"
+          SHA_TAG="${REGISTRY}:${GITHUB_SHA::7}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            SEMVER="${GITHUB_REF#refs/tags/}"
+            PRIMARY="${REGISTRY}:${SEMVER}"
+          else
+            PRIMARY="${REGISTRY}:latest"
+          fi
+          echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
+          echo "primary=${PRIMARY}"   >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA_TAG}"       >> "$GITHUB_OUTPUT"
+          # Used downstream for Cloud Run deploys — the primary tag
+          echo "uri=${PRIMARY}"       >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (load locally for scanning)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: |
+            ${{ steps.image.outputs.primary }}
+            ${{ steps.image.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.primary }}
+          format: table
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          vuln-type: os,library
+          trivyignores: .trivyignore
+
+      - name: Push image to Artifact Registry
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.image.outputs.primary }}
+            ${{ steps.image.outputs.sha }}
+          cache-from: type=gha
+
+  # ---------------------------------------------------------------------------
+  # Cloud Run auto-deploy
+  #
+  # Only runs on push to main (not on tags or manual dispatch). Swaps in the
+  # new image on the existing service; existing env vars, secret mounts, and
+  # Cloud SQL attachments are preserved by deploy-cloudrun@v2 when only
+  # `image` is specified. The service itself must already exist (created
+  # manually once via `gcloud run deploy ...`).
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to Cloud Run
+    needs: build-scan-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy new image to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.CLOUD_RUN_SERVICE }}
+          region: ${{ env.CLOUD_RUN_REGION }}
+          image: ${{ needs.build-scan-push.outputs.image_uri }}
