@@ -51,9 +51,13 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Resolution:** Added `cors_allowed_origins: list[str]` and `cors_allowed_origin_regex: str | None` to `Settings`. Defaults preserve current dev behavior. `.env.example` documents `CORS_ALLOWED_ORIGINS` (comma-separated) and `CORS_ALLOWED_ORIGIN_REGEX`. Methods/headers/credentials remain in code since they're tied to API surface, not deployment.
 
-### 7. Hard-coded MLflow IPs in defaults
+### 7. Hard-coded MLflow IPs in defaults — ✅ FIXED
 
-`app/config.py:90-91` defaults to `http://35.223.147.177:5000`, leaking infra into source. Require it via env (`= ""` + validation) or at minimum comment that it's the shared class server. Also `mlflow_artifacts_uri` looks malformed — `mlflow-artifacts://` URIs normally don't include `host:port`.
+`app/config.py:90-91` previously defaulted to `http://35.223.147.177:5000` (shared class MLflow server), leaking infra into source.
+
+**Resolution:** Both `mlflow_tracking_uri` and `mlflow_artifacts_uri` now default to `""`. Required via `.env` (already documented in `.env.example`). `app/bootstrap.py` raises a clear `RuntimeError` at startup if `MLFLOW_TRACKING_URI` is missing. `scripts/log_model_to_mlflow.py` skips `os.environ.setdefault("MLFLOW_ARTIFACTS_URI", ...)` when the setting is empty so we don't pollute the env with an empty string.
+
+**Note:** the `mlflow-artifacts://host:port/` form in `.env.example` may still be incorrect per the MLflow URI spec (the scheme is normally host-less), but it works empirically with the running tracking server. Out of scope here — verify with whoever owns the tracking server before changing.
 
 ### 8. `lifespan` has no error handling
 

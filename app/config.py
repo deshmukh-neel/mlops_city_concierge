@@ -87,8 +87,8 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     gemini_api_key: str = ""
     gemini_chat_model: str = "gemini-2.5-flash"
-    mlflow_tracking_uri: str = "http://35.223.147.177:5000"
-    mlflow_artifacts_uri: str = "mlflow-artifacts://35.223.147.177:5000"
+    mlflow_tracking_uri: str = ""
+    mlflow_artifacts_uri: str = ""
     mlflow_model_name: str = "city-concierge-rag"
     retriever_k: int = 5
     cors_allowed_origins: list[str] = [

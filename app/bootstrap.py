@@ -31,6 +31,8 @@ def parse_active_model_config(
 def load_registered_rag_chain() -> tuple[Any, ActiveModelConfig]:
     settings = get_settings()
     tracking_uri = settings.mlflow_tracking_uri
+    if not tracking_uri:
+        raise RuntimeError("MLFLOW_TRACKING_URI is required (set it in .env).")
 
     mlflow.set_tracking_uri(tracking_uri)
     client = mlflow.MlflowClient(tracking_uri=tracking_uri)
