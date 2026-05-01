@@ -36,8 +36,6 @@ class PgVectorRetriever(BaseRetriever):
         *,
         run_manager: CallbackManagerForRetrieverRun,
     ) -> list[Document]:
-        del run_manager
-
         vector_literal = vector_to_pg(self._get_embeddings().embed_query(query))
 
         sql = """

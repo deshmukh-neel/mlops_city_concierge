@@ -83,9 +83,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Resolution:** Removed `limit` from `RecommendationRequest` entirely. `k` (set via MLflow) is now the single source-count knob, which fits the experiment-driven design. `RecommendationRequest` sets `extra="ignore"` so legacy clients that still send `limit` don't break. Frontend (`frontend/src/api/chat.js`) updated to drop the field. New `test_predict_ignores_unknown_request_fields` verifies forward-compat.
 
-### 12. `del run_manager`
+### 12. `del run_manager` — ✅ FIXED
 
-`app/retriever.py:29` — unusual style. Rename the parameter `_run_manager` or drop the `del`.
+`app/retriever.py:29` previously used `del run_manager` as paranoid defense against an unused-arg lint that isn't actually enabled in `pyproject.toml` (ruff rules `E, F, I, N, UP, B, SIM` — no `ARG`).
+
+**Resolution:** Dropped the `del` line. If ruff `ARG` ever gets enabled, the failure mode is a single visible lint error.
 
 ### 13. `vector_to_pg` truncates float precision
 
