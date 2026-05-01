@@ -45,9 +45,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 - `app/routes.py` — endpoints (`APIRouter`) + `serialize_sources`
 - `app/main.py` — `create_app`, `lifespan`, `app = create_app()` (45 lines)
 
-### 6. Hard-coded CORS origins
+### 6. Hard-coded CORS origins — ✅ FIXED
 
-`app/main.py:145-146` bakes in `http://localhost:5173`, `http://localhost:3000`, and the `*.vercel.app` regex. Move to `Settings` (`cors_allowed_origins: list[str]`) so dev/staging/prod differ via env.
+`app/main.py:145-146` previously baked in `http://localhost:5173`, `http://localhost:3000`, and the `*.vercel.app` regex.
+
+**Resolution:** Added `cors_allowed_origins: list[str]` and `cors_allowed_origin_regex: str | None` to `Settings`. Defaults preserve current dev behavior. `.env.example` documents `CORS_ALLOWED_ORIGINS` (comma-separated) and `CORS_ALLOWED_ORIGIN_REGEX`. Methods/headers/credentials remain in code since they're tied to API surface, not deployment.
 
 ### 7. Hard-coded MLflow IPs in defaults
 

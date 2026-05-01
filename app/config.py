@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     mlflow_artifacts_uri: str = "mlflow-artifacts://35.223.147.177:5000"
     mlflow_model_name: str = "city-concierge-rag"
     retriever_k: int = 5
+    cors_allowed_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+    cors_allowed_origin_regex: str | None = r"https://.*\.vercel\.app$"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
