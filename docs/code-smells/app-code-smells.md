@@ -65,9 +65,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Resolution:** `lifespan` now catches startup errors, logs them via `logger.exception(...)`, and stores `f"{type(exc).__name__}: {exc}"` on `app.state.startup_error`. `/health` returns **503** with `{status: "degraded", error: <reason>}` when `active_model_config` is `None`. Added `test_health_reports_degraded_when_startup_fails` to verify. (Side effect: introduces the first `logging` call in `app/`, partially addresses #14.)
 
-### 9. `parse_active_model_config` mixes types from MLflow params
+### 9. `parse_active_model_config` mixes types from MLflow params — ✅ FIXED
 
-`app/main.py:65-72` — `int(params.get("k", settings.retriever_k))` works because the default is already an int, but `params.get("temperature", "0.0")` mixes string and float defaults. Standardize on strings everywhere or normalize once.
+`app/bootstrap.py` (post-#5 split) previously mixed an int default (`settings.retriever_k`) with a string default (`"0.0"`) and didn't handle the empty-string-from-MLflow edge case.
+
+**Resolution:** Added `_parse_int` / `_parse_float` helpers that treat missing key and empty string identically by stringifying the default first (`params.get(key) or str(default)`). Both numeric fields now use them. Three new tests in `tests/unit/test_bootstrap.py` cover string params, missing-key fallback, and the empty-string edge case.
 
 ### 10. Bare `except Exception` at MLflow load
 

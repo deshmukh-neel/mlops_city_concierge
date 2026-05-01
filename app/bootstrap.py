@@ -10,6 +10,16 @@ from .providers import get_provider
 from .schemas import ActiveModelConfig
 
 
+def _parse_int(params: dict[str, str], key: str, default: int) -> int:
+    raw = params.get(key) or str(default)
+    return int(raw)
+
+
+def _parse_float(params: dict[str, str], key: str, default: float) -> float:
+    raw = params.get(key) or str(default)
+    return float(raw)
+
+
 def parse_active_model_config(
     params: dict[str, str], run_id: str, model_version: str
 ) -> ActiveModelConfig:
@@ -21,8 +31,8 @@ def parse_active_model_config(
     return ActiveModelConfig(
         llm_provider=llm_provider,
         chat_model=params.get("chat_model") or default_chat_model,
-        k=int(params.get("k", settings.retriever_k)),
-        temperature=float(params.get("temperature", "0.0")),
+        k=_parse_int(params, "k", settings.retriever_k),
+        temperature=_parse_float(params, "temperature", 0.0),
         run_id=run_id,
         model_version=model_version,
     )
