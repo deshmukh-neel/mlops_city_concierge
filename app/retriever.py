@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import psycopg2
 from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -8,6 +7,7 @@ from langchain_openai import OpenAIEmbeddings
 from pydantic import SecretStr
 
 from .config import get_settings
+from .db import borrow_connection
 
 
 def vector_to_pg(embedding: list[float]) -> str:
@@ -15,7 +15,6 @@ def vector_to_pg(embedding: list[float]) -> str:
 
 
 class PgVectorRetriever(BaseRetriever):
-    connection_string: str
     embedding_model: str = "text-embedding-3-small"
     k: int = 5
     openai_api_key: str | None = None
@@ -51,7 +50,7 @@ class PgVectorRetriever(BaseRetriever):
         LIMIT %s
         """
 
-        with psycopg2.connect(self.connection_string) as conn, conn.cursor() as cur:
+        with borrow_connection() as conn, conn.cursor() as cur:
             cur.execute(sql, (vector_literal, self.embedding_model, vector_literal, self.k))
             rows = cur.fetchall()
 

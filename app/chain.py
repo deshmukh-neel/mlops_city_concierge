@@ -8,7 +8,6 @@ from .retriever import PgVectorRetriever
 
 
 def build_rag_chain(
-    connection_string: str,
     api_key: str,
     llm_provider: str,
     chat_model: str,
@@ -17,7 +16,6 @@ def build_rag_chain(
 ) -> RetrievalQA:
     settings = get_settings()
     retriever = PgVectorRetriever(
-        connection_string=connection_string,
         embedding_model=settings.openai_embedding_model,
         k=k,
         openai_api_key=settings.openai_api_key,

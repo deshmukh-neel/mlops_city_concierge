@@ -17,7 +17,6 @@ def test_build_rag_chain_supports_openai(mocker) -> None:
     from_chain = mocker.patch("app.chain.RetrievalQA.from_chain_type", return_value=chain)
 
     result_chain = build_rag_chain(
-        connection_string="postgresql://example",
         api_key="openai-key",
         llm_provider="openai",
         chat_model="gpt-4o-mini",
@@ -57,7 +56,6 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
     mocker.patch("app.chain.RetrievalQA.from_chain_type", return_value=chain)
 
     result_chain = build_rag_chain(
-        connection_string="postgresql://example",
         api_key="gemini-key",
         llm_provider="gemini",
         chat_model="gemini-2.5-flash",
@@ -79,7 +77,6 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
 def test_build_rag_chain_rejects_invalid_provider() -> None:
     with pytest.raises(ValueError, match="Unsupported llm_provider"):
         build_rag_chain(
-            connection_string="postgresql://example",
             api_key="unused",
             llm_provider="anthropic",
             chat_model="claude",

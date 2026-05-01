@@ -55,14 +55,13 @@ def test_get_relevant_documents_formats_vector_and_maps_metadata(mocker) -> None
     ]
     fake_cursor = FakeCursor(rows)
     fake_connection = FakeConnection(fake_cursor)
-    mocker.patch("app.retriever.psycopg2.connect", return_value=fake_connection)
+    mocker.patch("app.retriever.borrow_connection", return_value=fake_connection)
 
     embeddings = mocker.Mock()
     embeddings.embed_query.return_value = [0.125, 0.5, 1.0]
     embeddings_cls = mocker.patch("app.retriever.OpenAIEmbeddings", return_value=embeddings)
 
     retriever = PgVectorRetriever(
-        connection_string="postgresql://example",
         embedding_model="text-embedding-3-small",
         k=3,
         openai_api_key="test-key",

@@ -20,9 +20,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Resolution:** Added `require_database_url()` helper in `config.py`. Both call sites now use it. `resolved_database_url` still exists as the optional-returning property; `require_database_url()` is the assertive variant.
 
-### 3. `PgVectorRetriever` opens its own connection per query
+### 3. `PgVectorRetriever` opens its own connection per query — ✅ FIXED (with #16)
 
-`app/retriever.py:54` — the retriever bypasses `get_db()` and dials Postgres directly using `connection_string`. Under load this is a fresh TCP+auth roundtrip per request. Use a shared connection pool (`psycopg2.pool.SimpleConnectionPool` or migrate to `psycopg[pool]`).
+`app/retriever.py:54` — the retriever bypassed `get_db()` and dialed Postgres directly using `connection_string`. Under load this was a fresh TCP+auth roundtrip per request.
+
+**Resolution:** See #16. Both call sites now share a `ThreadedConnectionPool` via `borrow_connection()`. `PgVectorRetriever` no longer takes a `connection_string` kwarg.
 
 ### 4. `PgVectorRetriever` re-instantiates `OpenAIEmbeddings` every call
 
@@ -84,9 +86,11 @@ Zero `logging` calls in the package. Startup, MLflow load, and prediction errors
 
 ## Performance
 
-### 16. `get_db()` opens a fresh connection per request
+### 16. `get_db()` opens a fresh connection per request — ✅ FIXED
 
-`app/db.py:13` — same root cause as #3. Needs a pool for any real traffic.
+`app/db.py:13` — same root cause as #3.
+
+**Resolution:** Added a module-level `ThreadedConnectionPool` in `app/db.py` (`minconn=1, maxconn=10`) with a `borrow_connection()` context manager. Both `get_db()` and `PgVectorRetriever` borrow from it. `lifespan` calls `close_pool()` on shutdown so the pool is cleanly drained.
 
 ### 17. Duplicated embedding model default
 

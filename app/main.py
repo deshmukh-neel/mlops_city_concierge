@@ -10,8 +10,8 @@ from psycopg2.extensions import connection
 from pydantic import BaseModel, Field
 
 from .chain import build_rag_chain
-from .config import get_settings, require_database_url, resolve_llm_api_key
-from .db import get_db
+from .config import get_settings, resolve_llm_api_key
+from .db import close_pool, get_db
 from .providers import get_provider
 
 db_connection_dependency = Depends(get_db)
@@ -94,7 +94,6 @@ def load_registered_rag_chain() -> tuple[Any, ActiveModelConfig]:
         model_version=str(model_version.version),
     )
     chain = build_rag_chain(
-        connection_string=require_database_url(),
         api_key=resolve_llm_api_key(config.llm_provider),
         llm_provider=config.llm_provider,
         chat_model=config.chat_model,
@@ -124,7 +123,10 @@ async def lifespan(app: FastAPI):
     rag_chain, model_config = load_registered_rag_chain()
     app.state.rag_chain = rag_chain
     app.state.active_model_config = model_config
-    yield
+    try:
+        yield
+    finally:
+        close_pool()
 
 
 def create_app() -> FastAPI:
