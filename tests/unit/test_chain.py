@@ -12,8 +12,8 @@ def test_build_rag_chain_supports_openai(mocker) -> None:
     chain.invoke.return_value = {"result": "Try Taqueria Example.", "source_documents": []}
 
     retriever_cls = mocker.patch("app.chain.PgVectorRetriever", return_value=retriever)
-    openai_cls = mocker.patch("app.chain.ChatOpenAI", return_value="openai-llm")
-    mocker.patch("app.chain.ChatGoogleGenerativeAI")
+    openai_cls = mocker.patch("app.providers.ChatOpenAI", return_value="openai-llm")
+    mocker.patch("app.providers.ChatGoogleGenerativeAI")
     from_chain = mocker.patch("app.chain.RetrievalQA.from_chain_type", return_value=chain)
 
     result_chain = build_rag_chain(
@@ -49,9 +49,9 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
     chain.invoke.return_value = {"result": "Try Del Popolo.", "source_documents": []}
 
     mocker.patch("app.chain.PgVectorRetriever", return_value=retriever)
-    mocker.patch("app.chain.ChatOpenAI")
+    mocker.patch("app.providers.ChatOpenAI")
     gemini_cls = mocker.patch(
-        "app.chain.ChatGoogleGenerativeAI",
+        "app.providers.ChatGoogleGenerativeAI",
         return_value="gemini-llm",
     )
     mocker.patch("app.chain.RetrievalQA.from_chain_type", return_value=chain)
