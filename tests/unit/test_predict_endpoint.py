@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.main import ActiveModelConfig, app
+from app.main import app
+from app.schemas import ActiveModelConfig
 
 
 def test_predict_endpoint_returns_response_and_sources(mocker) -> None:

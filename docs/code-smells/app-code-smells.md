@@ -32,15 +32,15 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 ## Code Quality
 
-### 5. `main.py` is doing too much
+### 5. `main.py` is doing too much — ✅ FIXED
 
-`main.py` mixes Pydantic schemas, MLflow loading, chain bootstrapping, source serialization, app factory, and routes. Split into:
+`main.py` previously mixed Pydantic schemas, MLflow loading, chain bootstrapping, source serialization, app factory, and routes (195 lines).
 
-- `app/schemas.py` — request/response models
-- `app/bootstrap.py` (or `app/mlflow_loader.py`) — `load_registered_rag_chain`, `parse_active_model_config`
-- `app/routes.py` — endpoints
-
-`main.py` should be ~30 lines.
+**Resolution:** Split into:
+- `app/schemas.py` — Pydantic request/response models + `ActiveModelConfig`
+- `app/bootstrap.py` — `load_registered_rag_chain`, `parse_active_model_config`
+- `app/routes.py` — endpoints (`APIRouter`) + `serialize_sources`
+- `app/main.py` — `create_app`, `lifespan`, `app = create_app()` (45 lines)
 
 ### 6. Hard-coded CORS origins
 
