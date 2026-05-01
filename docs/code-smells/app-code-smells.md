@@ -14,9 +14,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Resolution:** Consolidated into `app/providers.py` with a `PROVIDERS` dict keyed by name. Each entry holds `default_chat_model`, `api_key`, and `build_llm` callables. All three call sites now go through `get_provider(name)`.
 
-### 2. Duplicated "missing DATABASE_URL" guard
+### 2. Duplicated "missing DATABASE_URL" guard — ✅ FIXED
 
-`app/main.py:100-101` and `app/db.py:11-12` both raise the same `RuntimeError` with the same message. Push the check into `Settings.resolved_database_url` (return-or-raise) or a single helper.
+`app/main.py:100-101` and `app/db.py:11-12` both raised the same `RuntimeError` with the same message.
+
+**Resolution:** Added `require_database_url()` helper in `config.py`. Both call sites now use it. `resolved_database_url` still exists as the optional-returning property; `require_database_url()` is the assertive variant.
 
 ### 3. `PgVectorRetriever` opens its own connection per query
 

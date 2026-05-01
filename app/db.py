@@ -3,14 +3,11 @@ from collections.abc import Generator
 import psycopg2
 from psycopg2.extensions import connection
 
-from .config import get_settings
+from .config import require_database_url
 
 
 def get_db() -> Generator[connection, None, None]:
-    database_url = get_settings().resolved_database_url
-    if not database_url:
-        raise RuntimeError("Missing DATABASE_URL or POSTGRES_* database settings.")
-    conn = psycopg2.connect(database_url)
+    conn = psycopg2.connect(require_database_url())
     try:
         yield conn
     finally:

@@ -120,6 +120,13 @@ def get_settings() -> Settings:
 settings = get_settings()
 
 
+def require_database_url() -> str:
+    url = get_settings().resolved_database_url
+    if not url:
+        raise RuntimeError("Missing DATABASE_URL or POSTGRES_* database settings.")
+    return url
+
+
 def resolve_llm_api_key(llm_provider: str) -> str:
     """Return the API key for the given LLM provider, or raise if missing."""
     from .providers import get_provider
