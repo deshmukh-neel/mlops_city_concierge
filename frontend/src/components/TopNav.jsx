@@ -48,7 +48,7 @@ export default function TopNav({ indexedCount = 847 }) {
     <nav style={styles.nav}>
       <a href="/" style={styles.logo}>
         <div style={styles.logoDot} />
-        PAVEMENT
+        CITY CONCIERGE
       </a>
 
       <div style={styles.links}>

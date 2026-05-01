@@ -12,8 +12,22 @@ const s = {
     justifyContent: 'center', fontSize: '11px', fontWeight: 600,
     marginTop: '2px',
   },
-  avatarBot:  { background: 'var(--moss)',    color: 'var(--white)', fontFamily: 'var(--font-display)' },
+  avatarBot:  {
+    background: 'var(--sage)',
+    color: 'var(--moss)',
+    fontFamily: 'var(--font-display)',
+    fontSize: '16px',
+    lineHeight: 1,
+    overflow: 'hidden',
+  },
   avatarUser: { background: 'var(--charcoal)', color: 'var(--white)' },
+  bridgeEmoji: {
+    display: 'inline-block',
+    fontSize: '18px',
+    lineHeight: 1,
+    transformOrigin: 'center bottom',
+    animation: 'bridgeFloat 3.4s ease-in-out infinite',
+  },
   bubbleWrap: { maxWidth: '320px' },
   ragBadge: {
     display: 'inline-flex', alignItems: 'center', gap: '5px',
@@ -65,7 +79,9 @@ export default function ChatMessage({ message, onPlacePillClick }) {
   if (isTyping) {
     return (
       <div style={s.row}>
-        <div style={{ ...s.avatar, ...s.avatarBot }}>P</div>
+        <div style={{ ...s.avatar, ...s.avatarBot }}>
+          <span style={s.bridgeEmoji} role="img" aria-label="Golden Gate Bridge">🌉</span>
+        </div>
         <div>
           {message.ragLabel && (
             <div style={s.ragBadge}>
@@ -86,7 +102,9 @@ export default function ChatMessage({ message, onPlacePillClick }) {
   return (
     <div style={{ ...s.row, ...(isUser ? s.rowUser : {}) }}>
       <div style={{ ...s.avatar, ...(isUser ? s.avatarUser : s.avatarBot) }}>
-        {isUser ? 'Y' : 'P'}
+        {isUser ? 'Y' : (
+          <span style={s.bridgeEmoji} role="img" aria-label="Golden Gate Bridge">🌉</span>
+        )}
       </div>
       <div style={isUser ? {} : s.bubbleWrap}>
         {/* RAG badge for bot messages */}

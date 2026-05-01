@@ -4,34 +4,121 @@
  * Replace VITE_API_URL in your .env with your FastAPI base URL.
  * e.g. VITE_API_URL=http://localhost:8000
  *
- * Your FastAPI endpoint should accept:
- *   POST /chat
- *   Body: { message: string, history: { role, content }[] }
+ * Calls the FastAPI RAG endpoint:
+ *   POST /predict
+ *   Body: { query: string, limit?: number }
  *
- * And return:
+ * Backend returns (see app/main.py RecommendationResponse):
  *   {
- *     reply: string,              // plain text or HTML-safe string
- *     places: Place[],            // array of place objects (see shape below)
- *     ragLabel?: string,          // e.g. "6 live results · Google Places"
+ *     response: string,
+ *     sources: { name, rating, address, similarity }[]
  *   }
+ *
+ * This module adapts that shape into what the chat UI expects:
+ *   { reply, places, ragLabel }
  */
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const DEFAULT_LIMIT = 7
 
 /**
- * Send a chat message to the FastAPI RAG endpoint.
+ * Send a chat message to the FastAPI /predict endpoint and adapt the
+ * response into the UI's chat shape.
+ *
  * @param {string} message
- * @param {{ role: string, content: string }[]} history
- * @returns {Promise<{ reply: string, places: Place[], ragLabel?: string }>}
+ * @param {{ role: string, content: string }[]} _history  (unused; kept for signature compatibility)
+ * @param {{ limit?: number }} [opts]
+ * @returns {Promise<{ reply: string, places: object[], ragLabel?: string }>}
  */
-export async function sendMessage(message, history = []) {
-  const res = await fetch(`${API_BASE}/chat`, {
+export async function sendMessage(message, _history = [], opts = {}) {
+  const limit = opts.limit ?? DEFAULT_LIMIT
+
+  const res = await fetch(`${API_BASE}/predict`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ query: message, limit }),
   })
-  if (!res.ok) throw new Error(`API error ${res.status}`)
-  return res.json()
+
+  if (!res.ok) {
+    let detail = ''
+    try {
+      const errBody = await res.json()
+      detail = errBody?.detail ? ` — ${errBody.detail}` : ''
+    } catch (_) { /* ignore parse errors */ }
+    throw new Error(`API error ${res.status}${detail}`)
+  }
+
+  const data = await res.json()
+  const sources = Array.isArray(data?.sources) ? data.sources : []
+
+  return {
+    reply: formatReply(data?.response ?? ''),
+    places: sources.map(toPlace),
+    ragLabel: sources.length
+      ? `${sources.length} live result${sources.length === 1 ? '' : 's'} · Google Places`
+      : undefined,
+  }
+}
+
+/** Turn plain text from the LLM into HTML-safe content with line breaks preserved. */
+function formatReply(text) {
+  if (typeof text !== 'string') return ''
+  return escapeHtml(text).replace(/\n/g, '<br>')
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** Map a backend RecommendationSource to the place shape used by the right panel + map. */
+function toPlace(source, idx) {
+  const name = source?.name || 'Unknown place'
+  const ratingNum = typeof source?.rating === 'number' ? source.rating : null
+  const similarityPct =
+    typeof source?.similarity === 'number'
+      ? `${Math.round(source.similarity * 100)}% match`
+      : null
+
+  const tags = []
+  if (similarityPct) tags.push({ label: similarityPct, highlight: idx === 0 })
+
+  return {
+    id: slugify(name) + '-' + idx,
+    num: String(idx + 1),
+    name,
+    type: '',
+    category: 'dinner',
+    desc: source?.address || '',
+    tags,
+    rating: ratingNum != null ? ratingNum.toFixed(1) : '—',
+    distance: '',
+    status: 'open',
+    hours: '',
+    featured: idx === 0,
+    mapPos: spreadMapPos(idx),
+  }
+}
+
+function slugify(str) {
+  return String(str)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'place'
+}
+
+/** Deterministically spread pins around the placeholder map so they don't overlap. */
+function spreadMapPos(idx) {
+  const cols = 4
+  const col = idx % cols
+  const row = Math.floor(idx / cols)
+  const x = 22 + col * 18 + (row % 2) * 6
+  const y = 30 + row * 16
+  return { x: `${Math.min(x, 80)}%`, y: `${Math.min(y, 78)}%` }
 }
 
 // ─── Mock data (used when API is unavailable / for development) ───────────────
