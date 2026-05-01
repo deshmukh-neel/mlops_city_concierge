@@ -1,0 +1,39 @@
+# Trivy ignore list — vulnerabilities consciously accepted.
+# Re-evaluate quarterly. Owner: @pjnhek
+#
+# Format: one CVE ID per line. Lines starting with # are comments.
+
+# ---------------------------------------------------------------------------
+# MLflow client-side (server CVEs — not applicable to our container)
+# ---------------------------------------------------------------------------
+# Our FastAPI container imports mlflow only as a *client* to log runs and
+# read the registry from a remote tracking server. These CVEs exploit the
+# MLflow tracking SERVER's HTTP endpoints (path traversal, command
+# injection, auth bypass, DNS rebinding), which we do not run inside this
+# image. The real mitigation is to upgrade the shared MLflow server on GCP,
+# tracked separately.
+CVE-2025-15036
+CVE-2025-15379
+CVE-2026-2635
+CVE-2025-10279
+CVE-2025-14279
+CVE-2025-14287
+CVE-2025-15031
+CVE-2026-2033
+
+# ---------------------------------------------------------------------------
+# Transitive deps — fixes require upstream parent-package bumps
+# ---------------------------------------------------------------------------
+# These are pulled in transitively (not declared in pyproject.toml) and
+# their fixed versions require upgrading langchain / mlflow / setuptools
+# ecosystems. Not runtime-exploitable in our code paths. Revisit after
+# MLflow 3.x migration.
+CVE-2026-23949
+CVE-2026-34070
+CVE-2026-40192
+CVE-2026-24049
+
+# ---------------------------------------------------------------------------
+# TODO: upgrade MLflow to 3.x on the shared VM + client, then remove most
+# of these entries.
+# ---------------------------------------------------------------------------
