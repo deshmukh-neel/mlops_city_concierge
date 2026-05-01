@@ -36,5 +36,22 @@ services:
       - "${APP_PORT:-8000}:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  frontend:
+    image: node:20-alpine
+    container_name: city_concierge_frontend
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      VITE_PROXY_TARGET: http://app:8000
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - app
+
 volumes:
   pgdata:
+  frontend_node_modules:
