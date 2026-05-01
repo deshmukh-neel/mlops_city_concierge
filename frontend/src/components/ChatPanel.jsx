@@ -101,7 +101,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
   }, [messages])
 
   function handleKeyDown(e) {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault()
       handleSend()
     }
@@ -205,7 +205,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
             <div style={s.ragDot} />
             RAG pipeline active · Places updated 4 min ago
           </div>
-          <span>⌘↵ to send</span>
+          <span>↵ to send · ⇧↵ for newline</span>
         </div>
       </div>
     </div>

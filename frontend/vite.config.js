@@ -6,8 +6,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Proxy /chat calls to FastAPI during development
-      '/chat': {
+      // Proxy FastAPI calls during development (only used if VITE_API_URL is unset / relative).
+      '/predict': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/health': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
