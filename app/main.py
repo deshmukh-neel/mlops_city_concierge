@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,12 +11,21 @@ from .config import get_settings
 from .db import close_pool
 from .routes import router
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    rag_chain, model_config = load_registered_rag_chain()
-    app.state.rag_chain = rag_chain
-    app.state.active_model_config = model_config
+    app.state.rag_chain = None
+    app.state.active_model_config = None
+    app.state.startup_error = None
+    try:
+        rag_chain, model_config = load_registered_rag_chain()
+        app.state.rag_chain = rag_chain
+        app.state.active_model_config = model_config
+    except Exception as exc:
+        logger.exception("Failed to load RAG chain at startup")
+        app.state.startup_error = f"{type(exc).__name__}: {exc}"
     try:
         yield
     finally:

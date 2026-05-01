@@ -58,3 +58,18 @@ def test_predict_endpoint_returns_response_and_sources(mocker) -> None:
         ],
     }
     fake_chain.invoke.assert_called_once_with({"query": "Best tacos in the Mission"})
+
+
+def test_health_reports_degraded_when_startup_fails(mocker) -> None:
+    mocker.patch(
+        "app.main.load_registered_rag_chain",
+        side_effect=RuntimeError("MLFLOW_TRACKING_URI is required (set it in .env)."),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["detail"]["status"] == "degraded"
+    assert "MLFLOW_TRACKING_URI" in body["detail"]["error"]

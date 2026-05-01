@@ -40,7 +40,11 @@ def root() -> dict[str, str]:
 def health(request: Request) -> dict[str, str]:
     model_config = getattr(request.app.state, "active_model_config", None)
     if model_config is None:
-        raise HTTPException(status_code=500, detail="RAG chain is not loaded.")
+        startup_error = getattr(request.app.state, "startup_error", None) or "unknown"
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "degraded", "error": startup_error},
+        )
 
     return {
         "status": "ok",

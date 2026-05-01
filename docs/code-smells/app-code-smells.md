@@ -59,9 +59,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Note:** the `mlflow-artifacts://host:port/` form in `.env.example` may still be incorrect per the MLflow URI spec (the scheme is normally host-less), but it works empirically with the running tracking server. Out of scope here — verify with whoever owns the tracking server before changing.
 
-### 8. `lifespan` has no error handling
+### 8. `lifespan` has no error handling — ✅ FIXED
 
-`app/main.py:128-133` — if `load_registered_rag_chain` raises, the app crashes at startup with a stack trace and `/health` can never report why. Catch, log, and store the error on `app.state` so `/health` returns `"rag_chain unavailable: <reason>"`.
+`app/main.py:128-133` — previously, if `load_registered_rag_chain` raised at startup, uvicorn exited with a stack trace and `/health` could never report why.
+
+**Resolution:** `lifespan` now catches startup errors, logs them via `logger.exception(...)`, and stores `f"{type(exc).__name__}: {exc}"` on `app.state.startup_error`. `/health` returns **503** with `{status: "degraded", error: <reason>}` when `active_model_config` is `None`. Added `test_health_reports_degraded_when_startup_fails` to verify. (Side effect: introduces the first `logging` call in `app/`, partially addresses #14.)
 
 ### 9. `parse_active_model_config` mixes types from MLflow params
 
