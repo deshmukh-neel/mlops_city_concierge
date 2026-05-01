@@ -26,9 +26,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Resolution:** See #16. Both call sites now share a `ThreadedConnectionPool` via `borrow_connection()`. `PgVectorRetriever` no longer takes a `connection_string` kwarg.
 
-### 4. `PgVectorRetriever` re-instantiates `OpenAIEmbeddings` every call
+### 4. `PgVectorRetriever` re-instantiates `OpenAIEmbeddings` every call — ✅ FIXED
 
-`app/retriever.py:35` — construct the embeddings client once (in `__init__` or as a pydantic field), not per query.
+`app/retriever.py:35` — previously built a fresh `OpenAIEmbeddings` client on every query.
+
+**Resolution:** Added `_embeddings` private field + `_get_embeddings()` lazy-init method. The client is constructed once on first use and cached on the retriever instance. (`cached_property` doesn't compose cleanly with langchain's pydantic-based `BaseRetriever`, hence the manual lazy field.)
 
 ## Code Quality
 
@@ -37,6 +39,7 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 `main.py` previously mixed Pydantic schemas, MLflow loading, chain bootstrapping, source serialization, app factory, and routes (195 lines).
 
 **Resolution:** Split into:
+
 - `app/schemas.py` — Pydantic request/response models + `ActiveModelConfig`
 - `app/bootstrap.py` — `load_registered_rag_chain`, `parse_active_model_config`
 - `app/routes.py` — endpoints (`APIRouter`) + `serialize_sources`

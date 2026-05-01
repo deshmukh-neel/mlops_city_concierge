@@ -18,6 +18,17 @@ class PgVectorRetriever(BaseRetriever):
     embedding_model: str = "text-embedding-3-small"
     k: int = 5
     openai_api_key: str | None = None
+    _embeddings: OpenAIEmbeddings | None = None
+
+    def _get_embeddings(self) -> OpenAIEmbeddings:
+        if self._embeddings is None:
+            api_key = self.openai_api_key or get_settings().openai_api_key
+            if not api_key:
+                raise RuntimeError("Missing OPENAI_API_KEY for query embedding generation.")
+            self._embeddings = OpenAIEmbeddings(
+                model=self.embedding_model, api_key=SecretStr(api_key)
+            )
+        return self._embeddings
 
     def _get_relevant_documents(
         self,
@@ -27,12 +38,7 @@ class PgVectorRetriever(BaseRetriever):
     ) -> list[Document]:
         del run_manager
 
-        api_key = self.openai_api_key or get_settings().openai_api_key
-        if not api_key:
-            raise RuntimeError("Missing OPENAI_API_KEY for query embedding generation.")
-
-        embeddings = OpenAIEmbeddings(model=self.embedding_model, api_key=SecretStr(api_key))
-        vector_literal = vector_to_pg(embeddings.embed_query(query))
+        vector_literal = vector_to_pg(self._get_embeddings().embed_query(query))
 
         sql = """
         SELECT
