@@ -71,9 +71,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Resolution:** Added `_parse_int` / `_parse_float` helpers that treat missing key and empty string identically by stringifying the default first (`params.get(key) or str(default)`). Both numeric fields now use them. Three new tests in `tests/unit/test_bootstrap.py` cover string params, missing-key fallback, and the empty-string edge case.
 
-### 10. Bare `except Exception` at MLflow load
+### 10. Bare `except Exception` at MLflow load — ✅ FIXED
 
-`app/main.py:87` — the `# pragma: no cover` flags this as known sketchy. Catch `mlflow.exceptions.MlflowException` / `RestException` specifically.
+`app/bootstrap.py` (post-#5 split) previously used `except Exception` to wrap MLflow-load failures, with a `# pragma: no cover` admitting discomfort. Programmer bugs (`TypeError`, `AttributeError`) would have been swallowed and mislabeled.
+
+**Resolution:** Narrowed to `except MlflowException` (the base class for MLflow's API/network/protocol errors). Pragma removed. Added `test_load_registered_rag_chain_wraps_mlflow_exception` to verify the path. Programmer bugs now bubble up to the lifespan catch-all from #8 with a generic message — the right layered behavior.
 
 ### 11. `serialize_sources` slices after retrieval
 

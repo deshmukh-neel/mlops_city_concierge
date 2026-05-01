@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import mlflow
+from mlflow.exceptions import MlflowException
 
 from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
@@ -52,7 +53,7 @@ def load_registered_rag_chain() -> tuple[Any, ActiveModelConfig]:
             settings.mlflow_model_name,
             "production",
         )
-    except Exception as exc:  # pragma: no cover - exercised via startup tests
+    except MlflowException as exc:
         raise RuntimeError(
             "Unable to load the MLflow production alias for "
             f"registered model '{settings.mlflow_model_name}'."
