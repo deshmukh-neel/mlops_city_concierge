@@ -39,7 +39,7 @@ GOOGLE_KEY = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE-PLACES-API-
 DATABASE_URL = resolve_database_url(os.environ)
 MAX_PAGES_PER_QUERY = 1
 QUERY_LIMIT = 0
-MAX_API_CALLS = 1800
+MAX_API_CALLS = 2000
 MIN_REQUEST_INTERVAL_SECONDS = 0.25
 API_MAX_RETRIES = 4
 API_BACKOFF_BASE_SECONDS = 1.0
@@ -120,9 +120,7 @@ ALL_PLACE_FIELDS = [
     "places.regularSecondaryOpeningHours",
     "places.reservable",
     "places.restroom",
-   # "places.reviews",
     "places.reviewSummary",
-    "places.routingSummaries",
     "places.servesBeer",
     "places.servesBreakfast",
     "places.servesBrunch",
@@ -407,6 +405,7 @@ def search_places(query: str, page_token: str | None = None) -> tuple[list[dict]
             return payload.get("places", []), payload.get("nextPageToken")
 
         if not _is_retryable_status(response.status_code) or attempt == API_MAX_RETRIES:
+            print(f"Google Places API error response: {response.text}")
             response.raise_for_status()
 
         sleep_seconds = min(

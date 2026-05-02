@@ -37,7 +37,8 @@ load_dotenv()
 DATABASE_URL = resolve_database_url(os.environ)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 EMBED_MODEL = os.getenv("PLACES_EMBED_MODEL", "text-embedding-3-small")
-BATCH_SIZE = int(os.getenv("PLACES_EMBED_BATCH_SIZE", "500"))
+BATCH_SIZE = 1000
+MAX_EMBED_INPUT_CHARS_PER_REQUEST = 600_000
 
 SERVICE_FEATURES = {
     "curbsidePickup": "curbside pickup",
@@ -333,6 +334,27 @@ def upsert_embedding(
     conn.commit()
 
 
+def iter_embedding_batches(rows: list[PlaceRow]) -> list[list[PlaceRow]]:
+    batches: list[list[PlaceRow]] = []
+    current_batch: list[PlaceRow] = []
+    current_chars = 0
+
+    for row in rows:
+        row_chars = len(row.text)
+        if current_batch and current_chars + row_chars > MAX_EMBED_INPUT_CHARS_PER_REQUEST:
+            batches.append(current_batch)
+            current_batch = []
+            current_chars = 0
+
+        current_batch.append(row)
+        current_chars += row_chars
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
+
+
 def run() -> None:
     if not DATABASE_URL:
         raise RuntimeError("Missing DATABASE_URL in environment.")
@@ -347,19 +369,28 @@ def run() -> None:
             print("No new or updated places to embed.")
             return
 
-        inputs = [row.text for row in rows]
-        response = client.embeddings.create(model=EMBED_MODEL, input=inputs)
-
-        for row, item in zip(rows, response.data, strict=True):
-            upsert_embedding(
-                conn,
-                place_id=row.place_id,
-                source_updated_at=row.source_updated_at,
-                text=row.text,
-                embedding=item.embedding,
+        embedded_count = 0
+        batches = iter_embedding_batches(rows)
+        for index, batch in enumerate(batches, start=1):
+            inputs = [row.text for row in batch]
+            input_chars = sum(len(text) for text in inputs)
+            print(
+                f"Embedding request {index}/{len(batches)}: "
+                f"{len(batch)} places, {input_chars} chars"
             )
+            response = client.embeddings.create(model=EMBED_MODEL, input=inputs)
 
-    print(f"Embedded and upserted {len(rows)} places with model {EMBED_MODEL}.")
+            for row, item in zip(batch, response.data, strict=True):
+                upsert_embedding(
+                    conn,
+                    place_id=row.place_id,
+                    source_updated_at=row.source_updated_at,
+                    text=row.text,
+                    embedding=item.embedding,
+                )
+                embedded_count += 1
+
+    print(f"Embedded and upserted {embedded_count} places with model {EMBED_MODEL}.")
 
 
 if __name__ == "__main__":
