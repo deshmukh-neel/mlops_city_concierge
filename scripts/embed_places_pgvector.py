@@ -122,7 +122,9 @@ def _json_flags(source_json: dict, key: str) -> str:
     value = source_json.get(key) or {}
     if not isinstance(value, dict):
         return ""
-    return _join_nonempty([_humanize_key(field) for field, enabled in value.items() if enabled is True])
+    return _join_nonempty(
+        [_humanize_key(field) for field, enabled in value.items() if enabled is True]
+    )
 
 
 def _opening_hours_text(source_json: dict, key: str) -> str:
