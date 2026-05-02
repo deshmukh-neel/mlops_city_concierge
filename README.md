@@ -92,7 +92,24 @@ make dev-detached # Start in background
 make down         # Stop all containers
 ```
 
-Note: The app container reads `DATABASE_URL` from `.env`. Set it to Cloud SQL for production data, or leave it pointing to the local `db` container for local development.
+Docker Compose is wired for local development even if `.env` contains production database values:
+
+- The local `db` service always creates/healthchecks database `city_concierge`.
+- The app container ignores `.env` `DATABASE_URL` and connects to the Compose database at `db:5432`.
+- The app container reaches MLflow at `host.docker.internal:5000` to use the IAP tunnel running on your host.
+- If your `.env` was previously pointed at production (`DATABASE_URL=postgresql://...`, `POSTGRES_DB=mlops-city-concierge`), it's safe to leave inside the Compose stack — the `app` service overrides those values. But host-side tooling (tests, `scripts/ingest_places_sf.py`, etc.) reads `.env` directly, so update those values if you run anything outside Compose.
+
+Because the MLflow VM is private-only, open the IAP/SSH tunnel in another terminal before running `make dev` if you need RAG endpoints:
+
+```bash
+gcloud compute ssh mlflow-server \
+  --project=mlops-491820 \
+  --zone=us-central1-a \
+  --tunnel-through-iap \
+  -- -L 5000:localhost:5000
+```
+
+Without the tunnel, the app still boots in **degraded mode**: `/health` returns `{"status": "degraded", "rag_chain": "unavailable"}`, `/predict` returns HTTP 503, and all other endpoints (including `/health/db` and the frontend) work normally.
 
 - http://localhost:8000/root
 - http://localhost:8000/health
