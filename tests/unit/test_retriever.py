@@ -77,9 +77,9 @@ def test_get_relevant_documents_formats_vector_and_maps_metadata(mocker) -> None
     assert "JOIN places_raw" in fake_cursor.executed_sql
     assert "ORDER BY e.embedding <=> %s::vector" in fake_cursor.executed_sql
     assert fake_cursor.executed_params == (
-        "[0.12500000,0.50000000,1.00000000]",
+        "[0.125,0.5,1.0]",
         "text-embedding-3-small",
-        "[0.12500000,0.50000000,1.00000000]",
+        "[0.125,0.5,1.0]",
         3,
     )
 

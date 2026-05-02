@@ -11,7 +11,7 @@ from .db import borrow_connection
 
 
 def vector_to_pg(embedding: list[float]) -> str:
-    return "[" + ",".join(f"{value:.8f}" for value in embedding) + "]"
+    return "[" + ",".join(repr(value) for value in embedding) + "]"
 
 
 class PgVectorRetriever(BaseRetriever):

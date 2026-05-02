@@ -89,9 +89,11 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 **Resolution:** Dropped the `del` line. If ruff `ARG` ever gets enabled, the failure mode is a single visible lint error.
 
-### 13. `vector_to_pg` truncates float precision
+### 13. `vector_to_pg` truncates float precision — ✅ FIXED
 
-`app/retriever.py:14` — `f"{value:.8f}"` loses precision unnecessarily. pgvector accepts full float repr; use `repr(value)` or `str(value)`.
+`app/retriever.py:14` previously used `f"{value:.8f}"`, which dropped precision (~7 significant digits) and zeroed out small values like `1e-12`.
+
+**Resolution:** Switched to `repr(value)` — Python's canonical lossless float-to-string. pgvector parses it fine. Test assertion updated to the new format (`"[0.125,0.5,1.0]"` instead of `"[0.12500000,0.50000000,1.00000000]"`).
 
 ## Tests / Observability
 
