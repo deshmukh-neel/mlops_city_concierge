@@ -46,7 +46,7 @@ python scripts/seed.py    # Generate sample JSONL data
 ## Architecture
 
 - **FastAPI app** served via uvicorn at port 8000 (`app.main:app`) with a startup-loaded RAG chain
-- **PostgreSQL 16 + pgvector** stores Google Places metadata in `places_raw` and semantic vectors in `place_embeddings`
+- **PostgreSQL 18 + pgvector** stores Google Places metadata in `places_raw` and semantic vectors in `place_embeddings` (Cloud SQL prod instance is `POSTGRES_18`; local docker may still be 16)
 - **Retriever stack** uses OpenAI embeddings for query vectors and pgvector HNSW cosine similarity search for source retrieval
 - **LangChain RAG chain** supports OpenAI or Gemini chat models, selected from MLflow Model Registry params
 - **Scripts**: `scripts/ingest_places_sf.py` loads raw Google Places data, `scripts/embed_places_pgvector.py` refreshes embeddings, and `scripts/log_model_to_mlflow.py` logs experiment runs

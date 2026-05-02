@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -12,6 +13,13 @@ from pydantic import BaseModel, Field
 from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
 from .db import get_db
+
+logger = logging.getLogger(__name__)
+
+RAG_UNAVAILABLE_DETAIL = (
+    "RAG chain unavailable: MLflow registry could not be reached at startup. "
+    "Ensure the MLflow IAP tunnel is open and restart the app."
+)
 
 db_connection_dependency = Depends(get_db)
 
@@ -127,7 +135,16 @@ def serialize_sources(source_documents: list[Any], limit: int) -> list[Recommend
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    rag_chain, model_config = load_registered_rag_chain()
+    try:
+        rag_chain, model_config = load_registered_rag_chain()
+    except Exception:
+        logger.warning(
+            "Failed to load RAG chain from MLflow registry — app will boot in "
+            "degraded mode and RAG endpoints will return 503.",
+            exc_info=True,
+        )
+        rag_chain = None
+        model_config = None
     app.state.rag_chain = rag_chain
     app.state.active_model_config = model_config
     yield
@@ -163,7 +180,7 @@ def root() -> dict[str, str]:
 def health(request: Request) -> dict[str, str]:
     model_config = getattr(request.app.state, "active_model_config", None)
     if model_config is None:
-        raise HTTPException(status_code=500, detail="RAG chain is not loaded.")
+        return {"status": "degraded", "rag_chain": "unavailable"}
 
     return {
         "status": "ok",
@@ -184,7 +201,7 @@ def health_db(conn: connection = db_connection_dependency) -> dict[str, str]:
 def predict(request_body: RecommendationRequest, request: Request) -> RecommendationResponse:
     rag_chain = getattr(request.app.state, "rag_chain", None)
     if rag_chain is None:
-        raise HTTPException(status_code=500, detail="RAG chain is not loaded.")
+        raise HTTPException(status_code=503, detail=RAG_UNAVAILABLE_DETAIL)
 
     result = rag_chain.invoke({"query": request_body.query})
     response_text = result.get("result") or result.get("response") or ""
