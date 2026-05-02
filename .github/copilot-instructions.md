@@ -56,6 +56,7 @@ python scripts/seed.py    # Generate sample JSONL data
 ## Key Conventions
 
 - Python 3.10+; ruff for linting/formatting (line-length 100, rules: E, F, I, N, UP, B, SIM)
+- Pre-commit hooks run ruff (`check` + `format`) automatically on commit; no need to run them manually beforehand
 - Dependency management: single `pyproject.toml` with Poetry main dependencies plus a `dev` group
 - Tests use pytest with `asyncio_mode = "auto"`; conftest patches env vars so tests never hit real services
 - Integration tests are skipped unless `APP_ENV=integration` is set

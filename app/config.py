@@ -87,10 +87,16 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     gemini_api_key: str = ""
     gemini_chat_model: str = "gemini-2.5-flash"
-    mlflow_tracking_uri: str = "http://35.223.147.177:5000"
-    mlflow_artifacts_uri: str = "mlflow-artifacts://35.223.147.177:5000"
+    mlflow_tracking_uri: str = ""
+    mlflow_artifacts_uri: str = ""
     mlflow_model_name: str = "city-concierge-rag"
     retriever_k: int = 5
+    cors_allowed_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+    cors_allowed_origin_regex: str | None = r"https://.*\.vercel\.app$"
+    log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -120,18 +126,18 @@ def get_settings() -> Settings:
 settings = get_settings()
 
 
+def require_database_url() -> str:
+    url = get_settings().resolved_database_url
+    if not url:
+        raise RuntimeError("Missing DATABASE_URL or POSTGRES_* database settings.")
+    return url
+
+
 def resolve_llm_api_key(llm_provider: str) -> str:
     """Return the API key for the given LLM provider, or raise if missing."""
-    s = get_settings()
-    provider = llm_provider.lower()
+    from .providers import get_provider
 
-    if provider == "openai":
-        api_key = s.openai_api_key
-    elif provider == "gemini":
-        api_key = s.gemini_api_key
-    else:
-        raise ValueError(f"Unsupported llm_provider: {llm_provider}")
-
+    api_key = get_provider(llm_provider).api_key(get_settings())
     if not api_key:
         raise RuntimeError(f"Missing API key for llm_provider={llm_provider}.")
     return api_key
