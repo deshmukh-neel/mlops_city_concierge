@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import logging
-
+import psycopg2
 from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -9,30 +8,17 @@ from langchain_openai import OpenAIEmbeddings
 from pydantic import SecretStr
 
 from .config import get_settings
-from .db import borrow_connection
-
-logger = logging.getLogger(__name__)
 
 
 def vector_to_pg(embedding: list[float]) -> str:
-    return "[" + ",".join(repr(value) for value in embedding) + "]"
+    return "[" + ",".join(f"{value:.8f}" for value in embedding) + "]"
 
 
 class PgVectorRetriever(BaseRetriever):
-    embedding_model: str
+    connection_string: str
+    embedding_model: str = "text-embedding-3-small"
     k: int = 5
     openai_api_key: str | None = None
-    _embeddings: OpenAIEmbeddings | None = None
-
-    def _get_embeddings(self) -> OpenAIEmbeddings:
-        if self._embeddings is None:
-            api_key = self.openai_api_key or get_settings().openai_api_key
-            if not api_key:
-                raise RuntimeError("Missing OPENAI_API_KEY for query embedding generation.")
-            self._embeddings = OpenAIEmbeddings(
-                model=self.embedding_model, api_key=SecretStr(api_key)
-            )
-        return self._embeddings
 
     def _get_relevant_documents(
         self,
@@ -40,7 +26,14 @@ class PgVectorRetriever(BaseRetriever):
         *,
         run_manager: CallbackManagerForRetrieverRun,
     ) -> list[Document]:
-        vector_literal = vector_to_pg(self._get_embeddings().embed_query(query))
+        del run_manager
+
+        api_key = self.openai_api_key or get_settings().openai_api_key
+        if not api_key:
+            raise RuntimeError("Missing OPENAI_API_KEY for query embedding generation.")
+
+        embeddings = OpenAIEmbeddings(model=self.embedding_model, api_key=SecretStr(api_key))
+        vector_literal = vector_to_pg(embeddings.embed_query(query))
 
         sql = """
         SELECT
@@ -58,12 +51,9 @@ class PgVectorRetriever(BaseRetriever):
         LIMIT %s
         """
 
-        with borrow_connection() as conn, conn.cursor() as cur:
+        with psycopg2.connect(self.connection_string) as conn, conn.cursor() as cur:
             cur.execute(sql, (vector_literal, self.embedding_model, vector_literal, self.k))
             rows = cur.fetchall()
-
-        if not rows:
-            logger.info("retriever returned 0 rows for query of length %d", len(query))
 
         return [
             Document(

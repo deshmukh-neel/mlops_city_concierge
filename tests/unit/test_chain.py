@@ -12,11 +12,12 @@ def test_build_rag_chain_supports_openai(mocker) -> None:
     chain.invoke.return_value = {"result": "Try Taqueria Example.", "source_documents": []}
 
     retriever_cls = mocker.patch("app.chain.PgVectorRetriever", return_value=retriever)
-    openai_cls = mocker.patch("app.providers.ChatOpenAI", return_value="openai-llm")
-    mocker.patch("app.providers.ChatGoogleGenerativeAI")
+    openai_cls = mocker.patch("app.chain.ChatOpenAI", return_value="openai-llm")
+    mocker.patch("app.chain.ChatGoogleGenerativeAI")
     from_chain = mocker.patch("app.chain.RetrievalQA.from_chain_type", return_value=chain)
 
     result_chain = build_rag_chain(
+        connection_string="postgresql://example",
         api_key="openai-key",
         llm_provider="openai",
         chat_model="gpt-4o-mini",
@@ -48,14 +49,15 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
     chain.invoke.return_value = {"result": "Try Del Popolo.", "source_documents": []}
 
     mocker.patch("app.chain.PgVectorRetriever", return_value=retriever)
-    mocker.patch("app.providers.ChatOpenAI")
+    mocker.patch("app.chain.ChatOpenAI")
     gemini_cls = mocker.patch(
-        "app.providers.ChatGoogleGenerativeAI",
+        "app.chain.ChatGoogleGenerativeAI",
         return_value="gemini-llm",
     )
     mocker.patch("app.chain.RetrievalQA.from_chain_type", return_value=chain)
 
     result_chain = build_rag_chain(
+        connection_string="postgresql://example",
         api_key="gemini-key",
         llm_provider="gemini",
         chat_model="gemini-2.5-flash",
@@ -77,6 +79,7 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
 def test_build_rag_chain_rejects_invalid_provider() -> None:
     with pytest.raises(ValueError, match="Unsupported llm_provider"):
         build_rag_chain(
+            connection_string="postgresql://example",
             api_key="unused",
             llm_provider="anthropic",
             chat_model="claude",

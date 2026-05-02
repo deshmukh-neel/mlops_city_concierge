@@ -19,6 +19,7 @@
  */
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const DEFAULT_LIMIT = 7
 
 /**
  * Send a chat message to the FastAPI /predict endpoint and adapt the
@@ -26,14 +27,16 @@ const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
  *
  * @param {string} message
  * @param {{ role: string, content: string }[]} _history  (unused; kept for signature compatibility)
- * @param {{}} [_opts]  (reserved for future per-request options)
+ * @param {{ limit?: number }} [opts]
  * @returns {Promise<{ reply: string, places: object[], ragLabel?: string }>}
  */
-export async function sendMessage(message, _history = [], _opts = {}) {
+export async function sendMessage(message, _history = [], opts = {}) {
+  const limit = opts.limit ?? DEFAULT_LIMIT
+
   const res = await fetch(`${API_BASE}/predict`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: message }),
+    body: JSON.stringify({ query: message, limit }),
   })
 
   if (!res.ok) {

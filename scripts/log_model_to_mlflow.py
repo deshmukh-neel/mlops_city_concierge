@@ -187,8 +187,7 @@ def log_rag_experiment(
     tracking_uri = tracking_uri or settings.mlflow_tracking_uri
     model_name = model_name or settings.mlflow_model_name
 
-    if settings.mlflow_artifacts_uri:
-        os.environ.setdefault("MLFLOW_ARTIFACTS_URI", settings.mlflow_artifacts_uri)
+    os.environ.setdefault("MLFLOW_ARTIFACTS_URI", settings.mlflow_artifacts_uri)
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
 
@@ -264,8 +263,7 @@ def log_rag_experiments_from_config(
     resolved_sample_queries = sample_queries or config.sample_queries
     resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
 
-    if settings.mlflow_artifacts_uri:
-        os.environ.setdefault("MLFLOW_ARTIFACTS_URI", settings.mlflow_artifacts_uri)
+    os.environ.setdefault("MLFLOW_ARTIFACTS_URI", settings.mlflow_artifacts_uri)
     mlflow.set_tracking_uri(resolved_tracking_uri)
     mlflow.set_experiment(resolved_experiment_name)
 
