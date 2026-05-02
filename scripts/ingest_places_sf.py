@@ -305,6 +305,14 @@ class PullStats:
     queries_skipped: int = 0
 
 
+@dataclass
+class QueryStats:
+    rows_seen: int = 0
+    rows_changed: int = 0
+    api_calls: int = 0
+    pages_processed: int = 0
+
+
 def _sleep_for_rate_limit(last_request_at: float | None) -> None:
     if last_request_at is None:
         return
@@ -621,123 +629,217 @@ def upsert_places(
     return rows_changed
 
 
-def run() -> None:
+def validate_runtime_config() -> None:
     if not GOOGLE_KEY:
         raise RuntimeError("Missing GOOGLE_PLACES_API_KEY in environment.")
     if not DATABASE_URL:
         raise RuntimeError("Missing DATABASE_URL in environment.")
 
-    stats = PullStats()
-    all_seed_queries = build_seed_queries()
+
+def print_run_header(all_seed_queries: list[str]) -> None:
     print(f"Generated {len(all_seed_queries)} seed queries.")
     print(f"Field mode: {FIELD_MODE}; fields requested: {len(FIELDS.split(','))}")
 
+
+def initialize_ingest_tables(conn: psycopg2.extensions.connection) -> None:
+    ensure_query_checkpoint_table(conn)
+    ensure_query_hits_table(conn)
+
+
+def select_seed_queries_for_run(
+    conn: psycopg2.extensions.connection,
+    all_seed_queries: list[str],
+    stats: PullStats,
+) -> list[str]:
+    if CHECKPOINT_RESET_CONTAINS:
+        deleted = reset_checkpoints_by_keywords(conn, CHECKPOINT_RESET_CONTAINS)
+        print(
+            "Reset checkpoints by keywords "
+            f"{CHECKPOINT_RESET_CONTAINS}; deleted {deleted} checkpoint rows."
+        )
+
+    if not SKIP_COMPLETED_QUERIES:
+        return all_seed_queries
+
+    completed = get_completed_queries(conn)
+    seed_queries = [
+        query
+        for query in all_seed_queries
+        if checkpoint_key(query) not in completed and query not in completed
+    ]
+    stats.queries_skipped = len(all_seed_queries) - len(seed_queries)
+    print(f"Skipping {stats.queries_skipped} completed queries from prior runs.")
+    return seed_queries
+
+
+def api_budget_exhausted(stats: PullStats) -> bool:
+    return MAX_API_CALLS > 0 and stats.api_calls >= MAX_API_CALLS
+
+
+def print_api_budget_exhausted() -> None:
+    print("Reached PLACES_MAX_API_CALLS budget; stopping run early.")
+
+
+def persist_places_page(
+    conn: psycopg2.extensions.connection,
+    *,
+    query: str,
+    page_number: int,
+    places: list[dict],
+) -> int:
+    changed_rows = upsert_places(conn, places, source_query=query)
+    insert_query_hits(
+        conn,
+        query_text=query,
+        page_number=page_number,
+        places=places,
+    )
+    return changed_rows
+
+
+def record_query_checkpoint(
+    conn: psycopg2.extensions.connection,
+    *,
+    query: str,
+    query_stats: QueryStats,
+    completed: bool,
+) -> None:
+    if completed:
+        mark_query_progress(
+            conn,
+            query_text=checkpoint_key(query),
+            status="completed",
+            pages_processed=query_stats.pages_processed,
+            api_calls=query_stats.api_calls,
+            rows_seen=query_stats.rows_seen,
+            rows_changed=query_stats.rows_changed,
+        )
+        return
+
+    mark_query_progress(
+        conn,
+        query_text=checkpoint_key(query),
+        status="incomplete",
+        pages_processed=query_stats.pages_processed,
+        api_calls=query_stats.api_calls,
+        rows_seen=query_stats.rows_seen,
+        rows_changed=query_stats.rows_changed,
+        last_error="Run stopped before query completed (budget or early termination).",
+    )
+
+
+def process_query_page(
+    conn: psycopg2.extensions.connection,
+    *,
+    query: str,
+    page_number: int,
+    page_token: str | None,
+    stats: PullStats,
+    query_stats: QueryStats,
+    last_request_at: float | None,
+) -> tuple[str | None, float]:
+    _sleep_for_rate_limit(last_request_at)
+    places, next_token = search_places(query=query, page_token=page_token)
+    last_request_at = time.time()
+
+    stats.api_calls += 1
+    query_stats.api_calls += 1
+    query_stats.pages_processed += 1
+    if not places:
+        return None, last_request_at
+
+    stats.rows_seen += len(places)
+    query_stats.rows_seen += len(places)
+
+    changed_rows = persist_places_page(
+        conn,
+        query=query,
+        page_number=page_number,
+        places=places,
+    )
+    stats.rows_upserted += changed_rows
+    query_stats.rows_changed += changed_rows
+
+    print(f"[{query}] page {page_number}: received {len(places)} places")
+    return next_token, last_request_at
+
+
+def process_single_query(
+    conn: psycopg2.extensions.connection,
+    *,
+    query: str,
+    stats: PullStats,
+    last_request_at: float | None,
+) -> float | None:
+    stats.queries_processed += 1
+    query_stats = QueryStats()
+    query_fully_processed = True
+    page_token: str | None = None
+
+    for page_number in range(1, MAX_PAGES_PER_QUERY + 1):
+        if api_budget_exhausted(stats):
+            print_api_budget_exhausted()
+            query_fully_processed = False
+            break
+
+        next_token, last_request_at = process_query_page(
+            conn,
+            query=query,
+            page_number=page_number,
+            page_token=page_token,
+            stats=stats,
+            query_stats=query_stats,
+            last_request_at=last_request_at,
+        )
+        if not next_token:
+            break
+
+        # Google page tokens may take a short delay before becoming valid.
+        time.sleep(2)
+        page_token = next_token
+
+    record_query_checkpoint(
+        conn,
+        query=query,
+        query_stats=query_stats,
+        completed=query_fully_processed,
+    )
+    if query_fully_processed:
+        stats.queries_completed += 1
+
+    return last_request_at
+
+
+def process_seed_queries(
+    conn: psycopg2.extensions.connection,
+    seed_queries: list[str],
+    stats: PullStats,
+) -> None:
     last_request_at: float | None = None
 
-    with psycopg2.connect(DATABASE_URL) as conn:
-        ensure_query_checkpoint_table(conn)
-        ensure_query_hits_table(conn)
+    for query in seed_queries:
+        if api_budget_exhausted(stats):
+            print_api_budget_exhausted()
+            break
 
-        if CHECKPOINT_RESET_CONTAINS:
-            deleted = reset_checkpoints_by_keywords(conn, CHECKPOINT_RESET_CONTAINS)
-            print(
-                "Reset checkpoints by keywords "
-                f"{CHECKPOINT_RESET_CONTAINS}; deleted {deleted} checkpoint rows."
-            )
+        last_request_at = process_single_query(
+            conn,
+            query=query,
+            stats=stats,
+            last_request_at=last_request_at,
+        )
 
-        if SKIP_COMPLETED_QUERIES:
-            completed = get_completed_queries(conn)
-            seed_queries = [
-                query
-                for query in all_seed_queries
-                if checkpoint_key(query) not in completed and query not in completed
-            ]
-            stats.queries_skipped = len(all_seed_queries) - len(seed_queries)
-            print(f"Skipping {stats.queries_skipped} completed queries from prior runs.")
-        else:
-            seed_queries = all_seed_queries
+        if api_budget_exhausted(stats):
+            break
 
-        for query in seed_queries:
-            if MAX_API_CALLS > 0 and stats.api_calls >= MAX_API_CALLS:
-                print("Reached PLACES_MAX_API_CALLS budget; stopping run early.")
-                break
 
-            stats.queries_processed += 1
-            query_api_calls = 0
-            query_rows_seen = 0
-            query_rows_changed = 0
-            query_pages_processed = 0
-            query_fully_processed = True
+def count_unique_places(conn: psycopg2.extensions.connection) -> int:
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM places_raw")
+        return cur.fetchone()[0]
 
-            page_token: str | None = None
-            for page in range(1, MAX_PAGES_PER_QUERY + 1):
-                if MAX_API_CALLS > 0 and stats.api_calls >= MAX_API_CALLS:
-                    print("Reached PLACES_MAX_API_CALLS budget; stopping run early.")
-                    query_fully_processed = False
-                    break
 
-                _sleep_for_rate_limit(last_request_at)
-                places, next_token = search_places(query=query, page_token=page_token)
-                last_request_at = time.time()
-                stats.api_calls += 1
-                query_api_calls += 1
-                query_pages_processed += 1
-                if not places:
-                    break
-
-                stats.rows_seen += len(places)
-                query_rows_seen += len(places)
-
-                changed_rows = upsert_places(conn, places, source_query=query)
-                stats.rows_upserted += changed_rows
-                query_rows_changed += changed_rows
-
-                insert_query_hits(
-                    conn,
-                    query_text=query,
-                    page_number=page,
-                    places=places,
-                )
-
-                print(f"[{query}] page {page}: received {len(places)} places")
-
-                if not next_token:
-                    break
-
-                # Google page tokens may take a short delay before becoming valid.
-                time.sleep(2)
-                page_token = next_token
-
-            if query_fully_processed:
-                mark_query_progress(
-                    conn,
-                    query_text=checkpoint_key(query),
-                    status="completed",
-                    pages_processed=query_pages_processed,
-                    api_calls=query_api_calls,
-                    rows_seen=query_rows_seen,
-                    rows_changed=query_rows_changed,
-                )
-                stats.queries_completed += 1
-            else:
-                mark_query_progress(
-                    conn,
-                    query_text=checkpoint_key(query),
-                    status="incomplete",
-                    pages_processed=query_pages_processed,
-                    api_calls=query_api_calls,
-                    rows_seen=query_rows_seen,
-                    rows_changed=query_rows_changed,
-                    last_error="Run stopped before query completed (budget or early termination).",
-                )
-
-            if MAX_API_CALLS > 0 and stats.api_calls >= MAX_API_CALLS:
-                break
-
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM places_raw")
-            unique_total = cur.fetchone()[0]
-
+def print_ingest_summary(stats: PullStats, unique_total: int) -> None:
     print("\\nIngestion complete")
     print(f"Queries processed: {stats.queries_processed}")
     print(f"Queries completed this run: {stats.queries_completed}")
@@ -746,6 +848,22 @@ def run() -> None:
     print(f"Rows seen this run: {stats.rows_seen}")
     print(f"Rows inserted/updated this run: {stats.rows_upserted}")
     print(f"Unique places currently stored: {unique_total}")
+
+
+def run() -> None:
+    validate_runtime_config()
+
+    stats = PullStats()
+    all_seed_queries = build_seed_queries()
+    print_run_header(all_seed_queries)
+
+    with psycopg2.connect(DATABASE_URL) as conn:
+        initialize_ingest_tables(conn)
+        seed_queries = select_seed_queries_for_run(conn, all_seed_queries, stats)
+        process_seed_queries(conn, seed_queries, stats)
+        unique_total = count_unique_places(conn)
+
+    print_ingest_summary(stats, unique_total)
 
 
 if __name__ == "__main__":
