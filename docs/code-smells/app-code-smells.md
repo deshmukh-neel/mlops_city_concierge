@@ -110,9 +110,19 @@ Previously zero `logging` calls in the package — startup, MLflow load, and pre
 - `app/retriever.py` logs `INFO` when a query returns zero rows.
 - `app/routes.py` logs `/predict` start (query length only — never content, for privacy) and end (source count + elapsed ms) tagged with a per-request id.
 
-### 15. `/predict` has no error handling around `rag_chain.invoke`
+### 15. `/predict` has no error handling around `rag_chain.invoke` — ✅ FIXED
 
-`app/main.py:189` — any LLM/DB exception 500s with a stack trace to the client. Wrap and return a structured error response.
+`/predict` previously let any LLM/DB exception bubble up as a 500 with a stack trace.
+
+**Resolution:** Wrapped `rag_chain.invoke` in try/except. Vendor exception classes mapped via new `app/errors.py` helper:
+
+- `openai.RateLimitError` / `google.api_core.exceptions.ResourceExhausted` → **429**
+- `openai.OpenAIError` / `google.api_core.exceptions.GoogleAPIError` → **502**
+- `psycopg2.OperationalError` → **503**
+- `psycopg2.DatabaseError` (other) → **500**
+- Anything else → **500**
+
+Failures log via `logger.exception` at ERROR (full stack server-side), and the client gets a generic `<message_prefix> (request_id=<8-char-id>)` so users can quote the id when reporting issues. Three new tests cover the LLM, rate-limit, and DB-operational paths.
 
 ## Performance
 

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg2.extensions import connection
 
 from .db import get_db
+from .errors import status_for_invoke_error
 from .schemas import (
     RecommendationRequest,
     RecommendationResponse,
@@ -76,7 +77,21 @@ def predict(request_body: RecommendationRequest, request: Request) -> Recommenda
         logger.warning("predict[%s] rag_chain not loaded", request_id)
         raise HTTPException(status_code=500, detail="RAG chain is not loaded.")
 
-    result = rag_chain.invoke({"query": request_body.query})
+    try:
+        result = rag_chain.invoke({"query": request_body.query})
+    except Exception as exc:
+        status_code, message_prefix = status_for_invoke_error(exc)
+        logger.exception(
+            "predict[%s] failed: status=%d type=%s",
+            request_id,
+            status_code,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=f"{message_prefix} (request_id={request_id}).",
+        ) from exc
+
     response_text = result.get("result") or result.get("response") or ""
     source_documents = result.get("source_documents") or []
 
