@@ -97,9 +97,18 @@ The "openai vs gemini, else raise" branching previously existed in three places 
 
 ## Tests / Observability
 
-### 14. No logging anywhere in `app/`
+### 14. No logging anywhere in `app/` — ✅ FIXED
 
-Zero `logging` calls in the package. Startup, MLflow load, and prediction errors are all silent. Add a module logger and log at minimum: model version + provider on startup, retriever errors, predict failures.
+Previously zero `logging` calls in the package — startup, MLflow load, and prediction failures were all silent. (#8 added the first one in lifespan.)
+
+**Resolution:**
+
+- `Settings.log_level: str = "INFO"` (configurable via `LOG_LEVEL` env, already in `.env.example`).
+- `app/main.py` calls `logging.basicConfig(level=..., format="%(asctime)s %(levelname)s %(name)s: %(message)s")` at module load.
+- `app/bootstrap.py` logs `INFO` on successful MLflow load with model/version/provider/chat_model/k/temperature.
+- `app/db.py` logs pool create + pool close at `INFO`.
+- `app/retriever.py` logs `INFO` when a query returns zero rows.
+- `app/routes.py` logs `/predict` start (query length only — never content, for privacy) and end (source count + elapsed ms) tagged with a per-request id.
 
 ### 15. `/predict` has no error handling around `rag_chain.invoke`
 

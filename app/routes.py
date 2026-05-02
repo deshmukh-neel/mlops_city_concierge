@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import time
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,6 +15,7 @@ from .schemas import (
     RecommendationSource,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 db_connection_dependency = Depends(get_db)
 
@@ -63,13 +67,26 @@ def health_db(conn: connection = db_connection_dependency) -> dict[str, str]:
 
 @router.post("/predict", response_model=RecommendationResponse)
 def predict(request_body: RecommendationRequest, request: Request) -> RecommendationResponse:
+    request_id = uuid.uuid4().hex[:8]
+    start = time.perf_counter()
+    logger.info("predict[%s] start: query_len=%d", request_id, len(request_body.query))
+
     rag_chain = getattr(request.app.state, "rag_chain", None)
     if rag_chain is None:
+        logger.warning("predict[%s] rag_chain not loaded", request_id)
         raise HTTPException(status_code=500, detail="RAG chain is not loaded.")
 
     result = rag_chain.invoke({"query": request_body.query})
     response_text = result.get("result") or result.get("response") or ""
     source_documents = result.get("source_documents") or []
+
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    logger.info(
+        "predict[%s] ok: sources=%d elapsed_ms=%.0f",
+        request_id,
+        len(source_documents),
+        elapsed_ms,
+    )
 
     return RecommendationResponse(
         response=response_text,

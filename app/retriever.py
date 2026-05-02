@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -8,6 +10,8 @@ from pydantic import SecretStr
 
 from .config import get_settings
 from .db import borrow_connection
+
+logger = logging.getLogger(__name__)
 
 
 def vector_to_pg(embedding: list[float]) -> str:
@@ -57,6 +61,9 @@ class PgVectorRetriever(BaseRetriever):
         with borrow_connection() as conn, conn.cursor() as cur:
             cur.execute(sql, (vector_literal, self.embedding_model, vector_literal, self.k))
             rows = cur.fetchall()
+
+        if not rows:
+            logger.info("retriever returned 0 rows for query of length %d", len(query))
 
         return [
             Document(

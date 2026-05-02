@@ -96,6 +96,7 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
     cors_allowed_origin_regex: str | None = r"https://.*\.vercel\.app$"
+    log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

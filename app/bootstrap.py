@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import mlflow
@@ -9,6 +10,8 @@ from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
 from .providers import get_provider
 from .schemas import ActiveModelConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_int(params: dict[str, str], key: str, default: int) -> int:
@@ -71,5 +74,14 @@ def load_registered_rag_chain() -> tuple[Any, ActiveModelConfig]:
         chat_model=config.chat_model,
         k=config.k,
         temperature=config.temperature,
+    )
+    logger.info(
+        "loaded RAG chain: model=%s version=%s provider=%s chat_model=%s k=%d temperature=%s",
+        settings.mlflow_model_name,
+        config.model_version,
+        config.llm_provider,
+        config.chat_model,
+        config.k,
+        config.temperature,
     )
     return chain, config

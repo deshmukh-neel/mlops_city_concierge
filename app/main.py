@@ -11,6 +11,10 @@ from .config import get_settings
 from .db import close_pool
 from .routes import router
 
+logging.basicConfig(
+    level=get_settings().log_level.upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 
