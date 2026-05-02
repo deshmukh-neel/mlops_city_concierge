@@ -25,10 +25,10 @@ LangChain RetrievalQA Chain
 Response + Source Places
 ```
 
-- **Vector Store**: PostgreSQL 16 + pgvector on Cloud SQL with HNSW cosine index (4,356 SF place embeddings)
+- **Vector Store**: PostgreSQL 18 + pgvector on Cloud SQL with HNSW cosine index (4,356 SF place embeddings)
 - **Embeddings**: OpenAI `text-embedding-3-small` (1536 dims)
 - **LLM**: Configurable via MLflow Model Registry — supports OpenAI and Gemini
-- **MLflow**: Shared tracking server at http://35.223.147.177:5000
+- **MLflow**: Tracking server on GCE VM `mlflow-server`, reachable privately at `http://10.128.0.2:5000`
 - **Container Registry**: GCP Artifact Registry (`us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge`)
 
 ## Getting Started
@@ -123,7 +123,7 @@ POSTGRES_DB=city_concierge
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your-password
 
-# Public IP / proxy / private IP
+# Local Postgres / Cloud SQL Auth Proxy / private IP from inside the VPC
 POSTGRES_HOST=your-cloud-sql-host
 POSTGRES_PORT=5432
 POSTGRES_SSLMODE=require
@@ -133,7 +133,17 @@ CLOUD_SQL_INSTANCE_CONNECTION_NAME=your-project:your-region:your-instance
 CLOUD_SQL_SOCKET_DIR=/cloudsql
 ```
 
-When `DATABASE_URL` is unset, the app and scripts now build the connection string from `POSTGRES_*`, and if `CLOUD_SQL_INSTANCE_CONNECTION_NAME` is present they connect through the Cloud SQL socket path automatically. For direct-host Cloud SQL connections, `POSTGRES_SSLMODE` and `POSTGRES_SSLROOTCERT` are also supported.
+When `DATABASE_URL` is unset, the app and scripts build the connection string from `POSTGRES_*`, and if `CLOUD_SQL_INSTANCE_CONNECTION_NAME` is present they connect through the Cloud SQL socket path automatically. For direct-host Cloud SQL connections, `POSTGRES_SSLMODE` and `POSTGRES_SSLROOTCERT` are also supported.
+
+Production Cloud SQL is private-only:
+
+- Instance: `mlops-491820:us-central1:mlops--city-concierge`
+- Private IP: `10.127.0.3`
+- Public IPv4: disabled
+- VPC: `default`
+- Private Services Access peering: `servicenetworking-googleapis-com`
+
+Cloud Run should continue using the Cloud SQL attachment/socket path through `CLOUD_SQL_INSTANCE_CONNECTION_NAME`; do not add a plaintext `DATABASE_URL` to Cloud Run unless intentionally moving away from the Cloud SQL socket flow.
 
 ## Deployment
 
@@ -142,7 +152,10 @@ When `DATABASE_URL` is unset, the app and scripts now build the connection strin
 - **Backend (Cloud Run):** https://city-concierge-api-6amzjx52nq-uc.a.run.app
 - **Frontend (Vercel):** see the `frontend/` directory; configure `VITE_API_URL` to the Cloud Run URL above
 - **Image registry:** `us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge`
-- **Cloud SQL instance:** `mlops-491820:us-central1:mlops--city-concierge` (Postgres 18, pgvector 0.8.1)
+- **Cloud SQL instance:** `mlops-491820:us-central1:mlops--city-concierge` (Postgres 18, pgvector 0.8.1, private IP `10.127.0.3`)
+- **Cloud Run egress:** Direct VPC Egress on VPC `default`, subnet `default`, `private-ranges-only`
+- **MLflow VM:** `mlflow-server` in `us-central1-a`, internal IP `10.128.0.2`, no external IP
+- **MLflow firewall:** `allow-mlflow` allows TCP `5000` only from `10.128.0.0/9`
 
 ### CI/CD Pipeline
 
@@ -170,6 +183,13 @@ GitHub Actions handle everything from lint to deploy. Triggers and jobs:
 - `POSTGRES_DB`, `POSTGRES_USER`
 - `CLOUD_SQL_INSTANCE_CONNECTION_NAME`
 
+Current production values:
+
+- `MLFLOW_TRACKING_URI=http://10.128.0.2:5000`
+- `POSTGRES_DB=mlops-city-concierge`
+- `POSTGRES_USER=postgres`
+- `CLOUD_SQL_INSTANCE_CONNECTION_NAME=mlops-491820:us-central1:mlops--city-concierge`
+
 **Frontend (Vercel — `VITE_*` vars are compiled into the JS bundle and visible in the browser, so never put secrets here):**
 
 - `VITE_API_URL=https://city-concierge-api-6amzjx52nq-uc.a.run.app`
@@ -187,7 +207,10 @@ gcloud run deploy city-concierge-api \
   --allow-unauthenticated \
   --port 8000 \
   --add-cloudsql-instances mlops-491820:us-central1:mlops--city-concierge \
-  --set-env-vars "MLFLOW_TRACKING_URI=http://35.223.147.177:5000,POSTGRES_DB=mlops-city-concierge,POSTGRES_USER=postgres,CLOUD_SQL_INSTANCE_CONNECTION_NAME=mlops-491820:us-central1:mlops--city-concierge" \
+  --network default \
+  --subnet default \
+  --vpc-egress private-ranges-only \
+  --set-env-vars "MLFLOW_TRACKING_URI=http://10.128.0.2:5000,POSTGRES_DB=mlops-city-concierge,POSTGRES_USER=postgres,CLOUD_SQL_INSTANCE_CONNECTION_NAME=mlops-491820:us-central1:mlops--city-concierge" \
   --set-secrets "POSTGRES_PASSWORD=POSTGRES_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
   --project mlops-491820
 ```
@@ -213,7 +236,20 @@ docker push us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge:lates
 
 ## MLflow
 
-**Dashboard:** http://35.223.147.177:5000
+MLflow runs on the private-only GCE VM `mlflow-server`.
+
+- Cloud Run reaches MLflow at `http://10.128.0.2:5000` through Direct VPC Egress.
+- The VM has no external IP. For browser access, open an IAP/SSH tunnel and use the local forwarded port:
+
+```bash
+gcloud compute ssh mlflow-server \
+  --project=mlops-491820 \
+  --zone=us-central1-a \
+  --tunnel-through-iap \
+  -- -L 5000:localhost:5000
+```
+
+Then open http://localhost:5000.
 
 ### Logging Experiments
 
@@ -240,7 +276,7 @@ poetry run python scripts/log_model_to_mlflow.py \
 ```bash
 poetry run python -c "
 import mlflow
-mlflow.set_tracking_uri('http://35.223.147.177:5000')
+mlflow.set_tracking_uri('http://localhost:5000')
 client = mlflow.MlflowClient()
 client.set_registered_model_alias('city-concierge-rag', 'production', '<VERSION>')
 "
