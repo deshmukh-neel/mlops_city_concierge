@@ -60,8 +60,6 @@ LEAN_FIELDS = [
     "places.location",
     "places.editorialSummary",
 ]
-
-# TODO: add additional fields for richer semantic searches
 ENRICHED_EXTRA_FIELDS = [
     "places.primaryTypeDisplayName",
     "places.websiteUri",
@@ -122,7 +120,7 @@ ALL_PLACE_FIELDS = [
     "places.regularSecondaryOpeningHours",
     "places.reservable",
     "places.restroom",
-    "places.reviews",
+   # "places.reviews",
     "places.reviewSummary",
     "places.routingSummaries",
     "places.servesBeer",
@@ -145,7 +143,6 @@ ALL_PLACE_FIELDS = [
     "places.viewport",
     "places.websiteUri",
 ]
-
 
 
 def build_field_mask() -> str:
