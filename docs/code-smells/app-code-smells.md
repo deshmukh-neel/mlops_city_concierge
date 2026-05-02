@@ -132,9 +132,11 @@ Failures log via `logger.exception` at ERROR (full stack server-side), and the c
 
 **Resolution:** Added a module-level `ThreadedConnectionPool` in `app/db.py` (`minconn=1, maxconn=10`) with a `borrow_connection()` context manager. Both `get_db()` and `PgVectorRetriever` borrow from it. `lifespan` calls `close_pool()` on shutdown so the pool is cleanly drained.
 
-### 17. Duplicated embedding model default
+### 17. Duplicated embedding model default — ✅ FIXED
 
-`app/retriever.py:19` defaults to `"text-embedding-3-small"` and `app/config.py:87` does the same. The retriever default is dead code (always overridden in `app/chain.py:25`) — drop it, or read from settings inside the retriever.
+`app/retriever.py:19` previously hardcoded `"text-embedding-3-small"` as the field default while `app/config.py:87` held the same value as the source of truth. The retriever default was dead code (always overridden by `chain.py`).
+
+**Resolution:** Dropped the default — `embedding_model: str` is now required on `PgVectorRetriever`. Forgetting to pass it raises a clear pydantic validation error at construction time instead of silently using a stale hardcoded model.
 
 ---
 

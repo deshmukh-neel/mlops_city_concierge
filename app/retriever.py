@@ -19,7 +19,7 @@ def vector_to_pg(embedding: list[float]) -> str:
 
 
 class PgVectorRetriever(BaseRetriever):
-    embedding_model: str = "text-embedding-3-small"
+    embedding_model: str
     k: int = 5
     openai_api_key: str | None = None
     _embeddings: OpenAIEmbeddings | None = None
