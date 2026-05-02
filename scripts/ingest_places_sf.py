@@ -15,16 +15,6 @@ Optional env vars:
     CLOUD_SQL_INSTANCE_CONNECTION_NAME Cloud SQL instance connection name for socket auth
     CLOUD_SQL_SOCKET_DIR       Cloud SQL Unix socket directory (default: /cloudsql)
     POSTGRES_SSLMODE           Optional sslmode for env-built direct DB connections
-    PLACES_MAX_PAGES_PER_QUERY Max pages per query (default: 1)
-    PLACES_QUERY_LIMIT         Optional cap on number of generated queries
-    PLACES_MAX_API_CALLS       Optional hard cap on API calls per run (0 = no cap)
-    PLACES_MIN_REQUEST_INTERVAL_SECONDS Minimum delay between calls (default: 0.25)
-    PLACES_API_MAX_RETRIES     Retry attempts for transient API errors (default: 4)
-    PLACES_API_BACKOFF_BASE_SECONDS Base exponential backoff sleep (default: 1.0)
-    PLACES_API_BACKOFF_MAX_SECONDS Max backoff sleep per retry (default: 20.0)
-    PLACES_SKIP_COMPLETED_QUERIES Skip previously completed seed queries on reruns (default: true)
-    PLACES_CHECKPOINT_RESET_CONTAINS Comma-separated keywords to clear matching checkpoints before run
-    PLACES_FIELD_MODE         Field mask mode: lean (default) or enriched
 """
 
 from __future__ import annotations
@@ -42,34 +32,21 @@ from app.config import resolve_database_url
 
 load_dotenv()
 
-# Global variables dictating Google Places API limits and interactions (ie minimizing cost)
+# Global variables dictating Google Places API limits and interactions.
 
 BASE_URL = "https://places.googleapis.com/v1/places:searchText"
 GOOGLE_KEY = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE-PLACES-API-KEY")
 DATABASE_URL = resolve_database_url(os.environ)
-MAX_PAGES_PER_QUERY = int(os.getenv("PLACES_MAX_PAGES_PER_QUERY", "1"))
-QUERY_LIMIT = int(os.getenv("PLACES_QUERY_LIMIT", "0"))
-MAX_API_CALLS = int(os.getenv("PLACES_MAX_API_CALLS", "1800"))
-MIN_REQUEST_INTERVAL_SECONDS = float(os.getenv("PLACES_MIN_REQUEST_INTERVAL_SECONDS", "0.25"))
-API_MAX_RETRIES = int(os.getenv("PLACES_API_MAX_RETRIES", "4"))
-API_BACKOFF_BASE_SECONDS = float(os.getenv("PLACES_API_BACKOFF_BASE_SECONDS", "1.0"))
-API_BACKOFF_MAX_SECONDS = float(os.getenv("PLACES_API_BACKOFF_MAX_SECONDS", "20.0"))
-FIELD_MODE = os.getenv("PLACES_FIELD_MODE", "lean").strip().lower()
-
-
-def env_bool(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-SKIP_COMPLETED_QUERIES = env_bool("PLACES_SKIP_COMPLETED_QUERIES", True)
-CHECKPOINT_RESET_CONTAINS = [
-    token.strip().lower()
-    for token in os.getenv("PLACES_CHECKPOINT_RESET_CONTAINS", "").split(",")
-    if token.strip()
-]
+MAX_PAGES_PER_QUERY = 1
+QUERY_LIMIT = 0
+MAX_API_CALLS = 1800
+MIN_REQUEST_INTERVAL_SECONDS = 0.25
+API_MAX_RETRIES = 4
+API_BACKOFF_BASE_SECONDS = 1.0
+API_BACKOFF_MAX_SECONDS = 20.0
+FIELD_MODE = "all"
+SKIP_COMPLETED_QUERIES = True
+CHECKPOINT_RESET_CONTAINS: list[str] = []
 
 LEAN_FIELDS = [
     # "Lean" is optimized for lower cost and semantic usefulness.
@@ -92,9 +69,88 @@ ENRICHED_EXTRA_FIELDS = [
     "places.googleMapsUri",
     "places.regularOpeningHours",
 ]
+ALL_PLACE_FIELDS = [
+    "places.accessibilityOptions",
+    "places.addressComponents",
+    "places.addressDescriptor",
+    "places.adrFormatAddress",
+    "places.allowsDogs",
+    "places.attributions",
+    "places.businessStatus",
+    "places.containingPlaces",
+    "places.curbsidePickup",
+    "places.currentOpeningHours",
+    "places.currentSecondaryOpeningHours",
+    "places.delivery",
+    "places.dineIn",
+    "places.displayName",
+    "places.editorialSummary",
+    "places.evChargeAmenitySummary",
+    "places.evChargeOptions",
+    "places.formattedAddress",
+    "places.fuelOptions",
+    "places.generativeSummary",
+    "places.goodForChildren",
+    "places.goodForGroups",
+    "places.goodForWatchingSports",
+    "places.googleMapsLinks",
+    "places.googleMapsUri",
+    "places.iconBackgroundColor",
+    "places.iconMaskBaseUri",
+    "places.id",
+    "places.internationalPhoneNumber",
+    "places.liveMusic",
+    "places.location",
+    "places.menuForChildren",
+    "places.name",
+    "places.nationalPhoneNumber",
+    "places.neighborhoodSummary",
+    "places.openingDate",
+    "places.outdoorSeating",
+    "places.parkingOptions",
+    "places.paymentOptions",
+    "places.photos",
+    "places.plusCode",
+    "places.postalAddress",
+    "places.priceLevel",
+    "places.priceRange",
+    "places.primaryType",
+    "places.primaryTypeDisplayName",
+    "places.pureServiceAreaBusiness",
+    "places.rating",
+    "places.regularOpeningHours",
+    "places.regularSecondaryOpeningHours",
+    "places.reservable",
+    "places.restroom",
+    "places.reviews",
+    "places.reviewSummary",
+    "places.routingSummaries",
+    "places.servesBeer",
+    "places.servesBreakfast",
+    "places.servesBrunch",
+    "places.servesCocktails",
+    "places.servesCoffee",
+    "places.servesDessert",
+    "places.servesDinner",
+    "places.servesLunch",
+    "places.servesVegetarianFood",
+    "places.servesWine",
+    "places.shortFormattedAddress",
+    "places.subDestinations",
+    "places.takeout",
+    "places.timeZone",
+    "places.types",
+    "places.userRatingCount",
+    "places.utcOffsetMinutes",
+    "places.viewport",
+    "places.websiteUri",
+]
+
 
 
 def build_field_mask() -> str:
+    if FIELD_MODE == "all":
+        return ",".join(ALL_PLACE_FIELDS)
     if FIELD_MODE == "enriched":
         return ",".join(LEAN_FIELDS + ENRICHED_EXTRA_FIELDS)
     if FIELD_MODE != "lean":
