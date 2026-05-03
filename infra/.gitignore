@@ -1,0 +1,16 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+crash.log
+crash.*.log
+
+# Local discovery dumps — may contain plaintext secrets from live state.
+# Treat as sensitive; never commit.
+_discovery/
+
+# Editor / OS
+.DS_Store

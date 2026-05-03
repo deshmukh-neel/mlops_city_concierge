@@ -53,6 +53,14 @@ python scripts/seed.py    # Generate sample JSONL data
 - **Alembic** for database migrations (not yet initialized beyond Makefile targets)
 - **MLflow** for experiment tracking and model-registry-backed runtime selection (shared GCP server)
 
+## Infrastructure
+
+GCP infrastructure for this project is managed by Terraform in `infra/` and is the source of truth for the Cloud SQL instance, the `mlflow-server` GCE VM, and the `allow-mlflow` firewall. **Do not modify these resources via the GCP console or `gcloud`** — changes will be reverted on the next `terraform apply`.
+
+To make an infra change: edit the relevant `.tf` file, run `terraform plan` from `infra/`, open a PR with the plan output, and apply from `main` after merge. Full contributor guide (with a worked example) lives in `infra/README.md`.
+
+Cloud Run (`city-concierge-api`) is intentionally **not** managed by Terraform — it's deployed by GitHub Actions on every push.
+
 ## Key Conventions
 
 - Python 3.10+; ruff for linting/formatting (line-length 100, rules: E, F, I, N, UP, B, SIM)
