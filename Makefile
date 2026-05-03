@@ -67,6 +67,10 @@ embed-places: ## Generate pgvector embeddings for places
 log-mlflow: ## Log a RAG configuration and sample outputs to MLflow
 	$(PYTHON) scripts/log_model_to_mlflow.py --config configs/experiments.yaml
 
+.PHONY: set-production-alias
+set-production-alias: ## Promote a registered model version to production (usage: make set-production-alias VERSION=42)
+	$(PYTHON) scripts/set_production_alias.py --version $(VERSION)
+
 .PHONY: train-simple-model
 train-simple-model: ## Train a simple baseline model from places data
 	$(PYTHON) scripts/train_simple_model.py
