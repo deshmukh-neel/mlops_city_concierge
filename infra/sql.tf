@@ -3,7 +3,10 @@ resource "google_sql_database_instance" "main" {
   database_version = "POSTGRES_18"
   region           = "us-central1"
 
-  deletion_protection = false
+  # Terraform-side guard against `terraform destroy` (separate from
+  # settings.deletion_protection_enabled, which is the GCP-side flag and
+  # is currently false in live state — to be enabled in a cleanup PR).
+  deletion_protection = true
 
   settings {
     tier              = "db-perf-optimized-N-8"
@@ -52,10 +55,15 @@ resource "google_sql_database_instance" "main" {
     location_preference {
       zone = "us-central1-f"
     }
+  }
 
-    maintenance_window {
-      day  = 0
-      hour = 0
-    }
+  # Live state has settings.maintenance_window.day=0 (meaning "any day"),
+  # but the Terraform provider's schema rejects day=0 on write. Ignore
+  # the field entirely so the imported value sticks without producing a
+  # phantom diff every plan.
+  lifecycle {
+    ignore_changes = [
+      settings[0].maintenance_window,
+    ]
   }
 }
