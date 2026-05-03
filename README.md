@@ -1,8 +1,8 @@
 # City Concierge
 
-Course: USF MSDS 603 - MLOps
+A RAG-powered SF restaurant concierge built for USF MSDS 603 (MLOps).
 
-A RAG (Retrieval-Augmented Generation) application for San Francisco restaurant and place recommendations, powered by FastAPI, PostgreSQL + pgvector, LangChain, and MLflow.
+FastAPI backend, PostgreSQL + pgvector retrieval, LangChain orchestration, MLflow-driven model selection, deployed to Cloud Run.
 
 ## Architecture
 
@@ -139,44 +139,15 @@ Notes:
 
 ## Cloud SQL
 
-The ingestion and embedding scripts can write directly to Cloud SQL.
-
-Use either:
-
-```bash
-# Option A: explicit connection string
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/city_concierge
-```
-
-or:
-
-```bash
-# Option B: build from component vars
-POSTGRES_DB=city_concierge
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your-password
-
-# Local Postgres / Cloud SQL Auth Proxy / private IP from inside the VPC
-POSTGRES_HOST=your-cloud-sql-host
-POSTGRES_PORT=5432
-POSTGRES_SSLMODE=require
-
-# Or Cloud SQL Unix sockets
-CLOUD_SQL_INSTANCE_CONNECTION_NAME=your-project:your-region:your-instance
-CLOUD_SQL_SOCKET_DIR=/cloudsql
-```
-
-When `DATABASE_URL` is unset, the app and scripts build the connection string from `POSTGRES_*`, and if `CLOUD_SQL_INSTANCE_CONNECTION_NAME` is present they connect through the Cloud SQL socket path automatically. For direct-host Cloud SQL connections, `POSTGRES_SSLMODE` and `POSTGRES_SSLROOTCERT` are also supported.
+The app and scripts read `DATABASE_URL` if set; otherwise they build the connection string from `POSTGRES_*`. If `CLOUD_SQL_INSTANCE_CONNECTION_NAME` is present, they connect via the Cloud SQL Unix socket path. See `.env.example` for all options.
 
 Production Cloud SQL is private-only:
 
-- Instance: `mlops-491820:us-central1:mlops--city-concierge`
-- Private IP: `10.127.0.3`
-- Public IPv4: disabled
-- VPC: `default`
-- Private Services Access peering: `servicenetworking-googleapis-com`
+- Instance: `mlops-491820:us-central1:mlops--city-concierge` (Postgres 18, pgvector 0.8.1)
+- Private IP: `10.127.0.3` (no public IPv4)
+- VPC `default`, Private Services Access peering `servicenetworking-googleapis-com`
 
-Cloud Run should continue using the Cloud SQL attachment/socket path through `CLOUD_SQL_INSTANCE_CONNECTION_NAME`; do not add a plaintext `DATABASE_URL` to Cloud Run unless intentionally moving away from the Cloud SQL socket flow.
+Cloud Run reaches Cloud SQL through the auto-injected socket sidecar via `CLOUD_SQL_INSTANCE_CONNECTION_NAME`. Don't add a plaintext `DATABASE_URL` to the Cloud Run service.
 
 ## Deployment
 
@@ -204,64 +175,21 @@ GitHub Actions handle everything from lint to deploy. Triggers and jobs:
 
 ### Secrets & Environment Variables
 
-**Secrets (Secret Manager, mounted into Cloud Run at runtime):**
+Cloud Run distinguishes between **secrets** (mounted from Secret Manager — `POSTGRES_PASSWORD`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) and **plain env vars** (set on the service — `MLFLOW_TRACKING_URI`, `POSTGRES_DB`, `POSTGRES_USER`, `CLOUD_SQL_INSTANCE_CONNECTION_NAME`). The Vercel frontend uses `VITE_*` vars only — these compile into the JS bundle and are visible in the browser, so never put secrets there.
 
-- `POSTGRES_PASSWORD`
-- `OPENAI_API_KEY`
-- `GEMINI_API_KEY`
+See `.env.example` for the full list with sample values.
 
-**Plain env vars (set directly on the Cloud Run service):**
+### Manual Operations
 
-- `MLFLOW_TRACKING_URI`
-- `POSTGRES_DB`, `POSTGRES_USER`
-- `CLOUD_SQL_INSTANCE_CONNECTION_NAME`
+The Cloud Run service was created once via `gcloud run deploy` (see git history for the original command). Subsequent deploys are handled by CI.
 
-Current production values:
-
-- `MLFLOW_TRACKING_URI=http://10.128.0.2:5000`
-- `POSTGRES_DB=mlops-city-concierge`
-- `POSTGRES_USER=postgres`
-- `CLOUD_SQL_INSTANCE_CONNECTION_NAME=mlops-491820:us-central1:mlops--city-concierge`
-
-**Frontend (Vercel — `VITE_*` vars are compiled into the JS bundle and visible in the browser, so never put secrets here):**
-
-- `VITE_API_URL=https://city-concierge-api-6amzjx52nq-uc.a.run.app`
-- `VITE_USE_MOCK=false`
-
-### Initial Manual Deploy
-
-The Cloud Run service must exist before CI auto-deploy works. It was created once with:
-
-```bash
-gcloud run deploy city-concierge-api \
-  --image us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge:latest \
-  --region us-central1 \
-  --platform managed \
-  --allow-unauthenticated \
-  --port 8000 \
-  --add-cloudsql-instances mlops-491820:us-central1:mlops--city-concierge \
-  --network default \
-  --subnet default \
-  --vpc-egress private-ranges-only \
-  --set-env-vars "MLFLOW_TRACKING_URI=http://10.128.0.2:5000,POSTGRES_DB=mlops-city-concierge,POSTGRES_USER=postgres,CLOUD_SQL_INSTANCE_CONNECTION_NAME=mlops-491820:us-central1:mlops--city-concierge" \
-  --set-secrets "POSTGRES_PASSWORD=POSTGRES_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
-  --project mlops-491820
-```
-
-Re-run this command only if you need to change env vars or secret mounts; otherwise merge to `main` and let CI handle image updates.
-
-### Manual Docker Build
+For ad-hoc local image builds or registry pushes:
 
 ```bash
 docker build -t city-concierge .
 docker run --rm -p 8000:8000 --env-file .env city-concierge
-```
 
-### Manual Push to Artifact Registry
-
-Usually unnecessary — CI does this automatically on merge to `main`. For ad-hoc pushes:
-
-```bash
+# Push (rarely needed — CI handles this on merge to main):
 gcloud auth configure-docker us-central1-docker.pkg.dev
 docker tag city-concierge us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge:latest
 docker push us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge:latest
@@ -301,33 +229,22 @@ poetry run python scripts/log_model_to_mlflow.py \
 
 ### Setting the Production Model
 
-1. Run experiments with different configs using the script above
-2. Compare results in the MLflow UI
-3. Register the best run with `--register-model`
-4. In the MLflow UI (or via script), assign the `production` alias to the desired model version:
-
-```bash
-poetry run python -c "
-import mlflow
-mlflow.set_tracking_uri('http://localhost:5000')
-client = mlflow.MlflowClient()
-client.set_registered_model_alias('city-concierge-rag', 'production', '<VERSION>')
-"
-```
-
-5. Restart the app — it picks up the new config automatically
+1. Run experiments with different configs (see above) and compare in the MLflow UI.
+2. Register the best run with `--register-model`.
+3. Promote a registered version to the `production` alias:
+   ```bash
+   make set-production-alias VERSION=42
+   ```
+4. Restart the app — it loads the `production` alias at startup.
 
 ## Common Commands
 
-Run `make help` to see all targets. Key ones:
+Run `make help` to see all targets.
 
-```bash
-make install-dev    # Install all dependencies
-make test           # Full test suite with coverage
-make test-unit      # Unit tests only
-make lint           # Ruff linter
-make format         # Auto-format code
-make ingest-places  # Pull SF Google Places data
-make embed-places   # Generate pgvector embeddings
-make log-mlflow     # Log a RAG config to MLflow
-```
+## Troubleshooting
+
+**`/predict` returns "I don't know" with no sources.** The local Postgres container is empty by default. Either point the frontend at the deployed Cloud Run backend (default — see `frontend/.env.development`) or seed the local DB with `make ingest-places && make embed-places`.
+
+**App boots in degraded mode (`/health` returns `"status": "degraded"`).** The MLflow registry was unreachable at startup. Open the IAP tunnel (see Docker section) and restart the app container.
+
+**Local dev uses production data.** Older `.env` files may have `DATABASE_URL` or `POSTGRES_DB` pointing at production. Compose overrides these for the `app` service, but host-side tooling (tests, ingest scripts) reads `.env` directly. Update or clear those values before running anything outside Compose.
