@@ -52,6 +52,7 @@ python scripts/seed.py    # Generate sample JSONL data
 - **Scripts**: `scripts/ingest_places_sf.py` loads raw Google Places data, `scripts/embed_places_pgvector.py` refreshes embeddings, and `scripts/log_model_to_mlflow.py` logs experiment runs
 - **Alembic** for database migrations (not yet initialized beyond Makefile targets)
 - **MLflow** for experiment tracking and model-registry-backed runtime selection (shared GCP server)
+- **React and Vite** for the frontend where user inputs prompt and preferences
 
 ## Key Conventions
 
