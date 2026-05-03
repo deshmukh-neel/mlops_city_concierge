@@ -1,4 +1,5 @@
 resource "google_sql_database_instance" "main" {
+  # Smoke test for terraform-plan CI workflow (PR #51); revert this comment once verified.
   name             = "mlops--city-concierge"
   database_version = "POSTGRES_18"
   region           = "us-central1"
