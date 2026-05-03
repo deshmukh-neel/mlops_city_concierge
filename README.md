@@ -116,6 +116,22 @@ Without the tunnel, the app still boots in **degraded mode**: `/health` returns 
 - http://localhost:8000/health/db
 - http://localhost:8000/docs
 
+### Frontend → backend wiring
+
+By default the frontend dev server (http://localhost:5173) talks to the **deployed Cloud Run backend** via `frontend/.env.development`. This means:
+
+- Frontend-only contributors can run `make dev` (or `cd frontend && npm run dev`) and immediately get a working app with real data — no IAP tunnel, no local DB, no GCP setup.
+- The local `app` container still runs and is reachable at http://localhost:8000 for direct backend testing (curl, /docs, etc.). It's just not what the browser hits.
+
+To point the frontend at the local backend instead (when iterating on `app/` code):
+
+```bash
+echo 'VITE_API_URL=http://localhost:8000' > frontend/.env.development.local
+# Restart the frontend dev server to pick it up.
+```
+
+`*.local` files are gitignored and override `.env.development`. Delete the file to revert.
+
 Notes:
 
 - The standalone container still needs a reachable Postgres database via `DATABASE_URL`.

@@ -139,6 +139,8 @@ celerybeat.pid
 .env
 .envrc
 .venv
+# Vite per-mode local overrides (frontend/.env.development.local etc.)
+*.local
 env/
 venv/
 ENV/
