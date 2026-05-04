@@ -108,10 +108,109 @@ To smoke-test before opening a real change PR: open a no-op PR that adds
 a comment to `infra/sql.tf`. The bot should comment with
 `No changes. Your infrastructure matches the configuration.`
 
-## Future: apply-on-merge
+---
 
-A separate PR will add a second workflow (`terraform-apply.yml`) that
-runs on push to `main` and uses a different SA (`terraform-deploy@`)
-with broader permissions. Setup will be similar but with a tighter
-`attribute-condition` (e.g. only the `main` branch ref) on either the
-provider or the SA binding.
+# Apply-on-merge setup (terraform-deploy)
+
+The plan workflow above is read-only. To let GitHub Actions actually
+mutate GCP on push to `main`, set up a second service account
+(`terraform-deploy@`) with `roles/editor`, gated behind:
+
+1. **A manual approval gate** (GitHub Environment `infra-prod`) — the
+   workflow pauses before `terraform apply` until a designated reviewer
+   approves in the Actions UI.
+2. **A `main`-branch-only WIF binding** — the deploy SA can only be
+   impersonated from workflow runs triggered by the `main` ref, so a
+   malicious PR cannot mint a token that has apply permissions.
+
+## 1. Create the deploy service account
+
+```bash
+gcloud iam service-accounts create terraform-deploy \
+  --project=mlops-491820 \
+  --display-name="Terraform CI (apply)"
+```
+
+## 2. Grant project Editor + state bucket admin
+
+```bash
+gcloud projects add-iam-policy-binding mlops-491820 \
+  --member="serviceAccount:terraform-deploy@mlops-491820.iam.gserviceaccount.com" \
+  --role="roles/editor"
+
+gcloud storage buckets add-iam-policy-binding gs://mlops-491820-terraform-state \
+  --member="serviceAccount:terraform-deploy@mlops-491820.iam.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
+```
+
+`roles/editor` was chosen for simplicity over scoped IAM
+(`cloudsql.admin` + `compute.instanceAdmin.v1` + `compute.securityAdmin`).
+The deploy SA is gated behind WIF (only this repo can mint tokens for it)
+*and* the GitHub Environment approval gate, so the practical blast
+radius is bounded by the human approver, not the IAM scope.
+
+## 3. Create a `main`-only OIDC provider in the same pool
+
+The plan provider (`github`) accepts tokens from any branch — that's
+fine for read-only plans. For apply, add a second provider in the same
+pool that only accepts tokens whose `ref` claim is `refs/heads/main`.
+A malicious PR on a feature branch can't mint a token usable against
+the deploy SA, even if it edits the workflow.
+
+```bash
+gcloud iam workload-identity-pools providers create-oidc github-main \
+  --project=mlops-491820 \
+  --location=global \
+  --workload-identity-pool=github-actions \
+  --display-name="GitHub (main only)" \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.ref=assertion.ref" \
+  --attribute-condition="assertion.repository_owner == 'deshmukh-neel' && assertion.ref == 'refs/heads/main'"
+```
+
+## 4. Bind the deploy SA to `main`-ref tokens only
+
+The principalSet here is keyed on `attribute.ref` (not
+`attribute.repository`), so the SA only accepts tokens whose `ref`
+claim equals `refs/heads/main`. A token from a feature-branch run
+can't satisfy this binding regardless of which provider it came
+through.
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding \
+  terraform-deploy@mlops-491820.iam.gserviceaccount.com \
+  --project=mlops-491820 \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/739618408593/locations/global/workloadIdentityPools/github-actions/attribute.ref/refs/heads/main"
+```
+
+Defense in depth: the `github-main` OIDC provider's `attribute-condition`
+already rejects non-main tokens at provider-level, *and* this SA binding
+rejects them at SA-level. Either control on its own is sufficient;
+together they fail-safe.
+
+## 5. Configure the GitHub Environment
+
+In the GitHub UI: **Settings → Environments → New environment →
+`infra-prod`**.
+
+Configure:
+- **Required reviewers**: add the people allowed to approve applies
+  (project owners — `pjnhek`, `neel.deshmukh1`, `ankitjai3000`).
+- **Deployment branches**: restrict to `main` only.
+- (Optional) **Wait timer**: 0 minutes is fine; the human gate is
+  the actual control.
+
+The workflow's `environment: infra-prod` line is what triggers the
+approval gate.
+
+## 6. Verify
+
+After all of the above:
+1. Open a tiny no-op infra PR (e.g. one whitespace change in a `.tf` file).
+2. The plan workflow runs and posts a clean plan comment.
+3. Merge the PR.
+4. The apply workflow starts, reaches the approval step, and pauses.
+5. An approver clicks "Review deployments → Approve" in the Actions UI.
+6. `terraform apply` runs against `main` and reports the same plan was
+   applied.
