@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
 from .db import get_db
+from .db_pool import close_db_pool, init_db_pool
 
 logger = logging.getLogger(__name__)
 
@@ -135,19 +136,32 @@ def serialize_sources(source_documents: list[Any], limit: int) -> list[Recommend
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = get_settings()
+    database_url = settings.resolved_database_url
+    if not database_url:
+        raise RuntimeError("Missing DATABASE_URL or POSTGRES_* database settings.")
+
+    init_db_pool(
+        database_url,
+        settings.db_pool_min_connections,
+        settings.db_pool_max_connections,
+    )
     try:
-        rag_chain, model_config = load_registered_rag_chain()
-    except Exception:
-        logger.warning(
-            "Failed to load RAG chain from MLflow registry — app will boot in "
-            "degraded mode and RAG endpoints will return 503.",
-            exc_info=True,
-        )
-        rag_chain = None
-        model_config = None
-    app.state.rag_chain = rag_chain
-    app.state.active_model_config = model_config
-    yield
+        try:
+            rag_chain, model_config = load_registered_rag_chain()
+        except Exception:
+            logger.warning(
+                "Failed to load RAG chain from MLflow registry — app will boot in "
+                "degraded mode and RAG endpoints will return 503.",
+                exc_info=True,
+            )
+            rag_chain = None
+            model_config = None
+        app.state.rag_chain = rag_chain
+        app.state.active_model_config = model_config
+        yield
+    finally:
+        close_db_pool()
 
 
 def create_app() -> FastAPI:

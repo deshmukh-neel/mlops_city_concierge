@@ -1,36 +1,46 @@
+import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 
-import psycopg2
 from psycopg2.extensions import connection
 
-from .config import get_settings
+from .db_pool import get_connection, return_connection
+
+logger = logging.getLogger(__name__)
 
 
-def _resolve_url() -> str:
-    url = get_settings().resolved_database_url
-    if not url:
-        raise RuntimeError("Missing DATABASE_URL or POSTGRES_* database settings.")
-    return url
+def _return_connection_safely(conn: connection) -> None:
+    close_connection = False
+    try:
+        if conn.closed:
+            close_connection = True
+        else:
+            conn.rollback()
+    except Exception:
+        logger.warning(
+            "Failed to reset DB connection before returning it to the pool.",
+            exc_info=True,
+        )
+        close_connection = True
+    return_connection(conn, close=close_connection)
 
 
 def get_db() -> Generator[connection, None, None]:
-    conn = psycopg2.connect(_resolve_url())
+    conn = get_connection()
     try:
         yield conn
     finally:
-        conn.close()
+        _return_connection_safely(conn)
 
 
 @contextmanager
 def get_conn() -> Generator[connection, None, None]:
     """Context-manager Postgres connection for scripts and agent tools.
 
-    Opens a fresh psycopg2 connection per call. PR #56 will swap this body
-    to borrow from the shared pool with no caller change.
+    Borrows from the shared pool with the same lifecycle guarantees as get_db().
     """
-    conn = psycopg2.connect(_resolve_url())
+    conn = get_connection()
     try:
         yield conn
     finally:
-        conn.close()
+        _return_connection_safely(conn)
