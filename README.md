@@ -4,6 +4,10 @@ A RAG-powered SF restaurant concierge built for USF MSDS 603 (MLOps).
 
 FastAPI backend, PostgreSQL + pgvector retrieval, LangChain orchestration, MLflow-driven model selection, deployed to Cloud Run.
 
+## App Demo 
+
+![App Demo](app_demo_gif.gif)
+
 ## Architecture
 
 ```
@@ -248,7 +252,3 @@ Run `make help` to see all targets.
 **App boots in degraded mode (`/health` returns `"status": "degraded"`).** The MLflow registry was unreachable at startup. Open the IAP tunnel (see Docker section) and restart the app container.
 
 **Local dev uses production data.** Older `.env` files may have `DATABASE_URL` or `POSTGRES_DB` pointing at production. Compose overrides these for the `app` service, but host-side tooling (tests, ingest scripts) reads `.env` directly. Update or clear those values before running anything outside Compose.
-
-## App Demo 
-
-![App Demo](app_demo_gif.gif)
