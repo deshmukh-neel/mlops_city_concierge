@@ -1,0 +1,50 @@
+name: terraform apply
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform-apply.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write       # required for Workload Identity Federation
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    # Manual approval gate. The workflow pauses here until a reviewer
+    # approves in the Actions UI. Configure the approver list at
+    # Settings → Environments → infra-prod.
+    environment: infra-prod
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/739618408593/locations/global/workloadIdentityPools/github-actions/providers/github-main
+          service_account: terraform-deploy@mlops-491820.iam.gserviceaccount.com
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.9
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform plan
+        run: terraform plan -no-color -input=false -out=tfplan
+
+      - name: terraform apply
+        run: terraform apply -input=false -no-color tfplan
