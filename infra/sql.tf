@@ -28,7 +28,7 @@ resource "google_sql_database_instance" "main" {
     }
 
     backup_configuration {
-      enabled                        = false
+      enabled                        = true
       point_in_time_recovery_enabled = false
       start_time                     = "17:00"
       transaction_log_retention_days = 14
