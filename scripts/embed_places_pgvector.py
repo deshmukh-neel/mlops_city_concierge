@@ -364,35 +364,43 @@ def run() -> None:
         raise RuntimeError("Missing OPENAI_API_KEY in environment.")
 
     client = OpenAI(api_key=OPENAI_API_KEY)
+    total_embedded = 0
 
     with psycopg2.connect(DATABASE_URL) as conn:
-        rows = fetch_rows_to_embed(conn, limit=BATCH_SIZE)
-        if not rows:
-            print("No new or updated places to embed.")
-            return
+        # Loop until fetch_rows_to_embed returns no more rows. Each iteration
+        # streams up to BATCH_SIZE places into memory, embeds them, and upserts.
+        # The fetch query itself excludes already-embedded rows, so the loop
+        # terminates naturally and is safe to interrupt + resume.
+        while True:
+            rows = fetch_rows_to_embed(conn, limit=BATCH_SIZE)
+            if not rows:
+                if total_embedded == 0:
+                    print("No new or updated places to embed.")
+                break
 
-        embedded_count = 0
-        batches = iter_embedding_batches(rows)
-        for index, batch in enumerate(batches, start=1):
-            inputs = [row.text for row in batch]
-            input_chars = sum(len(text) for text in inputs)
-            print(
-                f"Embedding request {index}/{len(batches)}: "
-                f"{len(batch)} places, {input_chars} chars"
-            )
-            response = client.embeddings.create(model=EMBED_MODEL, input=inputs)
-
-            for row, item in zip(batch, response.data, strict=True):
-                upsert_embedding(
-                    conn,
-                    place_id=row.place_id,
-                    source_updated_at=row.source_updated_at,
-                    text=row.text,
-                    embedding=item.embedding,
+            batches = iter_embedding_batches(rows)
+            for index, batch in enumerate(batches, start=1):
+                inputs = [row.text for row in batch]
+                input_chars = sum(len(text) for text in inputs)
+                print(
+                    f"Embedding request {index}/{len(batches)} "
+                    f"(cumulative: {total_embedded}): "
+                    f"{len(batch)} places, {input_chars} chars",
+                    flush=True,
                 )
-                embedded_count += 1
+                response = client.embeddings.create(model=EMBED_MODEL, input=inputs)
 
-    print(f"Embedded and upserted {embedded_count} places with model {EMBED_MODEL}.")
+                for row, item in zip(batch, response.data, strict=True):
+                    upsert_embedding(
+                        conn,
+                        place_id=row.place_id,
+                        source_updated_at=row.source_updated_at,
+                        text=row.text,
+                        embedding=item.embedding,
+                    )
+                    total_embedded += 1
+
+    print(f"Embedded and upserted {total_embedded} places with model {EMBED_MODEL}.")
 
 
 if __name__ == "__main__":
