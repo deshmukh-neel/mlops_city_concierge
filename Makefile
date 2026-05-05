@@ -63,6 +63,10 @@ ingest-places: ## Pull SF Google Places data into Postgres
 embed-places: ## Generate pgvector embeddings for places
 	$(PYTHON) scripts/embed_places_pgvector.py
 
+.PHONY: embed-v2
+embed-v2: ## Generate cleaned pgvector embeddings into place_embeddings_v2
+	$(PYTHON) scripts/embed_places_pgvector_v2.py
+
 .PHONY: log-mlflow
 log-mlflow: ## Log a RAG configuration and sample outputs to MLflow
 	$(PYTHON) scripts/log_model_to_mlflow.py --config configs/experiments.yaml

@@ -212,6 +212,9 @@ __marimo__/
 # Claude Code local settings
 .claude/
 
+# VS Code workspace settings (machine-specific)
+.vscode/
+
 # Local dev binaries / symlinks (machine-specific)
 cloud-sql-proxy
 frontend/node_modules/

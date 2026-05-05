@@ -4,7 +4,10 @@ from collections.abc import Mapping
 from functools import lru_cache
 from urllib.parse import quote_plus, urlencode
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ALLOWED_EMBEDDING_TABLES: frozenset[str] = frozenset({"place_embeddings", "place_embeddings_v2"})
 
 
 def build_database_url(
@@ -91,8 +94,19 @@ class Settings(BaseSettings):
     mlflow_artifacts_uri: str = "mlflow-artifacts://localhost:5000"
     mlflow_model_name: str = "city-concierge-rag"
     retriever_k: int = 5
+    embedding_table: str = "place_embeddings"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("embedding_table")
+    @classmethod
+    def _validate_embedding_table(cls, value: str) -> str:
+        if value not in ALLOWED_EMBEDDING_TABLES:
+            raise ValueError(
+                f"EMBEDDING_TABLE must be one of {sorted(ALLOWED_EMBEDDING_TABLES)}; "
+                f"got {value!r}."
+            )
+        return value
 
     @property
     def resolved_database_url(self) -> str | None:
