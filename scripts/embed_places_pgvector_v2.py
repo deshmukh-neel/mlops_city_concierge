@@ -30,6 +30,7 @@ from dataclasses import dataclass
 import psycopg2
 from dotenv import load_dotenv
 from openai import OpenAI
+from psycopg2.extras import execute_values
 
 from app.config import resolve_database_url
 
@@ -397,6 +398,47 @@ def upsert_embedding(
     conn.commit()
 
 
+def upsert_embeddings_batch(
+    conn: psycopg2.extensions.connection,
+    rows: list[tuple[str, str, str, list[float]]],
+) -> None:
+    """Batched upsert: one round-trip + one commit per call.
+
+    Each row is (place_id, source_updated_at, text, embedding). Replaces N
+    sequential upsert_embedding calls (each a network round-trip through the
+    Cloud SQL proxy) with a single execute_values; on a typical 1000-row
+    OpenAI batch, this collapses ~1000 commits into 1.
+    """
+    # TARGET_TABLE is a module-level constant, not user input.
+    sql = f"""
+    INSERT INTO {TARGET_TABLE} (
+        place_id,
+        embedding,
+        embedding_model,
+        embedding_text,
+        embedded_at,
+        source_updated_at
+    )
+    VALUES %s
+    ON CONFLICT (place_id) DO UPDATE SET
+        embedding = EXCLUDED.embedding,
+        embedding_model = EXCLUDED.embedding_model,
+        embedding_text = EXCLUDED.embedding_text,
+        embedded_at = NOW(),
+        source_updated_at = EXCLUDED.source_updated_at
+    """  # noqa: S608
+
+    template = "(%s, %s::vector, %s, %s, NOW(), %s)"
+    values = [
+        (place_id, vector_to_pg(embedding), EMBED_MODEL, text, source_updated_at)
+        for place_id, source_updated_at, text, embedding in rows
+    ]
+
+    with conn.cursor() as cur:
+        execute_values(cur, sql, values, template=template, page_size=len(values) or 1)
+    conn.commit()
+
+
 def iter_embedding_batches(rows: list[PlaceRow]) -> list[list[PlaceRow]]:
     batches: list[list[PlaceRow]] = []
     current_batch: list[PlaceRow] = []
@@ -451,15 +493,12 @@ def run() -> None:
                 )
                 response = client.embeddings.create(model=EMBED_MODEL, input=inputs)
 
-                for row, item in zip(batch, response.data, strict=True):
-                    upsert_embedding(
-                        conn,
-                        place_id=row.place_id,
-                        source_updated_at=row.source_updated_at,
-                        text=row.text,
-                        embedding=item.embedding,
-                    )
-                    total_embedded += 1
+                upsert_rows = [
+                    (row.place_id, row.source_updated_at, row.text, item.embedding)
+                    for row, item in zip(batch, response.data, strict=True)
+                ]
+                upsert_embeddings_batch(conn, upsert_rows)
+                total_embedded += len(upsert_rows)
 
     print(
         f"Embedded and upserted {total_embedded} places into {TARGET_TABLE} "
