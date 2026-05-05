@@ -48,6 +48,7 @@ mypy = ">=1.10.0,<2.0.0"
 types-requests = ">=2.31.0,<3.0.0"
 sqlalchemy = {version = ">=2.0.29,<3.0.0", extras = ["mypy"]}
 pre-commit = "^4.6.0"
+types-psycopg2 = "^2.9.21.20260422"
 
 [build-system]
 requires = ["poetry-core"]
