@@ -460,7 +460,7 @@ psql "$DATABASE_URL" -f scripts/db/migrations/000_place_embeddings_v2.sql
 make embed-v2
 
 # Eyeball v1 vs v2 for 5 random well-known places:
-python scripts/diagnose_chunks.py -n 5
+poetry run python -m scripts.diagnose_chunks -n 5
 
 # Confirm length distribution:
 psql "$DATABASE_URL" -c "
@@ -499,3 +499,22 @@ Expected: v2 chunks roughly 600–900 chars (vs v1 avg ~2,468). v2 retrieval sur
 - **HNSW index recall under filter pressure.** Same caveat as v1; addressed in W1's risks section. Not a v2-specific issue.
 - **v1 and v2 will drift if ingest changes shape.** Both scripts read from the same `places_raw` so they stay in sync as long as both are re-run after an ingest change. Document this in the PR description.
 - **Promotion semantics.** Flipping `EMBEDDING_TABLE=place_embeddings_v2` in production is gated on a W6 eval that shows non-regression on retrieval-quality metrics. No alias mechanism on the embeddings table itself; the env var IS the alias.
+
+## Outcomes (2026-05-04)
+
+Populated `place_embeddings_v2` for the full SF corpus and measured v1 vs v2 chunk lengths on Cloud SQL:
+
+|        | rows  | max len | avg len |
+|--------|-------|---------|---------|
+| v1     | 5,855 | 3,893   | 2,468   |
+| v2     | 5,855 | 1,622   | **873** |
+
+v2 average lands squarely inside the 600–900 char prediction. Spot-checked v1 vs v2 chunks for 3 well-known places (Cull Canyon Recreation Area, The 500 Club, Jasmin's) — every URL, language code, and "Summarized with Gemini" disclosure is gone from v2, and `Neighborhood` / `Containing Areas` / `Nearby Landmarks` are present where the data exists.
+
+### Bugs found while running and fixed in the same PR
+
+While running `make embed-v2` end-to-end against Cloud SQL we hit three pre-existing issues in the embed pipeline. They affected v1 too — fixed once for both:
+
+1. **`ModuleNotFoundError: No module named 'app'`** when running scripts directly. Fixed by adding `scripts/__init__.py` and switching the Make targets to `poetry run python -m scripts.<name>`. Also corrects the manual-verification command above.
+2. **Single-batch run** — `run()` only embedded the first `BATCH_SIZE = 1000` places and exited. Replaced with a `while True` loop that re-fetches until empty; the fetch query already excludes up-to-date rows, so the loop terminates naturally.
+3. **Per-row commit bottleneck** — capped throughput at ~50 rows/min through the Cloud SQL proxy. Replaced the per-row `upsert_embedding` loop with `psycopg2.extras.execute_values` batching (one round-trip per ~1,000-row OpenAI batch). A full corpus re-embed dropped from ~75 minutes to ~3 minutes. Applied to v2 only; v1 left unchanged since it's being deprecated.

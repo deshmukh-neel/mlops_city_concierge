@@ -28,14 +28,17 @@ class PgVectorRetriever(BaseRetriever):
     ) -> list[Document]:
         del run_manager
 
-        api_key = self.openai_api_key or get_settings().openai_api_key
+        settings = get_settings()
+        api_key = self.openai_api_key or settings.openai_api_key
         if not api_key:
             raise RuntimeError("Missing OPENAI_API_KEY for query embedding generation.")
 
         embeddings = OpenAIEmbeddings(model=self.embedding_model, api_key=SecretStr(api_key))
         vector_literal = vector_to_pg(embeddings.embed_query(query))
 
-        sql = """
+        # settings.embedding_table is validated against an allowlist at config load
+        # (see ALLOWED_EMBEDDING_TABLES in app/config.py), so f-stringing is safe.
+        sql = f"""
         SELECT
             e.embedding_text,
             p.place_id,
@@ -44,12 +47,12 @@ class PgVectorRetriever(BaseRetriever):
             p.formatted_address,
             p.primary_type,
             1 - (e.embedding <=> %s::vector) AS similarity
-        FROM place_embeddings e
+        FROM {settings.embedding_table} e
         JOIN places_raw p ON p.place_id = e.place_id
         WHERE e.embedding_model = %s
         ORDER BY e.embedding <=> %s::vector
         LIMIT %s
-        """
+        """  # noqa: S608
 
         with psycopg2.connect(self.connection_string) as conn, conn.cursor() as cur:
             cur.execute(sql, (vector_literal, self.embedding_model, vector_literal, self.k))
