@@ -1,17 +1,23 @@
-# W3 — Self-correction
+# W3 — Self-correction (reflection: deterministic + cheap-LLM critique)
 
 **Branch:** `feature/agent-w3-self-correction`
-**Depends on:** W2
+**Depends on:** W2. Optionally W6's `app/eval/itinerary_checker.py` if W6 lands first — W3 reuses the same checker functions to avoid reimplementation. If W3 ships first, we extract them into `app/agent/critique/checks.py` and W6 imports from there.
 **Unblocks:** —
 
 ## Goal
 
-Make the `critique` node in the LangGraph from W2 actually *critique*: detect bad retrieval outcomes, hand the LLM concrete revision hints, and prevent the agent from confidently surfacing empty/low-quality results to the user. This is what turns "the RAG returned junk" into a graceful product moment — and it's why the `/chat` endpoint won't embarrass us when audiences ask edge-case questions on the fly.
+Make the `critique` node in the LangGraph from W2 actually *critique* — both at the **per-tool-result level** (was the last retrieval call any good?) and at the **per-itinerary level** (does the proposed plan satisfy the constraints + walking budget + temporal coherence the user asked for?). Hand the LLM concrete revision hints, gate the response on a deterministic pass, and prevent the agent from confidently surfacing empty/low-quality results — or geographically-incoherent itineraries — to the user.
+
+This is what turns "the RAG returned junk" or "the agent proposed dinner in North Beach then drinks in the Sunset" into a graceful product moment.
 
 After this PR:
-- The critique node enforces deterministic checks (empty results, all closed, low similarity, constraint violations).
-- On failure, the agent receives a `RevisionHint` in the scratch and the system prompt instructs it how to use those hints.
-- A small set of integration tests exercise the most common failure modes end-to-end.
+- The critique node runs **two passes**:
+  - **Per-step deterministic critique** (existing W3 v0): empty results, all closed, low similarity, tool errors. Cost: ~zero tokens.
+  - **Per-itinerary deterministic critique** (NEW): the moment `state.done` would flip true with `state.stops` populated, the same checker W6 uses offline runs at request time. If `temporal_coherence < 1.0`, `walking_budget_respected < 1.0`, `no_hallucinated_place_ids < 1.0`, or `constraints_satisfied < 0.8`, the agent gets one structured revision pass. Cost: ~zero tokens.
+  - **Cheap-LLM vibe critique** (NEW, optional): if both deterministic passes succeed and `EVAL_VIBE_CRITIQUE_ENABLED=true`, a cheap small model (`gpt-4o-mini` / `gemini-2.5-flash` — same `EVAL_JUDGE_MODEL` used in W6) scores cross-stop vibe coherence on a 0–5 rubric. Below threshold → one revision pass. Cost: low (one cheap completion per request, gated by env var).
+- One revision attempt per failure category. Bounded by `max_steps`; not a runaway loop.
+- The agent never silently returns a plan that fails deterministic checks. Either the plan is valid, or the user gets a clarification, or the user gets explicit caveats.
+- All revisions are counted and logged so MLflow tracks `revisions_per_query` as a metric.
 
 ## Files
 
@@ -22,20 +28,131 @@ Add a `RevisionHint` model and a list field on `ItineraryState`:
 ```python
 class RevisionHint(BaseModel):
     reason: Literal[
+        # Per-step (existing W3 v0)
         "empty_results", "all_closed", "low_similarity",
         "constraint_violation", "tool_error",
+        # Per-itinerary (NEW)
+        "geographic_incoherence", "temporal_incoherence",
+        "walking_budget_exceeded", "constraint_unmet_in_final",
+        "hallucinated_place_id",
+        # Cheap-LLM vibe (NEW)
+        "vibe_mismatch",
     ]
     detail: str
     suggested_action: Literal[
         "drop_filter", "expand_radius", "broaden_query",
         "clarify_with_user", "try_different_tool",
+        # NEW
+        "swap_stop", "tighten_radius", "shift_arrival_time",
+        "rebalance_walking_budget",
     ]
-    target: dict  # e.g. {"filter": "price_level_max"} or {"tool": "semantic_search"}
+    target: dict  # e.g. {"filter": "price_level_max"}, {"stop_index": 2}, {"tool": "..."}
 
 
 class ItineraryState(BaseModel):
     # ... existing fields
     revision_hints: list[RevisionHint] = Field(default_factory=list)
+    # NEW: bounded retry counter per failure category, prevents runaway loops.
+    revision_counts: dict[str, int] = Field(default_factory=dict)
+```
+
+### New: `app/agent/critique/__init__.py` and `app/agent/critique/checks.py`
+
+Pulls the deterministic check functions out of W6 (or the eval module pulls from here, depending on merge order) so request-time critique and offline eval share one implementation.
+
+```python
+"""Deterministic itinerary checks. Same code path as W6 eval.
+Pure functions of (state) → score in [0, 1]. No LLM, no network beyond DB
+lookups for hours / coords."""
+
+# Re-exported from app/eval/itinerary_checker.py — see the canonical defs there.
+from app.eval.itinerary_checker import (
+    constraints_satisfied,
+    geographic_coherence,
+    temporal_coherence,
+    walking_budget_respected,
+    no_hallucinated_place_ids,
+)
+
+CRITIQUE_THRESHOLDS = {
+    "constraints_satisfied":     0.8,    # 80% of expressed constraints met
+    "geographic_coherence":      1.0,    # all consecutive pairs within budget
+    "temporal_coherence":        1.0,    # all stops open at planned arrival
+    "walking_budget_respected":  1.0,    # total walk under budget
+    "no_hallucinated_place_ids": 1.0,    # zero tolerance
+}
+
+
+def itinerary_violations(state) -> list[str]:
+    """Return a list of failing check names. Empty = the itinerary passed."""
+    failed = []
+    if no_hallucinated_place_ids(state) < 1.0:
+        failed.append("no_hallucinated_place_ids")
+    if temporal_coherence(state) < CRITIQUE_THRESHOLDS["temporal_coherence"]:
+        failed.append("temporal_coherence")
+    if geographic_coherence(state) < CRITIQUE_THRESHOLDS["geographic_coherence"]:
+        failed.append("geographic_coherence")
+    if walking_budget_respected(state) < CRITIQUE_THRESHOLDS["walking_budget_respected"]:
+        failed.append("walking_budget_respected")
+    if constraints_satisfied(state) < CRITIQUE_THRESHOLDS["constraints_satisfied"]:
+        failed.append("constraints_satisfied")
+    return failed
+```
+
+### New: `app/agent/critique/vibe.py`
+
+A cheap-LLM rubric judge that runs ONLY when deterministic checks pass and `EVAL_VIBE_CRITIQUE_ENABLED=true`. Uses the same model as W6's eval judge.
+
+```python
+"""Cross-stop vibe coherence check via a cheap small model.
+
+This is a runtime version of W6's taste judge — same prompt template, same
+model, but bounded to 1 call per request and gated by env var. The point is
+to catch "fancy Italian → dive bar → fancy dessert" mismatches that
+deterministic checks can't see.
+"""
+
+import os
+from typing import Optional
+from langchain_core.messages import HumanMessage
+from app.config import get_settings
+
+VIBE_THRESHOLD = 3.0  # 0-5; below this triggers one revision pass.
+
+VIBE_PROMPT = """Rate the vibe coherence of this {n_stops}-stop itinerary on a
+0-5 scale where 5 = perfectly matched vibes, 0 = jarring mismatch.
+
+User's request: {user_query}
+
+Stops in order:
+{stops_text}
+
+Return JSON only: {{"score": float, "rationale": "one short sentence"}}.
+"""
+
+
+def vibe_check(state, judge_llm) -> Optional[float]:
+    """Return a 0-5 score, or None if the check is disabled / no stops."""
+    if not _enabled():
+        return None
+    if len(state.stops) < 2:
+        return None  # vibe coherence is undefined for one stop
+    user_query = next((m.content for m in state.messages
+                       if m.__class__.__name__ == "HumanMessage"), "")
+    stops_text = "\n".join(
+        f"  {i+1}. {s.name} ({s.primary_type}) — {s.rationale}"
+        for i, s in enumerate(state.stops)
+    )
+    prompt = VIBE_PROMPT.format(n_stops=len(state.stops),
+                                user_query=user_query, stops_text=stops_text)
+    raw = judge_llm.invoke([HumanMessage(prompt)]).content
+    import json
+    obj = json.loads(raw)
+    return float(obj["score"])
+
+
+def _enabled() -> bool:
+    return os.getenv("EVAL_VIBE_CRITIQUE_ENABLED", "false").lower() == "true"
 ```
 
 ### Modify: `app/agent/graph.py`
@@ -49,31 +166,131 @@ from langchain_core.messages import HumanMessage
 LOW_SIMILARITY_THRESHOLD = 0.55  # tune from eval data (W6)
 EMPTY_RESULTS_PATIENCE = 1       # how many empty calls before forcing revise
 
-def critique(state: ItineraryState) -> ItineraryState:
+MAX_REVISIONS_PER_REASON = 2  # bounded retries; after this we ship with a caveat.
+
+
+def critique(state: ItineraryState, judge_llm=None) -> ItineraryState:
     # 1) Loop bound (already in W2; keep)
     if state.step_count >= MAX_STEPS:
         state.done = True
         state.final_reply = state.final_reply or _bounded_reply(state)
         return state
 
-    # 2) If the last AIMessage has no tool calls AND the agent produced stops,
-    #    consider it final.
     last = state.messages[-1] if state.messages else None
-    if isinstance(last, AIMessage) and not last.tool_calls:
+    finalizing = isinstance(last, AIMessage) and not last.tool_calls
+
+    if finalizing and state.stops:
+        # 2) Per-itinerary deterministic critique. Same checker as W6.
+        from app.agent.critique.checks import itinerary_violations
+        violations = itinerary_violations(state)
+        if violations:
+            for reason in violations:
+                if _can_retry(state, reason):
+                    state.revision_hints.append(_hint_for(reason, state))
+                    _bump_retry(state, reason)
+                    state.messages.append(HumanMessage(
+                        content=f"[critique:itinerary] {reason}. "
+                                f"Revise the affected stop(s); do not finalize yet."
+                    ))
+                    state.done = False  # keep planning
+                    return state
+            # If we exhausted retries on at least one reason, ship with a caveat.
+            state.done = True
+            state.final_reply = _final_with_caveats(state, violations)
+            return state
+
+        # 3) Cheap-LLM vibe critique. Gated by EVAL_VIBE_CRITIQUE_ENABLED.
+        from app.agent.critique.vibe import vibe_check, VIBE_THRESHOLD
+        if judge_llm is not None:
+            score = vibe_check(state, judge_llm)
+            if score is not None and score < VIBE_THRESHOLD \
+               and _can_retry(state, "vibe_mismatch"):
+                state.revision_hints.append(RevisionHint(
+                    reason="vibe_mismatch",
+                    detail=f"Vibe coherence scored {score:.1f}/5.",
+                    suggested_action="swap_stop",
+                    target={},
+                ))
+                _bump_retry(state, "vibe_mismatch")
+                state.messages.append(HumanMessage(
+                    content=f"[critique:vibe] cross-stop vibe coherence "
+                            f"scored {score:.1f}/5. Swap whichever stop "
+                            f"feels off and re-finalize."
+                ))
+                state.done = False
+                return state
+
+        # 4) All checks passed; finalize.
         state.done = True
         state.final_reply = state.final_reply or last.content
         return state
 
-    # 3) Inspect the most recent tool result and emit a hint if it was bad.
+    # 5) Per-step deterministic critique (existing W3 v0): inspect last tool
+    #    result and emit a hint if it was bad.
     hint = _diagnose_last_tool_result(state)
-    if hint is not None:
+    if hint is not None and _can_retry(state, hint.reason):
         state.revision_hints.append(hint)
-        # Inject a HumanMessage carrying the hint so the LLM sees it on next plan().
+        _bump_retry(state, hint.reason)
         state.messages.append(HumanMessage(
-            content=f"[critique] {hint.reason}: {hint.detail}. "
+            content=f"[critique:step] {hint.reason}: {hint.detail}. "
                     f"Suggested next action: {hint.suggested_action} on {hint.target}."
         ))
     return state
+
+
+def _can_retry(state: ItineraryState, reason: str) -> bool:
+    return state.revision_counts.get(reason, 0) < MAX_REVISIONS_PER_REASON
+
+
+def _bump_retry(state: ItineraryState, reason: str) -> None:
+    state.revision_counts[reason] = state.revision_counts.get(reason, 0) + 1
+
+
+def _hint_for(reason: str, state: ItineraryState) -> RevisionHint:
+    """Map an itinerary-level violation to a structured hint the planner can act on."""
+    if reason == "geographic_coherence":
+        return RevisionHint(
+            reason="geographic_incoherence",
+            detail="One or more consecutive stops exceed the per-leg walking budget.",
+            suggested_action="tighten_radius",
+            target={"stops": [i for i in range(1, len(state.stops))]},
+        )
+    if reason == "temporal_coherence":
+        return RevisionHint(
+            reason="temporal_incoherence",
+            detail="A stop is closed at its planned arrival time.",
+            suggested_action="shift_arrival_time",
+            target={},
+        )
+    if reason == "walking_budget_respected":
+        return RevisionHint(
+            reason="walking_budget_exceeded",
+            detail="Total walking exceeds the user's budget.",
+            suggested_action="rebalance_walking_budget",
+            target={},
+        )
+    if reason == "no_hallucinated_place_ids":
+        return RevisionHint(
+            reason="hallucinated_place_id",
+            detail="One or more place_ids do not exist in places_raw.",
+            suggested_action="swap_stop",
+            target={},
+        )
+    return RevisionHint(
+        reason="constraint_unmet_in_final",
+        detail="Final stops do not satisfy the shared user constraints.",
+        suggested_action="swap_stop",
+        target={},
+    )
+
+
+def _final_with_caveats(state: ItineraryState, violations: list[str]) -> str:
+    """Compose a final_reply that lists what didn't quite work. Better than
+    silently shipping a bad plan."""
+    body = state.messages[-1].content if state.messages else ""
+    caveats = "\n\nCaveats: I couldn't fully satisfy " + ", ".join(violations) + \
+              " after revisions. You may want to adjust the plan."
+    return body + caveats
 
 
 def _diagnose_last_tool_result(state: ItineraryState) -> Optional[RevisionHint]:
@@ -232,8 +449,32 @@ NOT acceptable:
 - Empty `places` with a confident `reply` listing fictional restaurants.
 - A plausible-but-wrong place_id that doesn't exist in the DB (defended by W1's structured tools, but worth verifying).
 
+## Future direction: lightweight constraint extractor
+
+A cheap-LLM "constraint extractor" pre-pass — turn the user's free-text into a
+structured `UserConstraints` object before the main agent runs — is a natural
+next step IF eval shows the planning agent is losing tokens / quality to NLU
+work. Out of scope here: we let the planner do its own parsing for now and
+revisit once W6 has run a couple of evals. If we add it, it becomes a new
+node in the graph that runs before `plan` and writes `state.constraints`
+directly. Same `EVAL_JUDGE_MODEL` env var, separate cost line.
+
+## Future direction: supervisor / specialized subagents
+
+We considered (and deliberately deferred) a supervisor + specialized-subagent
+pattern. Reasoning: today's tools are all variations of "look up places" with a
+shared data model and prompt context. A supervisor on top of W2's
+`plan → act → critique` loop adds wrapping without a clear win. Cases where it
+might pay off later: a separate booking specialist if W4 grows beyond URL
+deep-links into actual API calls (different ToS regime, different rate limits);
+a separate research agent if we ever add open-web search as a first-class tool.
+Reassess when one of those triggers fires.
+
 ## Risks / open questions
 
-- **Threshold tuning.** `LOW_SIMILARITY_THRESHOLD = 0.55` is a guess. W6 (eval agent) gives us a principled way to set it from data. Until then, log similarity distributions and adjust if false positives/negatives are noticeable.
-- **Hint fatigue.** If every step emits a hint, the agent may thrash. Cap at 3 revision hints per request; after that, force `done=True` with a transparent explanation.
+- **Threshold tuning.** `LOW_SIMILARITY_THRESHOLD = 0.55`, `VIBE_THRESHOLD = 3.0`, `CRITIQUE_THRESHOLDS["constraints_satisfied"] = 0.8` are all guesses. W6 (eval agent) gives us a principled way to reset these from observed run-to-run distributions. Until then, log them as MLflow params and watch for false positives / negatives.
+- **Hint fatigue.** Bounded by `MAX_REVISIONS_PER_REASON = 2` per failure category. After that we ship with caveats rather than thrash.
+- **Vibe critique cost.** Each call is one cheap-LLM completion (≤200 tokens out). At `gpt-4o-mini` rates this is fractions of a cent per request, but it does double the LLM calls for any 2+-stop request. Gated by `EVAL_VIBE_CRITIQUE_ENABLED` so it can be turned off in cost-sensitive deployments. Default off until we measure user-facing quality lift.
+- **Itinerary checker shared with W6.** Single source of truth lives wherever ships first. If W3 ships before W6, the canonical module is `app/agent/critique/checks.py` and W6 imports from there. If W6 ships first, the canonical module is `app/eval/itinerary_checker.py` and W3 re-exports. PR descriptions must call out the import direction so we don't end up with two implementations.
 - **Multilingual queries.** ILIKE matching on `formatted_address` is locale-dependent. Out of scope; document.
+- **Revision pass can still produce a plan that fails the same check.** The retry budget is bounded but the LLM's revision may not actually fix the violation. The `_final_with_caveats` path catches this case — the user sees the imperfect plan with an explicit caveat list, never a silent failure.

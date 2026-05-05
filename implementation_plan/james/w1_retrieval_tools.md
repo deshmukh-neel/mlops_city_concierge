@@ -1,17 +1,19 @@
 # W1 — Unified place view + filterable retrieval tools
 
 **Branch:** `feature/agent-w1-retrieval-tools`
-**Depends on:** nothing
-**Unblocks:** W2, W3, W6 (and indirectly W4)
+**Depends on:** W0a (the `place_embeddings_v2` table + the `EMBEDDING_TABLE` env var that selects which embedding table the view reads from)
+**Unblocks:** W2, W3, W6, W7 (and indirectly W4)
 
 ## Goal
 
-Replace the single-pass, metadata-blind retriever with a set of **tools** the agent can call with structured filters. Hide the underlying tables (`places_raw` + `place_embeddings`, plus the future editorial table) behind a SQL view so the retrieval tools never touch source tables directly.
+Replace the single-pass, metadata-blind retriever with a set of **tools** the agent can call with structured filters. Hide the underlying tables (`places_raw` + the active embedding table — `place_embeddings` or `place_embeddings_v2` per W0a — plus the future editorial table) behind a SQL view so the retrieval tools never touch source tables directly.
 
 After this PR:
 - New `place_documents` view exposes every column the agent might filter on, with a `source` column.
+- The view exposes filterable columns the embedding (after W0a's cleanup) no longer carries: `neighborhood`, `servesCocktails`, `outdoorSeating`, `reservable`, `allowsDogs`, `liveMusic`, `goodForGroups`, `goodForChildren`, `parkingOptions`. These are the high-signal Role-2 facts we deliberately removed from the embedding text — they belong in WHERE clauses, not in the vector.
 - Three tool functions (`semantic_search`, `nearby`, `get_details`) return typed Pydantic objects.
-- A `SearchFilters` model compiles to safe parameterized SQL fragments.
+- A `SearchFilters` model compiles to safe parameterized SQL fragments and now carries quality-floor defaults (`min_user_rating_count = 50`, `business_status = 'OPERATIONAL'`) so the Pasadena Velasco failure mode (5.0 rating, 1 rater) cannot reach the agent without an explicit override.
+- `place_is_open` correctly handles overnight periods (close < open the next day) — needed for bars and late-night spots.
 - The legacy `PgVectorRetriever` still works for `/predict` so this PR is non-breaking on its own.
 
 ## Files
@@ -23,6 +25,15 @@ After this PR:
 -- a teammate is adding an editorial source (Eater + Infatuation). When that
 -- table lands, this view becomes a UNION ALL — agent code does not change.
 
+-- Note: this view reads from whichever embedding table the app selects via the
+-- EMBEDDING_TABLE env var (W0a). To keep the view definition stable, we define
+-- it once per table name and the migration creates BOTH variants. The retriever
+-- helper picks the right view name at query time:
+--   place_documents     -> joins place_embeddings   (v1)
+--   place_documents_v2  -> joins place_embeddings_v2 (v2 — preferred)
+-- This costs one extra view definition and avoids a runtime `format()` on the
+-- view name.
+
 CREATE OR REPLACE VIEW place_documents AS
 SELECT
     p.place_id,
@@ -30,6 +41,12 @@ SELECT
     p.primary_type,
     p.types,
     p.formatted_address,
+    -- structured neighborhood pulled from addressComponents (mirrors
+    -- _neighborhood_from_address_components in scripts/embed_places_pgvector_v2.py
+    -- via the neighborhood_of() SQL helper introduced in W7's migration; if W7
+    -- has not landed yet, this view inlines the same expression — see the
+    -- "If W7 has not landed" note below).
+    neighborhood_of(p.source_json) AS neighborhood,
     p.latitude,
     p.longitude,
     p.rating,
@@ -41,6 +58,28 @@ SELECT
     p.editorial_summary,
     p.regular_opening_hours,
     p.source_city,
+    -- High-signal boolean amenities promoted from source_json. These are the
+    -- Role-2 facts W0a deliberately removed from embedding_text — exposing them
+    -- here is what makes that removal safe.
+    COALESCE((p.source_json->>'servesCocktails')::boolean,  false) AS serves_cocktails,
+    COALESCE((p.source_json->>'servesBeer')::boolean,       false) AS serves_beer,
+    COALESCE((p.source_json->>'servesWine')::boolean,       false) AS serves_wine,
+    COALESCE((p.source_json->>'servesCoffee')::boolean,     false) AS serves_coffee,
+    COALESCE((p.source_json->>'servesBreakfast')::boolean,  false) AS serves_breakfast,
+    COALESCE((p.source_json->>'servesBrunch')::boolean,     false) AS serves_brunch,
+    COALESCE((p.source_json->>'servesLunch')::boolean,      false) AS serves_lunch,
+    COALESCE((p.source_json->>'servesDinner')::boolean,     false) AS serves_dinner,
+    COALESCE((p.source_json->>'servesVegetarianFood')::boolean, false) AS serves_vegetarian,
+    COALESCE((p.source_json->>'outdoorSeating')::boolean,   false) AS outdoor_seating,
+    COALESCE((p.source_json->>'reservable')::boolean,       false) AS reservable,
+    COALESCE((p.source_json->>'allowsDogs')::boolean,       false) AS allows_dogs,
+    COALESCE((p.source_json->>'liveMusic')::boolean,        false) AS live_music,
+    COALESCE((p.source_json->>'goodForGroups')::boolean,    false) AS good_for_groups,
+    COALESCE((p.source_json->>'goodForChildren')::boolean,  false) AS good_for_children,
+    COALESCE((p.source_json->>'goodForWatchingSports')::boolean, false) AS good_for_sports,
+    -- Parking flags as a small jsonb so SearchFilters can do
+    -- "needs_parking" without modeling each subfield.
+    COALESCE(p.source_json->'parkingOptions', '{}'::jsonb) AS parking_options,
     'google_places'::text AS source,
     e.embedding,
     e.embedding_model,
@@ -48,6 +87,43 @@ SELECT
     e.source_updated_at AS embedded_source_updated_at
 FROM places_raw p
 JOIN place_embeddings e ON e.place_id = p.place_id;
+
+-- v2 variant — same definition, different join target. Used when
+-- EMBEDDING_TABLE=place_embeddings_v2 (W0a). Once v1 is retired this becomes
+-- the only view and the suffix can be dropped.
+CREATE OR REPLACE VIEW place_documents_v2 AS
+SELECT
+    p.place_id, p.name, p.primary_type, p.types, p.formatted_address,
+    neighborhood_of(p.source_json) AS neighborhood,
+    p.latitude, p.longitude, p.rating, p.user_rating_count, p.price_level,
+    p.business_status, p.website_uri, p.maps_uri, p.editorial_summary,
+    p.regular_opening_hours, p.source_city,
+    COALESCE((p.source_json->>'servesCocktails')::boolean,  false) AS serves_cocktails,
+    COALESCE((p.source_json->>'servesBeer')::boolean,       false) AS serves_beer,
+    COALESCE((p.source_json->>'servesWine')::boolean,       false) AS serves_wine,
+    COALESCE((p.source_json->>'servesCoffee')::boolean,     false) AS serves_coffee,
+    COALESCE((p.source_json->>'servesBreakfast')::boolean,  false) AS serves_breakfast,
+    COALESCE((p.source_json->>'servesBrunch')::boolean,     false) AS serves_brunch,
+    COALESCE((p.source_json->>'servesLunch')::boolean,      false) AS serves_lunch,
+    COALESCE((p.source_json->>'servesDinner')::boolean,     false) AS serves_dinner,
+    COALESCE((p.source_json->>'servesVegetarianFood')::boolean, false) AS serves_vegetarian,
+    COALESCE((p.source_json->>'outdoorSeating')::boolean,   false) AS outdoor_seating,
+    COALESCE((p.source_json->>'reservable')::boolean,       false) AS reservable,
+    COALESCE((p.source_json->>'allowsDogs')::boolean,       false) AS allows_dogs,
+    COALESCE((p.source_json->>'liveMusic')::boolean,        false) AS live_music,
+    COALESCE((p.source_json->>'goodForGroups')::boolean,    false) AS good_for_groups,
+    COALESCE((p.source_json->>'goodForChildren')::boolean,  false) AS good_for_children,
+    COALESCE((p.source_json->>'goodForWatchingSports')::boolean, false) AS good_for_sports,
+    COALESCE(p.source_json->'parkingOptions', '{}'::jsonb) AS parking_options,
+    'google_places'::text AS source,
+    e.embedding, e.embedding_model, e.embedding_text,
+    e.source_updated_at AS embedded_source_updated_at
+FROM places_raw p
+JOIN place_embeddings_v2 e ON e.place_id = p.place_id;
+
+-- If W7 has not landed yet, define neighborhood_of() inline in this migration
+-- and let W7's migration replace it with `CREATE OR REPLACE FUNCTION` (the body
+-- is identical). See w7_knowledge_graph.md for the canonical definition.
 
 -- Comment so future maintainers know to UNION the editorial table here.
 COMMENT ON VIEW place_documents IS
@@ -85,7 +161,15 @@ from pydantic import BaseModel, Field
 class SearchFilters(BaseModel):
     """Structured constraints the agent passes to retrieval tools.
 
-    All fields are optional. Empty SearchFilters() matches everything.
+    All fields are optional but the quality-floor defaults
+    (`min_user_rating_count = 50`, `business_status = 'OPERATIONAL'`) apply
+    unless explicitly overridden. Empty SearchFilters() does NOT match
+    everything — it matches operational places with at least 50 raters. The
+    agent must opt out of the floors deliberately.
+
+    Why the floors: on 2026-05-04 we found a 5.0-rated "Pasadena Velasco Open
+    Space" with one rater bubbling to the top of results. A concierge that
+    surfaces single-rater places is worse than no concierge.
     """
 
     price_level_max: Optional[int] = Field(
@@ -93,14 +177,21 @@ class SearchFilters(BaseModel):
         description="Max Google price_level. 0=free, 4=very expensive.",
     )
     min_rating: Optional[float] = Field(default=None, ge=0.0, le=5.0)
-    min_user_rating_count: Optional[int] = Field(default=None, ge=0)
+    min_user_rating_count: Optional[int] = Field(
+        default=50, ge=0,
+        description="Quality floor. Default 50 to keep single-rater places out. "
+                    "Set to 0 to include any number of raters.",
+    )
     open_at: Optional[datetime] = Field(
         default=None,
-        description="If set, restrict to places open at this local time.",
+        description="If set, restrict to places open at this local time. "
+                    "Used per-stop with planned arrival time, NOT the user's prompt time.",
     )
     neighborhood: Optional[str] = Field(
         default=None,
-        description="Substring match against formatted_address. Case-insensitive.",
+        description="Exact match against the structured neighborhood column "
+                    "(case-insensitive). Falls back to formatted_address ILIKE only "
+                    "when no row in the neighborhood column matches.",
     )
     types_any: Optional[list[str]] = Field(
         default=None,
@@ -114,6 +205,24 @@ class SearchFilters(BaseModel):
         default=None,
         description="One of 'google_places', 'editorial'. None = any.",
     )
+
+    # ---- Boolean amenity filters (promoted columns from W1's view) ----
+    serves_cocktails:    Optional[bool] = None
+    serves_beer:         Optional[bool] = None
+    serves_wine:         Optional[bool] = None
+    serves_coffee:       Optional[bool] = None
+    serves_breakfast:    Optional[bool] = None
+    serves_brunch:       Optional[bool] = None
+    serves_lunch:        Optional[bool] = None
+    serves_dinner:       Optional[bool] = None
+    serves_vegetarian:   Optional[bool] = None
+    outdoor_seating:     Optional[bool] = None
+    reservable:          Optional[bool] = None
+    allows_dogs:         Optional[bool] = None
+    live_music:          Optional[bool] = None
+    good_for_groups:     Optional[bool] = None
+    good_for_children:   Optional[bool] = None
+    good_for_sports:     Optional[bool] = None
 
 
 def compile_filters(f: SearchFilters) -> tuple[str, list]:
@@ -142,8 +251,39 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
         params.append(f.business_status)
 
     if f.neighborhood:
-        clauses.append("formatted_address ILIKE %s")
+        # Prefer the structured neighborhood column added in W1's view.
+        # Falls back to formatted_address substring for places with no
+        # addressComponents.neighborhood (a few edge cases).
+        clauses.append("(LOWER(neighborhood) = LOWER(%s) "
+                       "OR formatted_address ILIKE %s)")
+        params.append(f.neighborhood)
         params.append(f"%{f.neighborhood}%")
+
+    # Boolean amenity filters — only emit a clause if explicitly set, so
+    # `None` means "don't care" and `False` means "must be false".
+    _BOOL_COLUMNS = {
+        "serves_cocktails":  "serves_cocktails",
+        "serves_beer":       "serves_beer",
+        "serves_wine":       "serves_wine",
+        "serves_coffee":     "serves_coffee",
+        "serves_breakfast":  "serves_breakfast",
+        "serves_brunch":     "serves_brunch",
+        "serves_lunch":      "serves_lunch",
+        "serves_dinner":     "serves_dinner",
+        "serves_vegetarian": "serves_vegetarian",
+        "outdoor_seating":   "outdoor_seating",
+        "reservable":        "reservable",
+        "allows_dogs":       "allows_dogs",
+        "live_music":        "live_music",
+        "good_for_groups":   "good_for_groups",
+        "good_for_children": "good_for_children",
+        "good_for_sports":   "good_for_sports",
+    }
+    for attr, column in _BOOL_COLUMNS.items():
+        value = getattr(f, attr)
+        if value is not None:
+            clauses.append(f"{column} = %s")
+            params.append(value)
 
     if f.types_any:
         clauses.append("types && %s")  # PG array overlap operator
@@ -173,24 +313,41 @@ The `place_is_open(jsonb, timestamptz)` helper is a tiny PL/pgSQL function — a
 CREATE OR REPLACE FUNCTION place_is_open(hours JSONB, at_ts TIMESTAMPTZ)
 RETURNS BOOLEAN AS $$
 DECLARE
-  dow INT := EXTRACT(DOW FROM at_ts);   -- 0=Sun, matches Google
-  hh  INT := EXTRACT(HOUR FROM at_ts);
-  mm  INT := EXTRACT(MINUTE FROM at_ts);
+  dow            INT := EXTRACT(DOW FROM at_ts);  -- 0=Sun, matches Google
+  hh             INT := EXTRACT(HOUR FROM at_ts);
+  mm             INT := EXTRACT(MINUTE FROM at_ts);
   minutes_of_day INT := hh * 60 + mm;
-  period JSONB;
-  open_minutes INT;
-  close_minutes INT;
+  period         JSONB;
+  open_dow       INT;
+  close_dow      INT;
+  open_minutes   INT;
+  close_minutes  INT;
 BEGIN
   IF hours IS NULL OR hours = '{}'::jsonb THEN
     RETURN TRUE;  -- unknown hours: don't exclude
   END IF;
   FOR period IN SELECT * FROM jsonb_array_elements(hours->'periods') LOOP
-    IF (period->'open'->>'day')::int = dow THEN
-      open_minutes  := (period->'open'->>'hour')::int * 60
-                     + COALESCE((period->'open'->>'minute')::int, 0);
-      close_minutes := (period->'close'->>'hour')::int * 60
-                     + COALESCE((period->'close'->>'minute')::int, 0);
+    open_dow      := (period->'open'->>'day')::int;
+    close_dow     := COALESCE((period->'close'->>'day')::int, open_dow);
+    open_minutes  := (period->'open'->>'hour')::int * 60
+                   + COALESCE((period->'open'->>'minute')::int, 0);
+    close_minutes := (period->'close'->>'hour')::int * 60
+                   + COALESCE((period->'close'->>'minute')::int, 0);
+
+    -- Same-day period (e.g. 11:00–22:00).
+    IF open_dow = close_dow AND open_dow = dow THEN
       IF minutes_of_day BETWEEN open_minutes AND close_minutes THEN
+        RETURN TRUE;
+      END IF;
+
+    -- Overnight period crossing midnight (e.g. Friday 18:00 → Saturday 02:00).
+    -- Match if we are on the open day after open_minutes,
+    --        OR on the close day before close_minutes.
+    ELSIF open_dow <> close_dow THEN
+      IF dow = open_dow  AND minutes_of_day >= open_minutes  THEN
+        RETURN TRUE;
+      END IF;
+      IF dow = close_dow AND minutes_of_day <= close_minutes THEN
         RETURN TRUE;
       END IF;
     END IF;
@@ -200,7 +357,7 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 ```
 
-Note: this is a v1. It does **not** handle overnight periods (close < open). Document this in the migration comment; we can revisit if real data needs it.
+Now correctly handles overnight periods (e.g. a bar open Friday 6pm to Saturday 2am). The two cases — same-day and across-midnight — are distinguished by comparing `open_dow` and `close_dow`. Tests below cover both.
 
 ### New: `app/tools/retrieval.py`
 
@@ -417,10 +574,81 @@ def test_types_uses_array_overlap():
 def test_open_at_calls_helper():
     ts = datetime(2026, 4, 26, 19, 30)  # Sunday 7:30pm
     where, params = compile_filters(
-        SearchFilters(open_at=ts, business_status=None)
+        SearchFilters(open_at=ts, business_status=None, min_user_rating_count=0)
     )
     assert "place_is_open(regular_opening_hours, %s)" in where
     assert params == [ts]
+
+
+def test_default_user_rating_count_floor_present():
+    where, params = compile_filters(SearchFilters())
+    assert "user_rating_count >= %s" in where
+    assert 50 in params  # the floor
+
+
+def test_user_rating_count_floor_can_be_disabled():
+    where, params = compile_filters(SearchFilters(min_user_rating_count=0))
+    # 0 still emits a clause so the agent's intent is auditable in the SQL log,
+    # but the clause is trivially satisfied and matches the previous default
+    # behavior.
+    assert "user_rating_count >= %s" in where
+    assert 0 in params
+
+
+def test_neighborhood_uses_structured_column():
+    where, params = compile_filters(
+        SearchFilters(neighborhood="Mission Bay", business_status=None,
+                      min_user_rating_count=0)
+    )
+    assert "LOWER(neighborhood) = LOWER(%s)" in where
+    assert "formatted_address ILIKE %s" in where  # fallback also present
+    assert "Mission Bay" in params
+    assert "%Mission Bay%" in params
+
+
+def test_boolean_amenity_filters():
+    where, params = compile_filters(
+        SearchFilters(serves_cocktails=True, outdoor_seating=True,
+                      allows_dogs=False, business_status=None,
+                      min_user_rating_count=0)
+    )
+    assert "serves_cocktails = %s" in where
+    assert "outdoor_seating = %s"  in where
+    assert "allows_dogs = %s"      in where
+    assert params == [True, True, False]
+
+
+def test_unset_boolean_filters_emit_no_clause():
+    where, _ = compile_filters(
+        SearchFilters(business_status=None, min_user_rating_count=0)
+    )
+    for col in ("serves_cocktails", "outdoor_seating", "reservable",
+                "allows_dogs", "live_music", "good_for_groups"):
+        assert f"{col} =" not in where
+```
+
+Add SQL-level tests for the overnight `place_is_open` change in the integration suite:
+
+```python
+# tests/integration/test_place_is_open.py — gated on APP_ENV=integration
+def test_same_day_window_open():
+    # Tuesday 12:30, place open Tue 11–22
+    assert _is_open(_period(2, 11, 0, 2, 22, 0), datetime(2026, 4, 28, 12, 30))
+
+def test_same_day_window_closed_after_hours():
+    assert not _is_open(_period(2, 11, 0, 2, 22, 0), datetime(2026, 4, 28, 23, 0))
+
+def test_overnight_window_after_open_same_day():
+    # Bar open Fri 18:00 → Sat 02:00, query Fri 22:00 → open.
+    assert _is_open(_period(5, 18, 0, 6, 2, 0), datetime(2026, 5, 1, 22, 0))
+
+def test_overnight_window_before_close_next_day():
+    # Same period, query Sat 01:30 → still open.
+    assert _is_open(_period(5, 18, 0, 6, 2, 0), datetime(2026, 5, 2, 1, 30))
+
+def test_overnight_window_closed_in_morning():
+    # Same period, query Sat 03:00 → closed.
+    assert not _is_open(_period(5, 18, 0, 6, 2, 0), datetime(2026, 5, 2, 3, 0))
 ```
 
 ### New: `tests/unit/test_tools_retrieval.py`
@@ -459,6 +687,9 @@ Expected: 5 results in/near North Beach, all `rating >= 4.3`, all `price_level <
 ## Risks / open questions
 
 - **Editorial table schema unknown.** When it lands, the `place_documents` view must be redefined as `UNION ALL`. If editorial rows lack `latitude/longitude`, the `nearby` tool needs a guard. Plan: when the editorial PR is in flight, this view definition gets a follow-up edit; tools don't change.
-- **`place_is_open` v1 limitation.** Doesn't handle overnight (e.g. bar open 6pm–2am next day). Acceptable for MVP; document and revisit when bar/late-night data is widely used.
-- **HNSW + WHERE filters can degrade recall.** pgvector's HNSW index is great for `ORDER BY <=>`, but heavy `WHERE` filtering on top can bypass the index. If we see this in practice, retrieve a wider top-N then filter in Python, or add a partial index per common filter. Not worth optimizing pre-emptively.
+- **`place_is_open` overnight handling.** Now correct for overnight periods. Edge case still unhandled: a single period spanning more than 24h (essentially "always open"). Google's data uses `openNow=true` with no periods in that case, which falls through to the `IF hours IS NULL OR hours = '{}'::jsonb` short-circuit. Acceptable.
+- **HNSW + WHERE filters can degrade recall.** pgvector's HNSW index is great for `ORDER BY <=>`, but heavy `WHERE` filtering on top can bypass the index. With the expanded filter set in this PR, this is more likely than in the original W1 design. Mitigation: retrieve a wider top-N (e.g. 50) and filter in SQL after the vector ORDER BY. The view's structure already supports this — the tool layer just needs `LIMIT 50` then post-filter — but we will not optimize pre-emptively. If eval (W6) shows recall regressions on tightly-filtered queries, this is the first lever to pull.
+- **Single-rater quality floor may be too aggressive for niche categories.** A new wine bar with 30 raters but a 4.9 rating gets excluded by `min_user_rating_count = 50`. The agent can opt out per-call; in W2's prompt we tell it to lower the floor for queries that ask for "new" / "recently opened." Watch for false negatives in eval.
+- **Boolean amenity columns are computed in the view, not stored.** Each query re-evaluates the COALESCE casts. With ~5,800 rows this is fine. If we ever materialize the view or generate columns on `places_raw`, the cast logic moves with no other change.
+- **Two views (v1 + v2) double the migration surface.** Acceptable while we A/B v1 vs v2 in W6 evals. As soon as v2 wins, drop `place_documents` (v1) and rename `place_documents_v2` to `place_documents` in a small follow-up PR.
 - **Connection pooling.** `get_conn()` should use whatever pooling the app already does. If the existing retriever opens fresh connections per call, leave that alone in this PR; revisit pool config separately.

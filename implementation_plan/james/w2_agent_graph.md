@@ -1,8 +1,8 @@
 # W2 — Agent loop + ItineraryState + `/chat` endpoint
 
 **Branch:** `feature/agent-w2-agent-graph`
-**Depends on:** W1
-**Unblocks:** W3, W4, W6
+**Depends on:** W0a (the `EMBEDDING_TABLE` env var that determines which embeddings retrieval reads), W1 (filter columns and `nearby`)
+**Unblocks:** W3, W4, W6, W7
 
 ## Goal
 
@@ -13,6 +13,10 @@ After this PR:
 - `POST /predict` becomes a thin shim that wraps the agent for backwards compat.
 - The agent driver is selected via the existing MLflow registry path — no new model selection.
 - `ItineraryState` is the single source of truth for what the agent is building.
+- The agent plans **N anchored stops** (default 3, asked from the user when ambiguous), with shared constraints (price, rating, rating-count floor) carried across all stops.
+- Each stop has a **planned arrival time** and **planned duration**; subsequent stops are filtered by `open_at = arrival_K`, not by the user's prompt time.
+- A total **walking-distance budget** caps the itinerary so "plan a date" doesn't return three places spread across SF.
+- The agent surfaces planned durations in the reply so the user can override ("actually, only 30 min for coffee").
 
 ## Files
 
@@ -55,23 +59,72 @@ from pydantic import BaseModel, Field
 
 
 class UserConstraints(BaseModel):
-    """Parsed/inferred constraints from the user message."""
+    """Parsed/inferred constraints from the user message.
+
+    These are SHARED across all stops: a "$$$" budget applies to dinner AND
+    drinks AND dessert. Per-stop constraints (cuisine, vibe) live on `Stop`.
+    """
     party_size: Optional[int] = None
     budget_per_person_max: Optional[int] = None  # USD
     price_level_max: Optional[int] = None        # 0-4 (Google)
     min_rating: Optional[float] = None
-    when: Optional[datetime] = None              # primary anchor time
+    min_user_rating_count: int = 50              # quality floor (W1 default)
+    when: Optional[datetime] = None              # arrival time for stop 1
     neighborhood: Optional[str] = None
     vibes: list[str] = Field(default_factory=list)  # free-text tags
     must_be_open: bool = True
+    # --- itinerary-shape constraints (NEW in this revision) ---
+    num_stops: Optional[int] = Field(
+        default=None,
+        description="Total stops the user wants. None = ask. Default 3 if user "
+                    "says 'plan a date/evening' without a count.",
+    )
+    walking_budget_m: int = Field(
+        default=2400,
+        description="Total walking distance budget across the whole itinerary, "
+                    "in meters. Default ~30 min total walking at 80 m/min.",
+    )
+
+
+# Hard-coded duration defaults per primary_type. The agent surfaces these in
+# the reply so the user can override. NOT a hidden assumption.
+DEFAULT_STOP_DURATION_MIN: dict[str, int] = {
+    "restaurant":     90,
+    "fine_dining_restaurant": 120,
+    "cafe":           45,
+    "coffee_shop":    45,
+    "bar":            60,
+    "wine_bar":       60,
+    "cocktail_bar":   60,
+    "bakery":         30,
+    "ice_cream_shop": 30,
+    "museum":         120,
+    "art_gallery":    60,
+    "park":           30,
+    "tourist_attraction": 60,
+}
+DEFAULT_STOP_DURATION_MIN_FALLBACK = 60
+
+
+def default_duration_for(primary_type: Optional[str]) -> int:
+    if not primary_type:
+        return DEFAULT_STOP_DURATION_MIN_FALLBACK
+    return DEFAULT_STOP_DURATION_MIN.get(primary_type.lower(),
+                                         DEFAULT_STOP_DURATION_MIN_FALLBACK)
 
 
 class Stop(BaseModel):
     place_id: str
     name: str
     arrival_time: Optional[datetime] = None
+    planned_duration_min: int = DEFAULT_STOP_DURATION_MIN_FALLBACK
     rationale: str
     source: str  # 'google_places' | 'editorial'
+    # Geo info copied at planning time so the critique can compute walking
+    # distance without a second lookup.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    primary_type: Optional[str] = None
 
 
 class ItineraryState(BaseModel):
@@ -83,6 +136,14 @@ class ItineraryState(BaseModel):
     step_count: int = 0
     done: bool = False
     final_reply: Optional[str] = None
+    # --- planning bookkeeping (NEW) ---
+    awaiting_stops_count: bool = Field(
+        default=False,
+        description="True after the agent asked the user how many stops they "
+                    "want. The /chat handler echoes the question and the next "
+                    "turn parses the answer back into constraints.num_stops.",
+    )
+    walked_meters_so_far: float = 0.0
 
     class Config:
         arbitrary_types_allowed = True
@@ -239,31 +300,64 @@ CRITICAL BEHAVIORS:
    "italian under $$$ in north beach"; instead call:
        semantic_search(query="romantic italian dinner",
                        filters={price_level_max: 3, neighborhood: "North Beach",
-                                open_at: <user time>})
+                                open_at: <stop's arrival time>})
 
-3. PLAN MULTI-STOP itineraries when the user asks for one ("dinner then
-   drinks"). Pick stop 1 from semantic_search, then call `nearby` from stop 1
-   for stop 2 with appropriate filters (e.g. type=bar, open after dinner ends).
+3. ITINERARY SHAPE — number of stops:
+   - If the user explicitly says "2 stops" / "dinner then drinks" / "3 spots",
+     respect it.
+   - If ambiguous ("plan me a date", "evening in the mission"), ASK the user
+     how many stops they want. Use a single short clarifying question and set
+     `awaiting_stops_count=True` in your response. Do not plan stops yet.
+   - If the user pushes back ("you decide"), default to 3 stops.
 
-4. JUSTIFY every stop in 1-2 sentences referencing concrete attributes
+4. PLAN MULTI-STOP itineraries as anchored search:
+   - Stop 1 = `semantic_search(...)` with shared constraints +
+     `open_at = constraints.when`.
+   - Stop K (K > 1) = `nearby(stop_{K-1}.place_id, radius_m, ...)` with shared
+     constraints + `open_at = arrival_K`, where
+        arrival_K = arrival_{K-1} + planned_duration_{K-1} + walking_time(K-1→K)
+        walking_time(a→b) = haversine_meters(a, b) / 80   # m/min
+   - SHARED constraints (price_level_max, min_rating, min_user_rating_count,
+     overall vibes) carry across every stop. Don't relax them per stop unless
+     the user says so or self-correction (W3) requires it.
+   - Use a default per-stop duration based on `primary_type`. The planning code
+     fills these in from DEFAULT_STOP_DURATION_MIN; surface them in your reply
+     so the user can override.
+
+5. WALKING BUDGET:
+   - Total walking across all stops should fit `constraints.walking_budget_m`
+     (default 2400m ≈ 30 min). For each stop after the first, prefer
+     `radius_m` ≤ remaining budget / (remaining stops).
+   - You may use `kg_traverse(stop_K, relation_type='NEAR')` after W7 ships as
+     a cheaper substitute for `nearby` when you only need geographic neighbors.
+
+6. JUSTIFY every stop in 1-2 sentences referencing concrete attributes
    (rating, price level, vibe from editorial_summary if present).
 
-5. If a tool returns empty or low-quality results, REVISE: drop the most
+7. If a tool returns empty or low-quality results, REVISE: drop the most
    restrictive filter, expand the radius, or ask the user a clarifying
    question. Do NOT pretend you found something you didn't. (Self-correction
    logic in W3.)
 
-6. STOP after at most {max_steps} tool calls. If you don't have a confident
+8. STOP after at most {max_steps} tool calls. If you don't have a confident
    answer by then, return what you have with an explicit caveat.
 
 OUTPUT FORMAT (when finalizing):
 - Set `done=True` and `final_reply` to a 2-4 sentence summary the user reads.
+- Mention the planned arrival + duration for each stop ("Dinner at 7:00,
+  ~90 min") so the user can override if they want.
 - The structured `stops` list is rendered as cards in the UI; the user sees
   both your prose and the cards.
 
 You are the reasoning model. Use your judgement. Tools are for grounding,
 not for thinking on your behalf.
 """
+
+
+CLARIFYING_STOPS_COUNT_TEMPLATE = (
+    "How many stops would you like me to plan? (e.g. 'just dinner', "
+    "'dinner + drinks', or '3 spots'). I default to 3 if you'd rather I pick."
+)
 ```
 
 ### New: `app/agent/graph.py`
@@ -472,6 +566,80 @@ async def predict(body: RecommendationRequest, request: Request):
     )
 ```
 
+### New: `app/agent/planning.py`
+
+Pure helpers the planning loop relies on. Not an LLM-facing tool — these are
+deterministic Python the agent or critique node calls.
+
+```python
+"""Pure helpers for itinerary planning math. No LLM, no DB."""
+
+from __future__ import annotations
+from datetime import datetime, timedelta
+from math import asin, cos, radians, sin, sqrt
+from typing import Optional
+
+from app.agent.state import (
+    DEFAULT_STOP_DURATION_MIN, DEFAULT_STOP_DURATION_MIN_FALLBACK,
+    Stop, default_duration_for,
+)
+
+
+WALKING_SPEED_M_PER_MIN = 80.0  # ~3 mph, casual pace
+
+
+def haversine_m(a: tuple[float, float], b: tuple[float, float]) -> float:
+    lat1, lon1 = map(radians, a)
+    lat2, lon2 = map(radians, b)
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    h = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    return 6371000 * 2 * asin(sqrt(h))
+
+
+def walking_time_min(a_lat: float, a_lng: float,
+                     b_lat: float, b_lng: float) -> float:
+    return haversine_m((a_lat, a_lng), (b_lat, b_lng)) / WALKING_SPEED_M_PER_MIN
+
+
+def next_arrival_time(prev_stop: Stop, next_lat: float, next_lng: float) -> datetime:
+    if prev_stop.arrival_time is None:
+        raise ValueError("prev_stop.arrival_time must be set before chaining")
+    walk = walking_time_min(prev_stop.latitude, prev_stop.longitude,
+                            next_lat, next_lng)
+    return prev_stop.arrival_time + timedelta(
+        minutes=prev_stop.planned_duration_min + walk
+    )
+
+
+def remaining_walking_budget_m(state) -> float:
+    """How many meters of walking are left in the user's budget."""
+    return max(0.0, state.constraints.walking_budget_m - state.walked_meters_so_far)
+
+
+def suggested_radius_m(state, remaining_stops: int) -> int:
+    """Per-stop radius suggestion given how much walking budget is left."""
+    if remaining_stops <= 0:
+        return 0
+    budget = remaining_walking_budget_m(state)
+    return int(min(1500, max(300, budget / max(remaining_stops, 1))))
+
+
+def parse_stops_count(user_text: str, default: int = 3) -> int:
+    """Parse '2', 'just dinner', 'dinner + drinks', '3 spots' → integer."""
+    text = user_text.lower().strip()
+    if "just dinner" in text or "only dinner" in text:
+        return 1
+    if "dinner and drinks" in text or "dinner + drinks" in text or "dinner then drinks" in text:
+        return 2
+    for token in text.split():
+        if token.isdigit():
+            n = int(token)
+            if 1 <= n <= 5:
+                return n
+    return default
+```
+
 ### Modify: `app/chain.py`
 
 Tiny refactor: `build_rag_chain` should return both the chain and the LLM instance so `lifespan` can hand the LLM to `build_agent_graph` without re-instantiating it.
@@ -602,5 +770,10 @@ Expected: at least one stop, all rows real (cross-check `place_id` against DB), 
 - **Cost ceiling:** `max_steps=8` with Opus 4.7 could be expensive per request. Add a `AGENT_MAX_STEPS` env var (default 8) and surface it in `app/config.py` so we can tune without redeploying. Add a per-request token-counter log line for visibility.
 - **Tool argument coercion:** LangChain's `@tool` parses Pydantic args from the LLM's JSON. Validate that `SearchFilters` (a nested model) deserializes correctly — add an explicit `args_schema` if not. Cover this in `test_agent_graph.py` with a tool call that includes filters.
 - **Provider parity:** Anthropic + OpenAI + Gemini all support tool-calling but with subtle differences (Gemini occasionally emits malformed tool args). Pydantic AI's strict type validation catches malformed args at the boundary instead of letting them propagate; if Gemini misbehaves in practice, the failure surface is "tool call rejected with validation error" (recoverable in W3's critique node) rather than "agent crashes downstream".
+- **Stops-count clarifier turn.** The clarifier branch adds one extra round-trip when the user is ambiguous, which slightly hurts latency. Worth it for plan quality; if eval (W6) shows users bounce on the question, swap to "default to 3, ask only on truly ambiguous queries."
+- **Walking-time model is naive.** `haversine / 80 m·min⁻¹` ignores hills, traffic lights, and one-way streets. SF has all three. For "is this walkable?" decisions it's good enough; for actual routing the W4 booking-handoff flow uses Google Maps directly. We deliberately don't call the Maps API mid-planning to keep latency / cost predictable.
+- **Per-type duration defaults will need tuning.** The numbers in `DEFAULT_STOP_DURATION_MIN` are reasonable guesses (90 min for dinner, 60 min for drinks). After the first eval pass we should reset them from any logged user overrides, not from intuition.
+- **Vibe-consistency across stops is a soft prompt instruction, not a hard filter.** Hard-coding "no two consecutive bars" would over-constrain bar crawls. We rely on the LLM + the user's prompt for vibe sequencing; if eval shows incoherent itineraries (fancy → dive bar), revisit by adding a `vibes` carryover that compiles to a soft re-rank.
 
 - **Why not pure Pydantic AI for the orchestration?** Pydantic AI has its own `Agent` class and could replace LangGraph entirely. We don't because LangGraph's `StateGraph` gives us durable execution (resume after crash mid-tool-call), explicit critique node for W3, and direct LangSmith / Langfuse tracing. Using Pydantic AI for tool definitions only is the smallest commitment that gets us the type-safety win without locking us out of LangGraph's orchestration features. If LangGraph proves to be the wrong call later, swapping in Pydantic AI's `Agent` is a localized change in `app/agent/graph.py`.
+- **Adapter may be obsolete by implementation time.** The `_to_lc_tool` helper that wraps Pydantic AI tools as LangChain Tool instances exists because (as of plan-author training data, January 2026) LangGraph's `bind_tools` did not natively accept Pydantic AI's tool objects. Before starting W2 implementation, check `langchain-ai/langgraph` and `pydantic/pydantic-ai` release notes — if either side now offers native interop, delete the adapter and use it directly. See `FUTURE_WATCH.md` for the broader watch-list.

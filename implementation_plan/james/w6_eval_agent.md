@@ -1,21 +1,98 @@
-# W6 — Eval-loop agent
+# W6 — Eval-loop agent (RAGAS retrieval + custom itinerary checks)
 
 **Branch:** `feature/agent-w6-eval-agent`
-**Depends on:** W2 (needs the agent graph to evaluate)
+**Depends on:** W2 (needs the agent graph to evaluate). Optionally W0a, W7 — eval becomes the source of truth for whether the v2 embeddings and KG are wins.
 **Unblocks:** —
 
 ## Goal
 
 Today, `scripts/log_model_to_mlflow.py` (`scripts/log_model_to_mlflow.py:171-239`) runs hardcoded sample queries against a candidate config and dumps outputs as text artifacts. There are no metrics, no comparison to the current production alias, and no gating on regressions.
 
-This PR adds an eval-loop agent that:
-- Runs canonical queries from `configs/experiments.yaml` against a candidate agent build.
-- Computes structured metrics: constraint-satisfaction rate, geographic coherence, source diversity, retrieval-similarity statistics, tool-call efficiency.
-- Calls an **LLM judge** to score creativity / taste on a fixed rubric.
-- Logs metrics + a comparison report to MLflow.
-- Refuses to alias-promote a candidate to `@production` if regressions exceed configured thresholds.
+This PR adds an eval-loop that splits cleanly along the two evaluation problems we actually have:
+
+1. **Retrieval evals** — does the retriever surface relevant places for a query? Solved with **RAGAS** (`faithfulness`, `context_recall`, `context_precision`, `answer_relevancy`). Bootstrap the test set with a hybrid approach: ~20 hand-written queries that mirror real user intents (date night, vegan brunch, late-night cafe) plus ~50 RAGAS-generated queries from RAGAS's `TestsetGenerator` over the v2 chunks for breadth.
+2. **End-to-end itinerary evals** — does the planned multi-stop date satisfy the constraints the agent claims to satisfy? RAGAS does not natively cover this; we add a **custom deterministic itinerary checker** that mechanically verifies geographic + temporal coherence + constraint satisfaction. No LLM judge needed for this part — it's all SQL/math.
+3. **LLM judge for taste/creativity** — a fixed rubric, scored by a *different* provider than the candidate (avoid self-judging bias). A **cheap small model** (e.g. `gpt-4o-mini` or `gemini-2.5-flash`) is appropriate here; this is a structured-rubric reading task, not deep reasoning.
+
+All three sets of metrics land in MLflow as run metrics. Alias promotion to `@production` is gated on non-regression on critical metrics from each.
 
 After this PR: `python scripts/eval_agent.py --candidate <run-id>` is the single command that runs the full eval and either passes or blocks promotion.
+
+## MLflow param expansion
+
+The registered model's params dict expands to track everything that materially affects results. Without this, A/B comparisons are not apples-to-apples. Add to `scripts/log_model_to_mlflow.py`:
+
+```python
+params = {
+    # Existing:
+    "llm_provider":           cfg.llm_provider,
+    "chat_model":             cfg.chat_model,
+    "k":                      cfg.k,
+    "embedding_model":        cfg.embedding_model,
+    "temperature":            cfg.temperature,
+    # NEW (this PR):
+    "embedding_table":        cfg.embedding_table,        # 'place_embeddings' | '_v2'
+    "retrieval_mode":         cfg.retrieval_mode,         # 'vector_only' | 'hybrid' | 'vector_plus_kg'
+    "agent_strategy":         cfg.agent_strategy,         # 'single_pass' | 'multi_stop'
+    "kg_enabled":             cfg.kg_enabled,             # bool — set True after W7 lands
+    "default_num_stops":      cfg.default_num_stops,      # 3
+    "walking_budget_m":       cfg.walking_budget_m,       # 2400
+    "min_user_rating_count":  cfg.min_user_rating_count,  # 50 (W1 floor)
+}
+```
+
+`RunConfig` in `scripts/log_model_to_mlflow.py` gains the same fields with defaults, so existing YAML configs keep working.
+
+## Test set (hybrid bootstrap)
+
+```yaml
+# configs/eval_queries.yaml
+hand_written:
+  # Each entry: query + the constraints the agent SHOULD satisfy.
+  # The custom checker (below) reads `expected_constraints` and asserts the
+  # produced itinerary meets them.
+  - query: "italian dinner around 7pm tonight in north beach, under $$$"
+    expected_constraints:
+      neighborhood:        "North Beach"
+      price_level_max:     3
+      open_at_iso:         "2026-05-04T19:00:00-07:00"
+      types_any:           ["italian_restaurant", "restaurant"]
+      min_user_rating_count: 50
+    expected_stops: 1
+
+  - query: "plan a date night: dinner then drinks within walking distance, vibes-y"
+    expected_constraints:
+      price_level_max:     3
+      min_user_rating_count: 50
+    expected_stops: 2
+    expected_walking_budget_m: 1200      # tighter for "walking distance"
+
+  - query: "best vegan brunch in the mission this saturday"
+    expected_constraints:
+      neighborhood:        "Mission"
+      serves_brunch:       true
+      serves_vegetarian:   true
+    expected_stops: 1
+
+  - query: "find a quiet cafe for studying near soma open till late"
+    expected_constraints:
+      neighborhood:        "SOMA"
+      serves_coffee:       true
+    expected_stops: 1
+
+  - query: "a 5-star restaurant open at 4am"   # known-bad, tests self-correction
+    expects_clarification_or_relaxation: true
+
+  # ... ~20 total hand-written; expand as we observe real user queries.
+
+generated:
+  source_table: place_embeddings_v2
+  count:        50
+  seed:         42
+  # RAGAS TestsetGenerator builds its OWN knowledge graph internally to seed
+  # multi-hop questions. That KG is separate from our W7 retrieval-time KG.
+  # Both can coexist; do not conflate.
+```
 
 ## Files
 
@@ -24,17 +101,33 @@ After this PR: `python scripts/eval_agent.py --candidate <run-id>` is the single
 ```python
 """Eval-loop agent.
 
-For each canonical query in configs/experiments.yaml:
-  1. Run the candidate agent (W2 graph) end-to-end.
-  2. Compute structured metrics on the resulting ItineraryState.
-  3. Ask an LLM judge for taste / creativity scoring.
-  4. Compare to the current @production run.
-  5. Block promotion if regression on >=1 critical metric.
+Three eval surfaces, all logged to MLflow:
+
+  RETRIEVAL  — RAGAS metrics over retrieved contexts vs reference.
+               Metrics: faithfulness, context_recall, context_precision,
+                        answer_relevancy.
+  ITINERARY  — deterministic checker on the final ItineraryState.
+               Metrics: constraints_satisfied, geographic_coherence,
+                        temporal_coherence, walking_budget_respected,
+                        no_hallucinated_place_ids, source_diversity.
+  TASTE      — LLM judge with a fixed rubric, scored by a CHEAP small model
+               (e.g. gpt-4o-mini, gemini-2.5-flash). Different provider
+               than the candidate to avoid self-judging bias.
+
+For each query in configs/eval_queries.yaml:
+  1. Run the candidate agent (W2 graph) end-to-end. Capture retrieved contexts
+     from state.scratch and the final itinerary.
+  2. Compute RAGAS retrieval metrics on the captured contexts.
+  3. Compute itinerary checker metrics on state.stops.
+  4. Ask the cheap judge for a taste/creativity score.
+  5. Compare aggregates to the current @production run.
+  6. Block promotion if regression on >=1 critical metric.
 
 Reuses:
   - ExperimentConfig from scripts/log_model_to_mlflow.py:60+
   - log_rag_experiments_from_config() flow at scripts/log_model_to_mlflow.py:242-290
   - Agent graph from app.agent.graph
+  - W1 helpers (haversine, place_is_open) for the deterministic checks.
 """
 
 from __future__ import annotations
@@ -210,8 +303,17 @@ def _aggregate(evals: list[QueryEval]) -> dict:
 # ----- comparison + gating --------------------------------------------------
 
 CRITICAL_METRICS = {
-    "constraints_satisfied_mean": 0.05,   # candidate must not be >5 pp worse
-    "judge_score_mean": 0.25,             # within 0.25 of current
+    # RAGAS retrieval quality
+    "ragas_context_recall_mean":     0.05,
+    "ragas_context_precision_mean":  0.05,
+    "ragas_faithfulness_mean":       0.05,
+    # Itinerary correctness
+    "constraints_satisfied_mean":    0.05,   # candidate must not be >5 pp worse
+    "geographic_coherence_mean":     0.05,
+    "temporal_coherence_mean":       0.05,
+    "no_hallucinated_place_ids":     0.0,    # zero tolerance — must be 1.0
+    # LLM-judge taste (cheap judge)
+    "judge_score_mean":              0.25,   # within 0.25 of current
 }
 
 
@@ -283,16 +385,84 @@ This is the single hook that makes the eval gate part of the normal experiment f
 
 ### Modify: `configs/experiments.yaml`
 
-Add a `sample_queries` section that's representative — covers each of the failure modes W3 cares about plus a creative one:
+`sample_queries` is moved to the new `configs/eval_queries.yaml` (see "Test set" section above). The old key still works during the transition; the loader checks the new path first.
 
-```yaml
-sample_queries:
-  - "italian dinner around 7pm tonight in north beach, under $$$"
-  - "plan a date night: dinner then drinks within walking distance, vibes-y"
-  - "best vegan brunch in the mission this saturday"
-  - "find a quiet cafe for studying near soma open till late"
-  - "a 5-star restaurant open at 4am" # known-bad query, tests self-correction
+### New: `app/eval/ragas_runner.py`
+
+Wraps RAGAS so the rest of the codebase doesn't take a hard dependency on its internals.
+
+```python
+"""Compute RAGAS retrieval metrics from agent runs.
+
+We capture (query, retrieved_contexts, agent_answer, reference) tuples by
+running the agent and pulling retrieved snippets out of state.scratch
+(semantic_search and nearby results). RAGAS computes:
+  - faithfulness        — does the answer stay grounded in retrieved contexts?
+  - context_recall      — did retrieval cover what the reference says?
+  - context_precision   — were retrieved contexts on-topic?
+  - answer_relevancy    — does the answer address the query?
+
+References for hand-written queries come from configs/eval_queries.yaml.
+References for generated queries come from RAGAS's TestsetGenerator output.
+"""
+
+from ragas import evaluate
+from ragas.metrics import (
+    faithfulness, answer_relevancy,
+    context_precision, context_recall,
+)
+# ...
 ```
+
+The runner returns a dict of metric → mean float. The eval agent merges these into the same metric namespace as the deterministic + judge metrics so MLflow sees one flat dict.
+
+### New: `app/eval/itinerary_checker.py`
+
+```python
+"""Deterministic itinerary correctness. Pure functions; no LLM, no network
+(except DB lookups for place hours / coords).
+
+Each function returns a 0.0-1.0 score per query that we mean across the suite.
+"""
+
+from datetime import datetime, timedelta
+
+def constraints_satisfied(state, expected) -> float:
+    """Fraction of `expected_constraints` that the produced stops actually
+    satisfy. Looked up via get_details(place_id) so we use authoritative DB
+    values, not what the agent claimed."""
+
+def geographic_coherence(state) -> float:
+    """1.0 if every consecutive pair of stops is within
+    state.constraints.walking_budget_m / max(num_stops-1, 1) meters; falls off
+    linearly as pairs exceed."""
+
+def temporal_coherence(state) -> float:
+    """1.0 if every stop is open at its planned arrival_time per place_is_open.
+    Uses the SQL helper so we exercise the same code path the agent uses."""
+
+def walking_budget_respected(state) -> float:
+    """1.0 if total haversine across the chain ≤ walking_budget_m."""
+
+def no_hallucinated_place_ids(state) -> float:
+    """1.0 if every state.stops[*].place_id exists in places_raw. Otherwise 0
+    (zero tolerance — a hallucinated place_id is a critical failure)."""
+
+def source_diversity(state) -> float:
+    """Once editorial source lands, prefer mix. Today returns 1.0 (single source)."""
+```
+
+These are intentionally five tiny functions, not one big one — easy to test independently and cheap to extend.
+
+### Modify: `pyproject.toml`
+
+Add RAGAS to the `dev` dependency group:
+
+```toml
+ragas = "^0.2.0"
+```
+
+Note: RAGAS depends on a few LangChain extras and an LLM provider for its judges. Configure RAGAS to use the same cheap judge model we use for taste scoring — controlled by `EVAL_JUDGE_MODEL` env var.
 
 ## Tests
 
@@ -357,6 +527,16 @@ In the MLflow UI, the run should have:
 - Artifact: `comparison_report.json` showing candidate vs baseline.
 - Run name format inherited from `scripts/log_model_to_mlflow.py:203`.
 
+## Why MLflow + RAGAS, not MLflow's GenAI eval features
+
+MLflow added `mlflow.evaluate(..., model_type="question-answering")` and a managed eval UI on top of the registry. We deliberately keep the split:
+
+- **MLflow** is the experiment store and model registry. It tracks runs, params, metrics, and which config is `@production`. That role does not change.
+- **RAGAS** is a metric library — it computes scores. Scores get logged to MLflow as run metrics.
+- **The custom itinerary checker** computes scores no general library covers. Also logged to MLflow.
+
+One pipeline, three metric sources, MLflow as the single system of record. We don't introduce a third tool (Langfuse / Braintrust) in this PR — that's optional follow-up if/when MLflow's UI proves inadequate for diffing N agent runs.
+
 ## Future direction: DSPy + a managed eval UI
 
 This v1 hand-rolls metric calculations and a JSON judge. Two upgrades worth knowing about for the next iteration of W6, both deliberately out of scope here:
@@ -371,3 +551,6 @@ This v1 hand-rolls metric calculations and a JSON judge. Two upgrades worth know
 - **Cost.** Each eval run = N queries × (candidate calls + judge call). Cap at 10 queries per eval by default, configurable.
 - **Promotion semantics.** This PR only sets `@production` alias if `--allow-promote`. Wiring this into a CI/CD gate is a follow-up — out of scope for the agentic-RAG plan.
 - **Threshold tuning.** `CRITICAL_METRICS` tolerances (0.05, 0.25) are guesses. After 2-3 real evals we should reset these from observed run-to-run variance.
+- **Cheap judge nuance.** A small model (gpt-4o-mini / gemini-2.5-flash) is fine for rubric-scored taste judgments — it's a structured reading task — but can underweight subtle creativity. Track judge agreement with a manual spot-check on 10% of runs; if drift exceeds 0.5 points consistently, swap to a mid-tier judge for the taste pass only (RAGAS judges can stay on the cheap model).
+- **RAGAS internal KG vs our retrieval-time KG.** RAGAS's `TestsetGenerator` builds a knowledge graph internally to seed multi-hop questions. That KG is throw-away — used only at testset generation time. Our W7 `place_relations` KG is a runtime retrieval enhancement. They never interact. Documented to avoid future confusion.
+- **`embedding_table` flip is gated by this PR.** Promoting `EMBEDDING_TABLE=place_embeddings_v2` to production happens via a candidate run logged with `embedding_table=place_embeddings_v2`, evaluated, and alias-promoted only if RAGAS retrieval metrics + itinerary metrics are non-regressing. No env-var change without an eval.
