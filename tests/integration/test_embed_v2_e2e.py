@@ -61,8 +61,7 @@ def test_v2_chunks_are_meaningfully_smaller_than_v1(conn) -> None:
     v1_median = median(r[0] for r in rows)
     v2_median = median(r[1] for r in rows)
     assert v2_median < 0.70 * v1_median, (
-        f"Expected v2 median chunk length < 70% of v1 median. "
-        f"Got v1={v1_median}, v2={v2_median}."
+        f"Expected v2 median chunk length < 70% of v1 median. Got v1={v1_median}, v2={v2_median}."
     )
 
 
@@ -88,6 +87,6 @@ def test_v2_chunks_contain_no_disclosure_boilerplate(conn) -> None:
            OR embedding_text ILIKE '%languageCode%'
         """,
     )
-    assert (
-        boilerplate_count == 0
-    ), f"{boilerplate_count} v2 rows still contain disclosure / language-code boilerplate."
+    assert boilerplate_count == 0, (
+        f"{boilerplate_count} v2 rows still contain disclosure / language-code boilerplate."
+    )

@@ -103,8 +103,7 @@ class Settings(BaseSettings):
     def _validate_embedding_table(cls, value: str) -> str:
         if value not in ALLOWED_EMBEDDING_TABLES:
             raise ValueError(
-                f"EMBEDDING_TABLE must be one of {sorted(ALLOWED_EMBEDDING_TABLES)}; "
-                f"got {value!r}."
+                f"EMBEDDING_TABLE must be one of {sorted(ALLOWED_EMBEDDING_TABLES)}; got {value!r}."
             )
         return value
 
