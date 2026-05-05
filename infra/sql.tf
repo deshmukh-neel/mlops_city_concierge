@@ -40,7 +40,7 @@ resource "google_sql_database_instance" "main" {
     }
 
     ip_configuration {
-      ipv4_enabled                                  = false
+      ipv4_enabled                                  = true
       private_network                               = data.google_compute_network.default.self_link
       ssl_mode                                      = "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
       enable_private_path_for_google_cloud_services = false
