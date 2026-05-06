@@ -1,7 +1,12 @@
 # W1 — Unified place view + filterable retrieval tools
 
 **Branch:** `feature/agent-w1-retrieval-tools`
-**Depends on:** W0a (the `place_embeddings_v2` table + the `EMBEDDING_TABLE` env var that selects which embedding table the view reads from)
+
+**Depends on:**
+
+- W0a (the `place_embeddings_v2` table + the `EMBEDDING_TABLE` env var that selects which embedding table the view reads from).
+- PR #63 / #64 (Alembic now lives in `alembic/versions/`; `make migration MSG="..."` creates new migrations and `make migrate` applies them. Both prod and the local dev DB have been stamped at `5187c6b09b25`).
+
 **Unblocks:** W2, W3, W6, W7 (and indirectly W4)
 
 ## Goal
@@ -18,7 +23,60 @@ After this PR:
 
 ## Files
 
-### New: `scripts/db/migrations/001_place_documents_view.sql`
+### New: Alembic migration `create_place_documents_view`
+
+Generate with `make migration MSG="create place_documents view"` — Alembic creates the file in `alembic/versions/<timestamp>-<rev>_create_place_documents_view.py` (see `5187c6b09b25_create_place_embeddings_v2.py` for the precedent). The body is hand-written SQL via `op.execute()` because Alembic's helpers can't model VIEWs or PL/pgSQL functions.
+
+The migration creates **four** SQL objects in one atomic upgrade:
+
+1. `place_is_open(jsonb, timestamptz)` — PL/pgSQL helper, used by `SearchFilters.open_at`.
+2. `neighborhood_of(jsonb)` — PL/pgSQL helper, used by both views. Owned by W1 because we need it now; W7's migration uses `CREATE OR REPLACE FUNCTION` so it can ship later without breakage. Definition matches `_neighborhood_from_address_components` in `scripts/embed_places_pgvector_v2.py`.
+3. `place_documents` view — joins `places_raw` + `place_embeddings` (v1).
+4. `place_documents_v2` view — joins `places_raw` + `place_embeddings_v2` (v2).
+
+`downgrade()` drops all four in reverse order.
+
+```python
+# alembic/versions/<timestamp>-<rev>_create_place_documents_view.py
+from alembic import op
+
+revision = "<rev>"
+down_revision = "5187c6b09b25"  # create_place_embeddings_v2
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.execute("""
+        CREATE OR REPLACE FUNCTION neighborhood_of(source_json JSONB)
+        RETURNS TEXT AS $$
+        DECLARE component JSONB;
+        BEGIN
+          IF source_json IS NULL THEN RETURN ''; END IF;
+          FOR component IN
+            SELECT * FROM jsonb_array_elements(source_json->'addressComponents')
+          LOOP
+            IF (component->'types') ? 'neighborhood' THEN
+              RETURN COALESCE(component->>'longText', component->>'shortText', '');
+            END IF;
+          END LOOP;
+          RETURN '';
+        END;
+        $$ LANGUAGE plpgsql IMMUTABLE;
+    """)
+    op.execute(_PLACE_IS_OPEN_FN)        # see SQL block below
+    op.execute(_PLACE_DOCUMENTS_VIEW)    # v1
+    op.execute(_PLACE_DOCUMENTS_V2_VIEW) # v2
+
+
+def downgrade() -> None:
+    op.execute("DROP VIEW IF EXISTS place_documents_v2")
+    op.execute("DROP VIEW IF EXISTS place_documents")
+    op.execute("DROP FUNCTION IF EXISTS place_is_open(JSONB, TIMESTAMPTZ)")
+    op.execute("DROP FUNCTION IF EXISTS neighborhood_of(JSONB)")
+```
+
+The SQL bodies for the views and `place_is_open()` are below. They go inline as triple-quoted Python strings; the SQL is identical to the original plan.
 
 ```sql
 -- Unified place document view. Backed by places_raw + place_embeddings today;
@@ -42,10 +100,10 @@ SELECT
     p.types,
     p.formatted_address,
     -- structured neighborhood pulled from addressComponents (mirrors
-    -- _neighborhood_from_address_components in scripts/embed_places_pgvector_v2.py
-    -- via the neighborhood_of() SQL helper introduced in W7's migration; if W7
-    -- has not landed yet, this view inlines the same expression — see the
-    -- "If W7 has not landed" note below).
+    -- _neighborhood_from_address_components in scripts/embed_places_pgvector_v2.py).
+    -- The neighborhood_of() helper is created earlier in this same migration —
+    -- W7's migration uses CREATE OR REPLACE FUNCTION with an identical body so
+    -- it can ship in any order without breakage.
     neighborhood_of(p.source_json) AS neighborhood,
     p.latitude,
     p.longitude,
@@ -121,16 +179,12 @@ SELECT
 FROM places_raw p
 JOIN place_embeddings_v2 e ON e.place_id = p.place_id;
 
--- If W7 has not landed yet, define neighborhood_of() inline in this migration
--- and let W7's migration replace it with `CREATE OR REPLACE FUNCTION` (the body
--- is identical). See w7_knowledge_graph.md for the canonical definition.
-
 -- Comment so future maintainers know to UNION the editorial table here.
 COMMENT ON VIEW place_documents IS
   'Unified retrieval surface. When editorial places table lands, redefine as UNION ALL with source = ''editorial''.';
 ```
 
-Wire this into `Makefile`'s `migrate` target, or ensure Alembic picks it up if Alembic is initialized (Makefile mentions Alembic but the tree doesn't have a `migrations/` dir yet — if absent, append the SQL to `scripts/db/init.sql` for now and note in PR description).
+Apply with `make migrate` after generating the migration. CI's `migrations` job will round-trip `downgrade base → upgrade head` against an ephemeral pgvector container, so a broken downgrade fails the PR before merge.
 
 ### New: `app/tools/__init__.py`
 
@@ -306,10 +360,9 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
     return " AND " + " AND ".join(clauses), params
 ```
 
-The `place_is_open(jsonb, timestamptz)` helper is a tiny PL/pgSQL function — add it to the same migration:
+The `place_is_open(jsonb, timestamptz)` helper is a tiny PL/pgSQL function — its body goes in the same migration (the `_PLACE_IS_OPEN_FN` constant referenced in the `upgrade()` skeleton above):
 
 ```sql
--- Append to 001_place_documents_view.sql
 CREATE OR REPLACE FUNCTION place_is_open(hours JSONB, at_ts TIMESTAMPTZ)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -666,7 +719,7 @@ Mirror the fake-cursor pattern from `tests/unit/test_retriever.py:1-98`. Cover:
 ## Manual verification
 
 ```bash
-make migrate          # apply 001_place_documents_view.sql
+make migrate          # apply the new alembic migration
 make ingest           # seed via existing pipeline
 python -c "
 from app.tools.retrieval import semantic_search
