@@ -143,9 +143,48 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
+      # ----- Cloud Run config (W0 — agent product) -----
+      # Sizing/concurrency flags (replace just the named fields):
+      #   min-instances=1   keep one warm; ~$15/mo to avoid 3–8s cold starts on demo.
+      #   max-instances=10  headroom for class-project demo, capped to bound cost.
+      #   concurrency=15    agent requests do 5+ blocking LLM calls; default 80 stacks
+      #                     too many in-flight astream_events per instance.
+      #   timeout=120       agent self-correction can take 30–60s.
+      #   cpu=2 / memory=2Gi  LangGraph + tool calls + embedding client are heavier
+      #                       than the legacy chain.
+      #
+      # env_vars / secrets default to MERGE — they only add/update the listed keys
+      # and leave existing values (OPENAI_API_KEY, GEMINI_API_KEY, POSTGRES_PASSWORD,
+      # MLFLOW_TRACKING_URI, CLOUD_SQL_INSTANCE_CONNECTION_NAME, …) untouched.
+      #
+      # PREREQUISITE: the 4 new secrets below must exist in Secret Manager before
+      # this job runs, or the deploy step fails. One-time setup (per project):
+      #   for s in anthropic-api-key langfuse-secret-key langfuse-public-key \
+      #            mlflow-tracking-token; do
+      #     gcloud secrets create "$s" --replication-policy=automatic
+      #     echo -n "<value>" | gcloud secrets versions add "$s" --data-file=-
+      #     gcloud secrets add-iam-policy-binding "$s" \
+      #       --member=serviceAccount:739618408593-compute@developer.gserviceaccount.com \
+      #       --role=roles/secretmanager.secretAccessor
+      #   done
       - name: Deploy new image to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.CLOUD_RUN_SERVICE }}
           region: ${{ env.CLOUD_RUN_REGION }}
           image: ${{ needs.build-scan-push.outputs.image_uri }}
+          flags: >-
+            --min-instances=1
+            --max-instances=10
+            --concurrency=15
+            --cpu=2
+            --memory=2Gi
+            --timeout=120
+          env_vars: |
+            AGENT_MAX_STEPS=8
+            LANGFUSE_HOST=https://cloud.langfuse.com
+          secrets: |
+            ANTHROPIC_API_KEY=anthropic-api-key:latest
+            LANGFUSE_SECRET_KEY=langfuse-secret-key:latest
+            LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest
+            MLFLOW_TRACKING_TOKEN=mlflow-tracking-token:latest
