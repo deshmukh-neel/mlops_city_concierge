@@ -21,10 +21,7 @@ name: Docker build, scan & deploy
 
 on:
   push:
-    # TEMP: ci/auto-migrate-on-deploy added so we can verify the new migrate
-    # job runs end-to-end before merging. Revert this list to [main] in a
-    # fixup commit on this PR before merge.
-    branches: [main, ci/auto-migrate-on-deploy]
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -134,10 +131,7 @@ jobs:
   # ---------------------------------------------------------------------------
   migrate:
     name: Migrate prod database
-    # TEMP: feature branch added so we can verify migrate runs end-to-end
-    # before merge. Revert to `if: github.ref == 'refs/heads/main'` in the
-    # same fixup commit that reverts the push.branches list.
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ci/auto-migrate-on-deploy'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
