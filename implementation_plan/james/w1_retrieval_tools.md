@@ -21,6 +21,36 @@ After this PR:
 - `place_is_open` correctly handles overnight periods (close < open the next day) — needed for bars and late-night spots.
 - The legacy `PgVectorRetriever` still works for `/predict` so this PR is non-breaking on its own.
 
+## Review decisions (2026-05-06)
+
+The architecture/code-quality/tests/performance review walk-through produced the following deltas to this plan. Where a decision conflicts with text below, this list wins.
+
+### Architecture
+
+- **A3 — view selection.** Tools layer derives the view name from `Settings.embedding_table` via `_VIEW_FOR_TABLE = {"place_embeddings": "place_documents", "place_embeddings_v2": "place_documents_v2"}` in `app/tools/retrieval.py`. Same allowlist-then-f-string pattern as `app/retriever.py:50`. No new env var.
+- **A4 — connection helper.** `get_conn()` is a context manager added to `app/db.py` (next to the existing `get_db()` generator). Body opens a fresh `psycopg2.connect(settings.resolved_database_url)` for now; PR #56 will swap the body to use the pool when it lands, with no caller change. `build_embedding(query, settings)` extracted to `app/retriever.py` (or co-located near `get_conn` if cleaner). Legacy `PgVectorRetriever` is untouched.
+
+### Code Quality
+
+- **C5 — view DDL templating.** The migration's `upgrade()` defines a single `_VIEW_SQL_TEMPLATE` Python string with `{view_name}` and `{embedding_table}` placeholders, then calls `op.execute(template.format(...))` twice. Removes ~60 lines of duplicated SELECT clauses. Both substitutions are hardcoded literals from the W1 migration file — no injection surface.
+- **C6 — placeholder helpers.** Delete `_row_to_hit` and `_row_to_details`. Construct `PlaceHit(**row)` / `PlaceDetails(**row)` directly.
+- **C7 — `_execute()` shape.** Use `psycopg2.extras.RealDictCursor` so the cursor returns dict-shaped rows directly; drop the manual `zip(cols, r)`. Move `from app.db import get_conn` to the top of `app/tools/retrieval.py` (no circular-import risk now that `get_conn` lives in `app/db.py`).
+- **C8 — `nearby` SQL bug.** The plan's `HAVING dist_m <= %s` without `GROUP BY` is invalid. Rewrite as a CTE: compute `dist_m` in a `candidates` CTE, filter with `WHERE` in the outer query.
+
+### Tests
+
+- **T9 — smoke test.** Add `tests/unit/test_tools_retrieval_smoke.py` (~10 lines) that imports the module, constructs `SearchFilters()`, `PlaceHit(...)`, `PlaceDetails(...)` with sample values. Catches import-time and Pydantic-schema errors without needing a DB.
+- **T10 — `open_at` timezone enforcement.** Add a Pydantic validator on `SearchFilters.open_at` that requires a tz-aware datetime. Cover both cases (naive raises, tz-aware passes) in `test_filters.py`.
+- **T11 — integration test helpers.** Define `_period(open_dow, open_h, open_m, close_dow, close_h, close_m) → dict` and `_is_open(hours, at) → bool` in `tests/integration/test_place_is_open.py`. The latter calls `SELECT place_is_open(%s::jsonb, %s)` via `get_conn()`.
+- **T12 — view-mapping contract test.** Add a 4-line unit test asserting `set(_VIEW_FOR_TABLE.keys()) == set(ALLOWED_EMBEDDING_TABLES)`. Catches drift between the allowlist and the view map.
+
+### Performance
+
+- **P13 — HNSW + filter recall lever.** `semantic_search` uses `LIMIT k * _OVERFETCH_FACTOR`; `_OVERFETCH_FACTOR = 1` for now. Constant in `app/tools/retrieval.py`. Comment cites W6 as the trigger to bump it.
+- **P14 — view-computed booleans.** Leave as-is. ~5,800 rows; cost is microseconds.
+- **P15 — `nearby` reads.** (a) Anchor reads `latitude`/`longitude` from `places_raw` directly, not from `place_documents` (skip the embedding JOIN). (b) Drop `pd.embedding` from the neighbor SELECT — we don't need vectors in the result payload.
+- **P16 — `LOWER(neighborhood)` index.** Leave as-is. Add a functional index in a follow-up only if W6 surfaces neighborhood-filtered queries as slow.
+
 ## Files
 
 ### New: Alembic migration `create_place_documents_view`
