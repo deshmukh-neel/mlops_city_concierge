@@ -37,7 +37,7 @@ class PlaceHit(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     rating: float | None = None
-    price_level: int | None = None
+    price_level: str | None = None  # Google v1 enum, e.g. 'PRICE_LEVEL_MODERATE'
     business_status: str | None = None
     source: str
     similarity: float
