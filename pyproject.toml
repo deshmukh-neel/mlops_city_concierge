@@ -37,6 +37,9 @@ httpx = ">=0.27.0,<1.0.0"
 tenacity = ">=8.3.0,<9.0.0"
 pyyaml = ">=6.0.1,<7.0.0"
 
+# Observability — per-request tracing for the agent product (W0)
+langfuse = ">=2.0.0,<3.0.0"
+
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.2.0,<9.0.0"
 pytest-asyncio = ">=0.23.6,<1.0.0"
