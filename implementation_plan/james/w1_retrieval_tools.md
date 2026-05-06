@@ -776,3 +776,15 @@ Expected: 5 results in/near North Beach, all `rating >= 4.3`, all `price_level <
 - **Boolean amenity columns are computed in the view, not stored.** Each query re-evaluates the COALESCE casts. With ~5,800 rows this is fine. If we ever materialize the view or generate columns on `places_raw`, the cast logic moves with no other change.
 - **Two views (v1 + v2) double the migration surface.** Acceptable while we A/B v1 vs v2 in W6 evals. As soon as v2 wins, drop `place_documents` (v1) and rename `place_documents_v2` to `place_documents` in a small follow-up PR.
 - **Connection pooling.** `get_conn()` should use whatever pooling the app already does. If the existing retriever opens fresh connections per call, leave that alone in this PR; revisit pool config separately.
+
+---
+
+**Status:** ✅ Merged via [#65](https://github.com/deshmukh-neel/mlops_city_concierge/pull/65) on 2026-05-06. Followed by hotfix [#66](https://github.com/deshmukh-neel/mlops_city_concierge/pull/66) (`price_level` is a Google v1 enum string, not int — adds `price_level_rank()` migration and a `scripts/smoke_w1.py` end-to-end harness).
+
+Deferred / pending:
+
+- Pool integration. `get_conn()` opens fresh connections; PR #56 will swap the body to borrow from the shared pool with no caller change.
+- Editorial table `UNION ALL`. View definition gets a follow-up edit when the editorial schema lands; tools don't change.
+- HNSW recall over-fetch lever (`_OVERFETCH_FACTOR`) ships at `1`. Bump if W6 evals show recall regressing on tightly-filtered queries.
+- v1 retirement. Drop `place_documents` and rename `place_documents_v2 → place_documents` once W6 confirms v2 wins.
+- Multi-city. `place_is_open()` hardcodes `America/Los_Angeles`; expand to a `tz TEXT` argument when the app moves beyond SF.
