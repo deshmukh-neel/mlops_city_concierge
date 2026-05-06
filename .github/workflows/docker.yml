@@ -183,6 +183,7 @@ jobs:
           env_vars: |
             AGENT_MAX_STEPS=8
             LANGFUSE_HOST=https://cloud.langfuse.com
+            EMBEDDING_TABLE=place_embeddings
           secrets: |
             ANTHROPIC_API_KEY=anthropic-api-key:latest
             LANGFUSE_SECRET_KEY=langfuse-secret-key:latest
