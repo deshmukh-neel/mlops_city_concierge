@@ -34,4 +34,16 @@ def test_resolves_postgres_components() -> None:
             "POSTGRES_PORT": "5432",
         }
     )
-    assert url.startswith("postgresql://u:p@host:5432/db")
+    assert url == "postgresql://u:p@host:5432/db"
+
+
+def test_raises_when_postgres_components_partial() -> None:
+    """Missing one of user/password/db must raise — never silently fall back."""
+    with pytest.raises(RuntimeError, match="could not resolve a database URL"):
+        resolve_alembic_database_url(
+            env={
+                "POSTGRES_USER": "u",
+                "POSTGRES_DB": "db",
+                # POSTGRES_PASSWORD intentionally omitted
+            }
+        )
