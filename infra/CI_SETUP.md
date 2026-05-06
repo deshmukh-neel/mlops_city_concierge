@@ -214,3 +214,40 @@ After all of the above:
 5. An approver clicks "Review deployments → Approve" in the Actions UI.
 6. `terraform apply` runs against `main` and reports the same plan was
    applied.
+
+## 7. Auto-migrate on deploy (`github-actions-deployer` grants)
+
+These grants let `.github/workflows/docker.yml` run `alembic upgrade head`
+against prod via the Cloud SQL Auth Proxy before the Cloud Run deploy.
+Run once per project.
+
+The deployer SA already has `roles/run.admin`, `roles/artifactregistry.writer`,
+and `roles/iam.serviceAccountUser`. Auto-migrate adds two more — both
+least-privilege.
+
+```bash
+# Connect through the Cloud SQL Auth Proxy.
+gcloud projects add-iam-policy-binding mlops-491820 \
+  --member="serviceAccount:github-actions-deployer@mlops-491820.iam.gserviceaccount.com" \
+  --role="roles/cloudsql.client"
+
+# Read the postgres password (resource-level, not project-wide).
+gcloud secrets add-iam-policy-binding POSTGRES_PASSWORD \
+  --project=mlops-491820 \
+  --member="serviceAccount:github-actions-deployer@mlops-491820.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+Verify:
+
+```bash
+gcloud projects get-iam-policy mlops-491820 \
+  --flatten='bindings[].members' \
+  --format='table(bindings.role)' \
+  --filter="bindings.members:github-actions-deployer@mlops-491820.iam.gserviceaccount.com"
+# Expected: roles/artifactregistry.writer, roles/cloudsql.client,
+#           roles/iam.serviceAccountUser, roles/run.admin
+
+gcloud secrets get-iam-policy POSTGRES_PASSWORD --project=mlops-491820
+# Expected: github-actions-deployer@... has roles/secretmanager.secretAccessor
+```
