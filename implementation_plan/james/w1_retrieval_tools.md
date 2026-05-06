@@ -1,7 +1,12 @@
 # W1 — Unified place view + filterable retrieval tools
 
 **Branch:** `feature/agent-w1-retrieval-tools`
-**Depends on:** W0a (the `place_embeddings_v2` table + the `EMBEDDING_TABLE` env var that selects which embedding table the view reads from)
+
+**Depends on:**
+
+- W0a (the `place_embeddings_v2` table + the `EMBEDDING_TABLE` env var that selects which embedding table the view reads from).
+- PR #63 / #64 (Alembic now lives in `alembic/versions/`; `make migration MSG="..."` creates new migrations and `make migrate` applies them. Both prod and the local dev DB have been stamped at `5187c6b09b25`).
+
 **Unblocks:** W2, W3, W6, W7 (and indirectly W4)
 
 ## Goal
@@ -16,9 +21,92 @@ After this PR:
 - `place_is_open` correctly handles overnight periods (close < open the next day) — needed for bars and late-night spots.
 - The legacy `PgVectorRetriever` still works for `/predict` so this PR is non-breaking on its own.
 
+## Review decisions (2026-05-06)
+
+The architecture/code-quality/tests/performance review walk-through produced the following deltas to this plan. Where a decision conflicts with text below, this list wins.
+
+### Architecture
+
+- **A3 — view selection.** Tools layer derives the view name from `Settings.embedding_table` via `_VIEW_FOR_TABLE = {"place_embeddings": "place_documents", "place_embeddings_v2": "place_documents_v2"}` in `app/tools/retrieval.py`. Same allowlist-then-f-string pattern as `app/retriever.py:50`. No new env var.
+- **A4 — connection helper.** `get_conn()` is a context manager added to `app/db.py` (next to the existing `get_db()` generator). Body opens a fresh `psycopg2.connect(settings.resolved_database_url)` for now; PR #56 will swap the body to use the pool when it lands, with no caller change. `build_embedding(query, settings)` extracted to `app/retriever.py` (or co-located near `get_conn` if cleaner). Legacy `PgVectorRetriever` is untouched.
+
+### Code Quality
+
+- **C5 — view DDL templating.** The migration's `upgrade()` defines a single `_VIEW_SQL_TEMPLATE` Python string with `{view_name}` and `{embedding_table}` placeholders, then calls `op.execute(template.format(...))` twice. Removes ~60 lines of duplicated SELECT clauses. Both substitutions are hardcoded literals from the W1 migration file — no injection surface.
+- **C6 — placeholder helpers.** Delete `_row_to_hit` and `_row_to_details`. Construct `PlaceHit(**row)` / `PlaceDetails(**row)` directly.
+- **C7 — `_execute()` shape.** Use `psycopg2.extras.RealDictCursor` so the cursor returns dict-shaped rows directly; drop the manual `zip(cols, r)`. Move `from app.db import get_conn` to the top of `app/tools/retrieval.py` (no circular-import risk now that `get_conn` lives in `app/db.py`).
+- **C8 — `nearby` SQL bug.** The plan's `HAVING dist_m <= %s` without `GROUP BY` is invalid. Rewrite as a CTE: compute `dist_m` in a `candidates` CTE, filter with `WHERE` in the outer query.
+
+### Tests
+
+- **T9 — smoke test.** Add `tests/unit/test_tools_retrieval_smoke.py` (~10 lines) that imports the module, constructs `SearchFilters()`, `PlaceHit(...)`, `PlaceDetails(...)` with sample values. Catches import-time and Pydantic-schema errors without needing a DB.
+- **T10 — `open_at` timezone enforcement.** Add a Pydantic validator on `SearchFilters.open_at` that requires a tz-aware datetime. Cover both cases (naive raises, tz-aware passes) in `test_filters.py`.
+- **T11 — integration test helpers.** Define `_period(open_dow, open_h, open_m, close_dow, close_h, close_m) → dict` and `_is_open(hours, at) → bool` in `tests/integration/test_place_is_open.py`. The latter calls `SELECT place_is_open(%s::jsonb, %s)` via `get_conn()`.
+- **T12 — view-mapping contract test.** Add a 4-line unit test asserting `set(_VIEW_FOR_TABLE.keys()) == set(ALLOWED_EMBEDDING_TABLES)`. Catches drift between the allowlist and the view map.
+
+### Performance
+
+- **P13 — HNSW + filter recall lever.** `semantic_search` uses `LIMIT k * _OVERFETCH_FACTOR`; `_OVERFETCH_FACTOR = 1` for now. Constant in `app/tools/retrieval.py`. Comment cites W6 as the trigger to bump it.
+- **P14 — view-computed booleans.** Leave as-is. ~5,800 rows; cost is microseconds.
+- **P15 — `nearby` reads.** (a) Anchor reads `latitude`/`longitude` from `places_raw` directly, not from `place_documents` (skip the embedding JOIN). (b) Drop `pd.embedding` from the neighbor SELECT — we don't need vectors in the result payload.
+- **P16 — `LOWER(neighborhood)` index.** Leave as-is. Add a functional index in a follow-up only if W6 surfaces neighborhood-filtered queries as slow.
+
 ## Files
 
-### New: `scripts/db/migrations/001_place_documents_view.sql`
+### New: Alembic migration `create_place_documents_view`
+
+Generate with `make migration MSG="create place_documents view"` — Alembic creates the file in `alembic/versions/<timestamp>-<rev>_create_place_documents_view.py` (see `5187c6b09b25_create_place_embeddings_v2.py` for the precedent). The body is hand-written SQL via `op.execute()` because Alembic's helpers can't model VIEWs or PL/pgSQL functions.
+
+The migration creates **four** SQL objects in one atomic upgrade:
+
+1. `place_is_open(jsonb, timestamptz)` — PL/pgSQL helper, used by `SearchFilters.open_at`.
+2. `neighborhood_of(jsonb)` — PL/pgSQL helper, used by both views. Owned by W1 because we need it now; W7's migration uses `CREATE OR REPLACE FUNCTION` so it can ship later without breakage. Definition matches `_neighborhood_from_address_components` in `scripts/embed_places_pgvector_v2.py`.
+3. `place_documents` view — joins `places_raw` + `place_embeddings` (v1).
+4. `place_documents_v2` view — joins `places_raw` + `place_embeddings_v2` (v2).
+
+`downgrade()` drops all four in reverse order.
+
+```python
+# alembic/versions/<timestamp>-<rev>_create_place_documents_view.py
+from alembic import op
+
+revision = "<rev>"
+down_revision = "5187c6b09b25"  # create_place_embeddings_v2
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.execute("""
+        CREATE OR REPLACE FUNCTION neighborhood_of(source_json JSONB)
+        RETURNS TEXT AS $$
+        DECLARE component JSONB;
+        BEGIN
+          IF source_json IS NULL THEN RETURN ''; END IF;
+          FOR component IN
+            SELECT * FROM jsonb_array_elements(source_json->'addressComponents')
+          LOOP
+            IF (component->'types') ? 'neighborhood' THEN
+              RETURN COALESCE(component->>'longText', component->>'shortText', '');
+            END IF;
+          END LOOP;
+          RETURN '';
+        END;
+        $$ LANGUAGE plpgsql IMMUTABLE;
+    """)
+    op.execute(_PLACE_IS_OPEN_FN)        # see SQL block below
+    op.execute(_PLACE_DOCUMENTS_VIEW)    # v1
+    op.execute(_PLACE_DOCUMENTS_V2_VIEW) # v2
+
+
+def downgrade() -> None:
+    op.execute("DROP VIEW IF EXISTS place_documents_v2")
+    op.execute("DROP VIEW IF EXISTS place_documents")
+    op.execute("DROP FUNCTION IF EXISTS place_is_open(JSONB, TIMESTAMPTZ)")
+    op.execute("DROP FUNCTION IF EXISTS neighborhood_of(JSONB)")
+```
+
+The SQL bodies for the views and `place_is_open()` are below. They go inline as triple-quoted Python strings; the SQL is identical to the original plan.
 
 ```sql
 -- Unified place document view. Backed by places_raw + place_embeddings today;
@@ -42,10 +130,10 @@ SELECT
     p.types,
     p.formatted_address,
     -- structured neighborhood pulled from addressComponents (mirrors
-    -- _neighborhood_from_address_components in scripts/embed_places_pgvector_v2.py
-    -- via the neighborhood_of() SQL helper introduced in W7's migration; if W7
-    -- has not landed yet, this view inlines the same expression — see the
-    -- "If W7 has not landed" note below).
+    -- _neighborhood_from_address_components in scripts/embed_places_pgvector_v2.py).
+    -- The neighborhood_of() helper is created earlier in this same migration —
+    -- W7's migration uses CREATE OR REPLACE FUNCTION with an identical body so
+    -- it can ship in any order without breakage.
     neighborhood_of(p.source_json) AS neighborhood,
     p.latitude,
     p.longitude,
@@ -121,16 +209,12 @@ SELECT
 FROM places_raw p
 JOIN place_embeddings_v2 e ON e.place_id = p.place_id;
 
--- If W7 has not landed yet, define neighborhood_of() inline in this migration
--- and let W7's migration replace it with `CREATE OR REPLACE FUNCTION` (the body
--- is identical). See w7_knowledge_graph.md for the canonical definition.
-
 -- Comment so future maintainers know to UNION the editorial table here.
 COMMENT ON VIEW place_documents IS
   'Unified retrieval surface. When editorial places table lands, redefine as UNION ALL with source = ''editorial''.';
 ```
 
-Wire this into `Makefile`'s `migrate` target, or ensure Alembic picks it up if Alembic is initialized (Makefile mentions Alembic but the tree doesn't have a `migrations/` dir yet — if absent, append the SQL to `scripts/db/init.sql` for now and note in PR description).
+Apply with `make migrate` after generating the migration. CI's `migrations` job will round-trip `downgrade base → upgrade head` against an ephemeral pgvector container, so a broken downgrade fails the PR before merge.
 
 ### New: `app/tools/__init__.py`
 
@@ -306,10 +390,9 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
     return " AND " + " AND ".join(clauses), params
 ```
 
-The `place_is_open(jsonb, timestamptz)` helper is a tiny PL/pgSQL function — add it to the same migration:
+The `place_is_open(jsonb, timestamptz)` helper is a tiny PL/pgSQL function — its body goes in the same migration (the `_PLACE_IS_OPEN_FN` constant referenced in the `upgrade()` skeleton above):
 
 ```sql
--- Append to 001_place_documents_view.sql
 CREATE OR REPLACE FUNCTION place_is_open(hours JSONB, at_ts TIMESTAMPTZ)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -666,7 +749,7 @@ Mirror the fake-cursor pattern from `tests/unit/test_retriever.py:1-98`. Cover:
 ## Manual verification
 
 ```bash
-make migrate          # apply 001_place_documents_view.sql
+make migrate          # apply the new alembic migration
 make ingest           # seed via existing pipeline
 python -c "
 from app.tools.retrieval import semantic_search
