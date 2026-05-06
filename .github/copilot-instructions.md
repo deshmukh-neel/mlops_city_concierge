@@ -50,7 +50,7 @@ python scripts/seed.py    # Generate sample JSONL data
 - **Retriever stack** uses OpenAI embeddings for query vectors and pgvector HNSW cosine similarity search for source retrieval
 - **LangChain RAG chain** supports OpenAI or Gemini chat models, selected from MLflow Model Registry params
 - **Scripts**: `scripts/ingest_places_sf.py` loads raw Google Places data, `scripts/embed_places_pgvector.py` refreshes embeddings, and `scripts/log_model_to_mlflow.py` logs experiment runs
-- **Alembic** for database migrations (not yet initialized beyond Makefile targets)
+- **Alembic** for database migrations. Add new migrations with `make migration MSG="..."`; apply with `make migrate`. Migration files live in `alembic/versions/`. The DB URL is resolved via `app.db_url.resolve_alembic_database_url()` (reads `DATABASE_URL` or the `POSTGRES_*` env vars). New databases pick up all migrations automatically; pre-existing databases need a one-time `alembic stamp head` to mark current schema as the starting point.
 - **MLflow** for experiment tracking and model-registry-backed runtime selection (shared GCP server)
 
 ## Infrastructure
