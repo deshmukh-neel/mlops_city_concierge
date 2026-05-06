@@ -29,7 +29,7 @@ def test_price_and_rating() -> None:
             min_user_rating_count=0,
         )
     )
-    assert "price_level <= %s" in where
+    assert "price_level_rank(price_level) <= %s" in where
     assert "rating >= %s" in where
     assert 2 in params
     assert 4.3 in params

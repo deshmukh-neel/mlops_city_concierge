@@ -27,7 +27,12 @@ class SearchFilters(BaseModel):
         default=None,
         ge=0,
         le=4,
-        description="Max Google price_level. 0=free, 4=very expensive.",
+        description=(
+            "Max Google price_level on the documented 0..4 scale "
+            "(0=FREE, 1=INEXPENSIVE, 2=MODERATE, 3=EXPENSIVE, 4=VERY_EXPENSIVE). "
+            "places_raw stores the enum string; the filter compares via "
+            "price_level_rank() so the comparison is an integer comparison."
+        ),
     )
     min_rating: float | None = Field(default=None, ge=0.0, le=5.0)
     min_user_rating_count: int | None = Field(
@@ -126,7 +131,10 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
     params: list = []
 
     if f.price_level_max is not None:
-        clauses.append("price_level <= %s")
+        # places_raw.price_level is a Google v1 enum string ('PRICE_LEVEL_*');
+        # price_level_rank() (alembic c428add573d7) maps it to 0..4 so we can
+        # compare against the integer the agent passes.
+        clauses.append("price_level_rank(price_level) <= %s")
         params.append(f.price_level_max)
 
     if f.min_rating is not None:
