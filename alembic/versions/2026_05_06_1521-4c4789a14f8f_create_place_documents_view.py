@@ -55,9 +55,16 @@ _PLACE_IS_OPEN_FN = """
 CREATE OR REPLACE FUNCTION place_is_open(hours JSONB, at_ts TIMESTAMPTZ)
 RETURNS BOOLEAN AS $$
 DECLARE
-  dow            INT := EXTRACT(DOW FROM at_ts);
-  hh             INT := EXTRACT(HOUR FROM at_ts);
-  mm             INT := EXTRACT(MINUTE FROM at_ts);
+  -- Convert at_ts into America/Los_Angeles before extracting DOW/HOUR.
+  -- Postgres's session timezone is UTC on Cloud SQL and on the local docker
+  -- container, so without AT TIME ZONE a Friday-22:00-SF call resolves to
+  -- Saturday 05:00 UTC and DOW comes back wrong. The app is SF-only today
+  -- (places_raw.source_city = 'San Francisco'); when it expands beyond SF
+  -- this function gets a 3rd `tz TEXT` argument.
+  local_ts       TIMESTAMP := at_ts AT TIME ZONE 'America/Los_Angeles';
+  dow            INT := EXTRACT(DOW FROM local_ts);
+  hh             INT := EXTRACT(HOUR FROM local_ts);
+  mm             INT := EXTRACT(MINUTE FROM local_ts);
   minutes_of_day INT := hh * 60 + mm;
   period         JSONB;
   open_dow       INT;
