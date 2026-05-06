@@ -11,10 +11,16 @@ from __future__ import annotations
 
 from logging.config import fileConfig
 
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.db_url import resolve_alembic_database_url
+
+# Load .env so `alembic <cmd>` works the same way `python scripts/*.py` does.
+# Every script in this repo calls load_dotenv(); Alembic must too, or
+# `make migrate` fails for users who put DATABASE_URL only in .env.
+load_dotenv()
 
 config = context.config
 
