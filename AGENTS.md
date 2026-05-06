@@ -70,3 +70,12 @@ Cloud Run (`city-concierge-api`) is intentionally **not** managed by Terraform �
 - Integration tests are skipped unless `APP_ENV=integration` is set
 - Environment variables configured via `.env` (see `.env.example` for all required vars)
 - Docker Compose service names: `db` (Postgres), `app` (FastAPI)
+
+## Implementation plan tracking
+
+The agent product roadmap lives in `implementation_plan/james/` — one file per workstream (W0, W0a, W1…W7) plus a `README.md` index with a status table. When merging a PR that completes (or partially completes) a workstream, update **both**:
+
+1. The status column in `implementation_plan/james/README.md` (✅ Merged with PR link, or 🚧 In progress)
+2. A short `**Status:**` footer at the bottom of the relevant `wN_*.md` file (PR link, date, what's still deferred)
+
+Don't update mid-workstream — only on merge. If a workstream ships in multiple PRs, link the most recent one and note in the footer what's still pending.
