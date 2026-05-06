@@ -35,6 +35,8 @@ env:
   IMAGE_NAME: city-concierge
   CLOUD_RUN_SERVICE: city-concierge-api
   CLOUD_RUN_REGION: us-central1
+  CLOUD_SQL_INSTANCE: mlops-491820:us-central1:mlops--city-concierge
+  POSTGRES_DB: mlops-city-concierge
 
 jobs:
   build-scan-push:
@@ -120,6 +122,100 @@ jobs:
           cache-from: type=gha
 
   # ---------------------------------------------------------------------------
+  # Migrate prod database
+  #
+  # Runs in parallel with build-scan-push; both gate `deploy`. If migrate
+  # fails, the new image still gets pushed to Artifact Registry (harmless)
+  # but Cloud Run is not rolled forward. alembic upgrade head is idempotent —
+  # safe to run on every push to main, even when no migrations changed.
+  # ---------------------------------------------------------------------------
+  migrate:
+    name: Migrate prod database
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Poetry
+        run: pipx install "poetry==1.8.3"
+
+      - name: Cache Poetry venv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-py3.10-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dev dependencies
+        run: poetry install --with dev --no-interaction --no-root
+
+      - name: Start Cloud SQL Auth Proxy
+        # nohup + disown so the proxy survives this step's shell. Logs go to
+        # cloud-sql-proxy.log so a later step (or post-failure inspection) can
+        # tail it. We poll for the listener instead of `sleep N` because the
+        # proxy can take 1–10s depending on network/DNS.
+        run: |
+          curl -sS -L \
+            -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.13.0/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          nohup ./cloud-sql-proxy --port 5432 "${{ env.CLOUD_SQL_INSTANCE }}" \
+            > cloud-sql-proxy.log 2>&1 &
+          disown
+          for i in {1..30}; do
+            if nc -z 127.0.0.1 5432; then
+              echo "proxy listening on 5432"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "proxy failed to start; log:" >&2
+          cat cloud-sql-proxy.log >&2 || true
+          exit 1
+
+      - name: Read POSTGRES_PASSWORD from Secret Manager
+        id: pg
+        run: |
+          pw=$(gcloud secrets versions access latest \
+            --secret=POSTGRES_PASSWORD \
+            --project=${{ vars.GCP_PROJECT_ID }})
+          echo "::add-mask::$pw"
+          echo "password=$pw" >> "$GITHUB_OUTPUT"
+
+      - name: Show alembic current (before)
+        env:
+          DATABASE_URL: postgresql://postgres:${{ steps.pg.outputs.password }}@127.0.0.1:5432/${{ env.POSTGRES_DB }}
+        run: poetry run alembic current
+
+      - name: Run alembic upgrade head
+        env:
+          DATABASE_URL: postgresql://postgres:${{ steps.pg.outputs.password }}@127.0.0.1:5432/${{ env.POSTGRES_DB }}
+        run: poetry run alembic upgrade head
+
+      - name: Show alembic current (after)
+        env:
+          DATABASE_URL: postgresql://postgres:${{ steps.pg.outputs.password }}@127.0.0.1:5432/${{ env.POSTGRES_DB }}
+        run: poetry run alembic current
+
+  # ---------------------------------------------------------------------------
   # Cloud Run auto-deploy
   #
   # Only runs on push to main (not on tags or manual dispatch). Swaps in the
@@ -130,7 +226,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy to Cloud Run
-    needs: build-scan-push
+    needs: [build-scan-push, migrate]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
