@@ -14,6 +14,18 @@ def vector_to_pg(embedding: list[float]) -> str:
     return "[" + ",".join(f"{value:.8f}" for value in embedding) + "]"
 
 
+def build_embedding(
+    query: str, embedding_model: str, openai_api_key: str | None = None
+) -> list[float]:
+    """Generate an OpenAI embedding for a query string. Reused by agent tools."""
+    settings = get_settings()
+    api_key = openai_api_key or settings.openai_api_key
+    if not api_key:
+        raise RuntimeError("Missing OPENAI_API_KEY for query embedding generation.")
+    embeddings = OpenAIEmbeddings(model=embedding_model, api_key=SecretStr(api_key))
+    return embeddings.embed_query(query)
+
+
 class PgVectorRetriever(BaseRetriever):
     connection_string: str
     embedding_model: str = "text-embedding-3-small"
