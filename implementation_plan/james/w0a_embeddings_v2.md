@@ -518,3 +518,7 @@ While running `make embed-v2` end-to-end against Cloud SQL we hit three pre-exis
 1. **`ModuleNotFoundError: No module named 'app'`** when running scripts directly. Fixed by adding `scripts/__init__.py` and switching the Make targets to `poetry run python -m scripts.<name>`. Also corrects the manual-verification command above.
 2. **Single-batch run** — `run()` only embedded the first `BATCH_SIZE = 1000` places and exited. Replaced with a `while True` loop that re-fetches until empty; the fetch query already excludes up-to-date rows, so the loop terminates naturally.
 3. **Per-row commit bottleneck** — capped throughput at ~50 rows/min through the Cloud SQL proxy. Replaced the per-row `upsert_embedding` loop with `psycopg2.extras.execute_values` batching (one round-trip per ~1,000-row OpenAI batch). A full corpus re-embed dropped from ~75 minutes to ~3 minutes. Applied to v2 only; v1 left unchanged since it's being deprecated.
+
+---
+
+**Status:** Merged in [PR #58](https://github.com/deshmukh-neel/mlops_city_concierge/pull/58). `EMBEDDING_TABLE=place_embeddings_v2` promotion is gated on W6 retrieval evals and remains intentionally deferred.

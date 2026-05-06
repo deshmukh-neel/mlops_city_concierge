@@ -16,7 +16,7 @@ After this PR:
 - Secrets live in GCP Secret Manager, not raw env vars.
 - Per-request token + cost telemetry lands in logs from day one.
 
-Items deferred (real, but not blocking the demo): streaming responses, embedding cache, Cloud SQL private VPC audit. Each is a one-paragraph follow-up; flagged at the end of this doc.
+Items deferred (real, but not blocking the demo): streaming responses, embedding cache, Cloud SQL private VPC audit, per-user rate limiting. Each is a one-paragraph follow-up; flagged at the end of this doc.
 
 ## Files
 
@@ -38,12 +38,12 @@ Add to the `gcloud run deploy` invocation:
       --cpu=2 --memory=2Gi \
       --timeout=120 \
       --service-account=$RUN_SA \
-      --set-secrets=OPENAI_API_KEY=openai-api-key:latest,\
-GEMINI_API_KEY=gemini-api-key:latest,\
-ANTHROPIC_API_KEY=anthropic-api-key:latest,\
-LANGFUSE_SECRET_KEY=langfuse-secret-key:latest,\
-LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,\
-MLFLOW_TRACKING_TOKEN=mlflow-tracking-token:latest \
+      --set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest,\
+GEMINI_API_KEY=GEMINI_API_KEY:latest,\
+ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,\
+LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest,\
+LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest,\
+MLFLOW_TRACKING_TOKEN=MLFLOW_TRACKING_TOKEN:latest \
       --set-env-vars=MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI,\
 MLFLOW_MODEL_NAME=$MLFLOW_MODEL_NAME,\
 LANGFUSE_HOST=$LANGFUSE_HOST,\
@@ -348,3 +348,7 @@ gcloud run services describe city-concierge-app --region=$REGION \
 - **Embedding cache** keyed on `(query, embedding_model)` in Redis or a Postgres table. High value once W6 evals run regularly — reduces eval cost dramatically.
 - **Cloud SQL private VPC audit.** Confirm Cloud Run reaches Cloud SQL via private VPC connector + cloud-sql-proxy, not over public IP. 30-second check, real security implication.
 - **Per-user rate limiting.** Once you have real users, an unbounded `/chat` endpoint is a wallet attack vector. Add an IP-based limit (Cloud Armor) or per-API-key quotas.
+
+---
+
+**Status:** Merged in [PR #60](https://github.com/deshmukh-neel/mlops_city_concierge/pull/60) (2026-05-06). MLflow auth proxy (§3) is the remaining piece from this plan and will land as a follow-up PR.

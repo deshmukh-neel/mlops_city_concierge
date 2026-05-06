@@ -17,17 +17,17 @@ It is also indistinguishable from "Opus 4.7 + web search" on the tasks Opus is g
 
 Six workstreams that convert the system into a tool-calling agent grounded in your structured DB, with the MLOps loop that lets it improve over time. Each workstream is its own file, its own branch, its own PR.
 
-| # | Workstream | File | Branch | Depends on |
-|---|---|---|---|---|
-| W0  | Infra hardening (cold starts, tracing, secrets, MLflow auth, cost telemetry) | [w0_infra.md](w0_infra.md) | `feature/agent-w0-infra` | — |
-| W0a | Cleaner embeddings on a parallel `place_embeddings_v2` table | [w0a_embeddings_v2.md](w0a_embeddings_v2.md) | `feature/agent-w0a-embeddings-v2` | — |
-| W1  | Unified place view + filterable retrieval tools | [w1_retrieval_tools.md](w1_retrieval_tools.md) | `feature/agent-w1-retrieval-tools` | W0a |
-| W2  | Agent loop + ItineraryState + `/chat` endpoint | [w2_agent_graph.md](w2_agent_graph.md) | `feature/agent-w2-agent-graph` | W1 (and ideally W0 for tracing) |
-| W3  | Self-correction (within W2's graph) | [w3_self_correction.md](w3_self_correction.md) | `feature/agent-w3-self-correction` | W2 |
-| W4  | Booking handoff stub (`propose_booking`) | [w4_booking_stub.md](w4_booking_stub.md) | `feature/agent-w4-booking-stub` | W2 |
-| W5  | Coverage-gap ingestion agent | [w5_coverage_agent.md](w5_coverage_agent.md) | `feature/agent-w5-coverage-agent` | — (independent) |
-| W6  | Eval-loop agent (RAGAS retrieval + custom itinerary checks) | [w6_eval_agent.md](w6_eval_agent.md) | `feature/agent-w6-eval-agent` | W2 |
-| W7  | Knowledge graph (`place_relations`) + `kg_traverse` tool | [w7_knowledge_graph.md](w7_knowledge_graph.md) | `feature/agent-w7-knowledge-graph` | W0a, W1 |
+| # | Workstream | File | Branch | Depends on | Status |
+|---|---|---|---|---|---|
+| W0  | Infra hardening (cold starts, tracing, secrets, MLflow auth, cost telemetry) | [w0_infra.md](w0_infra.md) | `feature/agent-w0-infra` | — | ✅ Merged ([#60](https://github.com/deshmukh-neel/mlops_city_concierge/pull/60)) — MLflow auth proxy (§3) deferred |
+| W0a | Cleaner embeddings on a parallel `place_embeddings_v2` table | [w0a_embeddings_v2.md](w0a_embeddings_v2.md) | `feature/agent-w0a-embeddings-v2` | — | ✅ Merged ([#58](https://github.com/deshmukh-neel/mlops_city_concierge/pull/58)) — promotion gated on W6 evals |
+| W1  | Unified place view + filterable retrieval tools | [w1_retrieval_tools.md](w1_retrieval_tools.md) | `feature/agent-w1-retrieval-tools` | W0a | 🚧 Not started |
+| W2  | Agent loop + ItineraryState + `/chat` endpoint | [w2_agent_graph.md](w2_agent_graph.md) | `feature/agent-w2-agent-graph` | W1 (and ideally W0 for tracing) | 🚧 Not started |
+| W3  | Self-correction (within W2's graph) | [w3_self_correction.md](w3_self_correction.md) | `feature/agent-w3-self-correction` | W2 | 🚧 Not started |
+| W4  | Booking handoff stub (`propose_booking`) | [w4_booking_stub.md](w4_booking_stub.md) | `feature/agent-w4-booking-stub` | W2 | 🚧 Not started |
+| W5  | Coverage-gap ingestion agent | [w5_coverage_agent.md](w5_coverage_agent.md) | `feature/agent-w5-coverage-agent` | — (independent) | 🚧 Not started |
+| W6  | Eval-loop agent (RAGAS retrieval + custom itinerary checks) | [w6_eval_agent.md](w6_eval_agent.md) | `feature/agent-w6-eval-agent` | W2 | 🚧 Not started |
+| W7  | Knowledge graph (`place_relations`) + `kg_traverse` tool | [w7_knowledge_graph.md](w7_knowledge_graph.md) | `feature/agent-w7-knowledge-graph` | W0a, W1 | 🚧 Not started |
 
 Suggested merge order: **W0a → W0 → W1 → W2 → W3 → W4** (cleaner embeddings first so all downstream retrieval rides on better vectors; user-facing demo path with infra in front), then **W5, W6, W7** in any order (MLOps story + KG layer). W0 and W5 are independent of the agent code and can land any time. If W0 is delayed, W2's tracing wiring degrades gracefully to a no-op (Langfuse env vars unset → empty callbacks list). W7 is technically optional but cheap to land once W0a + W1 are in.
 
