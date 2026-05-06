@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 # ─── Variables ────────────────────────────────────────────────────────────────
 DOCKER_COMPOSE := docker compose
-PYTHON         := python3
+POETRY_RUN     := poetry run
 
 .PHONY: help
 help: ## Show this help message
@@ -44,66 +44,66 @@ db-up: ## Start only the database service
 
 .PHONY: migrate
 migrate: ## Run Alembic database migrations
-	alembic upgrade head
+	$(POETRY_RUN) alembic upgrade head
 
 .PHONY: migration
 migration: ## Create a new Alembic migration (usage: make migration MSG="add cities table")
-	alembic revision --autogenerate -m "$(MSG)"
+	$(POETRY_RUN) alembic revision --autogenerate -m "$(MSG)"
 
 # ─── Ingestion ────────────────────────────────────────────────────────────────
 .PHONY: ingest
 ingest: ## Run the data ingestion pipeline
-	$(PYTHON) scripts/ingest.py
+	$(POETRY_RUN) python scripts/ingest.py
 
 .PHONY: ingest-places
 ingest-places: ## Pull SF Google Places data into Postgres
-	$(PYTHON) scripts/ingest_places_sf.py
+	$(POETRY_RUN) python scripts/ingest_places_sf.py
 
 .PHONY: embed-places
 embed-places: ## Generate pgvector embeddings for places
-	poetry run python -m scripts.embed_places_pgvector
+	$(POETRY_RUN) python -m scripts.embed_places_pgvector
 
 .PHONY: embed-v2
 embed-v2: ## Generate cleaned pgvector embeddings into place_embeddings_v2
-	poetry run python -m scripts.embed_places_pgvector_v2
+	$(POETRY_RUN) python -m scripts.embed_places_pgvector_v2
 
 .PHONY: log-mlflow
 log-mlflow: ## Log a RAG configuration and sample outputs to MLflow
-	$(PYTHON) scripts/log_model_to_mlflow.py --config configs/experiments.yaml
+	$(POETRY_RUN) python scripts/log_model_to_mlflow.py --config configs/experiments.yaml
 
 .PHONY: set-production-alias
 set-production-alias: ## Promote a registered model version to production (usage: make set-production-alias VERSION=42)
-	$(PYTHON) scripts/set_production_alias.py --version $(VERSION)
+	$(POETRY_RUN) python scripts/set_production_alias.py --version $(VERSION)
 
 .PHONY: train-simple-model
 train-simple-model: ## Train a simple baseline model from places data
-	$(PYTHON) scripts/train_simple_model.py
+	$(POETRY_RUN) python scripts/train_simple_model.py
 
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
 test: ## Run the full test suite
-	pytest tests/ -v --cov=app --cov-report=term-missing
+	$(POETRY_RUN) pytest tests/ -v --cov=app --cov-report=term-missing
 
 .PHONY: test-unit
 test-unit: ## Run unit tests only
-	pytest tests/unit/ -v
+	$(POETRY_RUN) pytest tests/unit/ -v
 
 .PHONY: test-integration
 test-integration: ## Run integration tests only
-	pytest tests/integration/ -v
+	$(POETRY_RUN) pytest tests/integration/ -v
 
 # ─── Linting / Formatting ─────────────────────────────────────────────────────
 .PHONY: lint
 lint: ## Run ruff linter
-	ruff check .
+	$(POETRY_RUN) ruff check .
 
 .PHONY: format
 format: ## Auto-format code with ruff
-	ruff format .
+	$(POETRY_RUN) ruff format .
 
 .PHONY: typecheck
 typecheck: ## Run mypy type checker
-	mypy app/
+	$(POETRY_RUN) mypy app/
 
 # ─── Install ──────────────────────────────────────────────────────────────────
 .PHONY: install
