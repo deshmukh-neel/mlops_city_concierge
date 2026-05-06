@@ -158,11 +158,13 @@ jobs:
       # MLFLOW_TRACKING_URI, CLOUD_SQL_INSTANCE_CONNECTION_NAME, …) untouched.
       #
       # PREREQUISITE: the 4 new secrets below must exist in Secret Manager before
-      # this job runs, or the deploy step fails. One-time setup (per project):
-      #   for s in anthropic-api-key langfuse-secret-key langfuse-public-key \
-      #            mlflow-tracking-token; do
+      # this job runs, or the deploy step fails. Resource names are UPPERCASE to
+      # match the existing OPENAI_API_KEY / GEMINI_API_KEY / POSTGRES_PASSWORD
+      # secrets and the env-var names in .env / .env.example. One-time setup:
+      #   for s in ANTHROPIC_API_KEY LANGFUSE_SECRET_KEY LANGFUSE_PUBLIC_KEY \
+      #            MLFLOW_TRACKING_TOKEN; do
       #     gcloud secrets create "$s" --replication-policy=automatic
-      #     echo -n "<value>" | gcloud secrets versions add "$s" --data-file=-
+      #     printf '%s' "<value>" | gcloud secrets versions add "$s" --data-file=-
       #     gcloud secrets add-iam-policy-binding "$s" \
       #       --member=serviceAccount:739618408593-compute@developer.gserviceaccount.com \
       #       --role=roles/secretmanager.secretAccessor
@@ -185,7 +187,7 @@ jobs:
             LANGFUSE_HOST=https://cloud.langfuse.com
             EMBEDDING_TABLE=place_embeddings
           secrets: |
-            ANTHROPIC_API_KEY=anthropic-api-key:latest
-            LANGFUSE_SECRET_KEY=langfuse-secret-key:latest
-            LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest
-            MLFLOW_TRACKING_TOKEN=mlflow-tracking-token:latest
+            ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
+            LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest
+            LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest
+            MLFLOW_TRACKING_TOKEN=MLFLOW_TRACKING_TOKEN:latest
