@@ -103,3 +103,53 @@ jobs:
           name: coverage-report
           path: coverage.xml
           if-no-files-found: ignore
+
+  migrations:
+    name: Alembic migrations apply cleanly
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: city_concierge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d city_concierge"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/city_concierge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Poetry
+        run: pipx install "poetry==${{ env.POETRY_VERSION }}"
+
+      - name: Cache Poetry venv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dev dependencies
+        run: poetry install --with dev --no-interaction --no-root
+
+      - name: Apply baseline schema (init.sql)
+        run: psql "$DATABASE_URL" -f scripts/db/init.sql
+
+      - name: Upgrade to head
+        run: poetry run alembic upgrade head
+
+      - name: Round-trip — downgrade to base then upgrade
+        run: |
+          poetry run alembic downgrade base
+          poetry run alembic upgrade head

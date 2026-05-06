@@ -1,5 +1,10 @@
 -- Postgres initialisation script
 -- Runs automatically on first container start via docker-entrypoint-initdb.d/
+--
+-- BASELINE SCHEMA ONLY — do not edit in place. New schema changes must ship as
+-- Alembic migrations (`make migration MSG="..."`) so existing databases pick
+-- them up. Editing this file only affects fresh container starts; Cloud SQL
+-- prod and any teammate's existing local DB will silently miss the change.
 
 -- Enable the pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;
