@@ -346,6 +346,21 @@ def test_itinerary_violations_empty_when_all_pass(mocker) -> None:
     assert itinerary_violations(ItineraryState(stops=[_stop("p1")])) == []
 
 
+def test_itinerary_violations_fails_open_on_db_error(mocker) -> None:
+    """If a check raises (e.g. DB unreachable), itinerary_violations skips it
+    rather than treating it as a violation. The user gets a plan rather than
+    a 500."""
+    mocker.patch(
+        "app.agent.critique.checks.no_hallucinated_place_ids",
+        side_effect=RuntimeError("db down"),
+    )
+    mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=1.0)
+    assert itinerary_violations(ItineraryState(stops=[_stop("p1")])) == []
+
+
 def test_thresholds_are_strict_enough() -> None:
     """A failing geographic check must trip the threshold even at 0.99 — the
     plan calls for zero tolerance on coherence."""

@@ -9,11 +9,15 @@ list of check names that fell below their threshold.
 
 from __future__ import annotations
 
+import logging
+
 from psycopg2.extras import RealDictCursor
 
 from app.agent.planning import haversine_m
 from app.agent.state import ItineraryState
 from app.db import get_conn
+
+_log = logging.getLogger(__name__)
 
 CRITIQUE_THRESHOLDS: dict[str, float] = {
     "constraints_satisfied": 0.8,
@@ -176,17 +180,25 @@ def constraints_satisfied(state: ItineraryState) -> float:
 def itinerary_violations(state: ItineraryState) -> list[str]:
     """Return the list of check names that fell below their threshold.
 
-    Order matters: hallucinated_place_ids comes first because every other
-    check assumes the place_ids are real."""
+    Fails open on DB errors: if a check that needs DB access can't reach the
+    database, it is skipped rather than treated as a violation. The user
+    gets their plan; the missed check shows up in logs."""
     failed: list[str] = []
-    if no_hallucinated_place_ids(state) < CRITIQUE_THRESHOLDS["no_hallucinated_place_ids"]:
-        failed.append("no_hallucinated_place_ids")
-    if temporal_coherence(state) < CRITIQUE_THRESHOLDS["temporal_coherence"]:
-        failed.append("temporal_coherence")
-    if geographic_coherence(state) < CRITIQUE_THRESHOLDS["geographic_coherence"]:
-        failed.append("geographic_coherence")
-    if walking_budget_respected(state) < CRITIQUE_THRESHOLDS["walking_budget_respected"]:
-        failed.append("walking_budget_respected")
-    if constraints_satisfied(state) < CRITIQUE_THRESHOLDS["constraints_satisfied"]:
-        failed.append("constraints_satisfied")
+
+    def _try(name: str, fn) -> None:
+        try:
+            score = fn(state)
+        except Exception as e:  # noqa: BLE001
+            _log.warning("itinerary check %s failed; skipping: %s", name, e)
+            return
+        if score < CRITIQUE_THRESHOLDS[name]:
+            failed.append(name)
+
+    # Order matters: hallucinated_place_ids comes first because every other
+    # check assumes the place_ids are real.
+    _try("no_hallucinated_place_ids", no_hallucinated_place_ids)
+    _try("temporal_coherence", temporal_coherence)
+    _try("geographic_coherence", geographic_coherence)
+    _try("walking_budget_respected", walking_budget_respected)
+    _try("constraints_satisfied", constraints_satisfied)
     return failed
