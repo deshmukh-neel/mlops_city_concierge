@@ -435,3 +435,144 @@ def test_vibe_check_returns_none_on_unparseable_json(monkeypatch) -> None:
         ],
     )
     assert vibe.vibe_check(state, _Judge()) is None
+
+
+# -------- Edge cases ----------------------------------------------------------
+
+
+async def test_finalizing_with_no_stops_just_finalizes(monkeypatch) -> None:
+    """A clarifying-question response (LLM finalized without committing any
+    stops) must not run itinerary violations — there's nothing to check."""
+    called = {"violations": False}
+
+    def _violations(_state):
+        called["violations"] = True
+        return []
+
+    monkeypatch.setattr("app.agent.graph.itinerary_violations", _violations)
+    fake = _make_fake([AIMessage(content="how many stops?", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="plan it")]))
+
+    assert called["violations"] is False
+    assert out["done"] is True
+    assert out["final_reply"] == "how many stops?"
+
+
+async def test_multiple_violations_picks_first_actionable(monkeypatch) -> None:
+    """When several checks fail, critique acts on the first one with retries
+    left — not all of them at once."""
+    monkeypatch.setattr(
+        "app.agent.graph.itinerary_violations",
+        lambda _state: ["temporal_coherence", "geographic_coherence"],
+    )
+    state = ItineraryState(
+        messages=[HumanMessage(content="plan")],
+        stops=[
+            Stop(place_id="p1", name="A", source="google_places", rationale=""),
+            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+        ],
+        # Temporal exhausted; geographic has budget left.
+        revision_counts={"temporal_coherence": MAX_REVISIONS_PER_REASON},
+    )
+    fake = _make_fake(
+        [
+            AIMessage(content="initial plan", tool_calls=[]),
+            AIMessage(content="revised plan", tool_calls=[]),
+        ]
+    )
+    # Toggle the second pass to clean.
+    n = {"i": 0}
+
+    def _violations(_state):
+        n["i"] += 1
+        return ["temporal_coherence", "geographic_coherence"] if n["i"] == 1 else []
+
+    monkeypatch.setattr("app.agent.graph.itinerary_violations", _violations)
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(state)
+
+    # We should have skipped temporal (exhausted) and acted on geographic.
+    assert any(h.reason == "geographic_incoherence" for h in out["revision_hints"])
+    assert all(h.reason != "temporal_incoherence" for h in out["revision_hints"])
+    assert out["done"] is True
+
+
+async def test_max_steps_short_circuits_critique(monkeypatch) -> None:
+    """Even mid-revision, max_steps preempts further work — the user gets
+    the best plan so far, with the truncation message if no final exists."""
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    looping = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "semantic_search", "id": str(i), "args": {"query": "x"}},
+            ],
+        )
+        for i in range(20)
+    ]
+    fake = _make_fake(looping)
+    graph = build_agent_graph(fake, max_steps=2)
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
+
+    assert out["done"] is True
+    assert out["step_count"] == 2
+    assert "step limit" in (out["final_reply"] or "")
+
+
+async def test_revision_counts_persist_across_turns(monkeypatch) -> None:
+    """Two empty searches in a row both bump the same counter — we don't
+    reset it between turns."""
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    fake = _make_fake(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "semantic_search", "id": "1", "args": {"query": "x"}}],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "semantic_search", "id": "2", "args": {"query": "y"}}],
+            ),
+            AIMessage(content="giving up", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=6)
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
+
+    assert out["revision_counts"]["empty_results"] == 2
+
+
+async def test_critique_message_is_visible_to_plan(monkeypatch) -> None:
+    """The HumanMessage that critique injects ends up in state.messages so
+    it shows up in tracing and so the next plan call sees it. Sanity check
+    that the [critique:step] prefix is present."""
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    fake = _make_fake(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "semantic_search", "id": "1", "args": {"query": "x"}}],
+            ),
+            AIMessage(content="ok", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
+
+    critique_msgs = [
+        m
+        for m in out["messages"]
+        if isinstance(m, HumanMessage) and "[critique:step]" in (m.content or "")
+    ]
+    assert len(critique_msgs) == 1
+    assert "empty_results" in critique_msgs[0].content
+
+
+async def test_diagnose_handles_no_scratch_entry() -> None:
+    """If somehow critique fires without any scratch entry (defensive),
+    don't crash and don't emit a hint."""
+    from app.agent.graph import _diagnose_last_tool_result
+
+    state = ItineraryState(messages=[HumanMessage(content="hi")])
+    assert _diagnose_last_tool_result(state) is None
