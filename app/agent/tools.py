@@ -1,15 +1,16 @@
-"""Tool definitions. We author tools with Pydantic AI for type safety, and
-expose them as LangChain Tool instances so LangGraph's plan() node can bind
-them to the LLM. Underlying Python functions remain importable from
-app.tools.* for eval (W6) and tests."""
+"""Tool definitions exposed to the LLM via LangChain's StructuredTool.
+
+The underlying retrieval functions remain importable from app.tools.* for
+eval (W6) and tests; this module is the thin LLM-facing wrapper.
+"""
 
 from __future__ import annotations
 
 import inspect
+from typing import Any, get_type_hints
 
 from langchain_core.tools import StructuredTool
 from pydantic import create_model
-from pydantic_ai import RunContext
 
 from app.tools.filters import SearchFilters
 from app.tools.retrieval import (
@@ -28,7 +29,6 @@ from app.tools.retrieval import (
 
 
 def semantic_search(
-    ctx: RunContext[None],
     query: str,
     filters: SearchFilters | None = None,
     k: int = 8,
@@ -43,7 +43,6 @@ def semantic_search(
 
 
 def nearby(
-    ctx: RunContext[None],
     place_id: str,
     radius_m: int = 800,
     filters: SearchFilters | None = None,
@@ -54,12 +53,12 @@ def nearby(
     return _nearby(place_id=place_id, radius_m=radius_m, filters=filters, k=k)
 
 
-def get_details(ctx: RunContext[None], place_id: str) -> PlaceDetails | None:
+def get_details(place_id: str) -> PlaceDetails | None:
     """Fetch the full record for a place: hours, website, ratings count, types."""
     return _get_details(place_id=place_id)
 
 
-def kg_traverse(ctx: RunContext[None], place_id: str, relation: str = "co_mentioned") -> dict:
+def kg_traverse(place_id: str, relation: str = "co_mentioned") -> dict:
     """Traverse the editorial knowledge graph from `place_id`. NOT YET AVAILABLE.
 
     Stub: the KG lands in a future PR after the editorial scrape is done.
@@ -71,36 +70,42 @@ def kg_traverse(ctx: RunContext[None], place_id: str, relation: str = "co_mentio
     }
 
 
-def _args_schema_for(fn):
-    """Reuse the tool function's annotations as a Pydantic args schema. Keeps
-    a single source of truth for arg validation."""
+def _args_schema_for(fn: Any):
+    """Build a Pydantic args schema from the function's annotations.
+
+    Resolved via typing.get_type_hints so PEP 563 / `from __future__ import
+    annotations` strings are evaluated, and raises loudly on any missing
+    annotation so a forgotten type hint can't ship a malformed tool surface.
+    """
     sig = inspect.signature(fn)
-    fields = {}
+    hints = get_type_hints(fn)
+    fields: dict[str, tuple[Any, Any]] = {}
     for pname, param in sig.parameters.items():
-        if pname == "ctx":
-            continue
-        ann = param.annotation if param.annotation is not inspect._empty else str
-        default = param.default if param.default is not inspect._empty else ...
-        fields[pname] = (ann, default)
+        if pname not in hints:
+            raise TypeError(
+                f"tool {fn.__name__!r}: parameter {pname!r} is missing a type annotation"
+            )
+        default = param.default if param.default is not inspect.Parameter.empty else ...
+        fields[pname] = (hints[pname], default)
     return create_model(f"{fn.__name__}_args", **fields)
 
 
-def _to_lc_tool(name: str, description: str, fn) -> StructuredTool:
-    def _runner(**kwargs):
-        return fn(None, **kwargs)
-
+def _to_lc_tool(name: str, description: str, fn: Any) -> StructuredTool:
     return StructuredTool.from_function(
         name=name,
         description=description or "",
-        func=_runner,
+        func=fn,
         args_schema=_args_schema_for(fn),
     )
 
 
+_TOOLS: list[StructuredTool] = [
+    _to_lc_tool("semantic_search", semantic_search.__doc__ or "", semantic_search),
+    _to_lc_tool("nearby", nearby.__doc__ or "", nearby),
+    _to_lc_tool("get_details", get_details.__doc__ or "", get_details),
+    _to_lc_tool("kg_traverse", kg_traverse.__doc__ or "", kg_traverse),
+]
+
+
 def all_tools() -> list[StructuredTool]:
-    return [
-        _to_lc_tool("semantic_search", semantic_search.__doc__ or "", semantic_search),
-        _to_lc_tool("nearby", nearby.__doc__ or "", nearby),
-        _to_lc_tool("get_details", get_details.__doc__ or "", get_details),
-        _to_lc_tool("kg_traverse", kg_traverse.__doc__ or "", kg_traverse),
-    ]
+    return list(_TOOLS)
