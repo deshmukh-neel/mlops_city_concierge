@@ -9,6 +9,7 @@ stay in app.main and are stamped onto the response there.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Protocol
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -17,11 +18,13 @@ from app.agent.state import ItineraryState, PlaceCard
 
 
 class _RoleAndContent(Protocol):
-    role: str
-    content: str
+    @property
+    def role(self) -> str: ...
+    @property
+    def content(self) -> str: ...
 
 
-def messages_from_history(history: list[_RoleAndContent]) -> list[BaseMessage]:
+def messages_from_history(history: Iterable[_RoleAndContent]) -> list[BaseMessage]:
     """Map ChatMessage role/content pairs onto LangChain BaseMessages."""
     out: list[BaseMessage] = []
     for m in history:
