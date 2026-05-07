@@ -88,6 +88,26 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
                 }
             ],
         ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "commit_itinerary",
+                    "id": "call-2",
+                    "args": {
+                        "stops": [
+                            {
+                                "place_id": "p1",
+                                "name": "Trick Dog",
+                                "rationale": "iconic SF cocktail bar",
+                                "source": "google_places",
+                                "primary_type": "cocktail_bar",
+                            }
+                        ]
+                    },
+                }
+            ],
+        ),
         AIMessage(content="Try Trick Dog.", tool_calls=[]),
     ]
     fake_llm = _ScriptedLLM(scripted=list(scripted))
@@ -103,7 +123,57 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
     body = response.json()
     assert body["reply"] == "Try Trick Dog."
     assert body["ragLabel"] == "openai:gpt-4o-mini"
-    # Stops are populated from state.stops, not directly from tool results in
-    # this PR — the agent has to commit them. So `places` may be empty here,
-    # but the contract keys must be present and correctly typed.
-    assert isinstance(body["places"], list)
+    assert len(body["places"]) == 1
+    assert body["places"][0]["place_id"] == "p1"
+    assert body["places"][0]["name"] == "Trick Dog"
+    assert body["places"][0]["primary_type"] == "cocktail_bar"
+
+
+def test_commit_itinerary_rejects_ungrounded_place_ids(monkeypatch, mocker) -> None:
+    """A place_id not seen via prior tool results must be dropped, not
+    silently accepted — that's the anti-hallucination guarantee."""
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    scripted = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "semantic_search",
+                    "id": "s1",
+                    "args": {"query": "cocktail bar"},
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "commit_itinerary",
+                    "id": "c1",
+                    "args": {
+                        "stops": [
+                            {
+                                "place_id": "hallucinated",
+                                "name": "Made Up Bar",
+                                "rationale": "the LLM imagined this",
+                                "source": "google_places",
+                            }
+                        ]
+                    },
+                }
+            ],
+        ),
+        AIMessage(content="No grounded options.", tool_calls=[]),
+    ]
+    real_graph = build_agent_graph(_ScriptedLLM(scripted=list(scripted)), max_steps=4)
+
+    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+    mocker.patch("app.main.build_agent_graph", return_value=real_graph)
+
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"message": "anything"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["places"] == []

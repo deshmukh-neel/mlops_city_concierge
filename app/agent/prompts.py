@@ -57,9 +57,14 @@ CRITICAL BEHAVIORS:
    answer by then, return what you have with an explicit caveat.
 
 OUTPUT FORMAT (when finalizing):
-- Set `done=True` and `final_reply` to a 2-4 sentence summary the user reads.
-- Mention the planned arrival + duration for each stop ("Dinner at 7:00,
-  ~90 min") so the user can override if they want.
+- Call the `commit_itinerary` tool exactly once with the chosen stops (each
+  with `place_id`, `name`, `rationale`, `source`, optional coordinates and
+  arrival_time). Every place_id MUST come from a prior tool result; the
+  graph will reject any unknown place_id and tell you which ones failed so
+  you can retry.
+- After commit_itinerary succeeds, return a 2-4 sentence summary as your
+  final reply (no more tool calls). Mention planned arrival + duration for
+  each stop ("Dinner at 7:00, ~90 min") so the user can override.
 - The structured `stops` list is rendered as cards in the UI; the user sees
   both your prose and the cards.
 

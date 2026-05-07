@@ -12,6 +12,7 @@ from typing import Any, get_type_hints
 from langchain_core.tools import StructuredTool
 from pydantic import create_model
 
+from app.agent.state import Stop
 from app.tools.filters import SearchFilters
 from app.tools.retrieval import (
     PlaceDetails,
@@ -26,6 +27,8 @@ from app.tools.retrieval import (
 from app.tools.retrieval import (
     semantic_search as _semantic_search,
 )
+
+COMMIT_ITINERARY_TOOL_NAME = "commit_itinerary"
 
 
 def semantic_search(
@@ -56,6 +59,18 @@ def nearby(
 def get_details(place_id: str) -> PlaceDetails | None:
     """Fetch the full record for a place: hours, website, ratings count, types."""
     return _get_details(place_id=place_id)
+
+
+def commit_itinerary(stops: list[Stop]) -> dict:
+    """Finalize the itinerary by committing the chosen stops to state.
+
+    Call this exactly once, after retrieval is complete and before your final
+    reply. Every stop's place_id MUST come from a prior tool result — the
+    graph rejects unknown place_ids to prevent hallucination. The agent's
+    `act` node intercepts this call and writes `state.stops`; the return
+    value here is only the bookkeeping payload the LLM sees.
+    """
+    return {"committed": [s.place_id for s in stops]}
 
 
 def kg_traverse(place_id: str, relation: str = "co_mentioned") -> dict:
@@ -103,6 +118,7 @@ _TOOLS: list[StructuredTool] = [
     _to_lc_tool("semantic_search", semantic_search.__doc__ or "", semantic_search),
     _to_lc_tool("nearby", nearby.__doc__ or "", nearby),
     _to_lc_tool("get_details", get_details.__doc__ or "", get_details),
+    _to_lc_tool(COMMIT_ITINERARY_TOOL_NAME, commit_itinerary.__doc__ or "", commit_itinerary),
     _to_lc_tool("kg_traverse", kg_traverse.__doc__ or "", kg_traverse),
 ]
 

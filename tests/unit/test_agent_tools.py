@@ -17,6 +17,7 @@ def test_all_tools_returns_expected_names() -> None:
         "nearby",
         "get_details",
         "kg_traverse",
+        "commit_itinerary",
     }
     for tool in tools:
         assert isinstance(tool, BaseTool)

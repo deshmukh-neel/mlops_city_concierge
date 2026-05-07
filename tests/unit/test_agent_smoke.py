@@ -53,7 +53,7 @@ def test_all_tools_instantiates() -> None:
     from app.agent.tools import all_tools
 
     tools = all_tools()
-    assert len(tools) == 4
+    assert len(tools) == 5
 
 
 def test_build_agent_graph_compiles_and_runs_happy_path() -> None:

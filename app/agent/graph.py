@@ -21,8 +21,60 @@ from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.state import ItineraryState, PlaceCard
-from app.agent.tools import all_tools
+from app.agent.state import ItineraryState, PlaceCard, Stop
+from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
+
+
+def _grounded_place_ids(scratch: dict[str, Any]) -> set[str]:
+    """All place_ids the agent has actually seen via prior tool results."""
+    grounded: set[str] = set()
+    for entries in scratch.values():
+        for entry in entries:
+            result = entry.get("result")
+            if isinstance(result, list):
+                for hit in result:
+                    pid = getattr(hit, "place_id", None) or (
+                        hit.get("place_id") if isinstance(hit, dict) else None
+                    )
+                    if pid:
+                        grounded.add(pid)
+            elif result is not None:
+                pid = getattr(result, "place_id", None) or (
+                    result.get("place_id") if isinstance(result, dict) else None
+                )
+                if pid:
+                    grounded.add(pid)
+    return grounded
+
+
+def _commit_stops(state: ItineraryState, raw_stops: Any) -> tuple[list[Stop], dict[str, Any]]:
+    """Validate and coerce LLM-supplied stops into Stop models.
+
+    Returns (committed_stops, tool_result_payload). The payload is what the
+    LLM sees back as the tool result; rejected place_ids surface there so the
+    model can self-correct in W3.
+    """
+    if not isinstance(raw_stops, list):
+        return [], {"error": "stops must be a list"}
+    grounded = _grounded_place_ids(state.scratch)
+    committed: list[Stop] = []
+    rejected: list[dict[str, Any]] = []
+    for raw in raw_stops:
+        if not isinstance(raw, dict):
+            rejected.append({"reason": "stop must be an object", "value": str(raw)})
+            continue
+        pid = raw.get("place_id")
+        if not pid or pid not in grounded:
+            rejected.append({"place_id": pid, "reason": "place_id not seen via prior tool result"})
+            continue
+        try:
+            committed.append(Stop(**raw))
+        except Exception as e:  # noqa: BLE001
+            rejected.append({"place_id": pid, "reason": f"invalid stop: {e}"})
+    return committed, {
+        "committed": [s.place_id for s in committed],
+        "rejected": rejected,
+    }
 
 
 def _serialize_tool_result(result: Any) -> str:
@@ -67,7 +119,20 @@ def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
 
         new_messages: list[BaseMessage] = []
         scratch_updates: dict[str, list[dict[str, Any]]] = {}
+        committed_stops: list[Stop] | None = None
+
         for tc in ai.tool_calls:
+            if tc["name"] == COMMIT_ITINERARY_TOOL_NAME:
+                stops, payload = _commit_stops(state, tc["args"].get("stops"))
+                committed_stops = stops
+                new_messages.append(
+                    ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
+                )
+                scratch_updates.setdefault(tc["name"], []).append(
+                    {"args": tc["args"], "result": payload, "step": state.step_count}
+                )
+                continue
+
             tool = tool_by_name.get(tc["name"])
             if tool is None:
                 new_messages.append(
@@ -92,11 +157,14 @@ def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
         for name, entries in scratch_updates.items():
             merged_scratch[name] = [*merged_scratch.get(name, []), *entries]
 
-        return {
+        update: dict[str, Any] = {
             "messages": new_messages,
             "scratch": merged_scratch,
             "step_count": state.step_count + 1,
         }
+        if committed_stops is not None:
+            update["stops"] = committed_stops
+        return update
 
     def critique(state: ItineraryState) -> dict[str, Any]:
         # W3 fills this in. For W2, do the bare minimum: check loop bound and
