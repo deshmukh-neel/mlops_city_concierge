@@ -8,11 +8,48 @@ critique node do deterministic checks (geographic coherence, hours).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, ConfigDict, Field
+
+RevisionReason = Literal[
+    "empty_results",
+    "all_closed",
+    "low_similarity",
+    "constraint_violation",
+    "tool_error",
+    "geographic_incoherence",
+    "temporal_incoherence",
+    "walking_budget_exceeded",
+    "constraint_unmet_in_final",
+    "hallucinated_place_id",
+    "vibe_mismatch",
+]
+
+RevisionAction = Literal[
+    "drop_filter",
+    "expand_radius",
+    "broaden_query",
+    "clarify_with_user",
+    "try_different_tool",
+    "swap_stop",
+    "tighten_radius",
+    "shift_arrival_time",
+    "rebalance_walking_budget",
+]
+
+
+class RevisionHint(BaseModel):
+    """A structured cue from `critique` to `plan` describing what went wrong
+    and what action would likely fix it. Stored on state for tracing and to
+    bound retries per failure category."""
+
+    reason: RevisionReason
+    detail: str
+    suggested_action: RevisionAction
+    target: dict[str, Any] = Field(default_factory=dict)
 
 
 class UserConstraints(BaseModel):
@@ -102,6 +139,8 @@ class ItineraryState(BaseModel):
         ),
     )
     walked_meters_so_far: float = 0.0
+    revision_hints: list[RevisionHint] = Field(default_factory=list)
+    revision_counts: dict[str, int] = Field(default_factory=dict)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
