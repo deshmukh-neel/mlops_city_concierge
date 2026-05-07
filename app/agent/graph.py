@@ -12,6 +12,7 @@ Edge logic:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Literal
 
@@ -77,6 +78,52 @@ def _commit_stops(state: ItineraryState, raw_stops: Any) -> tuple[list[Stop], di
     }
 
 
+_RECENT_TOOL_EXCHANGES_KEPT = 2
+
+
+def _prune_for_llm(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Curate the message list sent to the LLM to keep token cost bounded.
+
+    Strategy: keep all SystemMessages and HumanMessages, plus the AIMessages.
+    For ToolMessages — which dominate token cost as the agent loops — keep
+    only those paired with the last `_RECENT_TOOL_EXCHANGES_KEPT` AIMessages
+    that issued tool_calls. Earlier tool results are dropped together with
+    their issuing AIMessage's tool_calls, so the LLM never sees an unanswered
+    tool_call (which would violate the OpenAI/Gemini conversation contract).
+    """
+    if not messages:
+        return messages
+
+    # Find indices of AIMessages that issued tool_calls.
+    tool_caller_indices = [
+        i for i, m in enumerate(messages) if isinstance(m, AIMessage) and m.tool_calls
+    ]
+    if len(tool_caller_indices) <= _RECENT_TOOL_EXCHANGES_KEPT:
+        return messages
+
+    # Cutoff: keep messages from this index onward in their original form.
+    keep_from = tool_caller_indices[-_RECENT_TOOL_EXCHANGES_KEPT]
+
+    # Before the cutoff: drop tool_calls from AIMessages and drop ToolMessages
+    # entirely. After: keep as-is.
+    pruned: list[BaseMessage] = []
+    for i, m in enumerate(messages):
+        if i >= keep_from:
+            pruned.append(m)
+            continue
+        if isinstance(m, ToolMessage):
+            continue
+        if isinstance(m, AIMessage) and m.tool_calls:
+            # Replace with a content-only AIMessage so we don't strand the
+            # LLM thinking it issued tool_calls that were never answered.
+            pruned.append(
+                AIMessage(content=m.content if isinstance(m.content, str) else str(m.content))
+            )
+            continue
+        pruned.append(m)
+    return pruned
+
+
 def _serialize_tool_result(result: Any) -> str:
     """Emit JSON the LLM can parse, regardless of underlying tool return type.
 
@@ -96,23 +143,25 @@ def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
     llm_with_tools = llm.bind_tools(tools)
     tool_by_name = {t.name: t for t in tools}
 
-    def plan(state: ItineraryState) -> dict[str, Any]:
+    async def plan(state: ItineraryState) -> dict[str, Any]:
         messages_in: list[BaseMessage] = list(state.messages)
         if state.step_count == 0 and not any(isinstance(m, SystemMessage) for m in messages_in):
             messages_in = [
                 SystemMessage(SYSTEM_PROMPT.format(max_steps=max_steps)),
                 *messages_in,
             ]
-        ai = llm_with_tools.invoke(messages_in)
-        # If we prepended a SystemMessage, surface it through the reducer too so
-        # downstream nodes see a consistent history.
+        # Send the LLM a curated view: keep only the most recent ToolMessage
+        # per tool name so token cost stays linear in tool *kinds*, not in
+        # tool *calls*. Full history is preserved on state.messages for tracing.
+        messages_for_llm = _prune_for_llm(messages_in)
+        ai = await llm_with_tools.ainvoke(messages_for_llm)
         new_messages: list[BaseMessage] = []
         if len(messages_in) > len(state.messages):
             new_messages.append(messages_in[0])
         new_messages.append(ai)
         return {"messages": new_messages}
 
-    def act(state: ItineraryState) -> dict[str, Any]:
+    async def act(state: ItineraryState) -> dict[str, Any]:
         ai = state.messages[-1]
         if not isinstance(ai, AIMessage) or not ai.tool_calls:
             return {}
@@ -143,7 +192,9 @@ def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
                 )
                 continue
             try:
-                result: Any = tool.invoke(tc["args"])
+                # psycopg2 + OpenAI are sync; offload to a worker thread so the
+                # event loop stays responsive while the tool blocks on I/O.
+                result: Any = await asyncio.to_thread(tool.invoke, tc["args"])
             except Exception as e:  # noqa: BLE001
                 result = {"error": str(e)}
             new_messages.append(

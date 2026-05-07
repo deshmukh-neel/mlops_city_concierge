@@ -67,9 +67,11 @@ class _SemanticSearchOnceLLM(BaseChatModel):
         return self
 
 
-def test_agent_graph_against_real_database() -> None:
+async def test_agent_graph_against_real_database() -> None:
     graph = build_agent_graph(_SemanticSearchOnceLLM(), max_steps=4)
-    out = graph.invoke(ItineraryState(messages=[HumanMessage(content="cocktail bar tonight")]))
+    out = await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="cocktail bar tonight")])
+    )
     assert out["done"] is True
     # Whatever the DB returns (could be empty if seed not run), the scratch
     # entry exists and either holds rows or an error dict — never silent loss.

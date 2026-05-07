@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import lru_cache
+
 import psycopg2
 from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
@@ -14,16 +16,29 @@ def vector_to_pg(embedding: list[float]) -> str:
     return "[" + ",".join(f"{value:.8f}" for value in embedding) + "]"
 
 
+@lru_cache(maxsize=4096)
+def _embed_cached(query: str, embedding_model: str, api_key: str) -> tuple[float, ...]:
+    """Cache OpenAI embeddings keyed on (query, model). The api_key is part of
+    the key only for safety; it doesn't affect output for a given (query, model).
+    Returns a tuple so the cached value is immutable."""
+    embeddings = OpenAIEmbeddings(model=embedding_model, api_key=SecretStr(api_key))
+    return tuple(embeddings.embed_query(query))
+
+
 def build_embedding(
     query: str, embedding_model: str, openai_api_key: str | None = None
 ) -> list[float]:
-    """Generate an OpenAI embedding for a query string. Reused by agent tools."""
+    """Generate an OpenAI embedding for a query string. Reused by agent tools.
+
+    Embeddings are deterministic per (query, model), so we cache them via
+    _embed_cached to skip duplicate OpenAI round-trips within and across
+    sessions.
+    """
     settings = get_settings()
     api_key = openai_api_key or settings.openai_api_key
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY for query embedding generation.")
-    embeddings = OpenAIEmbeddings(model=embedding_model, api_key=SecretStr(api_key))
-    return embeddings.embed_query(query)
+    return list(_embed_cached(query, embedding_model, api_key))
 
 
 class PgVectorRetriever(BaseRetriever):

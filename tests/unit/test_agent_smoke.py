@@ -56,12 +56,12 @@ def test_all_tools_instantiates() -> None:
     assert len(tools) == 5
 
 
-def test_build_agent_graph_compiles_and_runs_happy_path() -> None:
+async def test_build_agent_graph_compiles_and_runs_happy_path() -> None:
     from app.agent.graph import build_agent_graph
     from app.agent.state import ItineraryState
 
     graph = build_agent_graph(_NoopLLM(), max_steps=2)
-    out = graph.invoke(ItineraryState(messages=[HumanMessage(content="hi")]))
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
     assert out["done"] is True
     assert out["final_reply"] == "ok"
 
