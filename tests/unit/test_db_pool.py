@@ -110,6 +110,22 @@ def test_return_connection_closes_when_pool_is_missing(mocker) -> None:
     conn.close.assert_called_once_with()
 
 
+def test_return_connection_swallows_close_error_after_pool_shutdown(mocker) -> None:
+    """If the pool is closed mid-flight (lifespan shutdown), conn.close() can
+    raise on a connection psycopg2 has already disposed. Don't propagate that
+    — the connection is gone either way."""
+    import psycopg2  # noqa: PLC0415 — local import keeps the test self-contained
+
+    conn = mocker.Mock()
+    conn.close.side_effect = psycopg2.InterfaceError("connection already closed")
+    logger = mocker.patch("app.db_pool.logger")
+
+    return_connection(conn)  # must not raise
+
+    conn.close.assert_called_once_with()
+    logger.debug.assert_called_once()
+
+
 def test_close_db_pool_closes_all_connections(mocker) -> None:
     pool = mocker.Mock()
     mocker.patch("app.db_pool.ThreadedConnectionPool", return_value=pool)

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from threading import Lock
 
 from psycopg2.extensions import connection
 from psycopg2.pool import ThreadedConnectionPool
 
 from .config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _pool: ThreadedConnectionPool | None = None
 _pool_config: tuple[str, int, int] | None = None
@@ -55,10 +58,23 @@ def get_connection() -> connection:
 
 
 def return_connection(conn: connection, *, close: bool = False) -> None:
-    """Return a borrowed connection to the shared pool."""
+    """Return a borrowed connection to the shared pool.
+
+    If the pool has already been closed (e.g. lifespan shutdown ran while a
+    request was in flight), close the connection directly. The bare close()
+    can still raise if psycopg2 already disposed of the underlying socket; we
+    swallow that — the connection is gone either way and the caller doesn't
+    benefit from a noisy traceback in shutdown logs.
+    """
     pool = _pool
     if pool is None:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            logger.debug(
+                "return_connection: pool already closed and conn.close() raised; ignoring.",
+                exc_info=True,
+            )
         return
 
     pool.putconn(conn, close=close)
