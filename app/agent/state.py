@@ -8,9 +8,10 @@ critique node do deterministic checks (geographic coherence, hours).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -85,7 +86,7 @@ class Stop(BaseModel):
 class ItineraryState(BaseModel):
     """The single piece of state passed through every graph node."""
 
-    messages: list[BaseMessage] = Field(default_factory=list)
+    messages: Annotated[list[BaseMessage], add_messages] = Field(default_factory=list)
     constraints: UserConstraints = Field(default_factory=UserConstraints)
     stops: list[Stop] = Field(default_factory=list)
     scratch: dict[str, Any] = Field(default_factory=dict)

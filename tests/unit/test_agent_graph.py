@@ -95,7 +95,7 @@ def test_graph_executes_tool_and_continues(monkeypatch) -> None:
     assert out["done"] is True
 
 
-def test_graph_respects_max_steps() -> None:
+def test_graph_respects_max_steps(monkeypatch) -> None:
     looping = [
         AIMessage(
             content="",
@@ -111,10 +111,7 @@ def test_graph_respects_max_steps() -> None:
     ]
     fake = _make_fake(looping)
     graph = build_agent_graph(fake, max_steps=3)
-    # Patch the underlying retrieval so the tool calls don't hit the DB.
-    import app.agent.tools as tools_mod
-
-    tools_mod._semantic_search = lambda **kw: []  # type: ignore[assignment]
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
 
     out = graph.invoke(ItineraryState(messages=[HumanMessage(content="x")]))
     assert out["step_count"] == 3
@@ -171,3 +168,61 @@ def test_graph_records_tool_exception_in_scratch(monkeypatch) -> None:
     assert "error" in scratch["result"]
     assert "db down" in scratch["result"]["error"]
     assert out["done"] is True
+
+    # The exception must also surface to the LLM via the ToolMessage content,
+    # not just to scratch — otherwise the model has no way to react.
+    from langchain_core.messages import ToolMessage as _ToolMessage
+
+    tool_messages = [m for m in out["messages"] if isinstance(m, _ToolMessage)]
+    assert tool_messages, "act() must append a ToolMessage even on tool failure"
+    assert "db down" in tool_messages[-1].content
+
+
+def test_plan_does_not_double_insert_system_prompt(monkeypatch) -> None:
+    """If the caller already supplied a SystemMessage, plan() must not stack a
+    second one on top of it."""
+    from langchain_core.messages import SystemMessage
+
+    fake = _make_fake([AIMessage(content="hi", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)
+    out = graph.invoke(
+        ItineraryState(
+            messages=[
+                SystemMessage(content="custom system prompt"),
+                HumanMessage(content="hello"),
+            ]
+        )
+    )
+    system_messages = [m for m in out["messages"] if isinstance(m, SystemMessage)]
+    assert len(system_messages) == 1
+    assert system_messages[0].content == "custom system prompt"
+
+
+def test_act_handles_parallel_tool_calls(monkeypatch) -> None:
+    """Modern OpenAI/Gemini fan out multiple tool calls in one AIMessage. Both
+    must run, both ToolMessages append, and step_count increments by 1."""
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools._nearby", lambda **_kw: [])
+
+    fake = _make_fake(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "semantic_search", "id": "a", "args": {"query": "x"}},
+                    {"name": "nearby", "id": "b", "args": {"place_id": "p1"}},
+                ],
+            ),
+            AIMessage(content="done", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = graph.invoke(ItineraryState(messages=[HumanMessage(content="hi")]))
+
+    from langchain_core.messages import ToolMessage as _ToolMessage
+
+    tool_messages = [m for m in out["messages"] if isinstance(m, _ToolMessage)]
+    assert {tm.tool_call_id for tm in tool_messages} == {"a", "b"}
+    assert out["step_count"] == 1
+    assert "semantic_search" in out["scratch"]
+    assert "nearby" in out["scratch"]

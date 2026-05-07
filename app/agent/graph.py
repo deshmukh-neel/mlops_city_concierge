@@ -12,15 +12,31 @@ Edge logic:
 
 from __future__ import annotations
 
-from typing import Literal
+import json
+from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
+from pydantic import BaseModel
 
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.state import ItineraryState, PlaceCard
 from app.agent.tools import all_tools
+
+
+def _serialize_tool_result(result: Any) -> str:
+    """Emit JSON the LLM can parse, regardless of underlying tool return type.
+
+    Pydantic models -> model_dump(mode='json'). Lists of pydantic models too.
+    Dicts/primitives pass through json.dumps with default=str so non-JSON
+    types like datetime degrade gracefully.
+    """
+    if isinstance(result, BaseModel):
+        return json.dumps(result.model_dump(mode="json"))
+    if isinstance(result, list) and result and isinstance(result[0], BaseModel):
+        return json.dumps([m.model_dump(mode="json") for m in result])
+    return json.dumps(result, default=str)
 
 
 def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
@@ -28,21 +44,33 @@ def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
     llm_with_tools = llm.bind_tools(tools)
     tool_by_name = {t.name: t for t in tools}
 
-    def plan(state: ItineraryState) -> ItineraryState:
-        if state.step_count == 0 and not any(isinstance(m, SystemMessage) for m in state.messages):
-            state.messages.insert(0, SystemMessage(SYSTEM_PROMPT.format(max_steps=max_steps)))
-        ai = llm_with_tools.invoke(state.messages)
-        state.messages.append(ai)
-        return state
+    def plan(state: ItineraryState) -> dict[str, Any]:
+        messages_in: list[BaseMessage] = list(state.messages)
+        if state.step_count == 0 and not any(isinstance(m, SystemMessage) for m in messages_in):
+            messages_in = [
+                SystemMessage(SYSTEM_PROMPT.format(max_steps=max_steps)),
+                *messages_in,
+            ]
+        ai = llm_with_tools.invoke(messages_in)
+        # If we prepended a SystemMessage, surface it through the reducer too so
+        # downstream nodes see a consistent history.
+        new_messages: list[BaseMessage] = []
+        if len(messages_in) > len(state.messages):
+            new_messages.append(messages_in[0])
+        new_messages.append(ai)
+        return {"messages": new_messages}
 
-    def act(state: ItineraryState) -> ItineraryState:
+    def act(state: ItineraryState) -> dict[str, Any]:
         ai = state.messages[-1]
         if not isinstance(ai, AIMessage) or not ai.tool_calls:
-            return state
+            return {}
+
+        new_messages: list[BaseMessage] = []
+        scratch_updates: dict[str, list[dict[str, Any]]] = {}
         for tc in ai.tool_calls:
             tool = tool_by_name.get(tc["name"])
             if tool is None:
-                state.messages.append(
+                new_messages.append(
                     ToolMessage(
                         content=f"unknown tool {tc['name']}",
                         tool_call_id=tc["id"],
@@ -50,36 +78,43 @@ def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
                 )
                 continue
             try:
-                result = tool.invoke(tc["args"])
+                result: Any = tool.invoke(tc["args"])
             except Exception as e:  # noqa: BLE001
                 result = {"error": str(e)}
-            state.messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
-            state.scratch.setdefault(tc["name"], []).append(
-                {
-                    "args": tc["args"],
-                    "result": result,
-                    "step": state.step_count,
-                }
+            new_messages.append(
+                ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
             )
-        state.step_count += 1
-        return state
+            scratch_updates.setdefault(tc["name"], []).append(
+                {"args": tc["args"], "result": result, "step": state.step_count}
+            )
 
-    def critique(state: ItineraryState) -> ItineraryState:
+        merged_scratch = dict(state.scratch)
+        for name, entries in scratch_updates.items():
+            merged_scratch[name] = [*merged_scratch.get(name, []), *entries]
+
+        return {
+            "messages": new_messages,
+            "scratch": merged_scratch,
+            "step_count": state.step_count + 1,
+        }
+
+    def critique(state: ItineraryState) -> dict[str, Any]:
         # W3 fills this in. For W2, do the bare minimum: check loop bound and
         # whether the last AI message ended without a tool call.
         last = state.messages[-1] if state.messages else None
+        update: dict[str, Any] = {}
         if isinstance(last, AIMessage) and not last.tool_calls:
-            state.done = True
-            state.final_reply = state.final_reply or (
+            update["done"] = True
+            update["final_reply"] = state.final_reply or (
                 last.content if isinstance(last.content, str) else str(last.content)
             )
-        if state.step_count >= max_steps and not state.done:
-            state.done = True
-            if not state.final_reply:
-                state.final_reply = (
+        if state.step_count >= max_steps and not (state.done or update.get("done")):
+            update["done"] = True
+            if not state.final_reply and not update.get("final_reply"):
+                update["final_reply"] = (
                     "I hit the planning step limit. Here is the best plan I had so far."
                 )
-        return state
+        return update
 
     def route_after_plan(state: ItineraryState) -> Literal["act", "critique"]:
         last = state.messages[-1]
