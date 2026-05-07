@@ -107,20 +107,3 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
     # this PR — the agent has to commit them. So `places` may be empty here,
     # but the contract keys must be present and correctly typed.
     assert isinstance(body["places"], list)
-
-
-def test_predict_proxies_through_real_graph(monkeypatch, mocker) -> None:
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
-    scripted = [AIMessage(content="No matches.", tool_calls=[])]
-    real_graph = build_agent_graph(_ScriptedLLM(scripted=scripted), max_steps=2)
-
-    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
-    mocker.patch("app.main.build_agent_graph", return_value=real_graph)
-
-    with TestClient(app) as client:
-        response = client.post("/predict", json={"query": "anything", "limit": 5})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["response"] == "No matches."
-    assert body["sources"] == []

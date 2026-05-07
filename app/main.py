@@ -309,31 +309,13 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
 
 @app.post("/predict", response_model=RecommendationResponse)
 async def predict(request_body: RecommendationRequest, request: Request) -> RecommendationResponse:
-    graph = getattr(request.app.state, "agent_graph", None)
-    if graph is None:
-        # Fall back to the legacy chain if the agent isn't available so existing
-        # callers keep working in degraded mode.
-        rag_chain = getattr(request.app.state, "rag_chain", None)
-        if rag_chain is None:
-            raise HTTPException(status_code=503, detail=RAG_UNAVAILABLE_DETAIL)
-        result = rag_chain.invoke({"query": request_body.query})
-        response_text = result.get("result") or result.get("response") or ""
-        source_documents = result.get("source_documents") or []
-        return RecommendationResponse(
-            response=response_text,
-            sources=serialize_sources(source_documents, request_body.limit),
-        )
-
-    chat_resp = await chat(ChatRequest(message=request_body.query, history=[]), request)
-    sources = [
-        RecommendationSource(
-            place_id=p.get("place_id"),
-            name=p.get("name"),
-            rating=p.get("rating"),
-            address=p.get("address"),
-            primary_type=p.get("primary_type"),
-            similarity=0.0,
-        )
-        for p in chat_resp.places[: request_body.limit]
-    ]
-    return RecommendationResponse(response=chat_resp.reply, sources=sources)
+    rag_chain = getattr(request.app.state, "rag_chain", None)
+    if rag_chain is None:
+        raise HTTPException(status_code=503, detail=RAG_UNAVAILABLE_DETAIL)
+    result = rag_chain.invoke({"query": request_body.query})
+    response_text = result.get("result") or result.get("response") or ""
+    source_documents = result.get("source_documents") or []
+    return RecommendationResponse(
+        response=response_text,
+        sources=serialize_sources(source_documents, request_body.limit),
+    )
