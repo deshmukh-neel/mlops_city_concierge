@@ -36,15 +36,25 @@ def test_init_db_pool_creates_threaded_pool(mocker) -> None:
     )
 
 
-def test_init_db_pool_reuses_existing_pool(mocker) -> None:
+def test_init_db_pool_reuses_existing_pool_when_params_match(mocker) -> None:
     pool = mocker.Mock()
     pool_cls = mocker.patch("app.db_pool.ThreadedConnectionPool", return_value=pool)
 
     first = init_db_pool("postgresql://example", 0, 10)
-    second = init_db_pool("postgresql://different", 0, 5)
+    second = init_db_pool("postgresql://example", 0, 10)
 
     assert first is second
     pool_cls.assert_called_once()
+
+
+def test_init_db_pool_raises_when_params_differ(mocker) -> None:
+    """A second init with different params would silently swap the database
+    underneath in-flight callers — refuse instead."""
+    mocker.patch("app.db_pool.ThreadedConnectionPool", return_value=mocker.Mock())
+
+    init_db_pool("postgresql://example", 0, 10)
+    with pytest.raises(RuntimeError, match="different parameters"):
+        init_db_pool("postgresql://different", 0, 5)
 
 
 @pytest.mark.parametrize(
@@ -98,6 +108,22 @@ def test_return_connection_closes_when_pool_is_missing(mocker) -> None:
     return_connection(conn)
 
     conn.close.assert_called_once_with()
+
+
+def test_return_connection_swallows_close_error_after_pool_shutdown(mocker) -> None:
+    """If the pool is closed mid-flight (lifespan shutdown), conn.close() can
+    raise on a connection psycopg2 has already disposed. Don't propagate that
+    — the connection is gone either way."""
+    import psycopg2  # noqa: PLC0415 — local import keeps the test self-contained
+
+    conn = mocker.Mock()
+    conn.close.side_effect = psycopg2.InterfaceError("connection already closed")
+    logger = mocker.patch("app.db_pool.logger")
+
+    return_connection(conn)  # must not raise
+
+    conn.close.assert_called_once_with()
+    logger.debug.assert_called_once()
 
 
 def test_close_db_pool_closes_all_connections(mocker) -> None:
