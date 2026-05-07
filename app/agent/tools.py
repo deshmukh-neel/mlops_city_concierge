@@ -94,7 +94,7 @@ def _args_schema_for(fn: Any):
     """
     sig = inspect.signature(fn)
     hints = get_type_hints(fn)
-    fields: dict[str, tuple[Any, Any]] = {}
+    fields: dict[str, Any] = {}
     for pname, param in sig.parameters.items():
         if pname not in hints:
             raise TypeError(
