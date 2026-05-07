@@ -21,7 +21,7 @@ from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.state import ItineraryState, PlaceCard, Stop
+from app.agent.state import ItineraryState, Stop
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
 
 
@@ -200,23 +200,3 @@ def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
     g.add_edge("act", "critique")
     g.add_conditional_edges("critique", route_after_critique, {"plan": "plan", END: END})
     return g.compile()
-
-
-def state_to_response(state: ItineraryState, rag_label: str) -> dict:
-    """Convert ItineraryState into the {reply, places, ragLabel} contract that
-    frontend/src/api/chat.js expects."""
-    cards = [
-        PlaceCard(
-            place_id=s.place_id,
-            name=s.name,
-            primary_type=s.primary_type,
-            arrival_time=s.arrival_time,
-            rationale=s.rationale,
-        ).model_dump(mode="json")
-        for s in state.stops
-    ]
-    return {
-        "reply": state.final_reply or "",
-        "places": cards,
-        "ragLabel": rag_label,
-    }

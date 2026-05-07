@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.agent.graph import state_to_response
+from app.agent.io import state_to_cards
 from app.agent.state import (
     DEFAULT_STOP_DURATION_MIN,
     DEFAULT_STOP_DURATION_MIN_FALLBACK,
@@ -55,17 +55,12 @@ def test_default_duration_for_known_and_unknown_types() -> None:
     assert default_duration_for("") == DEFAULT_STOP_DURATION_MIN_FALLBACK
 
 
-def test_state_to_response_empty_stops() -> None:
+def test_state_to_cards_empty_stops() -> None:
     state = ItineraryState(final_reply="No matches found.")
-    payload = state_to_response(state, rag_label="openai:gpt-4o-mini")
-    assert payload == {
-        "reply": "No matches found.",
-        "places": [],
-        "ragLabel": "openai:gpt-4o-mini",
-    }
+    assert state_to_cards(state) == []
 
 
-def test_state_to_response_with_stops() -> None:
+def test_state_to_cards_with_stops() -> None:
     state = ItineraryState(
         stops=[
             Stop(
@@ -78,11 +73,9 @@ def test_state_to_response_with_stops() -> None:
         ],
         final_reply="Try X.",
     )
-    payload = state_to_response(state, rag_label="gemini:gemini-2.5-flash")
-    assert payload["reply"] == "Try X."
-    assert payload["ragLabel"] == "gemini:gemini-2.5-flash"
-    assert len(payload["places"]) == 1
-    card = payload["places"][0]
+    cards = state_to_cards(state)
+    assert len(cards) == 1
+    card = cards[0]
     assert card["place_id"] == "p1"
     assert card["name"] == "X"
     assert card["rationale"] == "r"

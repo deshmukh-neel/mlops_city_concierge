@@ -9,11 +9,12 @@ import mlflow
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 from psycopg2.extensions import connection
 from pydantic import BaseModel, Field
 
-from .agent.graph import build_agent_graph, state_to_response
+from .agent.graph import build_agent_graph
+from .agent.io import messages_from_history, state_to_cards
 from .agent.state import ItineraryState
 from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
@@ -172,16 +173,6 @@ def serialize_sources(source_documents: list[Any], limit: int) -> list[Recommend
     return sources
 
 
-def _history_to_messages(history: list[ChatMessage]) -> list[Any]:
-    out: list[Any] = []
-    for m in history:
-        if m.role == "user":
-            out.append(HumanMessage(content=m.content))
-        else:
-            out.append(AIMessage(content=m.content))
-    return out
-
-
 def _rag_label_for(config: ActiveModelConfig | None) -> str:
     if config is None:
         return "unknown"
@@ -291,7 +282,7 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
     with trace_request("chat", message=req.message[:200]) as trace_id:
         state = ItineraryState(
             messages=[
-                *_history_to_messages(req.history),
+                *messages_from_history(req.history),
                 HumanMessage(content=req.message),
             ]
         )
@@ -303,8 +294,11 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
             },
         )
     final_state = raw if isinstance(raw, ItineraryState) else ItineraryState(**raw)
-    payload = state_to_response(final_state, rag_label)
-    return ChatResponse(**payload)
+    return ChatResponse(
+        reply=final_state.final_reply or "",
+        places=state_to_cards(final_state),
+        ragLabel=rag_label,
+    )
 
 
 @app.post("/predict", response_model=RecommendationResponse)

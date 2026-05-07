@@ -66,10 +66,10 @@ def test_build_agent_graph_compiles_and_runs_happy_path() -> None:
     assert out["final_reply"] == "ok"
 
 
-def test_state_to_response_contract() -> None:
-    """Smoke: the response shape is exactly what frontend/src/api/chat.js consumes."""
-    from app.agent.graph import state_to_response
+def test_state_to_cards_smoke() -> None:
+    """Smoke: state_to_cards always returns a list of PlaceCard-shaped dicts."""
+    from app.agent.io import state_to_cards
     from app.agent.state import ItineraryState
 
-    payload = state_to_response(ItineraryState(final_reply="hi"), rag_label="x:y")
-    assert set(payload.keys()) == {"reply", "places", "ragLabel"}
+    cards = state_to_cards(ItineraryState(final_reply="hi"))
+    assert cards == []

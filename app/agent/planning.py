@@ -43,18 +43,3 @@ def suggested_radius_m(state, remaining_stops: int) -> int:
         return 0
     budget = remaining_walking_budget_m(state)
     return int(min(1500, max(300, budget / max(remaining_stops, 1))))
-
-
-def parse_stops_count(user_text: str, default: int = 3) -> int:
-    """Parse '2', 'just dinner', 'dinner + drinks', '3 spots' -> integer."""
-    text = user_text.lower().strip()
-    if "just dinner" in text or "only dinner" in text:
-        return 1
-    if "dinner and drinks" in text or "dinner + drinks" in text or "dinner then drinks" in text:
-        return 2
-    for token in text.split():
-        if token.isdigit():
-            n = int(token)
-            if 1 <= n <= 5:
-                return n
-    return default

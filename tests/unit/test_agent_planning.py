@@ -7,7 +7,6 @@ import pytest
 from app.agent.planning import (
     haversine_m,
     next_arrival_time,
-    parse_stops_count,
     remaining_walking_budget_m,
     suggested_radius_m,
     walking_time_min,
@@ -101,26 +100,3 @@ def test_suggested_radius_clamps_minimum() -> None:
 def test_suggested_radius_clamps_maximum() -> None:
     state = ItineraryState(constraints=UserConstraints(walking_budget_m=10_000))
     assert suggested_radius_m(state, remaining_stops=1) == 1500
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("just dinner", 1),
-        ("only dinner please", 1),
-        ("dinner and drinks", 2),
-        ("dinner + drinks", 2),
-        ("dinner then drinks", 2),
-        ("3 spots", 3),
-        ("plan 4 places", 4),
-        ("you decide", 3),  # default
-        ("a wonderful evening", 3),  # default
-        ("47 stops", 3),  # bogus -> default
-    ],
-)
-def test_parse_stops_count(text: str, expected: int) -> None:
-    assert parse_stops_count(text) == expected
-
-
-def test_parse_stops_count_custom_default() -> None:
-    assert parse_stops_count("you decide", default=5) == 5
