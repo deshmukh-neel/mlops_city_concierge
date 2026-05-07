@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import SecretStr
 
-from app.chain import build_rag_chain
+from app.chain import BuiltChain, build_rag_chain
 
 
 def test_build_rag_chain_supports_openai(mocker) -> None:
@@ -16,7 +16,7 @@ def test_build_rag_chain_supports_openai(mocker) -> None:
     mocker.patch("app.chain.ChatGoogleGenerativeAI")
     from_chain = mocker.patch("app.chain.RetrievalQA.from_chain_type", return_value=chain)
 
-    result_chain = build_rag_chain(
+    built = build_rag_chain(
         connection_string="postgresql://example",
         api_key="openai-key",
         llm_provider="openai",
@@ -25,6 +25,8 @@ def test_build_rag_chain_supports_openai(mocker) -> None:
         temperature=0.2,
     )
 
+    assert isinstance(built, BuiltChain)
+    assert built.llm == "openai-llm"
     retriever_cls.assert_called_once()
     openai_cls.assert_called_once_with(
         model="gpt-4o-mini",
@@ -37,7 +39,7 @@ def test_build_rag_chain_supports_openai(mocker) -> None:
         retriever=retriever,
         return_source_documents=True,
     )
-    assert result_chain.invoke({"query": "Best tacos"}) == {
+    assert built.chain.invoke({"query": "Best tacos"}) == {
         "result": "Try Taqueria Example.",
         "source_documents": [],
     }
@@ -56,7 +58,7 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
     )
     mocker.patch("app.chain.RetrievalQA.from_chain_type", return_value=chain)
 
-    result_chain = build_rag_chain(
+    built = build_rag_chain(
         connection_string="postgresql://example",
         api_key="gemini-key",
         llm_provider="gemini",
@@ -65,12 +67,13 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
         temperature=0.1,
     )
 
+    assert built.llm == "gemini-llm"
     gemini_cls.assert_called_once_with(
         model="gemini-2.5-flash",
         google_api_key=SecretStr("gemini-key"),
         temperature=0.1,
     )
-    assert result_chain.invoke({"query": "Pizza"}) == {
+    assert built.chain.invoke({"query": "Pizza"}) == {
         "result": "Try Del Popolo.",
         "source_documents": [],
     }
