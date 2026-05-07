@@ -802,4 +802,5 @@ Deferred to W3+:
 
 - `critique` node only does loop-bound + final-message detection — full self-correction logic lands in W3.
 - `propose_booking` tool (W4); `kg_traverse` is a stub.
-- W1 `neighborhood` column not yet on Cloud SQL — agent works without it; filter is a no-op until that migration deploys.
+- W1 migration verified deployed on Cloud SQL (alembic head `c428add573d7`, `neighborhood_of()` returns values for all 5,855 rows in the `place_documents` view). The `neighborhood` filter is live; no action needed.
+- `place_embeddings_v2` population on Cloud SQL is independent of W2 — flip `EMBEDDING_TABLE=place_embeddings_v2` once `make embed-v2` runs against the prod DB and W6 evals approve the v1→v2 swap.
