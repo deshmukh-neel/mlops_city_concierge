@@ -779,11 +779,14 @@ Expected: 5 results in/near North Beach, all `rating >= 4.3`, all `price_level <
 
 ---
 
-**Status:** ✅ Merged via [#65](https://github.com/deshmukh-neel/mlops_city_concierge/pull/65) on 2026-05-06. Followed by hotfix [#66](https://github.com/deshmukh-neel/mlops_city_concierge/pull/66) (`price_level` is a Google v1 enum string, not int — adds `price_level_rank()` migration and a `scripts/smoke_w1.py` end-to-end harness).
+**Status:** ✅ Merged via [#65](https://github.com/deshmukh-neel/mlops_city_concierge/pull/65) on 2026-05-06. Follow-ups already shipped:
+
+- [#66](https://github.com/deshmukh-neel/mlops_city_concierge/pull/66) — `price_level` is a Google v1 enum string, not int. Adds `price_level_rank()` migration and `scripts/smoke_w1.py`.
+- [#56](https://github.com/deshmukh-neel/mlops_city_concierge/pull/56) — shared connection pool. `get_conn()` now borrows from `app.db_pool`'s `ThreadedConnectionPool` instead of opening fresh connections.
+- [#69](https://github.com/deshmukh-neel/mlops_city_concierge/pull/69) — pool hardening (raise on init-param mismatch; swallow shutdown-close errors).
 
 Deferred / pending:
 
-- Pool integration. `get_conn()` opens fresh connections; PR #56 will swap the body to borrow from the shared pool with no caller change.
 - Editorial table `UNION ALL`. View definition gets a follow-up edit when the editorial schema lands; tools don't change.
 - HNSW recall over-fetch lever (`_OVERFETCH_FACTOR`) ships at `1`. Bump if W6 evals show recall regressing on tightly-filtered queries.
 - v1 retirement. Drop `place_documents` and rename `place_documents_v2 → place_documents` once W6 confirms v2 wins.
