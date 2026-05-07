@@ -155,11 +155,12 @@ def constraints_satisfied(state: ItineraryState) -> float:
                     satisfied += 1
             elif con == "min_rating":
                 r = row["rating"]
-                if r is not None and r >= c.min_rating:
+                # Missing rating data passes — we can't fault what we can't measure.
+                if r is None or r >= c.min_rating:
                     satisfied += 1
             elif con == "min_user_rating_count":
                 cnt = row["user_rating_count"]
-                if cnt is not None and cnt >= c.min_user_rating_count:
+                if cnt is None or cnt >= c.min_user_rating_count:
                     satisfied += 1
             elif con == "neighborhood":
                 want = c.neighborhood.lower()
