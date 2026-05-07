@@ -777,3 +777,29 @@ Expected: at least one stop, all rows real (cross-check `place_id` against DB), 
 
 - **Why not pure Pydantic AI for the orchestration?** Pydantic AI has its own `Agent` class and could replace LangGraph entirely. We don't because LangGraph's `StateGraph` gives us durable execution (resume after crash mid-tool-call), explicit critique node for W3, and direct LangSmith / Langfuse tracing. Using Pydantic AI for tool definitions only is the smallest commitment that gets us the type-safety win without locking us out of LangGraph's orchestration features. If LangGraph proves to be the wrong call later, swapping in Pydantic AI's `Agent` is a localized change in `app/agent/graph.py`.
 - **Adapter may be obsolete by implementation time.** The `_to_lc_tool` helper that wraps Pydantic AI tools as LangChain Tool instances exists because (as of plan-author training data, January 2026) LangGraph's `bind_tools` did not natively accept Pydantic AI's tool objects. Before starting W2 implementation, check `langchain-ai/langgraph` and `pydantic/pydantic-ai` release notes — if either side now offers native interop, delete the adapter and use it directly. See `FUTURE_WATCH.md` for the broader watch-list.
+
+---
+
+**Status:** ✅ Merged 2026-05-07 in [#71](https://github.com/deshmukh-neel/mlops_city_concierge/pull/71).
+
+Shipped:
+
+- `app/agent/` package: `state` (ItineraryState/UserConstraints/Stop/PlaceCard), `prompts`, `tools`, `graph`, `planning`, `io` (HTTP↔agent boundary)
+- `commit_itinerary` tool with grounding validation — ungrounded `place_id`s are dropped, not silently accepted
+- `POST /chat` is primary; `/predict` stays on the legacy `RetrievalQA` chain (no agent fanout) so existing callers don't pay agent latency
+- Async `plan` node, `add_messages` reducer on state.messages, embedding LRU cache, ToolMessage pruning before LLM calls
+- Tests at all four layers: unit (`test_agent_state/planning/tools/graph/chat_endpoint`), smoke (`test_agent_smoke`), functional (`test_chat_functional`, real graph + scripted LLM), integration (`tests/integration/test_agent_graph.py`, gated on `APP_ENV=integration`)
+- Manual smoke (2026-05-07) against Cloud SQL via `cloud-sql-proxy`: `/chat` ambiguous → clarifier turn (no fabricated places); `/chat` unambiguous → committed real `place_id` (e.g. `ChIJpzBpPPCAhYAR...` "The Italian Homemade Company") with planned arrival + duration in the prose; `/predict` returned 5 sources from the legacy chain with similarity scores
+
+Deviations from the original plan:
+
+- Dropped `pydantic-ai` runtime dep — tools are pure Python with `inspect` + `typing.get_type_hints` driving a Pydantic args schema; raises loudly on missing annotations. Adapter became unnecessary.
+- `StructuredTool.from_function` instead of `Tool.from_function` (multi-arg tools).
+- LangGraph 0.6's compiled graph returns a dict; the `/chat` handler reconstructs `ItineraryState(**raw)` for serialization.
+- `RecommendationSource` gained `place_id` and `primary_type` so `/predict`'s legacy contract carries grounded IDs.
+
+Deferred to W3+:
+
+- `critique` node only does loop-bound + final-message detection — full self-correction logic lands in W3.
+- `propose_booking` tool (W4); `kg_traverse` is a stub.
+- W1 `neighborhood` column not yet on Cloud SQL — agent works without it; filter is a no-op until that migration deploys.
