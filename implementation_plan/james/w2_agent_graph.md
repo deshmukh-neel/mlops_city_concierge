@@ -783,6 +783,7 @@ Expected: at least one stop, all rows real (cross-check `place_id` against DB), 
 **Status:** ✅ Merged 2026-05-07 in [#71](https://github.com/deshmukh-neel/mlops_city_concierge/pull/71).
 
 Shipped:
+
 - `app/agent/` package: `state` (ItineraryState/UserConstraints/Stop/PlaceCard), `prompts`, `tools`, `graph`, `planning`, `io` (HTTP↔agent boundary)
 - `commit_itinerary` tool with grounding validation — ungrounded `place_id`s are dropped, not silently accepted
 - `POST /chat` is primary; `/predict` stays on the legacy `RetrievalQA` chain (no agent fanout) so existing callers don't pay agent latency
@@ -791,12 +792,14 @@ Shipped:
 - Manual smoke (2026-05-07) against Cloud SQL via `cloud-sql-proxy`: `/chat` ambiguous → clarifier turn (no fabricated places); `/chat` unambiguous → committed real `place_id` (e.g. `ChIJpzBpPPCAhYAR...` "The Italian Homemade Company") with planned arrival + duration in the prose; `/predict` returned 5 sources from the legacy chain with similarity scores
 
 Deviations from the original plan:
+
 - Dropped `pydantic-ai` runtime dep — tools are pure Python with `inspect` + `typing.get_type_hints` driving a Pydantic args schema; raises loudly on missing annotations. Adapter became unnecessary.
 - `StructuredTool.from_function` instead of `Tool.from_function` (multi-arg tools).
 - LangGraph 0.6's compiled graph returns a dict; the `/chat` handler reconstructs `ItineraryState(**raw)` for serialization.
 - `RecommendationSource` gained `place_id` and `primary_type` so `/predict`'s legacy contract carries grounded IDs.
 
 Deferred to W3+:
+
 - `critique` node only does loop-bound + final-message detection — full self-correction logic lands in W3.
 - `propose_booking` tool (W4); `kg_traverse` is a stub.
 - W1 `neighborhood` column not yet on Cloud SQL — agent works without it; filter is a no-op until that migration deploys.
