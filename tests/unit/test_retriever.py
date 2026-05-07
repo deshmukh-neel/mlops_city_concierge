@@ -95,3 +95,38 @@ def test_get_relevant_documents_formats_vector_and_maps_metadata(mocker) -> None
         "primary_type": "mexican_restaurant",
         "similarity": 0.982,
     }
+
+
+def test_build_embedding_caches_identical_queries(mocker) -> None:
+    """Identical (query, model) pairs should hit the LRU cache and avoid a
+    second OpenAI round-trip."""
+    from app.retriever import _embed_cached, build_embedding
+
+    _embed_cached.cache_clear()
+
+    fake_client = MagicMock()
+    fake_client.embed_query.return_value = [0.1, 0.2, 0.3]
+    embeddings_cls = mocker.patch("app.retriever.OpenAIEmbeddings", return_value=fake_client)
+
+    v1 = build_embedding("italian", "text-embedding-3-small", openai_api_key="k")
+    v2 = build_embedding("italian", "text-embedding-3-small", openai_api_key="k")
+
+    assert v1 == v2 == [0.1, 0.2, 0.3]
+    # OpenAIEmbeddings constructor + embed_query each called only once.
+    assert embeddings_cls.call_count == 1
+    assert fake_client.embed_query.call_count == 1
+
+
+def test_build_embedding_different_queries_miss_cache(mocker) -> None:
+    from app.retriever import _embed_cached, build_embedding
+
+    _embed_cached.cache_clear()
+
+    fake_client = MagicMock()
+    fake_client.embed_query.side_effect = [[0.1], [0.2]]
+    mocker.patch("app.retriever.OpenAIEmbeddings", return_value=fake_client)
+
+    a = build_embedding("italian", "text-embedding-3-small", openai_api_key="k")
+    b = build_embedding("japanese", "text-embedding-3-small", openai_api_key="k")
+    assert a != b
+    assert fake_client.embed_query.call_count == 2

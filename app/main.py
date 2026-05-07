@@ -2,23 +2,34 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import mlflow
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
 from psycopg2.extensions import connection
 from pydantic import BaseModel, Field
 
+from .agent.graph import build_agent_graph
+from .agent.io import messages_from_history, state_to_cards
+from .agent.state import ItineraryState
 from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
 from .db import get_db
 from .db_pool import close_db_pool, init_db_pool
+from .observability import langgraph_callbacks, trace_request
 
 logger = logging.getLogger(__name__)
 
 RAG_UNAVAILABLE_DETAIL = (
     "RAG chain unavailable: MLflow registry could not be reached at startup. "
+    "Ensure the MLflow IAP tunnel is open and restart the app."
+)
+AGENT_UNAVAILABLE_DETAIL = (
+    "Agent graph unavailable: MLflow registry could not be reached at startup. "
     "Ensure the MLflow IAP tunnel is open and restart the app."
 )
 
@@ -43,6 +54,8 @@ class RecommendationSource(BaseModel):
     rating: float | None = None
     address: str | None = None
     similarity: float | None = None
+    place_id: str | None = None
+    primary_type: str | None = None
 
 
 class RecommendationResponse(BaseModel):
@@ -57,6 +70,30 @@ class ActiveModelConfig(BaseModel):
     temperature: float = 0.0
     run_id: str | None = None
     model_version: str | None = None
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    # Field name matches the frontend contract (frontend/src/api/chat.js).
+    reply: str
+    places: list[dict]
+    ragLabel: str  # noqa: N815
+
+
+@dataclass
+class LoadedConfig:
+    chain: Any
+    llm: BaseChatModel
+    params: ActiveModelConfig
 
 
 def parse_active_model_config(
@@ -81,7 +118,7 @@ def parse_active_model_config(
     )
 
 
-def load_registered_rag_chain() -> tuple[Any, ActiveModelConfig]:
+def load_registered_rag_chain() -> LoadedConfig:
     settings = get_settings()
     tracking_uri = settings.mlflow_tracking_uri
 
@@ -108,7 +145,7 @@ def load_registered_rag_chain() -> tuple[Any, ActiveModelConfig]:
     database_url = settings.resolved_database_url
     if not database_url:
         raise RuntimeError("Missing DATABASE_URL or POSTGRES_* database settings.")
-    chain = build_rag_chain(
+    built = build_rag_chain(
         connection_string=database_url,
         api_key=resolve_llm_api_key(config.llm_provider),
         llm_provider=config.llm_provider,
@@ -116,7 +153,7 @@ def load_registered_rag_chain() -> tuple[Any, ActiveModelConfig]:
         k=config.k,
         temperature=config.temperature,
     )
-    return chain, config
+    return LoadedConfig(chain=built.chain, llm=built.llm, params=config)
 
 
 def serialize_sources(source_documents: list[Any], limit: int) -> list[RecommendationSource]:
@@ -129,9 +166,17 @@ def serialize_sources(source_documents: list[Any], limit: int) -> list[Recommend
                 rating=metadata.get("rating"),
                 address=metadata.get("address"),
                 similarity=metadata.get("similarity"),
+                place_id=metadata.get("place_id"),
+                primary_type=metadata.get("primary_type"),
             )
         )
     return sources
+
+
+def _rag_label_for(config: ActiveModelConfig | None) -> str:
+    if config is None:
+        return "unknown"
+    return f"{config.llm_provider}:{config.chat_model}"
 
 
 @asynccontextmanager
@@ -148,17 +193,33 @@ async def lifespan(app: FastAPI):
     )
     try:
         try:
-            rag_chain, model_config = load_registered_rag_chain()
+            loaded = load_registered_rag_chain()
         except Exception:
             logger.warning(
                 "Failed to load RAG chain from MLflow registry — app will boot in "
                 "degraded mode and RAG endpoints will return 503.",
                 exc_info=True,
             )
-            rag_chain = None
-            model_config = None
-        app.state.rag_chain = rag_chain
-        app.state.active_model_config = model_config
+            loaded = None
+
+        if loaded is None:
+            app.state.rag_chain = None
+            app.state.active_model_config = None
+            app.state.agent_graph = None
+            app.state.rag_label = _rag_label_for(None)
+        else:
+            app.state.rag_chain = loaded.chain
+            app.state.active_model_config = loaded.params
+            try:
+                app.state.agent_graph = build_agent_graph(loaded.llm)
+            except Exception:
+                logger.warning(
+                    "Failed to build agent graph — /chat will return 503; "
+                    "/predict falls back to the legacy RAG chain.",
+                    exc_info=True,
+                )
+                app.state.agent_graph = None
+            app.state.rag_label = _rag_label_for(loaded.params)
         yield
     finally:
         close_db_pool()
@@ -211,16 +272,43 @@ def health_db(conn: connection = db_connection_dependency) -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest, request: Request) -> ChatResponse:
+    graph = getattr(request.app.state, "agent_graph", None)
+    if graph is None:
+        raise HTTPException(status_code=503, detail=AGENT_UNAVAILABLE_DETAIL)
+
+    rag_label = getattr(request.app.state, "rag_label", _rag_label_for(None))
+    with trace_request("chat", message=req.message[:200]) as trace_id:
+        state = ItineraryState(
+            messages=[
+                *messages_from_history(req.history),
+                HumanMessage(content=req.message),
+            ]
+        )
+        raw = await graph.ainvoke(
+            state,
+            config={
+                "callbacks": langgraph_callbacks(),
+                "metadata": {"trace_id": trace_id},
+            },
+        )
+    final_state = raw if isinstance(raw, ItineraryState) else ItineraryState(**raw)
+    return ChatResponse(
+        reply=final_state.final_reply or "",
+        places=state_to_cards(final_state),
+        ragLabel=rag_label,
+    )
+
+
 @app.post("/predict", response_model=RecommendationResponse)
-def predict(request_body: RecommendationRequest, request: Request) -> RecommendationResponse:
+async def predict(request_body: RecommendationRequest, request: Request) -> RecommendationResponse:
     rag_chain = getattr(request.app.state, "rag_chain", None)
     if rag_chain is None:
         raise HTTPException(status_code=503, detail=RAG_UNAVAILABLE_DETAIL)
-
     result = rag_chain.invoke({"query": request_body.query})
     response_text = result.get("result") or result.get("response") or ""
     source_documents = result.get("source_documents") or []
-
     return RecommendationResponse(
         response=response_text,
         sources=serialize_sources(source_documents, request_body.limit),

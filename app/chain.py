@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from langchain.chains import RetrievalQA
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -10,6 +12,12 @@ from .config import get_settings
 from .retriever import PgVectorRetriever
 
 
+@dataclass
+class BuiltChain:
+    chain: RetrievalQA
+    llm: BaseChatModel
+
+
 def build_rag_chain(
     connection_string: str,
     api_key: str,
@@ -17,7 +25,7 @@ def build_rag_chain(
     chat_model: str,
     k: int,
     temperature: float = 0.0,
-) -> RetrievalQA:
+) -> BuiltChain:
     settings = get_settings()
     retriever = PgVectorRetriever(
         connection_string=connection_string,
@@ -39,9 +47,10 @@ def build_rag_chain(
     else:
         raise ValueError(f"Unsupported llm_provider: {llm_provider}")
 
-    return RetrievalQA.from_chain_type(
+    chain = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
         retriever=retriever,
         return_source_documents=True,
     )
+    return BuiltChain(chain=chain, llm=llm)
