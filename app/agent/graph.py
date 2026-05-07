@@ -17,13 +17,17 @@ import json
 from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
+from app.agent.critique.checks import itinerary_violations
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.state import ItineraryState, Stop
+from app.agent.state import ItineraryState, RevisionHint, Stop
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
+
+LOW_SIMILARITY_THRESHOLD = 0.55
+MAX_REVISIONS_PER_REASON = 2
 
 
 def _grounded_place_ids(scratch: dict[str, Any]) -> set[str]:
@@ -138,6 +142,151 @@ def _serialize_tool_result(result: Any) -> str:
     return json.dumps(result, default=str)
 
 
+def _can_retry(state: ItineraryState, reason: str) -> bool:
+    return state.revision_counts.get(reason, 0) < MAX_REVISIONS_PER_REASON
+
+
+def _bumped_counts(state: ItineraryState, reason: str) -> dict[str, int]:
+    counts = dict(state.revision_counts)
+    counts[reason] = counts.get(reason, 0) + 1
+    return counts
+
+
+def _last_scratch_entry(state: ItineraryState) -> tuple[str, dict[str, Any]] | None:
+    """Find the scratch entry for the most recent tool call.
+
+    Returns (tool_name, entry) or None. ToolMessages in LangChain don't carry
+    the tool name reliably, so we walk back to the AIMessage that issued the
+    tool_calls and use the last one. Then pick the scratch entry with the
+    highest step for that tool name."""
+    last_tool_idx = None
+    for i in range(len(state.messages) - 1, -1, -1):
+        if isinstance(state.messages[i], ToolMessage):
+            last_tool_idx = i
+            break
+    if last_tool_idx is None:
+        return None
+    issuing_ai: AIMessage | None = None
+    for i in range(last_tool_idx - 1, -1, -1):
+        m = state.messages[i]
+        if isinstance(m, AIMessage) and m.tool_calls:
+            issuing_ai = m
+            break
+    if issuing_ai is None or not issuing_ai.tool_calls:
+        return None
+    name = issuing_ai.tool_calls[-1]["name"]
+    entries = state.scratch.get(name) or []
+    if not entries:
+        return None
+    return name, max(entries, key=lambda e: e.get("step", -1))
+
+
+def _most_restrictive_filter(filters: dict[str, Any] | None) -> str:
+    """Deterministic priority order for which filter to drop first."""
+    if not filters:
+        return "none"
+    for f in ("open_at", "price_level_max", "min_rating", "neighborhood", "types_any"):
+        if filters.get(f) is not None:
+            return f
+    return "none"
+
+
+def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
+    """Inspect the most recent tool call+result pair and return a hint if the
+    result was empty / all-closed / low-similarity / errored. Returns None on
+    healthy results."""
+    found = _last_scratch_entry(state)
+    if found is None:
+        return None
+    tool_name, entry = found
+    result = entry.get("result")
+    args = entry.get("args") or {}
+
+    if isinstance(result, dict) and "error" in result:
+        return RevisionHint(
+            reason="tool_error",
+            detail=str(result["error"]),
+            suggested_action="try_different_tool",
+            target={"tool": tool_name},
+        )
+
+    if isinstance(result, list):
+        if not result:
+            return RevisionHint(
+                reason="empty_results",
+                detail=f"No matches for {args}.",
+                suggested_action="drop_filter",
+                target={"filter": _most_restrictive_filter(args.get("filters"))},
+            )
+        if all(getattr(h, "business_status", None) != "OPERATIONAL" for h in result):
+            return RevisionHint(
+                reason="all_closed",
+                detail="Every result is closed or permanently_closed.",
+                suggested_action="broaden_query",
+                target={"filter": "business_status"},
+            )
+        top = result[0]
+        sim = getattr(top, "similarity", 0.0) or 0.0
+        if sim < LOW_SIMILARITY_THRESHOLD:
+            return RevisionHint(
+                reason="low_similarity",
+                detail=f"Top similarity {sim:.2f} below threshold {LOW_SIMILARITY_THRESHOLD}.",
+                suggested_action="broaden_query",
+                target={"query": args.get("query")},
+            )
+
+    return None
+
+
+def _hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
+    """Map a check name from itinerary_violations() to a structured hint."""
+    if reason == "geographic_coherence":
+        return RevisionHint(
+            reason="geographic_incoherence",
+            detail="One or more consecutive stops exceed the per-leg walking budget.",
+            suggested_action="tighten_radius",
+            target={"stops": list(range(1, len(state.stops)))},
+        )
+    if reason == "temporal_coherence":
+        return RevisionHint(
+            reason="temporal_incoherence",
+            detail="A stop is closed at its planned arrival time.",
+            suggested_action="shift_arrival_time",
+            target={},
+        )
+    if reason == "walking_budget_respected":
+        return RevisionHint(
+            reason="walking_budget_exceeded",
+            detail="Total walking exceeds the user's budget.",
+            suggested_action="rebalance_walking_budget",
+            target={},
+        )
+    if reason == "no_hallucinated_place_ids":
+        return RevisionHint(
+            reason="hallucinated_place_id",
+            detail="One or more place_ids do not exist in places_raw.",
+            suggested_action="swap_stop",
+            target={},
+        )
+    return RevisionHint(
+        reason="constraint_unmet_in_final",
+        detail="Final stops do not satisfy the shared user constraints.",
+        suggested_action="swap_stop",
+        target={},
+    )
+
+
+def _final_with_caveats(last_content: str, violations: list[str]) -> str:
+    """Compose a final reply that lists what didn't quite work. Better than
+    silently shipping a bad plan."""
+    caveats = (
+        "\n\nCaveats: I couldn't fully satisfy "
+        + ", ".join(violations)
+        + (" after revisions. You may want to adjust the plan.")
+    )
+    return (last_content or "") + caveats
+
+
 def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
     tools = all_tools()
     llm_with_tools = llm.bind_tools(tools)
@@ -218,21 +367,80 @@ def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
         return update
 
     def critique(state: ItineraryState) -> dict[str, Any]:
-        # W3 fills this in. For W2, do the bare minimum: check loop bound and
-        # whether the last AI message ended without a tool call.
-        last = state.messages[-1] if state.messages else None
+        """Two-pass critique:
+
+        1. If the LLM is finalizing (no-tool-call AI message) AND we have
+           committed stops, run the deterministic itinerary checks. On any
+           violation we still have retries left for, inject a hint as a
+           HumanMessage and route back to plan. On exhaustion, ship with
+           caveats.
+        2. Otherwise (we just came from `act`), inspect the last tool result
+           and emit a per-step hint if it was empty / all-closed / low-sim /
+           errored. Bounded by MAX_REVISIONS_PER_REASON per failure category.
+        """
         update: dict[str, Any] = {}
-        if isinstance(last, AIMessage) and not last.tool_calls:
+
+        if state.step_count >= max_steps:
             update["done"] = True
             update["final_reply"] = state.final_reply or (
-                last.content if isinstance(last.content, str) else str(last.content)
+                "I hit the planning step limit. Here is the best plan I had so far."
             )
-        if state.step_count >= max_steps and not (state.done or update.get("done")):
+            return update
+
+        last = state.messages[-1] if state.messages else None
+        finalizing = isinstance(last, AIMessage) and not last.tool_calls
+        last_content = (
+            last.content if isinstance(last, AIMessage) and isinstance(last.content, str) else ""
+        )
+
+        if finalizing and state.stops:
+            violations = itinerary_violations(state)
+            if violations:
+                actionable = next((v for v in violations if _can_retry(state, v)), None)
+                if actionable is not None:
+                    hint = _hint_for_violation(actionable, state)
+                    update["revision_hints"] = [*state.revision_hints, hint]
+                    update["revision_counts"] = _bumped_counts(state, actionable)
+                    update["messages"] = [
+                        HumanMessage(
+                            content=(
+                                f"[critique:itinerary] {actionable}: {hint.detail} "
+                                f"Suggested action: {hint.suggested_action}. "
+                                f"Revise the affected stop(s) and re-call commit_itinerary."
+                            )
+                        )
+                    ]
+                    update["done"] = False
+                    return update
+                # Exhausted retries on at least one violation; ship with caveats.
+                update["done"] = True
+                update["final_reply"] = _final_with_caveats(last_content, violations)
+                return update
+
+            # All deterministic checks passed; finalize.
             update["done"] = True
-            if not state.final_reply and not update.get("final_reply"):
-                update["final_reply"] = (
-                    "I hit the planning step limit. Here is the best plan I had so far."
+            update["final_reply"] = state.final_reply or last_content
+            return update
+
+        if finalizing:
+            # No stops committed yet (e.g. clarifying question). Finalize as-is.
+            update["done"] = True
+            update["final_reply"] = state.final_reply or last_content
+            return update
+
+        # Per-step deterministic critique: react to the last tool result.
+        hint = _diagnose_last_tool_result(state)
+        if hint is not None and _can_retry(state, hint.reason):
+            update["revision_hints"] = [*state.revision_hints, hint]
+            update["revision_counts"] = _bumped_counts(state, hint.reason)
+            update["messages"] = [
+                HumanMessage(
+                    content=(
+                        f"[critique:step] {hint.reason}: {hint.detail} "
+                        f"Suggested next action: {hint.suggested_action} on {hint.target}."
+                    )
                 )
+            ]
         return update
 
     def route_after_plan(state: ItineraryState) -> Literal["act", "critique"]:
