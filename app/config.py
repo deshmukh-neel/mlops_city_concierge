@@ -95,6 +95,8 @@ class Settings(BaseSettings):
     mlflow_model_name: str = "city-concierge-rag"
     retriever_k: int = 5
     embedding_table: str = "place_embeddings"
+    db_pool_min_connections: int = 0
+    db_pool_max_connections: int = 10
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
