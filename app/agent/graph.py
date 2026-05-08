@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+from datetime import datetime
 from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
@@ -31,6 +33,9 @@ from app.agent.critique.checks import itinerary_violations
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.state import ItineraryState, RevisionHint, Stop
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
+from app.tools.booking import propose_booking
+
+logger = logging.getLogger(__name__)
 
 LOW_SIMILARITY_THRESHOLD = 0.55
 MAX_REVISIONS_PER_REASON = 2
@@ -82,10 +87,36 @@ def _commit_stops(state: ItineraryState, raw_stops: Any) -> tuple[list[Stop], di
             committed.append(Stop(**raw))
         except Exception as e:  # noqa: BLE001
             rejected.append({"place_id": pid, "reason": f"invalid stop: {e}"})
+    _enrich_with_booking(committed, state)
     return committed, {
         "committed": [s.place_id for s in committed],
         "rejected": rejected,
     }
+
+
+def _enrich_with_booking(stops: list[Stop], state: ItineraryState) -> None:
+    """Stamp booking_url + booking_provider on each committed stop in-place.
+
+    Deterministic — runs without involving the LLM, since URL construction is
+    a pure transform of (place_id, when, party_size). If propose_booking
+    raises (DB miss, etc.) we log and skip that stop; a missing booking link
+    is a degraded-but-shippable state, not a hard failure.
+    """
+    party_size = state.constraints.party_size or 2
+    fallback_when = state.constraints.when or datetime.now()
+    for stop in stops:
+        when = stop.arrival_time or fallback_when
+        try:
+            proposal = propose_booking(stop.place_id, when, party_size)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "booking enrichment failed for place_id=%s",
+                stop.place_id,
+                exc_info=True,
+            )
+            continue
+        stop.booking_url = proposal.booking_url
+        stop.booking_provider = proposal.provider
 
 
 _RECENT_TOOL_EXCHANGES_KEPT = 2
