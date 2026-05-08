@@ -693,9 +693,49 @@ def print_run_header(all_seed_queries: list[str]) -> None:
     print(f"Field mode: {FIELD_MODE}; fields requested: {len(FIELDS.split(','))}")
 
 
+def ensure_query_proposals_table(conn: psycopg2.extensions.connection) -> None:
+    """Defensive create — Alembic owns the schema, but mirroring keeps the
+    script runnable on a fresh container with no migration applied."""
+    sql = """
+    CREATE TABLE IF NOT EXISTS places_ingest_query_proposals (
+        query_text   TEXT PRIMARY KEY,
+        status       TEXT NOT NULL DEFAULT 'pending',
+        rationale    TEXT,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        applied_at   TIMESTAMPTZ
+    )
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql)
+    conn.commit()
+
+
+def fetch_pending_proposals(conn: psycopg2.extensions.connection) -> list[str]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT query_text FROM places_ingest_query_proposals WHERE status = 'pending'"
+            " ORDER BY created_at"
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
+def mark_proposals_applied(conn: psycopg2.extensions.connection, queries: list[str]) -> None:
+    if not queries:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE places_ingest_query_proposals "
+            "SET status = 'applied', applied_at = NOW() "
+            "WHERE query_text = ANY(%s) AND status = 'pending'",
+            [queries],
+        )
+    conn.commit()
+
+
 def initialize_ingest_tables(conn: psycopg2.extensions.connection) -> None:
     ensure_query_checkpoint_table(conn)
     ensure_query_hits_table(conn)
+    ensure_query_proposals_table(conn)
 
 
 def select_seed_queries_for_run(
@@ -906,13 +946,19 @@ def run() -> None:
     validate_runtime_config()
 
     stats = PullStats()
-    all_seed_queries = build_seed_queries()
-    print_run_header(all_seed_queries)
+    static_seed_queries = build_seed_queries()
 
     with psycopg2.connect(DATABASE_URL) as conn:
         initialize_ingest_tables(conn)
+        proposed_queries = fetch_pending_proposals(conn)
+        all_seed_queries = list(dict.fromkeys(proposed_queries + static_seed_queries))
+        if proposed_queries:
+            print(f"Prepending {len(proposed_queries)} pending proposals from coverage agent.")
+        print_run_header(all_seed_queries)
+
         seed_queries = select_seed_queries_for_run(conn, all_seed_queries, stats)
         process_seed_queries(conn, seed_queries, stats)
+        mark_proposals_applied(conn, proposed_queries)
         unique_total = count_unique_places(conn)
 
     print_ingest_summary(stats, unique_total)
