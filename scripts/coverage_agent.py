@@ -102,7 +102,18 @@ def gather_stats(days: int) -> list[CoverageStat]:
     """
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(sql, [CUISINES, cutoff])
-        return [CoverageStat(*row) for row in cur.fetchall()]
+        stats = [CoverageStat(*row) for row in cur.fetchall()]
+    return _fill_missing_cuisines(stats)
+
+
+def _fill_missing_cuisines(stats: list[CoverageStat]) -> list[CoverageStat]:
+    """Synthesize zero-count rows for cuisines absent from the result set.
+
+    Cuisines with 0 places are silently dropped by the SQL (no rows to group),
+    but those are exactly the gaps we most need the LLM to fill.
+    """
+    seen = {s.bucket.removeprefix("cuisine:") for s in stats if s.bucket.startswith("cuisine:")}
+    return stats + [CoverageStat(f"cuisine:{c}", 0, 0, None) for c in CUISINES if c not in seen]
 
 
 def find_gaps(stats: list[CoverageStat], min_place_count: int = 5) -> list[CoverageStat]:
@@ -153,8 +164,13 @@ def _parse_proposals(raw: str) -> list[ProposedQuery]:
     return proposals
 
 
+def _format_gap_line(g: CoverageStat) -> str:
+    axis, _, name = g.bucket.partition(":")
+    return f"- type={axis} name='{name}' place_count={g.place_count}"
+
+
 def _build_proposal_prompt(gaps: list[CoverageStat]) -> str:
-    gap_lines = "\n".join(f"- {g.bucket} (place_count={g.place_count})" for g in gaps)
+    gap_lines = "\n".join(_format_gap_line(g) for g in gaps)
     return f"""You are a data coverage planner for a SF restaurant database.
 
 Coverage gaps (buckets with under-represented place counts):
@@ -171,7 +187,8 @@ this schema:
   ]
 
 Rules:
-- Format: "<thing> in <neighborhood> San Francisco" or "<cuisine> restaurants in San Francisco".
+- For type=neighborhood gaps: "<thing> in <name> San Francisco".
+- For type=cuisine gaps: "<name> restaurants in San Francisco".
 - Don't propose generic queries already covered (e.g. "restaurants in San Francisco").
 - field_mode must be "enriched".
 - One JSON list, no prose, no markdown.

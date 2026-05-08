@@ -9,12 +9,15 @@ from scripts import coverage_agent
 from scripts.coverage_agent import (
     CoverageStat,
     ProposedQuery,
+    _build_proposal_prompt,
+    _fill_missing_cuisines,
     _parse_proposals,
     find_gaps,
     gather_stats,
     insert_pending,
     propose_queries,
 )
+from scripts.ingest_places_sf import CUISINES
 
 
 class TestFindGaps:
@@ -191,6 +194,45 @@ class TestGatherStatsSql:
         # not just the regexp_replace. Without this clause, garbage addresses pass
         # through unchanged and pollute the bucket list.
         assert "formatted_address ~" in sql
+
+
+class TestFillMissingCuisines:
+    def test_zero_coverage_cuisines_are_synthesized(self) -> None:
+        stats = [CoverageStat("cuisine:italian", 100, 0, None)]
+        out = _fill_missing_cuisines(stats)
+        bucket_set = {s.bucket for s in out}
+        # italian is preserved, every other CUISINES entry shows up at 0
+        assert "cuisine:italian" in bucket_set
+        for c in CUISINES:
+            assert f"cuisine:{c}" in bucket_set
+        # synthesized rows have place_count=0 and last_ingest=None
+        zeros = [
+            s for s in out if s.bucket != "cuisine:italian" and s.bucket.startswith("cuisine:")
+        ]
+        assert all(s.place_count == 0 and s.last_ingest is None for s in zeros)
+
+    def test_zero_coverage_cuisine_is_visible_to_find_gaps(self) -> None:
+        # Without the synthesis, a cuisine with 0 ingested places is invisible
+        # — exactly the gap the agent most needs to see.
+        stats = _fill_missing_cuisines([CoverageStat("cuisine:italian", 100, 0, None)])
+        gaps = find_gaps(stats, min_place_count=5)
+        zero_cuisine_gaps = [
+            g for g in gaps if g.bucket.startswith("cuisine:") and g.place_count == 0
+        ]
+        assert zero_cuisine_gaps, "expected synthesized 0-coverage cuisine gaps to surface"
+
+
+class TestPromptFormat:
+    def test_lines_tag_axis_so_llm_does_not_parse_prefix(self) -> None:
+        gaps = [
+            CoverageStat("neighborhood:Mission", 4, 0, None),
+            CoverageStat("cuisine:burmese", 0, 0, None),
+        ]
+        prompt = _build_proposal_prompt(gaps)
+        assert "type=neighborhood name='Mission' place_count=4" in prompt
+        assert "type=cuisine name='burmese' place_count=0" in prompt
+        assert "type=neighborhood gaps" in prompt
+        assert "type=cuisine gaps" in prompt
 
 
 class TestInsertPending:
