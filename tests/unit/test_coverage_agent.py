@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+from scripts import coverage_agent
 from scripts.coverage_agent import (
     CoverageStat,
     ProposedQuery,
     _parse_proposals,
     find_gaps,
+    gather_stats,
     insert_pending,
     propose_queries,
 )
@@ -131,6 +133,64 @@ class TestProposeQueries:
         llm.invoke.return_value.content = ["not", "a", "string"]
         gaps = [CoverageStat("cuisine:burmese", 1, 0, None)]
         assert propose_queries(gaps, llm) == []
+
+
+class _CapturingCursor:
+    def __init__(self, captured: list[tuple]) -> None:
+        self._captured = captured
+
+    def __enter__(self) -> _CapturingCursor:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: object) -> None:
+        self._captured.append((sql, params))
+
+    def fetchall(self) -> list[tuple]:
+        return []
+
+
+class _CapturingConn:
+    def __init__(self, captured: list[tuple]) -> None:
+        self._captured = captured
+
+    def __enter__(self) -> _CapturingConn:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def cursor(self) -> _CapturingCursor:
+        return _CapturingCursor(self._captured)
+
+
+class TestGatherStatsSql:
+    """Lock the SQL contract: parameter shape + bucket allowlist."""
+
+    def _captured_executes(self, monkeypatch) -> list[tuple]:
+        captured: list[tuple] = []
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _CapturingConn(captured))
+        gather_stats(days=14)
+        return captured
+
+    def test_passes_cuisine_allowlist_and_cutoff(self, monkeypatch) -> None:
+        captured = self._captured_executes(monkeypatch)
+        assert len(captured) == 1
+        sql, params = captured[0]
+        assert len(params) == 2
+        cuisines, cutoff = params
+        assert isinstance(cuisines, list) and "italian" in cuisines and "vietnamese" in cuisines
+        assert "google" not in cuisines  # raw Google types must not leak in
+        assert cutoff is not None  # the time bound for recent_query_diversity
+
+    def test_neighborhood_regex_filters_non_matching_addresses(self, monkeypatch) -> None:
+        sql, _ = self._captured_executes(monkeypatch)[0]
+        # The non-matching guard lives in the WHERE clause of the neighborhoods CTE,
+        # not just the regexp_replace. Without this clause, garbage addresses pass
+        # through unchanged and pollute the bucket list.
+        assert "formatted_address ~" in sql
 
 
 class TestInsertPending:

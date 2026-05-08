@@ -31,6 +31,7 @@ from langchain_core.messages import HumanMessage
 
 from app.agent.critique import vibe
 from app.db import get_conn
+from scripts.ingest_places_sf import CUISINES
 
 _log = logging.getLogger("coverage_agent")
 
@@ -70,15 +71,17 @@ def gather_stats(days: int) -> list[CoverageStat]:
                 MAX(source_updated_at) AS last_ingest
             FROM places_raw
             WHERE source_city ILIKE '%san francisco%'
+              AND formatted_address ~ '.*, [^,]+, San Francisco.*'
             GROUP BY 1
         ),
         cuisines AS (
-            SELECT
-                LOWER(unnest(types)) AS bucket,
-                COUNT(*) AS place_count,
-                MAX(source_updated_at) AS last_ingest
-            FROM places_raw
-            WHERE source_city ILIKE '%san francisco%'
+            SELECT bucket, COUNT(*) AS place_count, MAX(source_updated_at) AS last_ingest
+            FROM (
+                SELECT LOWER(unnest(types)) AS bucket, source_updated_at
+                FROM places_raw
+                WHERE source_city ILIKE '%san francisco%'
+            ) t
+            WHERE bucket = ANY(%s)
             GROUP BY 1
         ),
         recent_query_diversity AS (
@@ -98,7 +101,7 @@ def gather_stats(days: int) -> list[CoverageStat]:
         FROM recent_query_diversity;
     """
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(sql, [cutoff])
+        cur.execute(sql, [CUISINES, cutoff])
         return [CoverageStat(*row) for row in cur.fetchall()]
 
 
