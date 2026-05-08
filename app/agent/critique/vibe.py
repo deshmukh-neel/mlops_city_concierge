@@ -29,8 +29,8 @@ VIBE_THRESHOLD = 3.0  # 0-5 rubric; below this triggers one revision pass.
 VIBE_ENV_VAR = "EVAL_VIBE_CRITIQUE_ENABLED"
 JUDGE_MODEL_ENV_VAR = "EVAL_JUDGE_MODEL"
 JUDGE_PROVIDER_ENV_VAR = "EVAL_JUDGE_PROVIDER"
-DEFAULT_JUDGE_MODEL = "gpt-4o-mini"
-DEFAULT_JUDGE_PROVIDER = "openai"
+DEFAULT_JUDGE_MODEL = "gemini-3.1-flash-lite-preview"
+DEFAULT_JUDGE_PROVIDER = "gemini"
 
 VIBE_PROMPT = """Rate the vibe coherence of this {n_stops}-stop itinerary on a
 0-5 scale where 5 = perfectly matched vibes, 0 = jarring mismatch.
