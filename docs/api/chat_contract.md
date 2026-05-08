@@ -6,7 +6,7 @@ calls. Backend code: `app/main.py`, `app/agent/state.py`, `app/agent/io.py`.
 If you find this doc disagreeing with the code, the code wins — but please
 open an issue or fix the doc in the same PR.
 
-Last updated for: W4 (booking handoff). Reflects everything merged W0 → W4.
+Last updated for: W5 (coverage-gap ingestion agent). Reflects everything merged W0 → W5. W5 doesn't touch the chat API — it's a data-pipeline workstream — so the contract is unchanged.
 
 ---
 
