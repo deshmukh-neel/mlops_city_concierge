@@ -12,6 +12,7 @@ from scripts.coverage_agent import (
     _build_proposal_prompt,
     _fill_missing_cuisines,
     _parse_proposals,
+    filter_already_covered,
     find_gaps,
     gather_stats,
     insert_pending,
@@ -233,6 +234,33 @@ class TestPromptFormat:
         assert "type=cuisine name='burmese' place_count=0" in prompt
         assert "type=neighborhood gaps" in prompt
         assert "type=cuisine gaps" in prompt
+
+
+class TestFilterAlreadyCovered:
+    def test_drops_proposals_already_in_seed_list(self) -> None:
+        # `vietnamese restaurants in San Francisco` is emitted by the static
+        # seed list — the LLM should not be able to claim it as a new gap.
+        existing = {"vietnamese restaurants in San Francisco"}
+        proposals = [
+            ProposedQuery("vietnamese restaurants in San Francisco", "enriched", "x"),
+            ProposedQuery("burmese restaurants in San Francisco", "enriched", "y"),
+        ]
+        kept, dropped = filter_already_covered(proposals, existing)
+        assert [p.query_text for p in kept] == ["burmese restaurants in San Francisco"]
+        assert [p.query_text for p in dropped] == ["vietnamese restaurants in San Francisco"]
+
+    def test_empty_proposals(self) -> None:
+        kept, dropped = filter_already_covered([], {"x"})
+        assert kept == [] and dropped == []
+
+    def test_static_seed_queries_are_in_existing_set(self) -> None:
+        # Sanity check: the helper that builds `existing` actually pulls from
+        # build_seed_queries, so the canonical "<cuisine> restaurants in SF"
+        # form is covered.
+        from scripts.ingest_places_sf import build_seed_queries
+
+        seeds = set(build_seed_queries())
+        assert "vietnamese restaurants in San Francisco" in seeds
 
 
 class TestInsertPending:

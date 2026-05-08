@@ -31,7 +31,7 @@ from langchain_core.messages import HumanMessage
 
 from app.agent.critique import vibe
 from app.db import get_conn
-from scripts.ingest_places_sf import CUISINES
+from scripts.ingest_places_sf import CUISINES, build_seed_queries
 
 _log = logging.getLogger("coverage_agent")
 
@@ -207,6 +207,33 @@ def propose_queries(gaps: list[CoverageStat], llm: Any | None) -> list[ProposedQ
     return _parse_proposals(raw)
 
 
+def existing_query_texts(conn: Any) -> set[str]:
+    """Queries the ingester already knows about, from any source.
+
+    Union of: static seed list, prior checkpoints (any status), prior
+    proposals (any status). Used to filter agent output before insert so
+    the proposals table reflects actually-new coverage.
+    """
+    existing = set(build_seed_queries())
+    with conn.cursor() as cur:
+        cur.execute("SELECT query_text FROM places_ingest_query_checkpoints")
+        existing.update(row[0] for row in cur.fetchall())
+        cur.execute("SELECT query_text FROM places_ingest_query_proposals")
+        existing.update(row[0] for row in cur.fetchall())
+    return existing
+
+
+def filter_already_covered(
+    proposals: list[ProposedQuery], existing: set[str]
+) -> tuple[list[ProposedQuery], list[ProposedQuery]]:
+    """Split proposals into (kept, dropped) based on the existing-query set."""
+    kept: list[ProposedQuery] = []
+    dropped: list[ProposedQuery] = []
+    for p in proposals:
+        (dropped if p.query_text in existing else kept).append(p)
+    return kept, dropped
+
+
 def insert_pending(proposals: list[ProposedQuery], dry_run: bool) -> int:
     """Insert proposals as 'pending' rows. Returns the number of rows
     actually inserted (0 if dry_run, or if every proposal collided)."""
@@ -235,6 +262,7 @@ def log_to_mlflow(
     stats: list[CoverageStat],
     gaps: list[CoverageStat],
     proposals: list[ProposedQuery],
+    dropped: list[ProposedQuery],
     inserted: int,
     dry_run: bool,
 ) -> None:
@@ -244,10 +272,12 @@ def log_to_mlflow(
         mlflow.log_param("dry_run", dry_run)
         mlflow.log_metric("gaps_found", len(gaps))
         mlflow.log_metric("proposals_made", len(proposals))
+        mlflow.log_metric("dropped_already_covered", len(dropped))
         mlflow.log_metric("inserted", inserted)
         mlflow.log_dict({"stats": [_stat_to_dict(s) for s in stats]}, "stats.json")
         mlflow.log_dict({"gaps": [_stat_to_dict(g) for g in gaps]}, "gaps.json")
         mlflow.log_dict({"proposals": [asdict(p) for p in proposals]}, "proposals.json")
+        mlflow.log_dict({"dropped": [asdict(p) for p in dropped]}, "dropped.json")
 
 
 def _stat_to_dict(stat: CoverageStat) -> dict[str, Any]:
@@ -284,10 +314,12 @@ def main(argv: list[str] | None = None) -> int:
     if llm is None and gaps:
         _log.warning("judge unavailable (missing creds?); skipping LLM proposal step")
     proposals = propose_queries(gaps, llm)
-    inserted = insert_pending(proposals, args.dry_run)
+    with get_conn() as conn:
+        kept, dropped = filter_already_covered(proposals, existing_query_texts(conn))
+    inserted = insert_pending(kept, args.dry_run)
 
-    log_to_mlflow(stats, gaps, proposals, inserted, args.dry_run)
-    print(f"gaps={len(gaps)} proposals={len(proposals)} inserted={inserted}")
+    log_to_mlflow(stats, gaps, kept, dropped, inserted, args.dry_run)
+    print(f"gaps={len(gaps)} proposals={len(proposals)} dropped={len(dropped)} inserted={inserted}")
     return 0
 
 
