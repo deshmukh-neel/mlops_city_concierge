@@ -112,6 +112,49 @@ def test_appends_with_ampersand_when_url_already_has_query() -> None:
     assert b.booking_url.count("?") == 1
 
 
+def test_preserves_fragment_when_appending_query() -> None:
+    """A URL fragment (#section) must come AFTER the query string, not before
+    it — otherwise the params end up after the fragment and the server never
+    sees them. Hand-rolled `?` concatenation got this wrong."""
+    with patch(
+        "app.tools.booking.get_details",
+        return_value=_fake_details("https://resy.com/cities/sf/foo#book"),
+    ):
+        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+    assert b.booking_url.endswith("#book")
+    assert "date=2026-04-26" in b.booking_url
+    assert "seats=2" in b.booking_url
+    # The ? must come BEFORE the # in a valid URL.
+    assert b.booking_url.index("?") < b.booking_url.index("#")
+
+
+def test_overwrites_existing_param_with_same_key() -> None:
+    """If the venue's website already has `?date=lunch`, our `date=2026-...`
+    must replace it — most providers honor the FIRST value of a duplicate key
+    and would silently ignore our deep-link params otherwise."""
+    with patch(
+        "app.tools.booking.get_details",
+        return_value=_fake_details("https://resy.com/cities/sf/foo?date=lunch"),
+    ):
+        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+    assert "date=2026-04-26" in b.booking_url
+    assert "date=lunch" not in b.booking_url
+    # Single `date=` token, not two.
+    assert b.booking_url.count("date=") == 1
+
+
+def test_handles_trailing_question_mark_cleanly() -> None:
+    """`https://x?` with no params should produce `https://x?date=...&seats=...`,
+    not `https://x?&date=...` (leading `&` after `?` is malformed)."""
+    with patch(
+        "app.tools.booking.get_details",
+        return_value=_fake_details("https://resy.com/cities/sf/foo?"),
+    ):
+        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+    assert "?&" not in b.booking_url
+    assert "date=2026-04-26" in b.booking_url
+
+
 def test_unknown_provider_with_website_returns_website_unchanged() -> None:
     """A venue whose website isn't Resy/Tock/OpenTable still has a website that
     is much more useful than a map pin — it likely hosts a reservations page.

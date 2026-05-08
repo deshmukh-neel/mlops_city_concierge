@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from urllib.parse import urlencode, urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 from pydantic import BaseModel
 
@@ -141,8 +141,18 @@ def _build_booking_url(
 
 
 def _append_query(url: str, params: dict) -> str:
-    sep = "&" if "?" in url else "?"
-    return f"{url}{sep}{urlencode(params)}"
+    """Merge `params` into the URL's query string, replacing existing keys.
+
+    Uses urlsplit/urlunsplit so fragments are preserved, pre-encoded params
+    are decoded then re-encoded canonically, and our params overwrite any
+    pre-existing same-key params (so e.g. our `date=2026-04-26` wins over a
+    `?date=lunch` in the input). Hand-rolled string concat got this wrong on
+    fragments (`#section?...` is server-invisible) and same-key collisions.
+    """
+    parts = urlsplit(url)
+    merged = dict(parse_qsl(parts.query, keep_blank_values=True))
+    merged.update({k: str(v) for k, v in params.items()})
+    return urlunsplit(parts._replace(query=urlencode(merged)))
 
 
 def _notes_for(provider: Provider) -> str:
