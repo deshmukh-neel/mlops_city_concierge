@@ -118,6 +118,8 @@ class Stop(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     primary_type: str | None = None
+    booking_url: str | None = None
+    booking_provider: str | None = None
 
 
 class ItineraryState(BaseModel):
@@ -157,4 +159,5 @@ class PlaceCard(BaseModel):
     primary_type: str | None = None
     arrival_time: datetime | None = None
     rationale: str
-    booking_url: str | None = None  # populated by W4
+    booking_url: str | None = None
+    booking_provider: str | None = None
