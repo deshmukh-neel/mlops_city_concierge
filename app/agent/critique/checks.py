@@ -81,24 +81,17 @@ def geographic_coherence(state: ItineraryState) -> float:
     stops = state.stops
     if len(stops) < 2:
         return 1.0
-    legs = [(stops[i], stops[i + 1]) for i in range(len(stops) - 1)]
-    measurable = [
-        (a, b)
-        for a, b in legs
-        if a.latitude is not None
-        and a.longitude is not None
-        and b.latitude is not None
-        and b.longitude is not None
-    ]
-    if not measurable:
+    measurable_legs: list[float] = []
+    for i in range(len(stops) - 1):
+        a, b = stops[i], stops[i + 1]
+        if a.latitude is None or a.longitude is None or b.latitude is None or b.longitude is None:
+            continue
+        measurable_legs.append(haversine_m((a.latitude, a.longitude), (b.latitude, b.longitude)))
+    if not measurable_legs:
         return 1.0
     per_leg_budget = state.constraints.walking_budget_m / max(len(stops) - 1, 1)
-    fit = sum(
-        1
-        for a, b in measurable
-        if haversine_m((a.latitude, a.longitude), (b.latitude, b.longitude)) <= per_leg_budget
-    )
-    return fit / len(measurable)
+    fit = sum(1 for d in measurable_legs if d <= per_leg_budget)
+    return fit / len(measurable_legs)
 
 
 def walking_budget_respected(state: ItineraryState) -> float:
@@ -132,8 +125,10 @@ def constraints_satisfied(state: ItineraryState) -> float:
         expressed.append("min_rating")
     if c.min_user_rating_count is not None:
         expressed.append("min_user_rating_count")
+    want_neighborhood: str | None = None
     if c.neighborhood:
         expressed.append("neighborhood")
+        want_neighborhood = c.neighborhood.lower()
     if not expressed:
         return 1.0
 
@@ -173,11 +168,10 @@ def constraints_satisfied(state: ItineraryState) -> float:
                 cnt = row["user_rating_count"]
                 if cnt is None or cnt >= c.min_user_rating_count:
                     satisfied += 1
-            elif con == "neighborhood":
-                want = c.neighborhood.lower()
+            elif con == "neighborhood" and want_neighborhood is not None:
                 hood = (row["neighborhood"] or "").lower()
                 addr = (row["formatted_address"] or "").lower()
-                if hood == want or want in addr:
+                if hood == want_neighborhood or want_neighborhood in addr:
                     satisfied += 1
     if total == 0:
         return 1.0
