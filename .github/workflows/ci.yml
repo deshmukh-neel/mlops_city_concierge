@@ -220,6 +220,11 @@ jobs:
       - name: Run integration tests
         env:
           APP_ENV: integration
+          # The booking integration test exercises the real semantic_search
+          # path, which calls OpenAI for embeddings. Without a real key the
+          # conftest setdefault stub leaks through and the test 401s. Other
+          # integration tests don't touch OpenAI; this is just for booking.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         # The CI service account is provisioned as a CLOUD_IAM_SERVICE_ACCOUNT
         # DB user named with the .gserviceaccount.com suffix dropped. We
         # URL-encode the @ in the user, and the IAM token is the password.
