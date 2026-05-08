@@ -12,8 +12,13 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from app.agent.graph import _commit_stops, _prune_for_llm, build_agent_graph
-from app.agent.state import ItineraryState, UserConstraints
+from app.agent.graph import (
+    _commit_stops,
+    _prune_for_llm,
+    build_agent_graph,
+    enrich_stops_with_booking,
+)
+from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.tools.booking import BookingProposal
 from app.tools.retrieval import PlaceHit
 
@@ -372,3 +377,131 @@ def test_commit_stops_enrichment_propagates_programmer_errors() -> None:
         pytest.raises(TypeError),
     ):
         _commit_stops(state, raw_stops)
+
+
+def test_commit_stops_re_commit_is_idempotent() -> None:
+    """The W3 critique loop drives a second commit_itinerary call when the
+    first plan fails a check. Re-committing the same place_id must produce the
+    same booking link — same inputs, same output. Locks the contract so a
+    future 'skip if already enriched' optimization can't silently break it."""
+    state = _state_with_grounded(["p1"])
+    raw_stops = [
+        {"place_id": "p1", "name": "Place p1", "rationale": "first", "source": "google_places"},
+    ]
+
+    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+        return BookingProposal(
+            place_id=place_id,
+            provider="resy",
+            booking_url=f"https://resy.com/{place_id}?seats={party_size}",
+        )
+
+    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+        first_committed, _ = _commit_stops(state, raw_stops)
+        second_committed, _ = _commit_stops(state, raw_stops)
+
+    assert first_committed[0].booking_url == second_committed[0].booking_url
+    assert first_committed[0].booking_provider == second_committed[0].booking_provider
+
+
+def test_commit_stops_per_stop_enrichment_failure_does_not_taint_siblings() -> None:
+    """A 2-stop commit where one place_id raises ValueError mid-enrichment
+    must still ship the other stop's booking link. The for-loop in
+    enrich_stops_with_booking is supposed to skip on per-stop failure, not
+    bail on the whole commit."""
+    state = _state_with_grounded(["p1", "p2"])
+    raw_stops = [
+        {"place_id": "p1", "name": "Place p1", "rationale": "first", "source": "google_places"},
+        {"place_id": "p2", "name": "Place p2", "rationale": "second", "source": "google_places"},
+    ]
+
+    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+        if place_id == "p1":
+            raise ValueError("unknown place_id p1")
+        return BookingProposal(
+            place_id=place_id,
+            provider="opentable",
+            booking_url=f"https://opentable.com/{place_id}",
+        )
+
+    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+        committed, _ = _commit_stops(state, raw_stops)
+
+    # p1 enrichment failed and was skipped — no booking fields populated.
+    assert committed[0].place_id == "p1"
+    assert committed[0].booking_url is None
+    assert committed[0].booking_provider is None
+    # p2 enrichment was independent of p1 and succeeded.
+    assert committed[1].place_id == "p2"
+    assert committed[1].booking_url == "https://opentable.com/p2"
+    assert committed[1].booking_provider == "opentable"
+
+
+def test_enrich_stops_with_booking_mutates_in_place() -> None:
+    """Direct coverage of the public helper. Future constraint-edit flows
+    will call enrich_stops_with_booking on already-built Stop objects without
+    going through _commit_stops; the in-place-mutation contract is what makes
+    that re-enrichment cheap."""
+    stops = [
+        Stop(place_id="p1", name="A", rationale="r", source="google_places"),
+        Stop(place_id="p2", name="B", rationale="r", source="google_places"),
+    ]
+    state = ItineraryState(
+        constraints=UserConstraints(party_size=4, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+        return BookingProposal(
+            place_id=place_id,
+            provider="tock",
+            booking_url=f"https://exploretock.com/{place_id}?size={party_size}",
+        )
+
+    original_ids = [id(s) for s in stops]
+    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+        enrich_stops_with_booking(stops, state)
+
+    # Same Stop objects (mutated, not replaced).
+    assert [id(s) for s in stops] == original_ids
+    # Both got party_size=4 from constraints (no per-stop arrival_time).
+    assert all(s.booking_provider == "tock" for s in stops)
+    assert all("size=4" in (s.booking_url or "") for s in stops)
+
+
+def test_enrich_stops_with_booking_uses_arrival_time_per_stop() -> None:
+    """When stops have different arrival_times, each stop's URL must reflect
+    its OWN time, not constraints.when. Otherwise a 3-stop itinerary's late
+    stops get a 'date' for the first stop's time slot."""
+    stops = [
+        Stop(
+            place_id="p1",
+            name="dinner",
+            rationale="r",
+            source="google_places",
+            arrival_time=datetime(2026, 5, 7, 19, 0),
+        ),
+        Stop(
+            place_id="p2",
+            name="drinks",
+            rationale="r",
+            source="google_places",
+            arrival_time=datetime(2026, 5, 7, 21, 30),
+        ),
+    ]
+    state = ItineraryState(
+        constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+    captured: list[tuple[str, datetime]] = []
+
+    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+        captured.append((place_id, when))
+        return BookingProposal(place_id=place_id, provider="resy", booking_url="https://resy.com/x")
+
+    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+        enrich_stops_with_booking(stops, state)
+
+    assert captured == [
+        ("p1", datetime(2026, 5, 7, 19, 0)),
+        ("p2", datetime(2026, 5, 7, 21, 30)),
+    ]
