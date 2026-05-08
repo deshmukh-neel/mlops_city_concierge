@@ -21,7 +21,12 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
-from app.agent.critique import vibe
+from app.agent.critique import (
+    CRITIQUE_ITINERARY,
+    CRITIQUE_STEP,
+    CRITIQUE_VIBE,
+    vibe,
+)
 from app.agent.critique.checks import itinerary_violations
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.state import ItineraryState, RevisionHint, Stop
@@ -441,7 +446,7 @@ def build_agent_graph(
                     update["messages"] = [
                         HumanMessage(
                             content=(
-                                f"[critique:itinerary] {actionable}: {hint.detail} "
+                                f"{CRITIQUE_ITINERARY} {actionable}: {hint.detail} "
                                 f"Suggested action: {hint.suggested_action}. "
                                 f"Revise the affected stop(s) and re-call commit_itinerary."
                             )
@@ -472,7 +477,7 @@ def build_agent_graph(
                 update["messages"] = [
                     HumanMessage(
                         content=(
-                            f"[critique:vibe] cross-stop vibe coherence scored "
+                            f"{CRITIQUE_VIBE} cross-stop vibe coherence scored "
                             f"{score:.1f}/5. Swap whichever stop feels off and "
                             f"re-call commit_itinerary."
                         )
@@ -499,7 +504,7 @@ def build_agent_graph(
             update["messages"] = [
                 HumanMessage(
                     content=(
-                        f"[critique:step] {hint.reason}: {hint.detail} "
+                        f"{CRITIQUE_STEP} {hint.reason}: {hint.detail} "
                         f"Suggested next action: {hint.suggested_action} on {hint.target}."
                     )
                 )

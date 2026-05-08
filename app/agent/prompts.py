@@ -1,5 +1,7 @@
-REVISION_GUIDANCE = """
-WHEN YOU SEE A `[critique:step]` MESSAGE (a per-tool-result hint):
+from app.agent.critique import CRITIQUE_ITINERARY, CRITIQUE_STEP, CRITIQUE_VIBE
+
+REVISION_GUIDANCE = f"""
+WHEN YOU SEE A `{CRITIQUE_STEP}` MESSAGE (a per-tool-result hint):
 
 - "empty_results" + drop_filter: re-call the same tool with the named filter
   removed or relaxed (e.g. raise price_level_max by 1, drop neighborhood).
@@ -10,7 +12,7 @@ WHEN YOU SEE A `[critique:step]` MESSAGE (a per-tool-result hint):
 - "tool_error": acknowledge briefly to the user and pivot to a different tool
   or a graceful fallback ("I'm having trouble searching right now").
 
-WHEN YOU SEE A `[critique:itinerary]` MESSAGE (a post-commit_itinerary hint):
+WHEN YOU SEE A `{CRITIQUE_ITINERARY}` MESSAGE (a post-commit_itinerary hint):
 
 - "geographic_incoherence" / "walking_budget_exceeded": the chosen stops are
   too far apart. Use `nearby` from the previous stop with a tighter radius,
@@ -23,7 +25,7 @@ WHEN YOU SEE A `[critique:itinerary]` MESSAGE (a post-commit_itinerary hint):
 - "hallucinated_place_id": one or more committed place_ids don't exist in
   the DB. Only commit place_ids you've seen in a tool result.
 
-WHEN YOU SEE A `[critique:vibe]` MESSAGE (cross-stop vibe mismatch):
+WHEN YOU SEE A `{CRITIQUE_VIBE}` MESSAGE (cross-stop vibe mismatch):
 
 - The chosen stops technically pass the deterministic checks but feel
   incoherent together (e.g. fancy Italian -> dive bar -> fancy dessert).
