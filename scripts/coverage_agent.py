@@ -134,7 +134,7 @@ def _parse_proposals(raw: str) -> list[ProposedQuery]:
     Tolerates ```json fences. Skips items missing required keys or with
     non-string values rather than failing the whole run.
     """
-    cleaned = _FENCE_RE.sub("", raw or "").strip()
+    cleaned = _FENCE_RE.sub("", raw).strip()
     if not cleaned:
         return []
     try:
