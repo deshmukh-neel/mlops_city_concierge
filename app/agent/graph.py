@@ -33,7 +33,8 @@ from app.agent.critique.checks import itinerary_violations
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.state import ItineraryState, RevisionHint, Stop
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
-from app.tools.booking import propose_booking
+from app.tools.booking import propose_booking_from_details
+from app.tools.retrieval import get_details_many
 
 logger = logging.getLogger(__name__)
 
@@ -97,10 +98,14 @@ def _commit_stops(state: ItineraryState, raw_stops: Any) -> tuple[list[Stop], di
 def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
     """Stamp booking_url + booking_provider on each committed stop in-place.
 
-    Deterministic — runs without involving the LLM, since URL construction is
-    a pure transform of (place_id, when, party_size). If propose_booking
-    raises (DB miss, etc.) we log and skip that stop; a missing booking link
-    is a degraded-but-shippable state, not a hard failure.
+    Deterministic — URL construction is a pure transform of (PlaceDetails,
+    when, party_size), so the LLM is not involved.
+
+    One batched DB read (get_details_many) covers all stops; previously this
+    was an N+1 over commit_itinerary. Per-stop URL building is pure and
+    cannot raise ValueError/psycopg2.Error, so the error-handling moved to
+    the single batched read: a DB blip skips enrichment for this commit
+    (cards ship without booking links), bugs propagate.
 
     Called by _commit_stops on initial commit. Public (no leading underscore)
     so a future constraint-edit path — "make it 4 people instead of 2" or
@@ -108,6 +113,19 @@ def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
     through the LLM and re-committing the same place_ids.
     """
     party_size = state.constraints.party_size or 2
+    place_ids = [stop.place_id for stop in stops]
+    try:
+        details_by_id = get_details_many(place_ids)
+    except psycopg2.Error:
+        # Single point of DB failure for the whole enrichment. Skip enrichment
+        # for the entire commit; cards still ship without booking links.
+        logger.warning(
+            "booking enrichment DB read failed for %d stops",
+            len(place_ids),
+            exc_info=True,
+        )
+        return
+
     for stop in stops:
         when = stop.arrival_time or state.constraints.when
         if when is None:
@@ -117,20 +135,14 @@ def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
             # the user. The card ships without a booking link; downstream can
             # re-enrich once the user supplies a time.
             continue
-        try:
-            proposal = propose_booking(stop.place_id, when, party_size)
-        except (ValueError, psycopg2.Error):
-            # Recoverable: missing place_id (ValueError from propose_booking)
-            # or transient DB blip (psycopg2.Error). Skip enrichment for this
-            # stop; the rest of the commit still ships. Programmer errors
-            # (TypeError, AttributeError, etc.) propagate so we hear about
-            # the bug instead of silently shipping cards with no booking link.
-            logger.warning(
-                "booking enrichment failed for place_id=%s",
-                stop.place_id,
-                exc_info=True,
-            )
+        details = details_by_id.get(stop.place_id)
+        if details is None:
+            # place_id grounded in scratch but missing from DB at enrichment
+            # time — race condition on the deletion side, or a stale id. Same
+            # recoverable case as the old ValueError("unknown place_id"): skip.
+            logger.warning("booking enrichment skipped: place_id=%s not in DB", stop.place_id)
             continue
+        proposal = propose_booking_from_details(details, when, party_size)
         stop.booking_url = proposal.booking_url
         stop.booking_provider = proposal.provider
 

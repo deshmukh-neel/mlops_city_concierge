@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from unittest.mock import patch
 
+import psycopg2
 import pytest
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -21,7 +22,28 @@ from app.agent.graph import (
 )
 from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.tools.booking import BookingProposal
-from app.tools.retrieval import PlaceHit
+from app.tools.retrieval import PlaceDetails, PlaceHit
+
+
+def _details_for(place_id: str, name: str | None = None) -> PlaceDetails:
+    """Minimal PlaceDetails fixture for booking-enrichment tests. Booking
+    construction itself is mocked via propose_booking_from_details; only the
+    place_id needs to be load-bearing here."""
+    return PlaceDetails(
+        place_id=place_id,
+        name=name or f"Place {place_id}",
+        source="google_places",
+        similarity=0.0,
+    )
+
+
+def _patch_details_many_for(place_ids: list[str]):
+    """Patch get_details_many to return a minimal PlaceDetails for each id.
+    Returns the patcher so tests can also assert call_count if they care."""
+    return patch(
+        "app.agent.graph.get_details_many",
+        return_value={pid: _details_for(pid) for pid in place_ids},
+    )
 
 
 class _ScriptedLLM(BaseChatModel):
@@ -297,21 +319,26 @@ def _state_with_grounded(place_ids: list[str], party_size: int = 2) -> Itinerary
 
 def test_commit_stops_enriches_with_booking() -> None:
     """Auto-enrichment must stamp booking_url + booking_provider on every
-    committed stop, without the LLM needing to call propose_booking."""
+    committed stop, without the LLM calling a tool. Now batched: one
+    get_details_many fetches details for all stops in a single round-trip,
+    then per-stop URL construction is pure."""
     state = _state_with_grounded(["p1", "p2"])
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "first", "source": "google_places"},
         {"place_id": "p2", "name": "Place p2", "rationale": "second", "source": "google_places"},
     ]
 
-    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
         return BookingProposal(
-            place_id=place_id,
+            place_id=details.place_id,
             provider="resy",
-            booking_url=f"https://resy.com/{place_id}?seats={party_size}",
+            booking_url=f"https://resy.com/{details.place_id}?seats={party_size}",
         )
 
-    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+    with (
+        _patch_details_many_for(["p1", "p2"]) as mock_get,
+        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+    ):
         committed, payload = _commit_stops(state, raw_stops)
 
     assert payload["committed"] == ["p1", "p2"]
@@ -319,20 +346,20 @@ def test_commit_stops_enriches_with_booking() -> None:
     assert all(s.booking_provider == "resy" for s in committed)
     assert "p1" in committed[0].booking_url
     assert "seats=2" in committed[0].booking_url
+    # The whole point of this refactor: ONE DB call for the whole commit, not N.
+    assert mock_get.call_count == 1
 
 
-def test_commit_stops_enrichment_swallows_value_error_for_unknown_place_id() -> None:
-    """A ValueError from propose_booking (the documented recoverable case —
-    place_id not in DB) must not break commit; the stop is committed without a
-    booking link instead."""
+def test_commit_stops_skips_enrichment_for_place_id_missing_from_db() -> None:
+    """If get_details_many returns no row for a committed place_id (race
+    condition: deletion between scratch grounding and enrichment, or a stale
+    id), the stop is committed without a booking link instead of crashing.
+    Same recoverable semantic the old ValueError("unknown place_id") had."""
     state = _state_with_grounded(["p1"])
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
-    with patch(
-        "app.agent.graph.propose_booking",
-        side_effect=ValueError("unknown place_id p1"),
-    ):
+    with patch("app.agent.graph.get_details_many", return_value={}):
         committed, payload = _commit_stops(state, raw_stops)
 
     assert payload["committed"] == ["p1"]
@@ -341,16 +368,15 @@ def test_commit_stops_enrichment_swallows_value_error_for_unknown_place_id() -> 
 
 
 def test_commit_stops_enrichment_swallows_psycopg_db_blip() -> None:
-    """A transient DB error during enrichment shouldn't kill the whole commit
-    — the user still gets the planned stops, just without booking links."""
-    import psycopg2
-
+    """A transient DB error during the batched read shouldn't kill the whole
+    commit — the user still gets the planned stops, just without booking
+    links. The error is caught at the single point of DB contact."""
     state = _state_with_grounded(["p1"])
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
     with patch(
-        "app.agent.graph.propose_booking",
+        "app.agent.graph.get_details_many",
         side_effect=psycopg2.OperationalError("connection blip"),
     ):
         committed, payload = _commit_stops(state, raw_stops)
@@ -361,17 +387,18 @@ def test_commit_stops_enrichment_swallows_psycopg_db_blip() -> None:
 
 
 def test_commit_stops_enrichment_propagates_programmer_errors() -> None:
-    """Bugs in enrichment (TypeError, AttributeError, etc.) must NOT be
-    silently swallowed — that's how regressions ship to prod undetected. Only
-    the documented recoverable cases (missing place_id, DB blip) are caught."""
+    """Bugs in URL construction (TypeError, AttributeError, etc.) must NOT
+    be silently swallowed — that's how regressions ship to prod undetected.
+    Only the documented recoverable cases (missing-from-DB, DB blip) are caught."""
     state = _state_with_grounded(["p1"])
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
     with (
+        _patch_details_many_for(["p1"]),
         patch(
-            "app.agent.graph.propose_booking",
-            side_effect=TypeError("propose_booking() got an unexpected kwarg"),
+            "app.agent.graph.propose_booking_from_details",
+            side_effect=TypeError("propose_booking_from_details() got an unexpected kwarg"),
         ),
         pytest.raises(TypeError),
     ):
@@ -388,14 +415,17 @@ def test_commit_stops_re_commit_is_idempotent() -> None:
         {"place_id": "p1", "name": "Place p1", "rationale": "first", "source": "google_places"},
     ]
 
-    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
         return BookingProposal(
-            place_id=place_id,
+            place_id=details.place_id,
             provider="resy",
-            booking_url=f"https://resy.com/{place_id}?seats={party_size}",
+            booking_url=f"https://resy.com/{details.place_id}?seats={party_size}",
         )
 
-    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+    with (
+        _patch_details_many_for(["p1"]),
+        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+    ):
         first_committed, _ = _commit_stops(state, raw_stops)
         second_committed, _ = _commit_stops(state, raw_stops)
 
@@ -403,34 +433,40 @@ def test_commit_stops_re_commit_is_idempotent() -> None:
     assert first_committed[0].booking_provider == second_committed[0].booking_provider
 
 
-def test_commit_stops_per_stop_enrichment_failure_does_not_taint_siblings() -> None:
-    """A 2-stop commit where one place_id raises ValueError mid-enrichment
-    must still ship the other stop's booking link. The for-loop in
-    enrich_stops_with_booking is supposed to skip on per-stop failure, not
-    bail on the whole commit."""
+def test_commit_stops_per_stop_independence_when_one_id_missing() -> None:
+    """A 2-stop commit where one place_id is missing from the DB result must
+    still ship the other stop's booking link. The for-loop in
+    enrich_stops_with_booking skips per-stop on missing details rather than
+    bailing on the whole commit."""
     state = _state_with_grounded(["p1", "p2"])
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "first", "source": "google_places"},
         {"place_id": "p2", "name": "Place p2", "rationale": "second", "source": "google_places"},
     ]
 
-    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
-        if place_id == "p1":
-            raise ValueError("unknown place_id p1")
+    # get_details_many returns details for p2 but NOT p1 — same shape as the
+    # DB filtering p1 out (e.g. the row was deleted mid-commit).
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
         return BookingProposal(
-            place_id=place_id,
+            place_id=details.place_id,
             provider="opentable",
-            booking_url=f"https://opentable.com/{place_id}",
+            booking_url=f"https://opentable.com/{details.place_id}",
         )
 
-    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+    with (
+        patch(
+            "app.agent.graph.get_details_many",
+            return_value={"p2": _details_for("p2")},
+        ),
+        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+    ):
         committed, _ = _commit_stops(state, raw_stops)
 
-    # p1 enrichment failed and was skipped — no booking fields populated.
+    # p1 missing from DB → skipped, no booking fields populated.
     assert committed[0].place_id == "p1"
     assert committed[0].booking_url is None
     assert committed[0].booking_provider is None
-    # p2 enrichment was independent of p1 and succeeded.
+    # p2 was independent of p1 and succeeded.
     assert committed[1].place_id == "p2"
     assert committed[1].booking_url == "https://opentable.com/p2"
     assert committed[1].booking_provider == "opentable"
@@ -449,15 +485,18 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
         constraints=UserConstraints(party_size=4, when=datetime(2026, 5, 7, 19, 0)),
     )
 
-    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
         return BookingProposal(
-            place_id=place_id,
+            place_id=details.place_id,
             provider="tock",
-            booking_url=f"https://exploretock.com/{place_id}?size={party_size}",
+            booking_url=f"https://exploretock.com/{details.place_id}?size={party_size}",
         )
 
     original_ids = [id(s) for s in stops]
-    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+    with (
+        _patch_details_many_for(["p1", "p2"]),
+        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+    ):
         enrich_stops_with_booking(stops, state)
 
     # Same Stop objects (mutated, not replaced).
@@ -475,12 +514,14 @@ def test_enrich_skipped_when_no_time_anywhere() -> None:
     stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
     state = ItineraryState(constraints=UserConstraints(party_size=2))  # when=None
 
-    propose = patch("app.agent.graph.propose_booking")
-    with propose as mock_propose:
+    with (
+        _patch_details_many_for(["p1"]),
+        patch("app.agent.graph.propose_booking_from_details") as mock_build,
+    ):
         enrich_stops_with_booking(stops, state)
 
-    # Crucially, propose_booking was NOT called — the no-time path skips entirely.
-    mock_propose.assert_not_called()
+    # Crucially, the URL builder was NOT called — the no-time path skips entirely.
+    mock_build.assert_not_called()
     assert stops[0].booking_url is None
     assert stops[0].booking_provider is None
 
@@ -491,7 +532,10 @@ def test_enrich_idempotent_when_no_time_set() -> None:
     stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
     state = ItineraryState(constraints=UserConstraints(party_size=2))
 
-    with patch("app.agent.graph.propose_booking") as mock_propose:
+    with (
+        _patch_details_many_for(["p1"]),
+        patch("app.agent.graph.propose_booking_from_details") as mock_build,
+    ):
         enrich_stops_with_booking(stops, state)
         first_url = stops[0].booking_url
         enrich_stops_with_booking(stops, state)
@@ -499,7 +543,7 @@ def test_enrich_idempotent_when_no_time_set() -> None:
 
     assert first_url is None
     assert second_url is None
-    assert mock_propose.call_count == 0
+    assert mock_build.call_count == 0
 
 
 def test_enrich_uses_constraints_when_when_arrival_time_missing() -> None:
@@ -513,11 +557,14 @@ def test_enrich_uses_constraints_when_when_arrival_time_missing() -> None:
 
     captured: list[datetime] = []
 
-    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
         captured.append(when)
-        return BookingProposal(place_id=place_id, provider="resy", booking_url="https://x")
+        return BookingProposal(place_id=details.place_id, provider="resy", booking_url="https://x")
 
-    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+    with (
+        _patch_details_many_for(["p1"]),
+        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+    ):
         enrich_stops_with_booking(stops, state)
 
     assert captured == [datetime(2026, 5, 7, 19, 0)]
@@ -542,11 +589,14 @@ def test_enrich_party_size_defaulting(party_size_in: int | None, expected_in_cal
 
     captured: list[int] = []
 
-    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
         captured.append(party_size)
-        return BookingProposal(place_id=place_id, provider="resy", booking_url="https://x")
+        return BookingProposal(place_id=details.place_id, provider="resy", booking_url="https://x")
 
-    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+    with (
+        _patch_details_many_for(["p1"]),
+        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+    ):
         enrich_stops_with_booking(stops, state)
 
     assert captured == [expected_in_call]
@@ -578,11 +628,16 @@ def test_enrich_stops_with_booking_uses_arrival_time_per_stop() -> None:
 
     captured: list[tuple[str, datetime]] = []
 
-    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
-        captured.append((place_id, when))
-        return BookingProposal(place_id=place_id, provider="resy", booking_url="https://resy.com/x")
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
+        captured.append((details.place_id, when))
+        return BookingProposal(
+            place_id=details.place_id, provider="resy", booking_url="https://resy.com/x"
+        )
 
-    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+    with (
+        _patch_details_many_for(["p1", "p2"]),
+        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+    ):
         enrich_stops_with_booking(stops, state)
 
     assert captured == [

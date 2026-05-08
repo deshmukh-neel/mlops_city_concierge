@@ -179,6 +179,29 @@ def get_details(place_id: str) -> PlaceDetails | None:
     return PlaceDetails(**rows[0])
 
 
+def get_details_many(place_ids: list[str]) -> dict[str, PlaceDetails]:
+    """Batched get_details. One SQL round-trip for the whole list, returning
+    a {place_id: PlaceDetails} dict. Missing place_ids are absent from the
+    result (callers filter / handle accordingly). Used by booking enrichment
+    on commit_itinerary to avoid an N+1 over the committed stops."""
+    if not place_ids:
+        return {}
+    view = _view_name()  # validated allowlist member — safe to f-string
+    sql = f"""
+        SELECT
+            place_id, name, primary_type, types, formatted_address,
+            latitude, longitude, rating, user_rating_count, price_level,
+            business_status, website_uri, maps_uri, editorial_summary,
+            regular_opening_hours, source,
+            LEFT(embedding_text, 800) AS snippet,
+            0.0 AS similarity
+        FROM {view}
+        WHERE place_id = ANY(%s)
+    """  # noqa: S608
+    rows = _execute(sql, [place_ids])
+    return {row["place_id"]: PlaceDetails(**row) for row in rows}
+
+
 # Re-export for the test that asserts the mapping covers the allowlist.
 __all__ = [
     "PlaceHit",
@@ -186,6 +209,7 @@ __all__ = [
     "semantic_search",
     "nearby",
     "get_details",
+    "get_details_many",
     "_VIEW_FOR_TABLE",
     "ALLOWED_EMBEDDING_TABLES",
 ]

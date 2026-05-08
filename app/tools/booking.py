@@ -98,11 +98,22 @@ def propose_booking(
     details = get_details(place_id=place_id)
     if details is None:
         raise ValueError(f"unknown place_id {place_id}")
+    return propose_booking_from_details(details, when, party_size)
 
+
+def propose_booking_from_details(
+    details: PlaceDetails,
+    when: datetime,
+    party_size: int = 2,
+) -> BookingProposal:
+    """URL construction without the DB read. Used by graph enrichment after
+    a single batched get_details_many call replaces what would otherwise be
+    N round-trips for an N-stop itinerary. propose_booking() above remains
+    the convenient single-place entry point for direct callers + tests."""
     detected = detect_provider(details.website_uri)
     url, effective = _build_booking_url(detected, details, when, party_size)
     return BookingProposal(
-        place_id=place_id,
+        place_id=details.place_id,
         provider=effective,
         booking_url=url,
         notes=_notes_for(effective),
