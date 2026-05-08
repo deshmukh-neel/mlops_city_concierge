@@ -286,3 +286,19 @@ Manually verify URLs against 3 real SF places (one Resy, one Tock, one no-provid
 - **Provider detection by hostname is shallow.** Some venues link to a chain page (e.g. `https://www.example.com/reservations` that redirects to Resy). We won't detect those. Acceptable; users can still tap and book manually.
 - **Multi-stop bookings:** if the user wants both stops booked, the agent emits two `booking_url`s. Acceptable for the stub. Real automation (later) can chain them.
 - **Future automation gate:** when we add Playwright, gate it on `BOOKING_AUTOMATION_ENABLED=true` AND `BOOKING_USER_ID == settings.demo_user_id`. Never enabled for real users in this plan.
+
+## Status
+
+**Status:** 🚧 In review on `feature/agent-w4-booking-stub` (2026-05-07). Tool surface and frontend contract delivered; deviates from plan in one place (see below).
+
+Deviations from the original plan:
+
+- **`propose_booking` is NOT registered as an LLM tool.** The plan called for the agent to invoke `propose_booking` after committing stops, with prompt instructions and Pydantic AI validation at the tool boundary. Implementation instead auto-enriches every committed stop deterministically inside `_commit_stops` (`app/agent/graph.py:97`), without involving the LLM. URL construction is a pure transform of `(place_id, when, party_size)` — there is no judgment for the LLM to add — and `_commit_stops` has already validated grounding, so the LLM cannot hallucinate a `place_id` into a booking URL. Trade-off: the tool surface no longer "locks in" via prompt; the future Playwright PR will need to either re-introduce the tool or extend `_enrich_with_booking` directly. Net win on correctness (no missed enrichment, no malformed `party_size: "two"`) and token cost.
+- `app/tools/booking.py` is a plain library; `app/agent/tools.py` and `app/agent/prompts.py` are unchanged from W3.
+- `_build_booking_url` returns `(url, effective_provider)` so the frontend label keys off the post-fallback provider (e.g. `google_maps`, not `unknown`) — small departure from the plan's single-Provider return.
+- Frontend wire contract documented in `docs/api/chat_contract.md` (W0–W4).
+
+Deferred to a follow-up PR (not in this plan):
+
+- Real Playwright automation behind `BOOKING_AUTOMATION_ENABLED`.
+- Per-provider URL scheme drift monitoring.

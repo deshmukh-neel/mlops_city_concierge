@@ -12,6 +12,7 @@ from app.tools.retrieval import (
     PlaceDetails,
     PlaceHit,
     get_details,
+    get_details_many,
     nearby,
     semantic_search,
 )
@@ -236,3 +237,63 @@ def test_get_details_returns_place_details_when_found(patch_get_conn) -> None:
     assert details is not None
     assert details.types == ["bakery", "cafe"]
     assert details.user_rating_count == 1234
+
+
+# --- get_details_many ------------------------------------------------------
+
+
+def _details_row(place_id: str) -> dict:
+    return {
+        "place_id": place_id,
+        "name": f"Place {place_id}",
+        "primary_type": "restaurant",
+        "types": ["restaurant"],
+        "formatted_address": "1 Main",
+        "latitude": 37.7,
+        "longitude": -122.4,
+        "rating": 4.5,
+        "user_rating_count": 100,
+        "price_level": "PRICE_LEVEL_MODERATE",
+        "business_status": "OPERATIONAL",
+        "website_uri": f"https://{place_id}.example",
+        "maps_uri": "https://maps.google.com/?cid=1",
+        "editorial_summary": None,
+        "regular_opening_hours": {},
+        "source": "google_places",
+        "snippet": "x",
+        "similarity": 0.0,
+    }
+
+
+def test_get_details_many_empty_input_skips_db_call() -> None:
+    """Empty list short-circuits — no SQL, no round-trip. Important when an
+    early-stage commit has zero stops; we don't want to query for ANY([])."""
+    # No patch fixture used: if it tried to hit the DB the test would fail
+    # because there's no connection mocked.
+    assert get_details_many([]) == {}
+
+
+def test_get_details_many_returns_keyed_dict(patch_get_conn) -> None:
+    """The contract: input list of N place_ids → output dict of up-to-N rows
+    keyed by place_id. Order doesn't matter; presence does."""
+    cursor = patch_get_conn([_details_row("p1"), _details_row("p2")])
+    out = get_details_many(["p1", "p2"])
+
+    assert set(out.keys()) == {"p1", "p2"}
+    assert out["p1"].place_id == "p1"
+    assert out["p2"].place_id == "p2"
+    assert out["p1"].website_uri == "https://p1.example"
+    # Single SQL execute — this is the whole point of batching vs N round-trips.
+    assert cursor.executed_sql.count("ANY") == 1
+    # Params: a single list of place_ids passed as the ANY operand.
+    assert cursor.executed_params == [["p1", "p2"]]
+
+
+def test_get_details_many_omits_missing_ids_silently(patch_get_conn) -> None:
+    """If a requested place_id isn't in the DB, it's simply absent from the
+    result dict — no error, no None placeholder. Callers (booking enrichment)
+    use `dict.get(...)` and skip on miss."""
+    patch_get_conn([_details_row("p1")])  # p2 not in DB
+    out = get_details_many(["p1", "p2"])
+    assert "p1" in out
+    assert "p2" not in out

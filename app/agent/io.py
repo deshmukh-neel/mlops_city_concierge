@@ -44,6 +44,8 @@ def state_to_cards(state: ItineraryState) -> list[dict[str, Any]]:
             primary_type=s.primary_type,
             arrival_time=s.arrival_time,
             rationale=s.rationale,
+            booking_url=s.booking_url,
+            booking_provider=s.booking_provider,
         ).model_dump(mode="json")
         for s in state.stops
     ]

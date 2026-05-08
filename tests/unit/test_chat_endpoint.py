@@ -83,6 +83,7 @@ def test_chat_endpoint_returns_reply_places_raglabel(mocker) -> None:
         "arrival_time",
         "rationale",
         "booking_url",
+        "booking_provider",
     }
     assert set(body["places"][0].keys()) == expected_place_keys
     assert body["places"][0]["place_id"] == "p1"
