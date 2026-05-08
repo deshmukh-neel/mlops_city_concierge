@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
 from typing import Any, Literal
 
 import psycopg2
@@ -109,9 +108,15 @@ def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
     through the LLM and re-committing the same place_ids.
     """
     party_size = state.constraints.party_size or 2
-    fallback_when = state.constraints.when or datetime.now()
     for stop in stops:
-        when = stop.arrival_time or fallback_when
+        when = stop.arrival_time or state.constraints.when
+        if when is None:
+            # No time → no booking link. Falling back to datetime.now() would
+            # embed wall-clock time in the URL, breaking re-commit idempotency
+            # (same inputs, different URL each call) and meaning nothing to
+            # the user. The card ships without a booking link; downstream can
+            # re-enrich once the user supplies a time.
+            continue
         try:
             proposal = propose_booking(stop.place_id, when, party_size)
         except (ValueError, psycopg2.Error):

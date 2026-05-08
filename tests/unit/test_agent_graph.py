@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -363,8 +364,6 @@ def test_commit_stops_enrichment_propagates_programmer_errors() -> None:
     """Bugs in enrichment (TypeError, AttributeError, etc.) must NOT be
     silently swallowed — that's how regressions ship to prod undetected. Only
     the documented recoverable cases (missing place_id, DB blip) are caught."""
-    import pytest
-
     state = _state_with_grounded(["p1"])
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
@@ -466,6 +465,91 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
     # Both got party_size=4 from constraints (no per-stop arrival_time).
     assert all(s.booking_provider == "tock" for s in stops)
     assert all("size=4" in (s.booking_url or "") for s in stops)
+
+
+def test_enrich_skipped_when_no_time_anywhere() -> None:
+    """Neither stop.arrival_time nor constraints.when is set → enrichment must
+    skip the stop, NOT inject datetime.now(). The wall-clock fallback would
+    embed a timestamp in the URL that's meaningless to the user and breaks
+    re-commit idempotency (same inputs, different URL each call)."""
+    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    state = ItineraryState(constraints=UserConstraints(party_size=2))  # when=None
+
+    propose = patch("app.agent.graph.propose_booking")
+    with propose as mock_propose:
+        enrich_stops_with_booking(stops, state)
+
+    # Crucially, propose_booking was NOT called — the no-time path skips entirely.
+    mock_propose.assert_not_called()
+    assert stops[0].booking_url is None
+    assert stops[0].booking_provider is None
+
+
+def test_enrich_idempotent_when_no_time_set() -> None:
+    """The no-time skip preserves re-commit idempotency: same inputs in,
+    same (absent) booking link out, both calls."""
+    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    state = ItineraryState(constraints=UserConstraints(party_size=2))
+
+    with patch("app.agent.graph.propose_booking") as mock_propose:
+        enrich_stops_with_booking(stops, state)
+        first_url = stops[0].booking_url
+        enrich_stops_with_booking(stops, state)
+        second_url = stops[0].booking_url
+
+    assert first_url is None
+    assert second_url is None
+    assert mock_propose.call_count == 0
+
+
+def test_enrich_uses_constraints_when_when_arrival_time_missing() -> None:
+    """If a stop has no arrival_time but constraints.when IS set, the constraint
+    fills in. (Counterpoint to the skip test above — make sure we don't skip
+    too aggressively.)"""
+    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    state = ItineraryState(
+        constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+    captured: list[datetime] = []
+
+    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+        captured.append(when)
+        return BookingProposal(place_id=place_id, provider="resy", booking_url="https://x")
+
+    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+        enrich_stops_with_booking(stops, state)
+
+    assert captured == [datetime(2026, 5, 7, 19, 0)]
+
+
+@pytest.mark.parametrize("party_size_in,expected_in_call", [(None, 2), (0, 2), (4, 4), (1, 1)])
+def test_enrich_party_size_defaulting(party_size_in: int | None, expected_in_call: int) -> None:
+    """party_size None or 0 → defaults to 2 (you can't book a table for 0).
+    Other positive values pass through unchanged. Locks the `or 2` semantics
+    so a future refactor doesn't accidentally allow 0-party bookings or change
+    the default."""
+    stops = [
+        Stop(
+            place_id="p1",
+            name="A",
+            rationale="r",
+            source="google_places",
+            arrival_time=datetime(2026, 5, 7, 19, 0),
+        )
+    ]
+    state = ItineraryState(constraints=UserConstraints(party_size=party_size_in))
+
+    captured: list[int] = []
+
+    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+        captured.append(party_size)
+        return BookingProposal(place_id=place_id, provider="resy", booking_url="https://x")
+
+    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+        enrich_stops_with_booking(stops, state)
+
+    assert captured == [expected_in_call]
 
 
 def test_enrich_stops_with_booking_uses_arrival_time_per_stop() -> None:
