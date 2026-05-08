@@ -104,6 +104,23 @@ class TestParseProposals:
         proposals = _parse_proposals(raw)
         assert proposals[0].field_mode == "enriched"
 
+    def test_strips_whitespace_from_values(self) -> None:
+        # Padded query_text would silently bypass the existing-query dedup,
+        # since "  vietnamese... " != "vietnamese...". Lock the strip contract.
+        raw = json.dumps(
+            [
+                {
+                    "query_text": "  vietnamese restaurants in San Francisco  ",
+                    "field_mode": "  enriched  ",
+                    "rationale": "  thin  ",
+                }
+            ]
+        )
+        proposals = _parse_proposals(raw)
+        assert proposals[0].query_text == "vietnamese restaurants in San Francisco"
+        assert proposals[0].field_mode == "enriched"
+        assert proposals[0].rationale == "thin"
+
 
 class TestProposeQueries:
     def test_returns_empty_when_no_gaps(self) -> None:
