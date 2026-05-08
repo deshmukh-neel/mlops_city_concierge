@@ -154,6 +154,65 @@ rubric). The runtime agent driver stays MLflow-registry-selected via
 that's a separate change — register a new model version in MLflow and
 promote via `set-production-alias`, no code edit needed.
 
+### CI SA grants live in alembic, not Terraform
+
+**What:** PR #78 established the pattern: when a workstream creates a
+new table that the CI SA (`github-actions-deployer@mlops-491820.iam`)
+needs to write to, ship a follow-up alembic migration that does
+`GRANT INSERT, DELETE ON <table> TO "<sa>"` wrapped in a `DO $$ … END $$`
+block guarded by `IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ...)`.
+That guard makes the migration a no-op on local dev DBs and the ephemeral
+CI Postgres where the SA isn't provisioned, so it applies cleanly
+everywhere.
+
+**Why not Terraform:** Postgres-level GRANTs aren't a Terraform-native
+resource, and adding the `cyrilgdn/postgresql` provider for one
+cross-cutting concern that's already adjacent to schema management was
+considered out-of-scope. The alembic-migration approach lives next to
+the schema it's granting on, runs through the same `migrate` job that
+deploys the table, and survives downgrade-cleanup.
+
+**Trigger:** any future workstream where the integration job needs to
+write to a new table. Reference the W5 footer + `alembic/versions/2026_05_08_1100-a1b2c3d4e5f6_grant_ci_sa_proposals.py`
+for the template. **Note:** the CI SA only needs writes for tables that
+integration tests touch directly. Read-only retrieval tables don't need
+a grant — `SELECT` on `public` is already there.
+
+### Integration test skip gates should probe privileges, not just existence
+
+**What:** PR #77's first cut of `_proposals_table_or_skip` only checked
+`information_schema.tables`. After merge, the W5 schema deployed (via the
+`migrate` job in `docker.yml`) before the GRANT migration existed, so the
+SA could see the table but not write to it — main went red. PR #78 hardened
+the gate to also check `has_table_privilege(current_user, ..., 'INSERT, DELETE')`.
+
+**Trigger:** any future integration-test fixture that gates on schema
+readiness should follow the same pattern: existence + privilege probe.
+Schema-deploy and grant-deploy can land in different commits / different
+migration runs; assume there's a window where the table exists without
+the grant and skip cleanly.
+
+### Coverage agent's runtime DB role (when it gets scheduled)
+
+**What:** Today the W5 agent runs from a developer laptop via
+`make coverage-agent[-apply]` with whatever creds are in `.env`. When it
+moves to a scheduled runner (Cloud Run job, cron VM, etc.), it needs its
+own DB role with **least privilege**: `SELECT` on `places_raw`, `place_query_hits`,
+`places_ingest_query_checkpoints`, `places_ingest_query_proposals`, plus
+`INSERT` on `places_ingest_query_proposals`. No DDL.
+
+**Why this matters:** reusing the CI SA or the ingest SA gives the agent
+access it doesn't need (principle of least privilege). The agent also
+runs LLM-generated payloads through SQL parameters — narrowing privileges
+limits blast radius if a prompt-injection attack ever produced a malicious
+proposal.
+
+**Trigger:** when W5 moves from "James runs it manually" to a scheduled
+job. Likely paired with whatever workstream introduces the scheduler
+(possibly a sibling of W7, or its own follow-up). Provision the SA in
+Terraform (it's a GCP-side concern), then GRANT the privileges via an
+alembic migration following the pattern above.
+
 ### `gemini-3.1-flash-lite-preview` not in cost PRICING table
 
 **What:** `app/observability/cost.py:24-32` PRICING dict only knows

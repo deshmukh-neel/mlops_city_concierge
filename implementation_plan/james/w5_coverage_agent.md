@@ -306,3 +306,26 @@ Confirm new places appear in `places_raw` from the proposed queries within one i
 - **Neighborhood regex is brittle.** SF addresses don't always follow `..., {neighborhood}, San Francisco`. The regex extracts a naive bucket; some buckets may be garbage. Acceptable v1; add a real neighborhood lookup table later if it matters for accuracy.
 - **Cost.** Each run hits the LLM once. At a daily cadence, negligible. If we ever schedule it hourly, cap proposals at 8 (already done).
 - **Race with running ingestion.** If `make ingest` is running while we insert pending rows, the script's existing checkpoint logic should handle it (the table is the synchronization point). Confirm during manual verification.
+
+---
+
+**Status:** ✅ Merged 2026-05-08 via PR [#77](https://github.com/deshmukh-neel/mlops_city_concierge/pull/77); CI SA write-grant follow-up in [#78](https://github.com/deshmukh-neel/mlops_city_concierge/pull/78).
+
+Deviations from this plan, all reviewed in PR #77:
+
+- **Separate `places_ingest_query_proposals` table** (not overloading `places_ingest_query_checkpoints`). Keeps progress-log semantics distinct from seed-source semantics. Alembic owns the schema; the ingest script no longer inline-creates this table.
+- **`vibe.make_judge()` instead of an inline `_make_llm()` helper** — reuses the project-wide judge factory and gets the env override (`EVAL_JUDGE_PROVIDER` / `EVAL_JUDGE_MODEL`) for free. As part of the same PR the default flipped to `gemini-3.1-flash-lite-preview`.
+- **Hardened JSON parser** in `_parse_proposals` — strips ```json fences, skips items missing required keys or with non-string values, ignores bare-object responses. One bad LLM payload no longer kills the run.
+- **SQL-layer bucket allowlist** added during review:
+  - Neighborhood CTE filters with `formatted_address ~ '.*, [^,]+, San Francisco.*'` so non-matching rows are dropped, not silently passed through `regexp_replace`.
+  - Cuisine CTE filters to the canonical `CUISINES` constant from `scripts/ingest_places_sf.py`.
+- **Zero-coverage cuisines synthesized** so the LLM can propose for cuisines that have *no* places yet — the gap detector's most important signal.
+- **Pre-insert dedup** against `build_seed_queries()` + existing checkpoints + prior proposals. The agent's `inserted` metric reflects actually-new coverage, not noise. Dropped count is logged to MLflow.
+- **CI SA needs INSERT/DELETE on the proposals table.** Granted via alembic migration `a1b2c3d4e5f6` (PR #78). Pattern: a `DO $$ … END $$` block that no-ops if the role isn't provisioned, so the migration applies cleanly on local dev and ephemeral CI Postgres. **Future workstreams that add a write target for the CI SA should follow the same pattern.**
+- **Integration tests stub `gather_stats`** instead of writing to `places_raw` (the SA lacks INSERT there). Real-DB coverage we keep: schema check, INSERT into proposals, ON CONFLICT, dedup against live checkpoints, real cleanup. The `_proposals_table_or_skip` fixture also probes `has_table_privilege` so future "schema deployed before grant" races skip cleanly instead of failing red.
+
+Still deferred (out of scope):
+
+- Prompt-side exclusion list (LLM never sees existing queries; we rely on post-LLM filtering). Add only if duplication rate stays high in practice.
+- Real neighborhood lookup table to replace the regex. Acceptable v1 for SF.
+- A scheduled runner (cron / Cloud Run job). The agent runs from a developer laptop today via `make coverage-agent[-apply]`. When this moves to a scheduled job, the agent will need its own SA with INSERT-only on proposals + SELECT on read tables (W7-ish decision; see FUTURE_WATCH).
