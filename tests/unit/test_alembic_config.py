@@ -47,3 +47,22 @@ def test_raises_when_postgres_components_partial() -> None:
                 # POSTGRES_PASSWORD intentionally omitted
             }
         )
+
+
+def test_iam_token_with_percent_breaks_configparser_without_escape() -> None:
+    """Regression guard: alembic.Config.set_main_option goes through
+    configparser, which treats '%' as interpolation. env.py:30 escapes
+    %→%% to work around this; this test proves the escape is load-bearing.
+    """
+    from alembic.config import Config
+
+    url_with_iam_token = "postgresql://user%40svc:abc%def%ghi@host:5432/db"
+    config = Config()
+
+    # Without the escape, configparser rejects the value at set-time.
+    with pytest.raises(ValueError, match="invalid interpolation syntax"):
+        config.set_main_option("sqlalchemy.url", url_with_iam_token)
+
+    # With the escape (the env.py:30 workaround), the original URL round-trips.
+    config.set_main_option("sqlalchemy.url", url_with_iam_token.replace("%", "%%"))
+    assert config.get_main_option("sqlalchemy.url") == url_with_iam_token
