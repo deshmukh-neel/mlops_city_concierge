@@ -217,7 +217,7 @@ jobs:
           cat cloud-sql-proxy.log >&2 || true
           exit 1
 
-      - name: Run integration tests
+      - name: Apply migrations + run integration tests
         env:
           APP_ENV: integration
           # The booking integration test exercises the real semantic_search
@@ -228,12 +228,16 @@ jobs:
         # The CI service account is provisioned as a CLOUD_IAM_SERVICE_ACCOUNT
         # DB user named with the .gserviceaccount.com suffix dropped. We
         # URL-encode the @ in the user, and the IAM token is the password.
+        # We run `alembic upgrade head` against Cloud SQL before the suite so
+        # integration tests see the current schema on every PR — gating
+        # schema regressions on the same job that depends on the schema.
         run: |
           SA_USER="${{ vars.GCP_SERVICE_ACCOUNT }}"
           DB_USER="${SA_USER%.gserviceaccount.com}"
           ENCODED_USER=$(printf '%s' "$DB_USER" | sed 's/@/%40/g')
           TOKEN=$(gcloud sql generate-login-token)
           export DATABASE_URL="postgresql://${ENCODED_USER}:${TOKEN}@127.0.0.1:${CLOUD_SQL_PORT}/${CLOUD_SQL_DB}"
+          poetry run alembic upgrade head
           poetry run pytest tests/integration/ -v
 
       - name: Proxy logs on failure
