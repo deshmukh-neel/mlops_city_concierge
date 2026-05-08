@@ -575,6 +575,28 @@ async def test_diagnose_walks_every_tool_call_in_round() -> None:
     assert hint.reason == "empty_results"
 
 
+def test_final_with_caveats_includes_each_violation_name() -> None:
+    """Caveats reply must lead with the agent's own body and list every
+    violation name verbatim — that's what the user-facing UI relies on."""
+    from app.agent.graph import _final_with_caveats
+
+    out = _final_with_caveats("my plan", ["v1", "v2"])
+    assert out.startswith("my plan")
+    assert "v1" in out
+    assert "v2" in out
+    assert "Caveats:" in out
+
+
+def test_final_with_caveats_handles_empty_body() -> None:
+    """If the LLM somehow ended up with no content, the caveat must still
+    render coherently rather than NoneType-error."""
+    from app.agent.graph import _final_with_caveats
+
+    out = _final_with_caveats("", ["v1"])
+    assert "Caveats:" in out
+    assert "v1" in out
+
+
 @pytest.mark.parametrize(
     ("check", "expected_reason", "expected_action"),
     [
