@@ -48,20 +48,27 @@ def temporal_coherence(state: ItineraryState) -> float:
     Stops without an arrival_time are skipped (we can't check what we don't
     know). Stops without hours data are treated as open (matches the SQL
     helper's empty-hours behavior — the agent's filter would not have picked
-    them on `must_be_open`)."""
+    them on `must_be_open`).
+
+    Coalesces all stops into one parametrized query via `unnest` so a 5-stop
+    itinerary is one round-trip, not five."""
     checkable = [s for s in state.stops if s.arrival_time is not None]
     if not checkable:
         return 1.0
-    results: dict[str, bool] = {}
+    pids = [s.place_id for s in checkable]
+    arrivals = [s.arrival_time for s in checkable]
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-        for stop in checkable:
-            cur.execute(
-                "SELECT place_is_open(regular_opening_hours, %s::timestamptz) AS is_open "
-                "FROM places_raw WHERE place_id = %s",
-                [stop.arrival_time, stop.place_id],
-            )
-            row = cur.fetchone()
-            results[stop.place_id] = bool(row["is_open"]) if row else True
+        cur.execute(
+            """
+            SELECT pr.place_id,
+                   place_is_open(pr.regular_opening_hours, t.arrival) AS is_open
+              FROM unnest(%s::text[], %s::timestamptz[]) AS t(place_id, arrival)
+              JOIN places_raw pr ON pr.place_id = t.place_id
+            """,
+            [pids, arrivals],
+        )
+        results = {row["place_id"]: bool(row["is_open"]) for row in cur.fetchall()}
+    # Stops missing from the result (no row) treat as open per docstring.
     open_count = sum(1 for s in checkable if results.get(s.place_id, True))
     return open_count / len(checkable)
 

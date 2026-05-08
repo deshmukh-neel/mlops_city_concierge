@@ -125,11 +125,14 @@ def test_temporal_returns_one_when_no_arrival_times() -> None:
 
 
 def test_temporal_fractional_when_some_closed(patch_db) -> None:
+    """One coalesced query now returns one row per matched stop."""
     arrival = datetime(2026, 5, 1, 19, 0, tzinfo=timezone.utc)
     patch_db(
         [
-            [{"is_open": True}],
-            [{"is_open": False}],
+            [
+                {"place_id": "p1", "is_open": True},
+                {"place_id": "p2", "is_open": False},
+            ]
         ]
     )
     state = ItineraryState(
@@ -142,8 +145,10 @@ def test_temporal_fractional_when_some_closed(patch_db) -> None:
 
 
 def test_temporal_treats_missing_row_as_open(patch_db) -> None:
+    """A stop whose place_id has no places_raw row is absent from the JOIN
+    result; the function defaults that stop to open."""
     arrival = datetime(2026, 5, 1, 19, 0, tzinfo=timezone.utc)
-    patch_db([[]])  # no row found
+    patch_db([[]])  # JOIN returned zero rows
     state = ItineraryState(stops=[_stop("p1", arrival=arrival)])
     assert temporal_coherence(state) == 1.0
 
