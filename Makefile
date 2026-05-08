@@ -71,6 +71,14 @@ embed-v2: ## Generate cleaned pgvector embeddings into place_embeddings_v2
 log-mlflow: ## Log a RAG configuration and sample outputs to MLflow
 	$(POETRY_RUN) python scripts/log_model_to_mlflow.py --config configs/experiments.yaml
 
+.PHONY: coverage-agent
+coverage-agent: ## Dry-run the coverage-gap ingestion agent (W5)
+	$(POETRY_RUN) python scripts/coverage_agent.py --dry-run
+
+.PHONY: coverage-agent-apply
+coverage-agent-apply: ## Run the coverage-gap agent and insert proposals (W5)
+	$(POETRY_RUN) python scripts/coverage_agent.py
+
 .PHONY: set-production-alias
 set-production-alias: ## Promote a registered model version to production (usage: make set-production-alias VERSION=42)
 	$(POETRY_RUN) python scripts/set_production_alias.py --version $(VERSION)
