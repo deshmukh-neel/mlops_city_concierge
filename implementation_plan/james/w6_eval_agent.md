@@ -23,6 +23,27 @@ That keeps a single judge construction site (`app/agent/critique/vibe.py:make_ju
 
 W3 also tracks `state.revision_hints` and `state.revision_counts` — useful per-request signals. **MLflow logging of `revisions_per_query` as a request-time metric is W6's territory** (the eval/metrics pipeline is yours). State already has the data; W6 wires the logging hook in `/chat`.
 
+## CI + local — Cloud SQL pattern to reuse
+
+W3 wired up an automated path for tests that need real Cloud SQL data (IAM-DB-auth via the Cloud SQL Auth Proxy + Workload Identity Federation, no static secrets). When W6's eval pipeline needs Cloud SQL — it will, for grounding hallucination checks and for retrieval evals against real `places_raw` rows — **copy the existing pattern instead of inventing new auth**:
+
+- **CI:** the `integration-cloud` job in `.github/workflows/ci.yml` shows the full WIF + proxy + IAM-token setup. It runs on `pull_request` to main. For W6, either extend that job to also run eval scripts, or add an `eval-cloud` job that mirrors the same auth steps.
+- **Local:** `make test-integration-cloud` does the same dance on a laptop — spawns the proxy, generates a login token, runs pytest, kills the proxy on exit. Pattern: `gcloud auth login` once → `make` does the rest. W6 should add an analogous `make eval-cloud` (or similar) target that wraps `python scripts/eval_agent.py --candidate <run-id>` in the same proxy lifecycle.
+- **Auth setup is one-time per IAM identity.** Both you and the CI service account already have `cloudsql.client` + `cloudsql.instanceUser` and CLOUD_IAM_USER / CLOUD_IAM_SERVICE_ACCOUNT entries on the instance. Onboarding any new contributor: grant the two IAM roles + create the IAM DB user + GRANT SELECT on `public`.
+
+## Parallel work — likely collision points
+
+W4 (booking stub) and W5 (coverage-gap ingestion agent) are independent of W6 and may land in any order. If you're working on W6 in parallel with either:
+
+- **`app/agent/state.py`** — W4 will likely add a `BookingProposal` field or extend `PlaceCard.booking_url`. W6 unlikely to need state changes (eval operates on already-finalized states), but if you do, coordinate with whoever owns W4. Same-line conflicts are rare; module-level additions usually merge cleanly.
+- **`app/agent/tools.py`** — W4 appends `propose_booking` to the `_TOOLS` list. W6 doesn't add tools; it imports them for offline eval. Append-only list = low conflict risk.
+- **`app/agent/prompts.py`** — W4 may extend `SYSTEM_PROMPT` to mention `propose_booking`. W6 doesn't touch this file.
+- **`pyproject.toml`** — W6 adds `ragas` (and its LangChain extras). W4/W5 unlikely to add deps. Run `poetry lock` once on the rebase before PR.
+- **`Makefile`** — W6 adds eval targets, W5 adds `make coverage-agent`, W4 may add nothing. Different targets, no conflict.
+- **`.github/workflows/ci.yml`** — the existing `integration-cloud` job is the precedent; new eval jobs go below it.
+
+Standard practice: branch off `main`, rebase before opening the PR, no shared "feat: parallel work" branches. The plan files for W4, W5, and W6 each live in different `wN_*.md` files — the `**Status:**` footer + README index update happens per-PR with no cross-collision.
+
 ## Goal
 
 Today, `scripts/log_model_to_mlflow.py` (`scripts/log_model_to_mlflow.py:171-239`) runs hardcoded sample queries against a candidate config and dumps outputs as text artifacts. There are no metrics, no comparison to the current production alias, and no gating on regressions.
