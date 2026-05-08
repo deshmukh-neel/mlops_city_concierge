@@ -87,20 +87,25 @@ def _commit_stops(state: ItineraryState, raw_stops: Any) -> tuple[list[Stop], di
             committed.append(Stop(**raw))
         except Exception as e:  # noqa: BLE001
             rejected.append({"place_id": pid, "reason": f"invalid stop: {e}"})
-    _enrich_with_booking(committed, state)
+    enrich_stops_with_booking(committed, state)
     return committed, {
         "committed": [s.place_id for s in committed],
         "rejected": rejected,
     }
 
 
-def _enrich_with_booking(stops: list[Stop], state: ItineraryState) -> None:
+def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
     """Stamp booking_url + booking_provider on each committed stop in-place.
 
     Deterministic — runs without involving the LLM, since URL construction is
     a pure transform of (place_id, when, party_size). If propose_booking
     raises (DB miss, etc.) we log and skip that stop; a missing booking link
     is a degraded-but-shippable state, not a hard failure.
+
+    Called by _commit_stops on initial commit. Public (no leading underscore)
+    so a future constraint-edit path — "make it 4 people instead of 2" or
+    "shift dinner to 8pm" — can refresh URLs in place without round-tripping
+    through the LLM and re-committing the same place_ids.
     """
     party_size = state.constraints.party_size or 2
     fallback_when = state.constraints.when or datetime.now()
