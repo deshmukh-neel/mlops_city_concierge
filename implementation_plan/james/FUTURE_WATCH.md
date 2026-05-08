@@ -43,6 +43,30 @@ reassess — but plain edge tables are likely still simpler at this scale.
 
 ## Watch as the codebase grows
 
+### `PlaceCard` is missing address / rating / price_level
+
+**What:** `state_to_cards` (`app/agent/io.py:38`) projects `Stop` → `PlaceCard`,
+but `Stop` never carried `address`, `rating`, or `price_level` (W2 didn't add
+them). Every card the frontend renders has `address: null, rating: null,
+price_level: null` even though `places_raw` has all three. `PlaceCard` declares
+the fields as optional, so the gap is silent.
+
+**Concern:** the frontend gets a degraded card — name + booking link but no
+location, no rating, no price tier. Most place-card UIs surface those.
+
+**Trigger:** before/with the next frontend pass that displays place cards
+prominently. Two viable fixes:
+
+1. Extend `Stop` with `address`/`rating`/`price_level` and populate them in
+   `_commit_stops` from the grounded `PlaceHit`/`PlaceDetails` already in
+   `state.scratch`. Preferred — no extra DB calls, data flows once.
+2. Re-fetch via `get_details(place_id)` inside `state_to_cards`. Costs N reads
+   per commit; only worth it if the scratch path doesn't carry the fields.
+
+Touches `app/agent/state.py` (`Stop`), `app/agent/graph.py` (`_commit_stops`),
+`app/agent/io.py` (`state_to_cards`). Not load-bearing for W4 (booking) — the
+gap predates W4 and was surfaced during W4 review.
+
 ### `app/agent/` directory size
 
 **What:** W2 + W3 + W4 + W7 all add files under `app/agent/`. After everything
