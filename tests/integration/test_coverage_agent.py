@@ -33,7 +33,9 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def _proposals_table_or_skip() -> None:
-    """Skip the test if the proposals table isn't deployed yet."""
+    """Skip if the proposals table isn't deployed OR the current role can't
+    write to it. Existence alone isn't enough — main went red because the
+    table was created before the GRANT migration applied."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM information_schema.tables "
@@ -41,6 +43,12 @@ def _proposals_table_or_skip() -> None:
         )
         if cur.fetchone() is None:
             pytest.skip("places_ingest_query_proposals not deployed yet")
+        cur.execute(
+            "SELECT has_table_privilege(current_user, "
+            "'places_ingest_query_proposals', 'INSERT, DELETE')"
+        )
+        if not cur.fetchone()[0]:
+            pytest.skip("current DB role lacks INSERT/DELETE on proposals table")
 
 
 def _purge_test_proposals(prefix: str) -> None:
