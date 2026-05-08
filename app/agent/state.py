@@ -14,6 +14,8 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.tools.booking_types import Provider as BookingProvider
+
 RevisionReason = Literal[
     "empty_results",
     "all_closed",
@@ -119,7 +121,7 @@ class Stop(BaseModel):
     longitude: float | None = None
     primary_type: str | None = None
     booking_url: str | None = None
-    booking_provider: str | None = None
+    booking_provider: BookingProvider | None = None
 
 
 class ItineraryState(BaseModel):
@@ -160,4 +162,4 @@ class PlaceCard(BaseModel):
     arrival_time: datetime | None = None
     rationale: str
     booking_url: str | None = None
-    booking_provider: str | None = None
+    booking_provider: BookingProvider | None = None

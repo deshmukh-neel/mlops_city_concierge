@@ -15,14 +15,12 @@ propose_booking from app/agent/graph.py without involving the LLM.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
 from urllib.parse import urlencode, urlparse
 
 from pydantic import BaseModel
 
+from app.tools.booking_types import Provider
 from app.tools.retrieval import PlaceDetails, get_details
-
-Provider = Literal["resy", "tock", "opentable", "google_maps", "unknown"]
 
 
 class BookingProposal(BaseModel):

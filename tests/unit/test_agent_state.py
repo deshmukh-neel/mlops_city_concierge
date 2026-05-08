@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from app.agent.io import state_to_cards
 from app.agent.state import (
     DEFAULT_STOP_DURATION_MIN,
@@ -82,6 +84,45 @@ def test_state_to_cards_with_stops() -> None:
     assert card["primary_type"] == "restaurant"
     # PlaceCard fields not derived from Stop should be None / default.
     assert card["address"] is None
+
+
+@pytest.mark.parametrize("provider", ["resy", "tock", "opentable", "google_maps", "unknown", None])
+def test_stop_accepts_every_valid_booking_provider(provider: str | None) -> None:
+    """The closed BookingProvider literal must accept exactly the five providers
+    used by app.tools.booking, plus None."""
+    stop = Stop(
+        place_id="p1",
+        name="X",
+        rationale="r",
+        source="google_places",
+        booking_provider=provider,
+    )
+    assert stop.booking_provider == provider
+
+
+def test_stop_rejects_unknown_booking_provider() -> None:
+    """End-to-end typing contract: a typo on Stop fails the same way it would
+    fail on BookingProposal — Stop and BookingProposal share the literal."""
+    with pytest.raises(ValueError):
+        Stop(
+            place_id="p1",
+            name="X",
+            rationale="r",
+            source="google_places",
+            booking_provider="resyy",  # type: ignore[arg-type]
+        )
+
+
+def test_place_card_rejects_unknown_booking_provider() -> None:
+    """The frontend label table is keyed off booking_provider; a mistyped
+    value would silently render as 'no label'. Lock the contract here."""
+    with pytest.raises(ValueError):
+        PlaceCard(
+            place_id="p1",
+            name="X",
+            rationale="r",
+            booking_provider="yelp",  # type: ignore[arg-type]
+        )
 
 
 def test_place_card_serialization_keys() -> None:
