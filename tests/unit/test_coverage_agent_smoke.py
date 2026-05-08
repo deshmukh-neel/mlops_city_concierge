@@ -27,9 +27,18 @@ def test_smoke_module_imports() -> None:
 
 
 class _StubCursor:
+    """Returns gather_stats rows for the WITH-CTE SELECT, [] for everything else.
+
+    Without this branching, every fetchall() returns the same gather_stats rows,
+    which means the existing-query SELECT silently picks up bucket strings as
+    if they were query texts. The smoke test would still pass by coincidence,
+    but a real regression in filter_already_covered would be hidden.
+    """
+
     def __init__(self, rows: list[tuple]) -> None:
         self._rows = rows
         self.executed: list[tuple[str, Any]] = []
+        self._last_sql = ""
 
     def __enter__(self) -> _StubCursor:
         return self
@@ -39,9 +48,12 @@ class _StubCursor:
 
     def execute(self, sql: str, params: Any = None) -> None:
         self.executed.append((sql, params))
+        self._last_sql = sql
 
     def fetchall(self) -> list[tuple]:
-        return self._rows
+        if "WITH neighborhoods" in self._last_sql:
+            return self._rows
+        return []
 
     @property
     def rowcount(self) -> int:
