@@ -14,6 +14,8 @@ propose_booking from app/agent/graph.py without involving the LLM.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import urlencode, urlparse
 
@@ -31,16 +33,54 @@ class BookingProposal(BaseModel):
     notes: str | None = None
 
 
+@dataclass(frozen=True)
+class _ProviderSpec:
+    """How a single deep-linkable provider is recognized and parameterized.
+
+    `host_match` substrings are checked against the URL hostname (lowercased)
+    in `detect_provider`. `params` builds the query dict the venue's booking
+    page expects; signature is (iso_date, iso_time, party_size) -> dict.
+    """
+
+    host_match: tuple[str, ...]
+    params: Callable[[str, str, int], dict[str, object]]
+    notes: str
+
+
+_PROVIDER_SPECS: dict[Provider, _ProviderSpec] = {
+    "resy": _ProviderSpec(
+        host_match=("resy.com",),
+        params=lambda d, _t, n: {"date": d, "seats": n},
+        notes="Tap to open Resy with your date and party size pre-filled.",
+    ),
+    "tock": _ProviderSpec(
+        host_match=("exploretock.com", "tock.com"),
+        params=lambda d, t, n: {"date": d, "size": n, "time": t},
+        notes="Tap to open Tock with your reservation pre-filled.",
+    ),
+    "opentable": _ProviderSpec(
+        host_match=("opentable.com",),
+        params=lambda d, t, n: {"covers": n, "dateTime": f"{d}T{t}"},
+        notes="Tap to open OpenTable with your reservation pre-filled.",
+    ),
+}
+
+_FALLBACK_NOTES: dict[Provider, str] = {
+    "unknown": (
+        "Online booking not detected; opens the venue's website. "
+        "You may need to find their reservations page."
+    ),
+    "google_maps": "No website on file; opens Google Maps.",
+}
+
+
 def detect_provider(website_uri: str | None) -> Provider:
     if not website_uri:
         return "unknown"
     host = (urlparse(website_uri).hostname or "").lower()
-    if "resy.com" in host:
-        return "resy"
-    if "exploretock.com" in host or "tock.com" in host:
-        return "tock"
-    if "opentable.com" in host:
-        return "opentable"
+    for name, spec in _PROVIDER_SPECS.items():
+        if any(needle in host for needle in spec.host_match):
+            return name
     return "unknown"
 
 
@@ -81,38 +121,15 @@ def _build_booking_url(
     the row's maps_uri, then google_maps via a name search. The frontend keys
     its label off the effective provider so the user sees "Open venue website"
     or "Open in Google Maps" rather than "Open in Unknown".
+
+    We DON'T use maps_uri when a website exists: a map pin strips the
+    reservations page the user actually wants.
     """
-    iso_date = when.strftime("%Y-%m-%d")
-    iso_time = when.strftime("%H:%M")
     website = details.website_uri
-
-    if detected == "resy" and website:
-        return _append_query(website, {"date": iso_date, "seats": party_size}), "resy"
-
-    if detected == "tock" and website:
-        return (
-            _append_query(
-                website,
-                {"date": iso_date, "size": party_size, "time": iso_time},
-            ),
-            "tock",
-        )
-
-    if detected == "opentable" and website:
-        return (
-            _append_query(
-                website,
-                {"covers": party_size, "dateTime": f"{iso_date}T{iso_time}"},
-            ),
-            "opentable",
-        )
-
-    # Three-tier fallback when no provider deep-link is available:
-    #   1. The venue's own website (most likely to host a reservations page).
-    #   2. Google Maps via the row's maps_uri (deep-link to the pin).
-    #   3. Google Maps via a name search (last resort — no website, no pin).
-    # We DON'T use maps_uri when a website exists: a map pin strips the
-    # reservations page the user actually wants.
+    spec = _PROVIDER_SPECS.get(detected)
+    if spec and website:
+        params = spec.params(when.strftime("%Y-%m-%d"), when.strftime("%H:%M"), party_size)
+        return _append_query(website, params), detected
     if website:
         return website, "unknown"
     if details.maps_uri:
@@ -128,17 +145,6 @@ def _append_query(url: str, params: dict) -> str:
     return f"{url}{sep}{urlencode(params)}"
 
 
-_NOTES: dict[Provider, str] = {
-    "resy": "Tap to open Resy with your date and party size pre-filled.",
-    "tock": "Tap to open Tock with your reservation pre-filled.",
-    "opentable": "Tap to open OpenTable with your reservation pre-filled.",
-    "unknown": (
-        "Online booking not detected; opens the venue's website. "
-        "You may need to find their reservations page."
-    ),
-    "google_maps": "No website on file; opens Google Maps.",
-}
-
-
 def _notes_for(provider: Provider) -> str:
-    return _NOTES[provider]
+    spec = _PROVIDER_SPECS.get(provider)
+    return spec.notes if spec is not None else _FALLBACK_NOTES[provider]
