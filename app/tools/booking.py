@@ -134,10 +134,11 @@ def _build_booking_url(
         return website, "unknown"
     if details.maps_uri:
         return details.maps_uri, "google_maps"
-    return (
-        f"https://www.google.com/maps/search/?api=1&query={details.name}",
-        "google_maps",
-    )
+    # Last-resort name search. Encode the name properly — venue names contain
+    # `&`, unicode, apostrophes, etc., and raw f-string interpolation breaks
+    # for any of those.
+    query = urlencode({"api": "1", "query": details.name})
+    return f"https://www.google.com/maps/search/?{query}", "google_maps"
 
 
 def _append_query(url: str, params: dict) -> str:

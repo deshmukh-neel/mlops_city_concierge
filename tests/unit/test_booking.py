@@ -196,7 +196,56 @@ def test_no_website_no_maps_uri_falls_back_to_maps_search() -> None:
         b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.provider == "google_maps"
     assert "google.com/maps/search" in b.booking_url
-    assert "Tony's" in b.booking_url
+    # urlencode escapes the apostrophe to %27.
+    assert "Tony%27s" in b.booking_url
+
+
+def test_maps_search_encodes_ampersand_in_venue_name() -> None:
+    """Raw f-string interpolation of `&` would terminate the query string and
+    break the URL. urlencode must escape it to %26."""
+    with patch(
+        "app.tools.booking.get_details",
+        return_value=_fake_details(
+            website_uri=None, maps_uri=None, name="Tartine Manufactory & Bakery"
+        ),
+    ):
+        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+    assert b.provider == "google_maps"
+    # The literal `&` must NOT appear inside the query token; only `&` joining
+    # api=1 and query=... is allowed.
+    assert "Bakery" in b.booking_url
+    # Exactly one '&' as a separator between api=1 and query=... — none inside
+    # the encoded venue name.
+    assert b.booking_url.count("&") == 1
+    assert "%26" in b.booking_url
+
+
+def test_maps_search_encodes_unicode_in_venue_name() -> None:
+    """Non-ASCII characters must be percent-encoded; raw interpolation produces
+    URLs that some clients reject and others mojibake."""
+    with patch(
+        "app.tools.booking.get_details",
+        return_value=_fake_details(website_uri=None, maps_uri=None, name="Café Joséphine"),
+    ):
+        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+    assert b.provider == "google_maps"
+    # Non-ASCII chars survive only as percent-encoded bytes.
+    assert "Caf" in b.booking_url
+    assert "Joséphine" not in b.booking_url
+    assert "%C3%A9" in b.booking_url  # 'é' encoded
+
+
+def test_maps_search_encodes_plus_in_venue_name() -> None:
+    """A literal '+' in a name (e.g. 'M.Y. China + Hakkasan') means space
+    after URL-decoding; encoding must escape it to %2B."""
+    with patch(
+        "app.tools.booking.get_details",
+        return_value=_fake_details(website_uri=None, maps_uri=None, name="Mr.+Mrs Bun"),
+    ):
+        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+    assert b.provider == "google_maps"
+    # '+' inside the venue name escaped as %2B; raw '+' would be misread as space.
+    assert "%2B" in b.booking_url
 
 
 def test_empty_website_string_treated_as_no_website() -> None:
