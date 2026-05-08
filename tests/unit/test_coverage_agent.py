@@ -236,6 +236,16 @@ class TestPromptFormat:
         assert "type=cuisine gaps" in prompt
 
 
+class TestProposalsSchemaOwnership:
+    def test_ingest_does_not_inline_create_proposals_table(self) -> None:
+        # Alembic owns the schema for the W5 proposals table. The ingest
+        # script must not silently fall back to a CREATE TABLE IF NOT EXISTS
+        # that would drift from the migration (no CHECK constraint, no index).
+        from scripts import ingest_places_sf
+
+        assert not hasattr(ingest_places_sf, "ensure_query_proposals_table")
+
+
 class TestFilterAlreadyCovered:
     def test_drops_proposals_already_in_seed_list(self) -> None:
         # `vietnamese restaurants in San Francisco` is emitted by the static
