@@ -216,9 +216,10 @@ def existing_query_texts(conn: Any) -> set[str]:
     """
     existing = set(build_seed_queries())
     with conn.cursor() as cur:
-        cur.execute("SELECT query_text FROM places_ingest_query_checkpoints")
-        existing.update(row[0] for row in cur.fetchall())
-        cur.execute("SELECT query_text FROM places_ingest_query_proposals")
+        cur.execute(
+            "SELECT query_text FROM places_ingest_query_checkpoints"
+            " UNION ALL SELECT query_text FROM places_ingest_query_proposals"
+        )
         existing.update(row[0] for row in cur.fetchall())
     return existing
 
