@@ -112,11 +112,31 @@ def test_appends_with_ampersand_when_url_already_has_query() -> None:
     assert b.booking_url.count("?") == 1
 
 
-def test_unknown_provider_falls_back_to_maps_uri() -> None:
+def test_unknown_provider_with_website_returns_website_unchanged() -> None:
+    """A venue whose website isn't Resy/Tock/OpenTable still has a website that
+    is much more useful than a map pin — it likely hosts a reservations page.
+    The website URL is returned as-is (no booking params to inject) under the
+    'unknown' provider label."""
     with patch(
         "app.tools.booking.get_details",
         return_value=_fake_details(
             website_uri="https://random.cafe",
+            maps_uri="https://maps.google.com/?cid=42",
+        ),
+    ):
+        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+    assert b.provider == "unknown"
+    assert b.booking_url == "https://random.cafe"
+    # Notes must steer the user toward finding the reservations page.
+    assert b.notes is not None and "website" in b.notes.lower()
+
+
+def test_no_provider_no_website_falls_back_to_maps_uri() -> None:
+    """Without a website, the row's maps_uri is the next best deep-link."""
+    with patch(
+        "app.tools.booking.get_details",
+        return_value=_fake_details(
+            website_uri=None,
             maps_uri="https://maps.google.com/?cid=42",
         ),
     ):
@@ -134,6 +154,21 @@ def test_no_website_no_maps_uri_falls_back_to_maps_search() -> None:
     assert b.provider == "google_maps"
     assert "google.com/maps/search" in b.booking_url
     assert "Tony's" in b.booking_url
+
+
+def test_empty_website_string_treated_as_no_website() -> None:
+    """An empty `website_uri` (PostgreSQL NOT NULL with default '') is just as
+    useless as None. Don't return an empty URL as a 'website' fallback."""
+    with patch(
+        "app.tools.booking.get_details",
+        return_value=_fake_details(
+            website_uri="",
+            maps_uri="https://maps.google.com/?cid=99",
+        ),
+    ):
+        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+    assert b.provider == "google_maps"
+    assert b.booking_url == "https://maps.google.com/?cid=99"
 
 
 def test_unknown_place_id_raises() -> None:
@@ -201,9 +236,10 @@ def test_functional_commit_attaches_resy_url_via_real_propose_booking() -> None:
     assert "seats=4" in stop.booking_url
 
 
-def test_functional_falls_back_to_google_maps_for_non_provider_site() -> None:
+def test_functional_falls_back_to_venue_website_for_non_provider_site() -> None:
     """A venue whose website isn't Resy/Tock/OpenTable still gets a usable
-    booking_url — the Google Maps deep-link from places_raw.maps_uri."""
+    booking_url — the venue's own website (more useful than a map pin, since
+    it likely hosts a reservations page)."""
     state = _grounded_state(["p1"])
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
@@ -212,6 +248,26 @@ def test_functional_falls_back_to_google_maps_for_non_provider_site() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details(
             website_uri="https://random-cafe.example",
+            maps_uri="https://maps.google.com/?cid=999",
+        ),
+    ):
+        committed, _ = _commit_stops(state, raw_stops)
+
+    stop = committed[0]
+    assert stop.booking_provider == "unknown"
+    assert stop.booking_url == "https://random-cafe.example"
+
+
+def test_functional_falls_back_to_maps_when_no_website() -> None:
+    """No website at all → Google Maps deep-link from places_raw.maps_uri."""
+    state = _grounded_state(["p1"])
+    raw_stops = [
+        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+    ]
+    with patch(
+        "app.tools.booking.get_details",
+        return_value=_fake_details(
+            website_uri=None,
             maps_uri="https://maps.google.com/?cid=999",
         ),
     ):

@@ -126,8 +126,9 @@ reservation on the provider's site. We cannot guarantee table availability —
 | `"resy"` | "Open in Resy" | Opens Resy with date + party size pre-filled. |
 | `"tock"` | "Open in Tock" | Opens Tock with date + size + time pre-filled. |
 | `"opentable"` | "Open in OpenTable" | Opens OpenTable with covers + dateTime pre-filled. |
-| `"google_maps"` | "View on Google Maps" | No online booking detected. |
-| `null` | (no button) | Enrichment failed or the place has no website + no maps URL. Extremely rare. |
+| `"unknown"` | "Visit website" | Provider not detected; opens the venue's website. The user finds the reservations page themselves. |
+| `"google_maps"` | "View on Google Maps" | No website on file; opens Google Maps. |
+| `null` | (no button) | Enrichment failed. Extremely rare. |
 
 ### Frontend usage
 
@@ -146,6 +147,7 @@ const LABELS = {
   resy:        'Open in Resy',
   tock:        'Open in Tock',
   opentable:   'Open in OpenTable',
+  unknown:     'Visit website',
   google_maps: 'View on Google Maps',
 };
 const labelFor = (p) => LABELS[p] ?? 'Visit website';

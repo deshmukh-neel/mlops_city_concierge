@@ -76,9 +76,11 @@ def _build_booking_url(
     party_size: int,
 ) -> tuple[str, Provider]:
     """Return (url, effective_provider). The effective provider may differ from
-    the detected one when we have to fall back — e.g. detected=unknown with no
-    website becomes google_maps. The frontend keys its label off the effective
-    provider so users see "Open in Google Maps" rather than "Open in Unknown".
+    the detected one when we fall back. Three-tier fallback when no provider
+    deep-link is available: venue website ("unknown"), then google_maps via
+    the row's maps_uri, then google_maps via a name search. The frontend keys
+    its label off the effective provider so the user sees "Open venue website"
+    or "Open in Google Maps" rather than "Open in Unknown".
     """
     iso_date = when.strftime("%Y-%m-%d")
     iso_time = when.strftime("%H:%M")
@@ -105,6 +107,14 @@ def _build_booking_url(
             "opentable",
         )
 
+    # Three-tier fallback when no provider deep-link is available:
+    #   1. The venue's own website (most likely to host a reservations page).
+    #   2. Google Maps via the row's maps_uri (deep-link to the pin).
+    #   3. Google Maps via a name search (last resort — no website, no pin).
+    # We DON'T use maps_uri when a website exists: a map pin strips the
+    # reservations page the user actually wants.
+    if website:
+        return website, "unknown"
     if details.maps_uri:
         return details.maps_uri, "google_maps"
     return (
@@ -122,8 +132,11 @@ _NOTES: dict[Provider, str] = {
     "resy": "Tap to open Resy with your date and party size pre-filled.",
     "tock": "Tap to open Tock with your reservation pre-filled.",
     "opentable": "Tap to open OpenTable with your reservation pre-filled.",
-    "google_maps": "No online booking detected; opens Google Maps.",
-    "unknown": "Online booking not detected.",
+    "unknown": (
+        "Online booking not detected; opens the venue's website. "
+        "You may need to find their reservations page."
+    ),
+    "google_maps": "No website on file; opens Google Maps.",
 }
 
 
