@@ -138,7 +138,9 @@ def constraints_satisfied(state: ItineraryState) -> float:
             """
             SELECT place_id,
                    price_level_rank(price_level) AS price_rank,
-                   rating, user_rating_count, neighborhood, formatted_address
+                   rating, user_rating_count,
+                   neighborhood_of(source_json) AS neighborhood,
+                   formatted_address
               FROM places_raw
              WHERE place_id = ANY(%s)
             """,
