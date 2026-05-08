@@ -8,11 +8,48 @@ critique node do deterministic checks (geographic coherence, hours).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, ConfigDict, Field
+
+RevisionReason = Literal[
+    "empty_results",
+    "all_closed",
+    "low_similarity",
+    "constraint_violation",
+    "tool_error",
+    "geographic_incoherence",
+    "temporal_incoherence",
+    "walking_budget_exceeded",
+    "constraint_unmet_in_final",
+    "hallucinated_place_id",
+    "vibe_mismatch",
+]
+
+RevisionAction = Literal[
+    "drop_filter",
+    "expand_radius",
+    "broaden_query",
+    "clarify_with_user",
+    "try_different_tool",
+    "swap_stop",
+    "tighten_radius",
+    "shift_arrival_time",
+    "rebalance_walking_budget",
+]
+
+
+class RevisionHint(BaseModel):
+    """A structured cue from `critique` to `plan` describing what went wrong
+    and what action would likely fix it. Stored on state for tracing and to
+    bound retries per failure category."""
+
+    reason: RevisionReason
+    detail: str
+    suggested_action: RevisionAction
+    target: dict[str, Any] = Field(default_factory=dict)
 
 
 class UserConstraints(BaseModel):
@@ -26,7 +63,7 @@ class UserConstraints(BaseModel):
     budget_per_person_max: int | None = None  # USD
     price_level_max: int | None = None  # 0-4 (Google)
     min_rating: float | None = None
-    min_user_rating_count: int = 50  # quality floor (W1 default)
+    min_user_rating_count: int | None = None  # only set when user expresses it
     when: datetime | None = None  # arrival time for stop 1
     neighborhood: str | None = None
     vibes: list[str] = Field(default_factory=list)  # free-text tags
@@ -102,6 +139,8 @@ class ItineraryState(BaseModel):
         ),
     )
     walked_meters_so_far: float = 0.0
+    revision_hints: list[RevisionHint] = Field(default_factory=list)
+    revision_counts: dict[str, int] = Field(default_factory=dict)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

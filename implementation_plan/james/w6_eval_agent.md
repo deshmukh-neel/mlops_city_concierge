@@ -1,8 +1,27 @@
 # W6 — Eval-loop agent (RAGAS retrieval + custom itinerary checks)
 
 **Branch:** `feature/agent-w6-eval-agent`
-**Depends on:** W2 (needs the agent graph to evaluate). Optionally W0a, W7 — eval becomes the source of truth for whether the v2 embeddings and KG are wins.
+**Depends on:** W2 (needs the agent graph to evaluate), W3 (canonical home for the deterministic checks W6 reuses). Optionally W0a, W7 — eval becomes the source of truth for whether the v2 embeddings and KG are wins.
 **Unblocks:** —
+
+## What W3 already shipped (consume; do not duplicate)
+
+W3 landed before W6 and put the deterministic itinerary checks in their canonical home so request-time critique and offline eval share one implementation. When implementing W6, **import from `app/agent/critique/checks.py` rather than re-deriving**:
+
+- `constraints_satisfied(state)`, `geographic_coherence(state)`, `temporal_coherence(state)`, `walking_budget_respected(state)`, `no_hallucinated_place_ids(state)` — all return floats in [0, 1].
+- `itinerary_violations(state)` — returns the list of failing check names.
+- `CRITIQUE_THRESHOLDS` — the per-check thresholds used at request time. Eval should reuse the same thresholds so an offline-bad plan is the same as an online-bad plan.
+
+The function signatures in this plan's §`app/eval/itinerary_checker.py` block predate W3; treat them as the conceptual contract and **delete that file from the W6 plan** in favor of importing from `app/agent/critique/checks.py`.
+
+W3 also shipped `app/agent/critique/vibe.py` — the cheap-LLM "vibe coherence" judge that runs at request time when `EVAL_VIBE_CRITIQUE_ENABLED=true`. **W3 now also owns judge construction**: `vibe.make_judge()` reads `EVAL_JUDGE_PROVIDER` (default `openai`) + `EVAL_JUDGE_MODEL` (default `gpt-4o-mini`), and `build_agent_graph(llm, judge_llm=None)` auto-constructs a judge when the env var is on. W6 should **import `vibe.make_judge` rather than re-implementing**:
+
+1. Use `vibe.make_judge()` to build the judge LLM for the offline taste rubric — same model + provider as request-time vibe checks.
+2. Don't re-thread it into `build_agent_graph`; that wiring is done.
+
+That keeps a single judge construction site (`app/agent/critique/vibe.py:make_judge`).
+
+W3 also tracks `state.revision_hints` and `state.revision_counts` — useful per-request signals. **MLflow logging of `revisions_per_query` as a request-time metric is W6's territory** (the eval/metrics pipeline is yours). State already has the data; W6 wires the logging hook in `/chat`.
 
 ## Goal
 
@@ -416,43 +435,25 @@ from ragas.metrics import (
 
 The runner returns a dict of metric → mean float. The eval agent merges these into the same metric namespace as the deterministic + judge metrics so MLflow sees one flat dict.
 
-### New: `app/eval/itinerary_checker.py`
+### Itinerary checker: import from `app/agent/critique/checks.py` (W3)
+
+W3 already shipped these functions in their canonical home. **W6 imports from there; it does not create `app/eval/itinerary_checker.py`**. The five W6-shipped functions live as:
 
 ```python
-"""Deterministic itinerary correctness. Pure functions; no LLM, no network
-(except DB lookups for place hours / coords).
-
-Each function returns a 0.0-1.0 score per query that we mean across the suite.
-"""
-
-from datetime import datetime, timedelta
-
-def constraints_satisfied(state, expected) -> float:
-    """Fraction of `expected_constraints` that the produced stops actually
-    satisfy. Looked up via get_details(place_id) so we use authoritative DB
-    values, not what the agent claimed."""
-
-def geographic_coherence(state) -> float:
-    """1.0 if every consecutive pair of stops is within
-    state.constraints.walking_budget_m / max(num_stops-1, 1) meters; falls off
-    linearly as pairs exceed."""
-
-def temporal_coherence(state) -> float:
-    """1.0 if every stop is open at its planned arrival_time per place_is_open.
-    Uses the SQL helper so we exercise the same code path the agent uses."""
-
-def walking_budget_respected(state) -> float:
-    """1.0 if total haversine across the chain ≤ walking_budget_m."""
-
-def no_hallucinated_place_ids(state) -> float:
-    """1.0 if every state.stops[*].place_id exists in places_raw. Otherwise 0
-    (zero tolerance — a hallucinated place_id is a critical failure)."""
-
-def source_diversity(state) -> float:
-    """Once editorial source lands, prefer mix. Today returns 1.0 (single source)."""
+from app.agent.critique.checks import (
+    constraints_satisfied,
+    geographic_coherence,
+    temporal_coherence,
+    walking_budget_respected,
+    no_hallucinated_place_ids,
+    itinerary_violations,
+    CRITIQUE_THRESHOLDS,
+)
 ```
 
-These are intentionally five tiny functions, not one big one — easy to test independently and cheap to extend.
+Each returns a float in [0, 1]. `itinerary_violations(state)` returns the list of failing check names — useful for W6 to derive a "violation rate" per query without re-running each check.
+
+`source_diversity(state)` (mentioned in earlier drafts of this plan) is **not** in W3 because there's only one source today. If W6 wants it, add it directly to `app/agent/critique/checks.py` so the request-time critique can pick it up too.
 
 ### Modify: `pyproject.toml`
 

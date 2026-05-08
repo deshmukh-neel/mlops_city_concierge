@@ -25,7 +25,7 @@ def test_itinerary_state_defaults() -> None:
     assert state.awaiting_stops_count is False
     assert state.walked_meters_so_far == 0.0
     assert isinstance(state.constraints, UserConstraints)
-    assert state.constraints.min_user_rating_count == 50
+    assert state.constraints.min_user_rating_count is None
     assert state.constraints.walking_budget_m == 2400
 
 

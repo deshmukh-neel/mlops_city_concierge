@@ -153,3 +153,86 @@ jobs:
         run: |
           poetry run alembic downgrade base
           poetry run alembic upgrade head
+
+  integration-cloud:
+    name: Integration tests (Cloud SQL via proxy)
+    # Only on PRs to main — avoid hammering the shared instance on every push.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # required for Workload Identity Federation
+    env:
+      CLOUD_SQL_INSTANCE: mlops-491820:us-central1:mlops--city-concierge
+      CLOUD_SQL_DB: mlops-city-concierge
+      CLOUD_SQL_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Poetry
+        run: pipx install "poetry==${{ env.POETRY_VERSION }}"
+
+      - name: Cache Poetry venv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dev dependencies
+        run: poetry install --with dev --no-interaction --no-root
+
+      - name: Start Cloud SQL Auth Proxy
+        # nohup + disown so the proxy survives this step's shell. Logs go to
+        # cloud-sql-proxy.log so a later step can tail it on failure. We poll
+        # for the listener instead of `sleep N` because the proxy can take
+        # 1-10s depending on network/DNS.
+        run: |
+          curl -sS -L \
+            -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.13.0/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          nohup ./cloud-sql-proxy --port "${CLOUD_SQL_PORT}" "${CLOUD_SQL_INSTANCE}" \
+            > cloud-sql-proxy.log 2>&1 &
+          disown
+          for i in {1..30}; do
+            if nc -z 127.0.0.1 "${CLOUD_SQL_PORT}"; then
+              echo "proxy listening on ${CLOUD_SQL_PORT}"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "proxy failed to start; log:" >&2
+          cat cloud-sql-proxy.log >&2 || true
+          exit 1
+
+      - name: Run integration tests
+        env:
+          APP_ENV: integration
+        # The CI service account is provisioned as a CLOUD_IAM_SERVICE_ACCOUNT
+        # DB user named with the .gserviceaccount.com suffix dropped. We
+        # URL-encode the @ in the user, and the IAM token is the password.
+        run: |
+          SA_USER="${{ vars.GCP_SERVICE_ACCOUNT }}"
+          DB_USER="${SA_USER%.gserviceaccount.com}"
+          ENCODED_USER=$(printf '%s' "$DB_USER" | sed 's/@/%40/g')
+          TOKEN=$(gcloud sql generate-login-token)
+          export DATABASE_URL="postgresql://${ENCODED_USER}:${TOKEN}@127.0.0.1:${CLOUD_SQL_PORT}/${CLOUD_SQL_DB}"
+          poetry run pytest tests/integration/ -v
+
+      - name: Proxy logs on failure
+        if: failure()
+        run: cat cloud-sql-proxy.log || true

@@ -92,6 +92,33 @@ test-unit: ## Run unit tests only
 test-integration: ## Run integration tests only
 	$(POETRY_RUN) pytest tests/integration/ -v
 
+# Cloud SQL connection details for IAM-DB-auth via the proxy.
+# Override on the command line if your gcloud identity differs.
+CLOUD_SQL_INSTANCE ?= mlops-491820:us-central1:mlops--city-concierge
+CLOUD_SQL_DB ?= mlops-city-concierge
+CLOUD_SQL_PORT ?= 5433
+CLOUD_SQL_USER ?= $(shell gcloud config get-value account 2>/dev/null)
+
+.PHONY: test-integration-cloud
+test-integration-cloud: ## Integration tests against Cloud SQL via the proxy + IAM-DB-auth
+	@command -v cloud-sql-proxy >/dev/null || { echo "cloud-sql-proxy not installed"; exit 1; }
+	@command -v gcloud >/dev/null || { echo "gcloud not installed"; exit 1; }
+	@[ -n "$(CLOUD_SQL_USER)" ] || { echo "no active gcloud account; run 'gcloud auth login'"; exit 1; }
+	@echo "→ proxy: $(CLOUD_SQL_INSTANCE) on :$(CLOUD_SQL_PORT)"
+	@echo "→ user:  $(CLOUD_SQL_USER)"
+	@cloud-sql-proxy --port $(CLOUD_SQL_PORT) "$(CLOUD_SQL_INSTANCE)" \
+		> /tmp/cloud-sql-proxy.log 2>&1 & \
+	PROXY_PID=$$!; \
+	trap "kill $$PROXY_PID 2>/dev/null || true" EXIT INT TERM; \
+	for i in $$(seq 1 30); do \
+		nc -z 127.0.0.1 $(CLOUD_SQL_PORT) && break; sleep 1; \
+	done; \
+	nc -z 127.0.0.1 $(CLOUD_SQL_PORT) || { echo "proxy failed to start"; cat /tmp/cloud-sql-proxy.log; exit 1; }; \
+	PGPASSWORD=$$(gcloud sql generate-login-token) \
+	DATABASE_URL="postgresql://$$(printf '%s' '$(CLOUD_SQL_USER)' | sed 's/@/%40/g'):$$PGPASSWORD@127.0.0.1:$(CLOUD_SQL_PORT)/$(CLOUD_SQL_DB)" \
+	APP_ENV=integration \
+	$(POETRY_RUN) pytest tests/integration/ -v
+
 # ─── Linting / Formatting ─────────────────────────────────────────────────────
 .PHONY: lint
 lint: ## Run ruff linter

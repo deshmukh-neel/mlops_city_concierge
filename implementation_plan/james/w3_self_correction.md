@@ -478,3 +478,35 @@ Reassess when one of those triggers fires.
 - **Itinerary checker shared with W6.** Single source of truth lives wherever ships first. If W3 ships before W6, the canonical module is `app/agent/critique/checks.py` and W6 imports from there. If W6 ships first, the canonical module is `app/eval/itinerary_checker.py` and W3 re-exports. PR descriptions must call out the import direction so we don't end up with two implementations.
 - **Multilingual queries.** ILIKE matching on `formatted_address` is locale-dependent. Out of scope; document.
 - **Revision pass can still produce a plan that fails the same check.** The retry budget is bounded but the LLM's revision may not actually fix the violation. The `_final_with_caveats` path catches this case — the user sees the imperfect plan with an explicit caveat list, never a silent failure.
+
+---
+
+**Status:** ✅ Merged 2026-05-08 in [#74](https://github.com/deshmukh-neel/mlops_city_concierge/pull/74).
+
+Shipped:
+
+- `app/agent/critique/` package: `checks` (canonical home for the 5 deterministic checks + `itinerary_violations` aggregator), `vibe` (cheap-LLM judge + `make_judge` factory), `__init__` (critique-message prefix constants).
+- Two-pass critique node: per-step deterministic (`empty_results`, `all_closed`, `low_similarity`, `tool_error`) reacts to bad tool results; per-itinerary deterministic runs all 5 checks on finalize; cheap-LLM vibe pass runs after deterministic checks succeed when `EVAL_VIBE_CRITIQUE_ENABLED=true`.
+- Bounded retries via `MAX_REVISIONS_PER_REASON=2`. After exhaustion, ships with explicit `Caveats:` suffix instead of silent failure.
+- `state.revision_hints` + `state.revision_counts` track everything for tracing; W6 will surface them as MLflow run metrics.
+- `build_agent_graph(llm, judge_llm=None)` auto-constructs the judge from `EVAL_JUDGE_PROVIDER` / `EVAL_JUDGE_MODEL` when vibe is enabled. W6 imports `vibe.make_judge` rather than re-implementing.
+- Tests at all four layers (235 unit, 5 integration against Cloud SQL): per-check unit + mock, parametrized hint-mapping, full step+itinerary compose end-to-end, integration against real DB via Cloud SQL Auth Proxy.
+- Local + CI integration tests automated: `make test-integration-cloud` (laptop, IAM-DB-auth) + new `integration-cloud` job in `ci.yml` (PR-only, WIF, no static secrets).
+
+Deviations from the original plan:
+
+- **Judge construction owned by W3, not W6.** Plan deferred wiring to W6; review caught vibe.py was unreachable dead code. W3 now ships `vibe.make_judge()` and `build_agent_graph(judge_llm=...)`. W6 just imports.
+- `min_user_rating_count` changed from `int = 50` (always-on) to `int | None = None` (only scored when user expresses it). Retrieval still applies a 50 floor via `SearchFilters` independently.
+- `_diagnose_last_tool_result` walks every tool_call in the issuing AIMessage (not just the last) and pairs scratch entries by `tool_call_id` — handles parallel tool calls cleanly.
+- `temporal_coherence` coalesces N stops into one `unnest` query (was N round-trips per critique pass).
+- Critique-message prefixes (`[critique:step]` / `[critique:itinerary]` / `[critique:vibe]`) hoisted into constants in `app/agent/critique/__init__.py` so prompts.py and graph.py can't drift.
+
+Deferred to W6:
+
+- MLflow logging of `revisions_per_query` as a request-time metric — state already has the data; W6 wires the logging hook in `/chat`.
+- Threshold tuning (`LOW_SIMILARITY_THRESHOLD`, `VIBE_THRESHOLD`, `CRITIQUE_THRESHOLDS["constraints_satisfied"]`) — current values are guesses; W6 evals will give us a principled reset.
+
+Future direction (not in this PR):
+
+- Constraint extractor pre-pass — turn user free-text into a structured `UserConstraints` object before the main agent runs. Out of scope until W6 evals show the planner is losing tokens to NLU work.
+- Supervisor / specialized subagents — deliberately deferred per the plan's "Future direction" section.
