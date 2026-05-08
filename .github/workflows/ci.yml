@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]      # post-merge validation
   pull_request:
-    branches: [main]
+    branches: [main]      # PR-time validation (opened + synchronize)
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -156,8 +156,6 @@ jobs:
 
   integration-cloud:
     name: Integration tests (Cloud SQL via proxy)
-    # Only on PRs to main — avoid hammering the shared instance on every push.
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
