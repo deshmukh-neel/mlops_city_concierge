@@ -153,20 +153,22 @@ def _bumped_counts(state: ItineraryState, reason: str) -> dict[str, int]:
     return counts
 
 
-def _last_scratch_entry(state: ItineraryState) -> tuple[str, dict[str, Any]] | None:
-    """Find the scratch entry for the most recent tool call.
+def _scratch_entries_for_last_round(
+    state: ItineraryState,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return (tool_name, scratch_entry) pairs for every tool_call in the most
+    recent issuing AIMessage, in tool_call order.
 
-    Returns (tool_name, entry) or None. ToolMessages in LangChain don't carry
-    the tool name reliably, so we walk back to the AIMessage that issued the
-    tool_calls and use the last one. Then pick the scratch entry with the
-    highest step for that tool name."""
+    Pairings are matched by tool_call id when present, falling back to the
+    highest-step entry for that tool name (handles legacy entries that
+    pre-date id tracking)."""
     last_tool_idx = None
     for i in range(len(state.messages) - 1, -1, -1):
         if isinstance(state.messages[i], ToolMessage):
             last_tool_idx = i
             break
     if last_tool_idx is None:
-        return None
+        return []
     issuing_ai: AIMessage | None = None
     for i in range(last_tool_idx - 1, -1, -1):
         m = state.messages[i]
@@ -174,12 +176,18 @@ def _last_scratch_entry(state: ItineraryState) -> tuple[str, dict[str, Any]] | N
             issuing_ai = m
             break
     if issuing_ai is None or not issuing_ai.tool_calls:
-        return None
-    name = issuing_ai.tool_calls[-1]["name"]
-    entries = state.scratch.get(name) or []
-    if not entries:
-        return None
-    return name, max(entries, key=lambda e: e.get("step", -1))
+        return []
+    pairs: list[tuple[str, dict[str, Any]]] = []
+    for tc in issuing_ai.tool_calls:
+        name = tc["name"]
+        entries = state.scratch.get(name) or []
+        if not entries:
+            continue
+        match = next((e for e in entries if e.get("id") == tc["id"]), None)
+        if match is None:
+            match = max(entries, key=lambda e: e.get("step", -1))
+        pairs.append((name, match))
+    return pairs
 
 
 def _most_restrictive_filter(filters: dict[str, Any] | None) -> str:
@@ -192,14 +200,8 @@ def _most_restrictive_filter(filters: dict[str, Any] | None) -> str:
     return "none"
 
 
-def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
-    """Inspect the most recent tool call+result pair and return a hint if the
-    result was empty / all-closed / low-similarity / errored. Returns None on
-    healthy results."""
-    found = _last_scratch_entry(state)
-    if found is None:
-        return None
-    tool_name, entry = found
+def _diagnose_one(tool_name: str, entry: dict[str, Any]) -> RevisionHint | None:
+    """Inspect a single tool call+result pair. Returns a hint or None."""
     result = entry.get("result")
     args = entry.get("args") or {}
 
@@ -235,7 +237,18 @@ def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
                 suggested_action="broaden_query",
                 target={"query": args.get("query")},
             )
+    return None
 
+
+def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
+    """Diagnose every tool_call in the most recent issuing AIMessage and
+    return the first hint in tool_call order. Returns None if every call was
+    healthy. The agent revises one issue per round; later issues, if any,
+    will be diagnosed on the next round."""
+    for tool_name, entry in _scratch_entries_for_last_round(state):
+        hint = _diagnose_one(tool_name, entry)
+        if hint is not None:
+            return hint
     return None
 
 
@@ -341,7 +354,12 @@ def build_agent_graph(
                     ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
                 )
                 scratch_updates.setdefault(tc["name"], []).append(
-                    {"args": tc["args"], "result": payload, "step": state.step_count}
+                    {
+                        "args": tc["args"],
+                        "result": payload,
+                        "step": state.step_count,
+                        "id": tc["id"],
+                    }
                 )
                 continue
 
@@ -364,7 +382,12 @@ def build_agent_graph(
                 ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
             )
             scratch_updates.setdefault(tc["name"], []).append(
-                {"args": tc["args"], "result": result, "step": state.step_count}
+                {
+                    "args": tc["args"],
+                    "result": result,
+                    "step": state.step_count,
+                    "id": tc["id"],
+                }
             )
 
         merged_scratch = dict(state.scratch)

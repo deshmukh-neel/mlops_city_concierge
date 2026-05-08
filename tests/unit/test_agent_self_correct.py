@@ -578,6 +578,87 @@ async def test_diagnose_handles_no_scratch_entry() -> None:
     assert _diagnose_last_tool_result(state) is None
 
 
+async def test_diagnose_walks_every_tool_call_in_round() -> None:
+    """When the LLM issues multiple tool_calls in one AIMessage, the
+    diagnostic must see all of them and return the first hint in tool_call
+    order — not just the last one."""
+    from langchain_core.messages import ToolMessage
+
+    from app.agent.graph import _diagnose_last_tool_result
+
+    state = ItineraryState(
+        messages=[
+            HumanMessage(content="hi"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "semantic_search", "id": "a", "args": {"query": "x"}},
+                    {"name": "nearby", "id": "b", "args": {"place_id": "p1"}},
+                ],
+            ),
+            ToolMessage(content="<unused>", tool_call_id="a"),
+            ToolMessage(content="<unused>", tool_call_id="b"),
+        ],
+        scratch={
+            # First call returned [] (bad); second returned a healthy hit.
+            "semantic_search": [
+                {"args": {"query": "x"}, "result": [], "step": 0, "id": "a"},
+            ],
+            "nearby": [
+                {
+                    "args": {"place_id": "p1"},
+                    "result": [_hit()],
+                    "step": 0,
+                    "id": "b",
+                },
+            ],
+        },
+    )
+    hint = _diagnose_last_tool_result(state)
+    assert hint is not None
+    # Tool-call order: semantic_search came first; its empty result wins.
+    assert hint.reason == "empty_results"
+
+
+async def test_diagnose_pairs_by_tool_call_id() -> None:
+    """Two calls of the same tool in one round must each match their own
+    scratch entry by id, not blur into max(step)."""
+    from langchain_core.messages import ToolMessage
+
+    from app.agent.graph import _diagnose_last_tool_result
+
+    state = ItineraryState(
+        messages=[
+            HumanMessage(content="hi"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "nearby", "id": "first", "args": {"place_id": "p1"}},
+                    {"name": "nearby", "id": "second", "args": {"place_id": "p2"}},
+                ],
+            ),
+            ToolMessage(content="<unused>", tool_call_id="first"),
+            ToolMessage(content="<unused>", tool_call_id="second"),
+        ],
+        scratch={
+            "nearby": [
+                # First (id="first") was bad — empty.
+                {"args": {"place_id": "p1"}, "result": [], "step": 0, "id": "first"},
+                # Second (id="second") was healthy.
+                {
+                    "args": {"place_id": "p2"},
+                    "result": [_hit()],
+                    "step": 0,
+                    "id": "second",
+                },
+            ],
+        },
+    )
+    hint = _diagnose_last_tool_result(state)
+    assert hint is not None
+    assert hint.reason == "empty_results"
+
+
 # -------- Vibe pass wired into the graph --------------------------------------
 
 
