@@ -184,3 +184,127 @@ async def test_step_and_itinerary_critiques_compose(monkeypatch) -> None:
     # One stop committed, no itinerary violations triggered (stub returned []).
     assert len(out["stops"]) == 1
     assert out["stops"][0].place_id == "p1"
+
+
+async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> None:
+    """Full revision loop: bad search -> good search -> commit -> itinerary
+    check fails -> revised commit -> itinerary check passes -> finalize.
+
+    Verifies that step-level and itinerary-level retry counters track
+    independently and accumulate correctly across alternating revisions."""
+    # Search returns empty once, then good results.
+    search_calls = []
+
+    def _search(**kw):
+        search_calls.append(kw)
+        return [] if len(search_calls) == 1 else [_hit("p1"), _hit("p2")]
+
+    monkeypatch.setattr("app.agent.tools._semantic_search", _search)
+
+    # First itinerary check after first commit fails geographic_coherence;
+    # second check (after revised commit) passes.
+    violation_calls = {"n": 0}
+
+    def _violations(_state):
+        violation_calls["n"] += 1
+        return ["geographic_coherence"] if violation_calls["n"] == 1 else []
+
+    monkeypatch.setattr("app.agent.graph.itinerary_violations", _violations)
+
+    fake = _Scripted(
+        scripted=[
+            # 1) empty search (triggers per-step empty_results hint)
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "1",
+                        "args": {"query": "x", "filters": {"price_level_max": 1}},
+                    }
+                ],
+            ),
+            # 2) revised search returns 2 hits
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "2",
+                        "args": {"query": "x", "filters": {}},
+                    }
+                ],
+            ),
+            # 3) first commit_itinerary
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "commit_itinerary",
+                        "id": "3",
+                        "args": {
+                            "stops": [
+                                {
+                                    "place_id": "p1",
+                                    "name": "P1",
+                                    "source": "google_places",
+                                    "rationale": "first",
+                                },
+                                {
+                                    "place_id": "p2",
+                                    "name": "P2",
+                                    "source": "google_places",
+                                    "rationale": "second",
+                                },
+                            ]
+                        },
+                    }
+                ],
+            ),
+            # 4) finalize attempt — triggers per-itinerary geographic check fail
+            AIMessage(content="here's the plan", tool_calls=[]),
+            # 5) revised commit_itinerary after the [critique:itinerary] hint
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "commit_itinerary",
+                        "id": "4",
+                        "args": {
+                            "stops": [
+                                {
+                                    "place_id": "p1",
+                                    "name": "P1",
+                                    "source": "google_places",
+                                    "rationale": "kept",
+                                },
+                                {
+                                    "place_id": "p2",
+                                    "name": "P2",
+                                    "source": "google_places",
+                                    "rationale": "swapped",
+                                },
+                            ]
+                        },
+                    }
+                ],
+            ),
+            # 6) finalize for real
+            AIMessage(content="revised plan", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=10)
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="plan it")]))
+
+    assert out["done"] is True
+    # Both revision counters incremented exactly once each — they don't share state.
+    assert out["revision_counts"]["empty_results"] == 1
+    assert out["revision_counts"]["geographic_coherence"] == 1
+    # And both kinds of hints landed on revision_hints, in the order they fired.
+    reasons = [h.reason for h in out["revision_hints"]]
+    assert reasons == ["empty_results", "geographic_incoherence"]
+    # Stops survived both revisions.
+    assert len(out["stops"]) == 2
+    # The final reply came from the LLM's revised finalize message — not a caveat.
+    assert out["final_reply"] == "revised plan"
+    assert "Caveats:" not in (out["final_reply"] or "")
