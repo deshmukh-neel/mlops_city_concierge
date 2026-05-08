@@ -97,5 +97,6 @@ def test_place_card_serialization_keys() -> None:
         "arrival_time",
         "rationale",
         "booking_url",
+        "booking_provider",
     }
     assert set(payload.keys()) == expected_keys

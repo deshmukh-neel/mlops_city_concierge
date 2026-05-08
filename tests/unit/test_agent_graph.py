@@ -3,15 +3,18 @@ of tool calls. Verifies plan->act->critique loops correctly and terminates."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
+from unittest.mock import patch
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from app.agent.graph import _prune_for_llm, build_agent_graph
-from app.agent.state import ItineraryState
+from app.agent.graph import _commit_stops, _prune_for_llm, build_agent_graph
+from app.agent.state import ItineraryState, UserConstraints
+from app.tools.booking import BookingProposal
 from app.tools.retrieval import PlaceHit
 
 
@@ -271,3 +274,57 @@ def test_prune_for_llm_drops_oldest_tool_exchanges() -> None:
     # the tool_calls so the LLM doesn't see an unanswered call.
     ai_with_tools = [m for m in pruned if isinstance(m, AIMessage) and m.tool_calls]
     assert len(ai_with_tools) == 2  # the two most recent
+
+
+def _state_with_grounded(place_ids: list[str], party_size: int = 2) -> ItineraryState:
+    """Build a state where the given place_ids appear in scratch, so
+    _commit_stops considers them grounded."""
+    hits = [
+        PlaceHit(place_id=pid, name=f"Place {pid}", source="google_places", similarity=0.9)
+        for pid in place_ids
+    ]
+    return ItineraryState(
+        scratch={"semantic_search": [{"args": {}, "result": hits, "step": 0, "id": "s1"}]},
+        constraints=UserConstraints(party_size=party_size, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+
+def test_commit_stops_enriches_with_booking() -> None:
+    """Auto-enrichment must stamp booking_url + booking_provider on every
+    committed stop, without the LLM needing to call propose_booking."""
+    state = _state_with_grounded(["p1", "p2"])
+    raw_stops = [
+        {"place_id": "p1", "name": "Place p1", "rationale": "first", "source": "google_places"},
+        {"place_id": "p2", "name": "Place p2", "rationale": "second", "source": "google_places"},
+    ]
+
+    def fake_propose(place_id: str, when: datetime, party_size: int) -> BookingProposal:
+        return BookingProposal(
+            place_id=place_id,
+            provider="resy",
+            booking_url=f"https://resy.com/{place_id}?seats={party_size}",
+        )
+
+    with patch("app.agent.graph.propose_booking", side_effect=fake_propose):
+        committed, payload = _commit_stops(state, raw_stops)
+
+    assert payload["committed"] == ["p1", "p2"]
+    assert all(s.booking_url is not None for s in committed)
+    assert all(s.booking_provider == "resy" for s in committed)
+    assert "p1" in committed[0].booking_url
+    assert "seats=2" in committed[0].booking_url
+
+
+def test_commit_stops_enrichment_swallows_propose_booking_errors() -> None:
+    """A failure inside propose_booking (e.g. transient DB miss) must not
+    break commit; the stop is committed without a booking link instead."""
+    state = _state_with_grounded(["p1"])
+    raw_stops = [
+        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+    ]
+    with patch("app.agent.graph.propose_booking", side_effect=RuntimeError("db down")):
+        committed, payload = _commit_stops(state, raw_stops)
+
+    assert payload["committed"] == ["p1"]
+    assert committed[0].booking_url is None
+    assert committed[0].booking_provider is None
