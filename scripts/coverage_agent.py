@@ -23,7 +23,7 @@ import logging
 import re
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import mlflow
@@ -57,7 +57,7 @@ def gather_stats(days: int) -> list[CoverageStat]:
     counts, and a single 'recent_query' row reporting query diversity in
     the last `days`.
     """
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     sql = """
         WITH neighborhoods AS (
             SELECT
@@ -219,7 +219,7 @@ def log_to_mlflow(
     dry_run: bool,
 ) -> None:
     mlflow.set_experiment("coverage_agent")
-    run_name = f"coverage-{datetime.utcnow().isoformat(timespec='seconds')}"
+    run_name = f"coverage-{datetime.now(UTC).isoformat(timespec='seconds')}"
     with mlflow.start_run(run_name=run_name):
         mlflow.log_param("dry_run", dry_run)
         mlflow.log_metric("gaps_found", len(gaps))
