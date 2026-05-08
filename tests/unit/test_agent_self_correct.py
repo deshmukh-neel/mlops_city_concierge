@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -572,6 +573,34 @@ async def test_diagnose_walks_every_tool_call_in_round() -> None:
     assert hint is not None
     # Tool-call order: semantic_search came first; its empty result wins.
     assert hint.reason == "empty_results"
+
+
+@pytest.mark.parametrize(
+    ("check", "expected_reason", "expected_action"),
+    [
+        ("geographic_coherence", "geographic_incoherence", "tighten_radius"),
+        ("temporal_coherence", "temporal_incoherence", "shift_arrival_time"),
+        (
+            "walking_budget_respected",
+            "walking_budget_exceeded",
+            "rebalance_walking_budget",
+        ),
+        ("no_hallucinated_place_ids", "hallucinated_place_id", "swap_stop"),
+        ("unknown_check_name", "constraint_unmet_in_final", "swap_stop"),
+    ],
+)
+def test_hint_for_violation_maps_each_check(
+    check: str, expected_reason: str, expected_action: str
+) -> None:
+    """Every check name supported by itinerary_violations() must map to a
+    structured RevisionHint. The catch-all (anything unmapped) must produce
+    a `constraint_unmet_in_final` hint rather than crash."""
+    from app.agent.graph import _hint_for_violation
+
+    state = ItineraryState(stops=[make_stop("p1", name="A"), make_stop("p2", name="B")])
+    hint = _hint_for_violation(check, state)
+    assert hint.reason == expected_reason
+    assert hint.suggested_action == expected_action
 
 
 async def test_diagnose_pairs_by_tool_call_id() -> None:
