@@ -92,9 +92,15 @@ def test_proposals_table_exists() -> None:
 
 
 def test_apply_inserts_proposal_row(_seeded_sparse_bucket, monkeypatch) -> None:
-    """End-to-end: gather → propose (mocked LLM) → insert lands a real row."""
+    """End-to-end: gather → propose (mocked LLM) → insert lands a real row.
+
+    Also asserts that an LLM proposal that collides with the static seed list
+    (`vietnamese restaurants in San Francisco`) is filtered out before insert,
+    not silently accepted.
+    """
     marker = f"w5-int-{uuid.uuid4().hex[:8]}"
     proposal_text = f"{marker} burmese restaurants in San Francisco"
+    seed_collision_text = "vietnamese restaurants in San Francisco"
 
     fake_llm = MagicMock()
     fake_llm.invoke.return_value.content = json.dumps(
@@ -103,7 +109,12 @@ def test_apply_inserts_proposal_row(_seeded_sparse_bucket, monkeypatch) -> None:
                 "query_text": proposal_text,
                 "field_mode": "enriched",
                 "rationale": "burmese coverage too thin",
-            }
+            },
+            {
+                "query_text": seed_collision_text,
+                "field_mode": "enriched",
+                "rationale": "should be filtered — already in seed list",
+            },
         ]
     )
     monkeypatch.setattr(coverage_agent.vibe, "make_judge", lambda: fake_llm)
@@ -127,9 +138,15 @@ def test_apply_inserts_proposal_row(_seeded_sparse_bucket, monkeypatch) -> None:
                 [proposal_text],
             )
             row = cur.fetchone()
-        assert row is not None, "proposal row should have been inserted"
+            cur.execute(
+                "SELECT 1 FROM places_ingest_query_proposals WHERE query_text = %s",
+                [seed_collision_text],
+            )
+            collision_row = cur.fetchone()
+        assert row is not None, "marker proposal row should have been inserted"
         assert row[0] == "pending"
         assert "burmese" in row[1]
+        assert collision_row is None, "seed-list collision should have been filtered before insert"
     finally:
         _purge_test_proposals(marker)
 
