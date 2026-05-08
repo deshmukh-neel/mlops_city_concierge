@@ -289,7 +289,7 @@ Manually verify URLs against 3 real SF places (one Resy, one Tock, one no-provid
 
 ## Status
 
-**Status:** 🚧 In review on `feature/agent-w4-booking-stub` (2026-05-07). Tool surface and frontend contract delivered; deviates from plan in one place (see below).
+**Status:** ✅ Merged ([#75](https://github.com/deshmukh-neel/mlops_city_concierge/pull/75), 2026-05-08). Tool surface, deterministic auto-enrichment, three-tier fallback (provider → website → Google Maps), batched DB read, and frontend contract all delivered. Deviates from plan in one place (see below); Playwright automation deferred to a follow-up PR.
 
 Deviations from the original plan:
 
