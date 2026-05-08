@@ -124,6 +124,48 @@ per-`primary_type` durations: restaurant=90, bar=60, etc.
 logged user-overrides in `state.scratch` — not from intuition. Add a small
 analysis script in `scripts/analyze_durations.py` if/when this matters.
 
+## Notes that supersede merged plans
+
+### Judge default flipped to Gemini 3.1 Flash Lite preview (W5 PR)
+
+**What:** W3 (merged) shipped `app/agent/critique/vibe.py` with
+`DEFAULT_JUDGE_PROVIDER='openai'` / `DEFAULT_JUDGE_MODEL='gpt-4o-mini'`. As
+part of W5 the defaults flipped to `provider='gemini'` /
+`model='gemini-3.1-flash-lite-preview'`. W3's plan text and W6's plan text
+still mention `gpt-4o-mini` — those references are historical, not
+prescriptive.
+
+**Why:** user request — `gemini-3.1-flash-lite-preview` is the cheaper
+current-generation Flash tier; same role (cheap rubric judge) and the env
+override mechanism (`EVAL_JUDGE_PROVIDER` / `EVAL_JUDGE_MODEL`) is
+unchanged.
+
+**Trigger:** before W6 implementation, treat the W6 plan's references to
+`gpt-4o-mini` / `gemini-2.5-flash` as out-of-date. The judge is whatever
+`vibe.make_judge()` returns — don't re-derive provider/model in W6.
+
+### Coverage agent does not change runtime agent driver model
+
+**What:** W5 only flipped the **judge** model (vibe / coverage / W6 taste
+rubric). The runtime agent driver stays MLflow-registry-selected via
+`parse_active_model_config` (`app/main.py:99-110`).
+
+**Trigger:** if/when the user wants to swap the runtime agent driver,
+that's a separate change — register a new model version in MLflow and
+promote via `set-production-alias`, no code edit needed.
+
+### `gemini-3.1-flash-lite-preview` not in cost PRICING table
+
+**What:** `app/observability/cost.py:24-32` PRICING dict only knows
+`gemini-2.5-flash`. Calls made with the new judge model record
+`est_cost_usd = 0.0` until pricing is added.
+
+**Trigger:** when judge usage volume matters for cost telemetry (or
+before any cost dashboard is shown to users), add the
+`gemini-3.1-flash-lite-preview` row to PRICING with current per-MTok
+input/output rates from
+<https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite-preview>.
+
 ## Architectural items deliberately deferred
 
 ### Supervisor + specialized subagents

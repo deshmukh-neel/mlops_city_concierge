@@ -14,7 +14,7 @@ W3 landed before W6 and put the deterministic itinerary checks in their canonica
 
 The function signatures in this plan's §`app/eval/itinerary_checker.py` block predate W3; treat them as the conceptual contract and **delete that file from the W6 plan** in favor of importing from `app/agent/critique/checks.py`.
 
-W3 also shipped `app/agent/critique/vibe.py` — the cheap-LLM "vibe coherence" judge that runs at request time when `EVAL_VIBE_CRITIQUE_ENABLED=true`. **W3 now also owns judge construction**: `vibe.make_judge()` reads `EVAL_JUDGE_PROVIDER` (default `openai`) + `EVAL_JUDGE_MODEL` (default `gpt-4o-mini`), and `build_agent_graph(llm, judge_llm=None)` auto-constructs a judge when the env var is on. W6 should **import `vibe.make_judge` rather than re-implementing**:
+W3 also shipped `app/agent/critique/vibe.py` — the cheap-LLM "vibe coherence" judge that runs at request time when `EVAL_VIBE_CRITIQUE_ENABLED=true`. **W3 now also owns judge construction**: `vibe.make_judge()` reads `EVAL_JUDGE_PROVIDER` (default `gemini`) + `EVAL_JUDGE_MODEL` (default `gemini-3.1-flash-lite-preview`, flipped from `gpt-4o-mini` in the W5 PR), and `build_agent_graph(llm, judge_llm=None)` auto-constructs a judge when the env var is on. W6 should **import `vibe.make_judge` rather than re-implementing**:
 
 1. Use `vibe.make_judge()` to build the judge LLM for the offline taste rubric — same model + provider as request-time vibe checks.
 2. Don't re-thread it into `build_agent_graph`; that wiring is done.
