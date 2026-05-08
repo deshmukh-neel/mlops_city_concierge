@@ -1,28 +1,36 @@
 """Cross-stop vibe coherence check via a cheap small model.
 
 Runtime sibling of W6's taste judge — same prompt template, same model
-selection idea, but bounded to 1 call per request and gated by env var.
+selection. Bounded to 1 call per request and gated by env var.
 Catches "fancy Italian → dive bar → fancy dessert" mismatches that the
 deterministic checks can't see.
 
-The graph wiring (constructing the judge LLM, threading it through
-build_agent_graph) is deferred to the W6 PR, where the same judge is
-constructed for offline eval. Until then, calling vibe_check with
-judge_llm=None or with EVAL_VIBE_CRITIQUE_ENABLED unset returns None.
+W6 imports `make_judge` to reuse the same model + provider for offline
+taste scoring on eval runs.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
+from pydantic import SecretStr
 
 from app.agent.state import ItineraryState
+from app.config import get_settings
+
+_log = logging.getLogger(__name__)
 
 VIBE_THRESHOLD = 3.0  # 0-5 rubric; below this triggers one revision pass.
 VIBE_ENV_VAR = "EVAL_VIBE_CRITIQUE_ENABLED"
+JUDGE_MODEL_ENV_VAR = "EVAL_JUDGE_MODEL"
+JUDGE_PROVIDER_ENV_VAR = "EVAL_JUDGE_PROVIDER"
+DEFAULT_JUDGE_MODEL = "gpt-4o-mini"
+DEFAULT_JUDGE_PROVIDER = "openai"
 
 VIBE_PROMPT = """Rate the vibe coherence of this {n_stops}-stop itinerary on a
 0-5 scale where 5 = perfectly matched vibes, 0 = jarring mismatch.
@@ -79,3 +87,41 @@ def vibe_check(state: ItineraryState, judge_llm: Any | None) -> float | None:
 
 def is_enabled() -> bool:
     return os.getenv(VIBE_ENV_VAR, "false").lower() == "true"
+
+
+def make_judge() -> BaseChatModel | None:
+    """Construct the cheap LLM used for vibe scoring. Returns None on missing
+    credentials so callers can degrade gracefully.
+
+    Provider + model are env-driven so W3 (runtime) and W6 (offline eval)
+    pick the same judge without sharing build code.
+    """
+    provider = os.getenv(JUDGE_PROVIDER_ENV_VAR, DEFAULT_JUDGE_PROVIDER).lower()
+    model = os.getenv(JUDGE_MODEL_ENV_VAR, DEFAULT_JUDGE_MODEL)
+    s = get_settings()
+    try:
+        if provider == "openai":
+            if not s.openai_api_key:
+                _log.warning("vibe judge requested but OPENAI_API_KEY missing; skipping")
+                return None
+            from langchain_openai import ChatOpenAI
+
+            return ChatOpenAI(model=model, api_key=SecretStr(s.openai_api_key), temperature=0.0)
+        if provider == "gemini":
+            if not s.gemini_api_key:
+                _log.warning("vibe judge requested but GEMINI_API_KEY missing; skipping")
+                return None
+            from langchain_google_genai import ChatGoogleGenerativeAI
+
+            return ChatGoogleGenerativeAI(
+                model=model,
+                google_api_key=SecretStr(s.gemini_api_key),
+                temperature=0.0,
+            )
+    except Exception as e:  # noqa: BLE001
+        _log.warning(
+            "vibe judge construction failed (provider=%s model=%s): %s", provider, model, e
+        )
+        return None
+    _log.warning("unknown vibe judge provider %r; skipping", provider)
+    return None
