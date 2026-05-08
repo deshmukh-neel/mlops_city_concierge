@@ -27,7 +27,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", resolve_alembic_database_url())
+# Escape % for configparser — IAM tokens used as Cloud SQL passwords contain
+# literal % characters that would otherwise be read as interpolation syntax.
+config.set_main_option("sqlalchemy.url", resolve_alembic_database_url().replace("%", "%%"))
 
 # Migrations are hand-written SQL via op.execute() — autogenerate is off.
 target_metadata = None
