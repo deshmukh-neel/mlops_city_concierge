@@ -63,7 +63,7 @@ class UserConstraints(BaseModel):
     budget_per_person_max: int | None = None  # USD
     price_level_max: int | None = None  # 0-4 (Google)
     min_rating: float | None = None
-    min_user_rating_count: int = 50  # quality floor (W1 default)
+    min_user_rating_count: int | None = None  # only set when user expresses it
     when: datetime | None = None  # arrival time for stop 1
     neighborhood: str | None = None
     vibes: list[str] = Field(default_factory=list)  # free-text tags
