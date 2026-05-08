@@ -315,16 +315,60 @@ def test_commit_stops_enriches_with_booking() -> None:
     assert "seats=2" in committed[0].booking_url
 
 
-def test_commit_stops_enrichment_swallows_propose_booking_errors() -> None:
-    """A failure inside propose_booking (e.g. transient DB miss) must not
-    break commit; the stop is committed without a booking link instead."""
+def test_commit_stops_enrichment_swallows_value_error_for_unknown_place_id() -> None:
+    """A ValueError from propose_booking (the documented recoverable case —
+    place_id not in DB) must not break commit; the stop is committed without a
+    booking link instead."""
     state = _state_with_grounded(["p1"])
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
-    with patch("app.agent.graph.propose_booking", side_effect=RuntimeError("db down")):
+    with patch(
+        "app.agent.graph.propose_booking",
+        side_effect=ValueError("unknown place_id p1"),
+    ):
         committed, payload = _commit_stops(state, raw_stops)
 
     assert payload["committed"] == ["p1"]
     assert committed[0].booking_url is None
     assert committed[0].booking_provider is None
+
+
+def test_commit_stops_enrichment_swallows_psycopg_db_blip() -> None:
+    """A transient DB error during enrichment shouldn't kill the whole commit
+    — the user still gets the planned stops, just without booking links."""
+    import psycopg2
+
+    state = _state_with_grounded(["p1"])
+    raw_stops = [
+        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+    ]
+    with patch(
+        "app.agent.graph.propose_booking",
+        side_effect=psycopg2.OperationalError("connection blip"),
+    ):
+        committed, payload = _commit_stops(state, raw_stops)
+
+    assert payload["committed"] == ["p1"]
+    assert committed[0].booking_url is None
+    assert committed[0].booking_provider is None
+
+
+def test_commit_stops_enrichment_propagates_programmer_errors() -> None:
+    """Bugs in enrichment (TypeError, AttributeError, etc.) must NOT be
+    silently swallowed — that's how regressions ship to prod undetected. Only
+    the documented recoverable cases (missing place_id, DB blip) are caught."""
+    import pytest
+
+    state = _state_with_grounded(["p1"])
+    raw_stops = [
+        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+    ]
+    with (
+        patch(
+            "app.agent.graph.propose_booking",
+            side_effect=TypeError("propose_booking() got an unexpected kwarg"),
+        ),
+        pytest.raises(TypeError),
+    ):
+        _commit_stops(state, raw_stops)

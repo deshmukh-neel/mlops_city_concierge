@@ -18,6 +18,7 @@ import logging
 from datetime import datetime
 from typing import Any, Literal
 
+import psycopg2
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
@@ -113,7 +114,12 @@ def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
         when = stop.arrival_time or fallback_when
         try:
             proposal = propose_booking(stop.place_id, when, party_size)
-        except Exception:  # noqa: BLE001
+        except (ValueError, psycopg2.Error):
+            # Recoverable: missing place_id (ValueError from propose_booking)
+            # or transient DB blip (psycopg2.Error). Skip enrichment for this
+            # stop; the rest of the commit still ships. Programmer errors
+            # (TypeError, AttributeError, etc.) propagate so we hear about
+            # the bug instead of silently shipping cards with no booking link.
             logger.warning(
                 "booking enrichment failed for place_id=%s",
                 stop.place_id,
