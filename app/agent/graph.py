@@ -21,6 +21,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
+from app.agent.critique import vibe
 from app.agent.critique.checks import itinerary_violations
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.state import ItineraryState, RevisionHint, Stop
@@ -287,10 +288,23 @@ def _final_with_caveats(last_content: str, violations: list[str]) -> str:
     return (last_content or "") + caveats
 
 
-def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
+def build_agent_graph(
+    llm: BaseChatModel,
+    max_steps: int = 8,
+    judge_llm: BaseChatModel | None = None,
+):
+    """Construct the agent graph.
+
+    `judge_llm` is the cheap model used for vibe coherence scoring. If None
+    and EVAL_VIBE_CRITIQUE_ENABLED=true, one is constructed via
+    vibe.make_judge() at graph-build time. If construction fails (missing
+    creds, unknown provider) the vibe pass is silently skipped.
+    """
     tools = all_tools()
     llm_with_tools = llm.bind_tools(tools)
     tool_by_name = {t.name: t for t in tools}
+    if judge_llm is None and vibe.is_enabled():
+        judge_llm = vibe.make_judge()
 
     async def plan(state: ItineraryState) -> dict[str, Any]:
         messages_in: list[BaseMessage] = list(state.messages)
@@ -417,7 +431,33 @@ def build_agent_graph(llm: BaseChatModel, max_steps: int = 8):
                 update["final_reply"] = _final_with_caveats(last_content, violations)
                 return update
 
-            # All deterministic checks passed; finalize.
+            # Deterministic checks passed; one cheap-LLM vibe pass before shipping.
+            score = vibe.vibe_check(state, judge_llm)
+            if (
+                score is not None
+                and score < vibe.VIBE_THRESHOLD
+                and _can_retry(state, "vibe_mismatch")
+            ):
+                hint = RevisionHint(
+                    reason="vibe_mismatch",
+                    detail=f"Cross-stop vibe coherence scored {score:.1f}/5.",
+                    suggested_action="swap_stop",
+                    target={},
+                )
+                update["revision_hints"] = [*state.revision_hints, hint]
+                update["revision_counts"] = _bumped_counts(state, "vibe_mismatch")
+                update["messages"] = [
+                    HumanMessage(
+                        content=(
+                            f"[critique:vibe] cross-stop vibe coherence scored "
+                            f"{score:.1f}/5. Swap whichever stop feels off and "
+                            f"re-call commit_itinerary."
+                        )
+                    )
+                ]
+                update["done"] = False
+                return update
+
             update["done"] = True
             update["final_reply"] = state.final_reply or last_content
             return update

@@ -23,6 +23,12 @@ WHEN YOU SEE A `[critique:itinerary]` MESSAGE (a post-commit_itinerary hint):
 - "hallucinated_place_id": one or more committed place_ids don't exist in
   the DB. Only commit place_ids you've seen in a tool result.
 
+WHEN YOU SEE A `[critique:vibe]` MESSAGE (cross-stop vibe mismatch):
+
+- The chosen stops technically pass the deterministic checks but feel
+  incoherent together (e.g. fancy Italian -> dive bar -> fancy dessert).
+  Swap whichever stop feels off and re-call commit_itinerary.
+
 If you've revised twice for the same hint reason and still can't satisfy,
 ASK THE USER A CLARIFYING QUESTION. Better to ask than to lie.
 """

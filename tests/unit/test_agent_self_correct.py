@@ -576,3 +576,146 @@ async def test_diagnose_handles_no_scratch_entry() -> None:
 
     state = ItineraryState(messages=[HumanMessage(content="hi")])
     assert _diagnose_last_tool_result(state) is None
+
+
+# -------- Vibe pass wired into the graph --------------------------------------
+
+
+class _StubJudge:
+    """Minimal judge LLM: returns a scripted JSON score string."""
+
+    def __init__(self, score: float) -> None:
+        self._score = score
+        self.calls = 0
+
+    def invoke(self, _msgs):  # pragma: no cover - exact wire format unused
+        self.calls += 1
+        return AIMessage(content=f'{{"score": {self._score}, "rationale": "stub"}}')
+
+
+async def test_vibe_pass_injects_revision_when_below_threshold(monkeypatch) -> None:
+    """Deterministic checks pass, vibe scores below threshold -> hint and
+    re-plan, not finalize."""
+    monkeypatch.setattr("app.agent.graph.itinerary_violations", lambda _state: [])
+    monkeypatch.setenv(vibe.VIBE_ENV_VAR, "true")
+
+    judge = _StubJudge(score=2.0)  # below VIBE_THRESHOLD=3.0
+    state = ItineraryState(
+        messages=[HumanMessage(content="date night")],
+        stops=[
+            Stop(place_id="p1", name="A", source="google_places", rationale=""),
+            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+        ],
+    )
+    fake = _make_fake(
+        [
+            AIMessage(content="initial plan", tool_calls=[]),
+            AIMessage(content="revised plan", tool_calls=[]),
+        ]
+    )
+    # After the first vibe call, raise the score so the second pass clears.
+    second_judge = _StubJudge(score=4.5)
+    judges = [judge, second_judge]
+
+    def _fake_vibe_check(_state, _judge):
+        return judges.pop(0)._score if judges else 4.5
+
+    monkeypatch.setattr("app.agent.graph.vibe.vibe_check", _fake_vibe_check)
+
+    graph = build_agent_graph(fake, max_steps=4, judge_llm=judge)
+    out = await graph.ainvoke(state)
+
+    assert any(h.reason == "vibe_mismatch" for h in out["revision_hints"])
+    assert out["revision_counts"]["vibe_mismatch"] == 1
+    assert out["done"] is True
+    assert out["final_reply"] == "revised plan"
+
+
+async def test_vibe_pass_skips_when_judge_none(monkeypatch) -> None:
+    """No judge wired (env disabled, or make_judge returned None) -> finalize
+    without a vibe pass even if vibe_check would normally fire."""
+    monkeypatch.setattr("app.agent.graph.itinerary_violations", lambda _state: [])
+
+    state = ItineraryState(
+        messages=[HumanMessage(content="date night")],
+        stops=[
+            Stop(place_id="p1", name="A", source="google_places", rationale=""),
+            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+        ],
+    )
+    fake = _make_fake([AIMessage(content="my plan", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4, judge_llm=None)
+    # Ensure no env-var path constructs a judge.
+    monkeypatch.delenv(vibe.VIBE_ENV_VAR, raising=False)
+
+    out = await graph.ainvoke(state)
+
+    assert out["done"] is True
+    assert all(h.reason != "vibe_mismatch" for h in out["revision_hints"])
+
+
+async def test_vibe_pass_respects_retry_budget(monkeypatch) -> None:
+    """Once vibe_mismatch hits MAX_REVISIONS_PER_REASON, finalize with the
+    current plan rather than loop forever."""
+    monkeypatch.setattr("app.agent.graph.itinerary_violations", lambda _state: [])
+    monkeypatch.setattr("app.agent.graph.vibe.vibe_check", lambda *_a, **_k: 1.0)
+
+    state = ItineraryState(
+        messages=[HumanMessage(content="date night")],
+        stops=[
+            Stop(place_id="p1", name="A", source="google_places", rationale=""),
+            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+        ],
+        revision_counts={"vibe_mismatch": MAX_REVISIONS_PER_REASON},
+    )
+    fake = _make_fake([AIMessage(content="ship it", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4, judge_llm=_StubJudge(1.0))
+    out = await graph.ainvoke(state)
+
+    assert out["done"] is True
+    assert out["final_reply"] == "ship it"
+
+
+async def test_vibe_pass_skipped_when_violations_present(monkeypatch) -> None:
+    """If deterministic checks fail, we never burn a vibe-judge call — the
+    deterministic revision takes precedence."""
+    monkeypatch.setattr(
+        "app.agent.graph.itinerary_violations",
+        lambda _state: ["geographic_coherence"],
+    )
+    judge_calls = {"n": 0}
+
+    def _vibe(*_a, **_k):
+        judge_calls["n"] += 1
+        return 1.0
+
+    monkeypatch.setattr("app.agent.graph.vibe.vibe_check", _vibe)
+
+    state = ItineraryState(
+        messages=[HumanMessage(content="hi")],
+        stops=[
+            Stop(place_id="p1", name="A", source="google_places", rationale=""),
+            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+        ],
+        revision_counts={"geographic_coherence": MAX_REVISIONS_PER_REASON},  # exhausted
+    )
+    fake = _make_fake([AIMessage(content="best effort", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4, judge_llm=_StubJudge(1.0))
+    out = await graph.ainvoke(state)
+
+    assert judge_calls["n"] == 0
+    assert "Caveats:" in (out["final_reply"] or "")
+
+
+def test_make_judge_returns_none_without_creds(monkeypatch) -> None:
+    """If neither OPENAI nor GEMINI key is set, make_judge logs and returns
+    None rather than raising."""
+    monkeypatch.setattr("app.agent.critique.vibe.get_settings", lambda: _NoCreds())
+    monkeypatch.delenv(vibe.JUDGE_PROVIDER_ENV_VAR, raising=False)
+    monkeypatch.delenv(vibe.JUDGE_MODEL_ENV_VAR, raising=False)
+    assert vibe.make_judge() is None
+
+
+class _NoCreds:
+    openai_api_key = ""
+    gemini_api_key = ""
