@@ -306,6 +306,98 @@ def _final_with_caveats(last_content: str, violations: list[str]) -> str:
     return (last_content or "") + caveats
 
 
+def _last_ai_content(last: BaseMessage | None) -> str:
+    return last.content if isinstance(last, AIMessage) and isinstance(last.content, str) else ""
+
+
+def _short_circuit_max_steps(state: ItineraryState) -> dict[str, Any]:
+    return {
+        "done": True,
+        "final_reply": state.final_reply
+        or "I hit the planning step limit. Here is the best plan I had so far.",
+    }
+
+
+def _finalize_as_is(state: ItineraryState, last: BaseMessage | None) -> dict[str, Any]:
+    return {"done": True, "final_reply": state.final_reply or _last_ai_content(last)}
+
+
+def _critique_final_with_stops(
+    state: ItineraryState,
+    last: BaseMessage | None,
+    judge_llm: BaseChatModel | None,
+) -> dict[str, Any]:
+    """Run deterministic checks; if any fail, drive a revision (or ship with
+    caveats once budgets are exhausted). If they all pass, run the optional
+    cheap-LLM vibe check; if that fails, drive a revision. Otherwise finalize."""
+    last_content = _last_ai_content(last)
+    violations = itinerary_violations(state)
+    if violations:
+        actionable = next((v for v in violations if _can_retry(state, v)), None)
+        if actionable is not None:
+            hint = _hint_for_violation(actionable, state)
+            return {
+                "revision_hints": [*state.revision_hints, hint],
+                "revision_counts": _bumped_counts(state, actionable),
+                "messages": [
+                    HumanMessage(
+                        content=(
+                            f"{CRITIQUE_ITINERARY} {actionable}: {hint.detail} "
+                            f"Suggested action: {hint.suggested_action}. "
+                            f"Revise the affected stop(s) and re-call commit_itinerary."
+                        )
+                    )
+                ],
+                "done": False,
+            }
+        return {"done": True, "final_reply": _final_with_caveats(last_content, violations)}
+
+    score = vibe.vibe_check(state, judge_llm)
+    if score is not None and score < vibe.VIBE_THRESHOLD and _can_retry(state, "vibe_mismatch"):
+        hint = RevisionHint(
+            reason="vibe_mismatch",
+            detail=f"Cross-stop vibe coherence scored {score:.1f}/5.",
+            suggested_action="swap_stop",
+            target={},
+        )
+        return {
+            "revision_hints": [*state.revision_hints, hint],
+            "revision_counts": _bumped_counts(state, "vibe_mismatch"),
+            "messages": [
+                HumanMessage(
+                    content=(
+                        f"{CRITIQUE_VIBE} cross-stop vibe coherence scored "
+                        f"{score:.1f}/5. Swap whichever stop feels off and "
+                        f"re-call commit_itinerary."
+                    )
+                )
+            ],
+            "done": False,
+        }
+
+    return {"done": True, "final_reply": state.final_reply or last_content}
+
+
+def _critique_step(state: ItineraryState) -> dict[str, Any]:
+    """React to the last tool result. Emit a per-step hint if it was empty,
+    all-closed, low-similarity, or errored. Bounded by retry budget."""
+    hint = _diagnose_last_tool_result(state)
+    if hint is None or not _can_retry(state, hint.reason):
+        return {}
+    return {
+        "revision_hints": [*state.revision_hints, hint],
+        "revision_counts": _bumped_counts(state, hint.reason),
+        "messages": [
+            HumanMessage(
+                content=(
+                    f"{CRITIQUE_STEP} {hint.reason}: {hint.detail} "
+                    f"Suggested next action: {hint.suggested_action} on {hint.target}."
+                )
+            )
+        ],
+    }
+
+
 def build_agent_graph(
     llm: BaseChatModel,
     max_steps: int = 8,
@@ -409,107 +501,23 @@ def build_agent_graph(
         return update
 
     def critique(state: ItineraryState) -> dict[str, Any]:
-        """Two-pass critique:
+        """Route to the appropriate critique branch based on state.
 
-        1. If the LLM is finalizing (no-tool-call AI message) AND we have
-           committed stops, run the deterministic itinerary checks. On any
-           violation we still have retries left for, inject a hint as a
-           HumanMessage and route back to plan. On exhaustion, ship with
-           caveats.
-        2. Otherwise (we just came from `act`), inspect the last tool result
-           and emit a per-step hint if it was empty / all-closed / low-sim /
-           errored. Bounded by MAX_REVISIONS_PER_REASON per failure category.
-        """
-        update: dict[str, Any] = {}
-
+        Branches: max_steps short-circuit → finalizing-with-stops (itinerary
+        + vibe) → finalizing-without-stops (clarifying question) → post-act
+        per-step diagnose. Each branch is a pure function returning the
+        LangGraph update dict."""
         if state.step_count >= max_steps:
-            update["done"] = True
-            update["final_reply"] = state.final_reply or (
-                "I hit the planning step limit. Here is the best plan I had so far."
-            )
-            return update
+            return _short_circuit_max_steps(state)
 
         last = state.messages[-1] if state.messages else None
         finalizing = isinstance(last, AIMessage) and not last.tool_calls
-        last_content = (
-            last.content if isinstance(last, AIMessage) and isinstance(last.content, str) else ""
-        )
 
         if finalizing and state.stops:
-            violations = itinerary_violations(state)
-            if violations:
-                actionable = next((v for v in violations if _can_retry(state, v)), None)
-                if actionable is not None:
-                    hint = _hint_for_violation(actionable, state)
-                    update["revision_hints"] = [*state.revision_hints, hint]
-                    update["revision_counts"] = _bumped_counts(state, actionable)
-                    update["messages"] = [
-                        HumanMessage(
-                            content=(
-                                f"{CRITIQUE_ITINERARY} {actionable}: {hint.detail} "
-                                f"Suggested action: {hint.suggested_action}. "
-                                f"Revise the affected stop(s) and re-call commit_itinerary."
-                            )
-                        )
-                    ]
-                    update["done"] = False
-                    return update
-                # Exhausted retries on at least one violation; ship with caveats.
-                update["done"] = True
-                update["final_reply"] = _final_with_caveats(last_content, violations)
-                return update
-
-            # Deterministic checks passed; one cheap-LLM vibe pass before shipping.
-            score = vibe.vibe_check(state, judge_llm)
-            if (
-                score is not None
-                and score < vibe.VIBE_THRESHOLD
-                and _can_retry(state, "vibe_mismatch")
-            ):
-                hint = RevisionHint(
-                    reason="vibe_mismatch",
-                    detail=f"Cross-stop vibe coherence scored {score:.1f}/5.",
-                    suggested_action="swap_stop",
-                    target={},
-                )
-                update["revision_hints"] = [*state.revision_hints, hint]
-                update["revision_counts"] = _bumped_counts(state, "vibe_mismatch")
-                update["messages"] = [
-                    HumanMessage(
-                        content=(
-                            f"{CRITIQUE_VIBE} cross-stop vibe coherence scored "
-                            f"{score:.1f}/5. Swap whichever stop feels off and "
-                            f"re-call commit_itinerary."
-                        )
-                    )
-                ]
-                update["done"] = False
-                return update
-
-            update["done"] = True
-            update["final_reply"] = state.final_reply or last_content
-            return update
-
+            return _critique_final_with_stops(state, last, judge_llm)
         if finalizing:
-            # No stops committed yet (e.g. clarifying question). Finalize as-is.
-            update["done"] = True
-            update["final_reply"] = state.final_reply or last_content
-            return update
-
-        # Per-step deterministic critique: react to the last tool result.
-        hint = _diagnose_last_tool_result(state)
-        if hint is not None and _can_retry(state, hint.reason):
-            update["revision_hints"] = [*state.revision_hints, hint]
-            update["revision_counts"] = _bumped_counts(state, hint.reason)
-            update["messages"] = [
-                HumanMessage(
-                    content=(
-                        f"{CRITIQUE_STEP} {hint.reason}: {hint.detail} "
-                        f"Suggested next action: {hint.suggested_action} on {hint.target}."
-                    )
-                )
-            ]
-        return update
+            return _finalize_as_is(state, last)
+        return _critique_step(state)
 
     def route_after_plan(state: ItineraryState) -> Literal["act", "critique"]:
         last = state.messages[-1]
