@@ -25,8 +25,8 @@ from app.agent.graph import (
     MAX_REVISIONS_PER_REASON,
     build_agent_graph,
 )
-from app.agent.state import ItineraryState, Stop, UserConstraints
-from app.tools.retrieval import PlaceHit
+from app.agent.state import ItineraryState, UserConstraints
+from tests.conftest import make_hit, make_stop
 
 
 class _ScriptedLLM(BaseChatModel):
@@ -56,25 +56,7 @@ def _make_fake(scripted: list[AIMessage]) -> _ScriptedLLM:
     return _ScriptedLLM(scripted=list(scripted))
 
 
-def _hit(
-    place_id: str = "p1",
-    similarity: float = 0.9,
-    business_status: str = "OPERATIONAL",
-) -> PlaceHit:
-    return PlaceHit(
-        place_id=place_id,
-        name=place_id.upper(),
-        source="google_places",
-        similarity=similarity,
-        latitude=37.78,
-        longitude=-122.41,
-        rating=4.5,
-        price_level="PRICE_LEVEL_MODERATE",
-        business_status=business_status,
-        primary_type="restaurant",
-        formatted_address="123 Main",
-        snippet=None,
-    )
+_hit = make_hit  # backwards-compat alias for the existing tests in this file
 
 
 # -------- Per-step deterministic critique -------------------------------------
@@ -255,8 +237,8 @@ async def test_itinerary_violation_triggers_revision(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="plan it")],
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
     )
     fake = _make_fake(
@@ -302,8 +284,8 @@ async def test_itinerary_violation_ships_with_caveats_after_exhaustion(monkeypat
     state = ItineraryState(
         messages=[HumanMessage(content="plan it")],
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
         revision_counts={"geographic_coherence": MAX_REVISIONS_PER_REASON},
     )
@@ -323,22 +305,8 @@ def test_geographic_coherence_perfect_when_close() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            Stop(
-                place_id="p1",
-                name="A",
-                source="google_places",
-                rationale="",
-                latitude=37.78,
-                longitude=-122.41,
-            ),
-            Stop(
-                place_id="p2",
-                name="B",
-                source="google_places",
-                rationale="",
-                latitude=37.781,
-                longitude=-122.411,
-            ),
+            make_stop("p1", name="A", latitude=37.78, longitude=-122.41),
+            make_stop("p2", name="B", latitude=37.781, longitude=-122.411),
         ],
     )
     assert geographic_coherence(state) == 1.0
@@ -348,22 +316,8 @@ def test_walking_budget_respected_fails_when_over() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=100),
         stops=[
-            Stop(
-                place_id="p1",
-                name="A",
-                source="google_places",
-                rationale="",
-                latitude=37.78,
-                longitude=-122.41,
-            ),
-            Stop(
-                place_id="p2",
-                name="B",
-                source="google_places",
-                rationale="",
-                latitude=37.80,  # ~2km away
-                longitude=-122.41,
-            ),
+            make_stop("p1", name="A", latitude=37.78, longitude=-122.41),
+            make_stop("p2", name="B", latitude=37.80, longitude=-122.41),  # ~2km away
         ],
     )
     assert walking_budget_respected(state) == 0.0
@@ -376,8 +330,8 @@ def test_vibe_check_returns_none_when_disabled(monkeypatch) -> None:
     monkeypatch.delenv(vibe.VIBE_ENV_VAR, raising=False)
     state = ItineraryState(
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
     )
     # Even with a non-None judge, disabled env var short-circuits to None.
@@ -397,7 +351,7 @@ def test_vibe_check_returns_none_for_single_stop(monkeypatch) -> None:
             raise AssertionError("judge_llm should not be invoked for 1 stop")
 
     state = ItineraryState(
-        stops=[Stop(place_id="p1", name="A", source="google_places", rationale="")],
+        stops=[make_stop("p1", name="A")],
     )
     assert vibe.vibe_check(state, _Judge()) is None
 
@@ -412,8 +366,8 @@ def test_vibe_check_parses_judge_score(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
     )
     assert vibe.vibe_check(state, _Judge()) == 4.2
@@ -430,8 +384,8 @@ def test_vibe_check_returns_none_on_unparseable_json(monkeypatch) -> None:
 
     state = ItineraryState(
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
     )
     assert vibe.vibe_check(state, _Judge()) is None
@@ -469,8 +423,8 @@ async def test_multiple_violations_picks_first_actionable(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="plan")],
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
         # Temporal exhausted; geographic has budget left.
         revision_counts={"temporal_coherence": MAX_REVISIONS_PER_REASON},
@@ -684,8 +638,8 @@ async def test_vibe_pass_injects_revision_when_below_threshold(monkeypatch) -> N
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
     )
     fake = _make_fake(
@@ -720,8 +674,8 @@ async def test_vibe_pass_skips_when_judge_none(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
     )
     fake = _make_fake([AIMessage(content="my plan", tool_calls=[])])
@@ -744,8 +698,8 @@ async def test_vibe_pass_respects_retry_budget(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
         revision_counts={"vibe_mismatch": MAX_REVISIONS_PER_REASON},
     )
@@ -775,8 +729,8 @@ async def test_vibe_pass_skipped_when_violations_present(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="hi")],
         stops=[
-            Stop(place_id="p1", name="A", source="google_places", rationale=""),
-            Stop(place_id="p2", name="B", source="google_places", rationale=""),
+            make_stop("p1", name="A"),
+            make_stop("p2", name="B"),
         ],
         revision_counts={"geographic_coherence": MAX_REVISIONS_PER_REASON},  # exhausted
     )

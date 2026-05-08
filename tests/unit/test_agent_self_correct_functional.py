@@ -17,6 +17,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from app.agent.graph import build_agent_graph
 from app.agent.state import ItineraryState
 from app.tools.retrieval import PlaceHit
+from tests.conftest import make_hit
 
 
 class _Scripted(BaseChatModel):
@@ -41,21 +42,7 @@ class _Scripted(BaseChatModel):
         return self
 
 
-def _hit(place_id: str = "p1") -> PlaceHit:
-    return PlaceHit(
-        place_id=place_id,
-        name=place_id.upper(),
-        source="google_places",
-        similarity=0.9,
-        latitude=37.78,
-        longitude=-122.41,
-        rating=4.5,
-        price_level="PRICE_LEVEL_MODERATE",
-        business_status="OPERATIONAL",
-        primary_type="restaurant",
-        formatted_address="123 Main",
-        snippet=None,
-    )
+_hit = make_hit
 
 
 async def test_agent_drops_filter_on_critique_and_succeeds(monkeypatch) -> None:
