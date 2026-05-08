@@ -9,10 +9,9 @@ Design notes
 ------------
 - LLM is `app.agent.critique.vibe.make_judge()` so the model swap mechanism
   matches the rest of the codebase (env: EVAL_JUDGE_PROVIDER / EVAL_JUDGE_MODEL).
-- Dedup is DB-side via PRIMARY KEY (query_text) + ON CONFLICT DO NOTHING;
-  no prompt-side exclusion list (flagged as future work).
-- Neighborhood extraction is a naive regex against formatted_address; some
-  buckets will be garbage. Acceptable v1 — see Risks in the plan.
+- Proposals are filtered against build_seed_queries() + existing checkpoint
+  and proposal rows before insert, so the proposals table reflects only
+  actually-new coverage.
 """
 
 from __future__ import annotations
