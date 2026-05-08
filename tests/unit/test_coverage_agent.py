@@ -290,6 +290,42 @@ class TestFilterAlreadyCovered:
         assert "vietnamese restaurants in San Francisco" in seeds
 
 
+class _InsertCursor:
+    """Stub cursor that records executes and reports rowcount=1 per execute."""
+
+    def __init__(self, captured: list[tuple]) -> None:
+        self._captured = captured
+        self.rowcount = 0
+
+    def __enter__(self) -> _InsertCursor:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: object) -> None:
+        self._captured.append((sql, params))
+        self.rowcount = 1
+
+
+class _InsertConn:
+    def __init__(self, captured: list[tuple]) -> None:
+        self._captured = captured
+        self.commits = 0
+
+    def __enter__(self) -> _InsertConn:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def cursor(self) -> _InsertCursor:
+        return _InsertCursor(self._captured)
+
+    def commit(self) -> None:
+        self.commits += 1
+
+
 class TestInsertPending:
     def test_dry_run_inserts_nothing_and_prints(self, capsys) -> None:
         proposals = [ProposedQuery("x", "enriched", "y")]
@@ -301,3 +337,25 @@ class TestInsertPending:
 
     def test_no_proposals_returns_zero(self) -> None:
         assert insert_pending([], dry_run=False) == 0
+
+    def test_insert_writes_each_proposal_and_commits(self, monkeypatch) -> None:
+        captured: list[tuple] = []
+        conn = _InsertConn(captured)
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: conn)
+
+        proposals = [
+            ProposedQuery("a in San Francisco", "enriched", "ra"),
+            ProposedQuery("b in San Francisco", "enriched", "rb"),
+        ]
+        n = insert_pending(proposals, dry_run=False)
+
+        assert n == 2  # rowcount=1 per execute, summed
+        assert len(captured) == 2
+        for sql, _params in captured:
+            assert "INSERT INTO places_ingest_query_proposals" in sql
+            assert "ON CONFLICT (query_text) DO NOTHING" in sql
+        assert [params for _, params in captured] == [
+            ["a in San Francisco", "ra"],
+            ["b in San Francisco", "rb"],
+        ]
+        assert conn.commits == 1  # exactly one commit, after the loop
