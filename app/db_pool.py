@@ -95,7 +95,6 @@ def _ensure_db_pool() -> ThreadedConnectionPool:
     if pool is not None:
         return pool
 
-    # init_db_pool re-checks under _pool_lock, so concurrent lazy callers converge safely.
     settings = get_settings()
     database_url = settings.resolved_database_url
     if not database_url:
