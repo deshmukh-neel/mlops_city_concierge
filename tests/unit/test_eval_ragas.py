@@ -13,12 +13,15 @@ from scripts.eval_ragas import (
     RagasRuntime,
     RagasScoreReport,
     aggregate_scores,
+    build_ragas_runtime,
     build_score_report,
     load_input_report,
     log_score_report_to_mlflow,
     metric_result_value,
     numeric_aggregate,
     report_has_metric_errors,
+    resolve_embedding_model,
+    resolve_judge_model,
     score_metric,
     score_query,
     score_report_to_dict,
@@ -153,6 +156,40 @@ def test_selected_metrics_preserves_requested_order() -> None:
         "context_recall",
         "faithfulness",
     ]
+
+
+def test_resolve_judge_model_defaults_anthropic_to_sonnet() -> None:
+    """Use Sonnet as the default third-party judge model."""
+    assert resolve_judge_model("anthropic", None) == "claude-sonnet-4-6"
+    assert resolve_judge_model("anthropic", " custom-claude ") == "custom-claude"
+
+
+def test_resolve_embedding_model_uses_openai_embeddings_for_anthropic() -> None:
+    """Keep embedding-based metrics on the configured OpenAI embedding model."""
+    assert resolve_embedding_model("anthropic", None) == "text-embedding-3-small"
+    assert resolve_embedding_model("anthropic", " custom-embedding ") == "custom-embedding"
+
+
+def test_build_ragas_runtime_dispatches_anthropic(mocker) -> None:
+    """Route Anthropic judge requests to the Claude runtime builder."""
+    build_anthropic_runtime = mocker.patch(
+        "scripts.eval_ragas.build_anthropic_runtime",
+        return_value=RagasRuntime(llm="llm", embeddings="embeddings"),
+    )
+
+    runtime = build_ragas_runtime(
+        "anthropic",
+        judge_model="claude-sonnet-4-6",
+        embedding_model="text-embedding-3-small",
+        temperature=0.0,
+    )
+
+    assert runtime == RagasRuntime(llm="llm", embeddings="embeddings")
+    build_anthropic_runtime.assert_called_once_with(
+        "claude-sonnet-4-6",
+        "text-embedding-3-small",
+        0.0,
+    )
 
 
 def test_metric_result_value_accepts_result_objects_and_floats() -> None:

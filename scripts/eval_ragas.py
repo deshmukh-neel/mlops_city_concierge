@@ -23,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from app.config import get_settings, resolve_llm_api_key  # noqa: E402
 
-JudgeProvider = Literal["openai", "gemini"]
+JudgeProvider = Literal["openai", "gemini", "anthropic"]
 MetricName = Literal[
     "faithfulness",
     "answer_relevancy",
@@ -39,6 +39,7 @@ DEFAULT_METRICS: tuple[MetricName, ...] = (
     "context_recall",
 )
 GEMINI_DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
+ANTHROPIC_DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6"
 RAGAS_INSTALL_HINT = (
     "RAGAS is required for this scorer. Install it in the active environment with "
     "`poetry add 'ragas>=0.4'` or `pip install 'ragas>=0.4'`."
@@ -163,7 +164,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--judge-provider",
-        choices=["openai", "gemini"],
+        choices=["openai", "gemini", "anthropic"],
         default="openai",
         help="Provider used as the RAGAS judge, independent of the candidate report model.",
     )
@@ -221,6 +222,8 @@ def resolve_judge_model(provider: JudgeProvider, judge_model: str | None) -> str
     settings = get_settings()
     if provider == "openai":
         return settings.openai_chat_model
+    if provider == "anthropic":
+        return ANTHROPIC_DEFAULT_JUDGE_MODEL
     return settings.gemini_chat_model
 
 
@@ -228,7 +231,7 @@ def resolve_embedding_model(provider: JudgeProvider, embedding_model: str | None
     """Resolve the embedding model used by embedding-dependent RAGAS metrics."""
     if embedding_model and embedding_model.strip():
         return embedding_model.strip()
-    if provider == "openai":
+    if provider in {"openai", "anthropic"}:
         return get_settings().openai_embedding_model
     return GEMINI_DEFAULT_EMBEDDING_MODEL
 
@@ -303,6 +306,41 @@ def build_gemini_runtime(
     return RagasRuntime(llm=llm, embeddings=embeddings)
 
 
+def build_anthropic_runtime(
+    judge_model: str, embedding_model: str, temperature: float
+) -> RagasRuntime:
+    """Create a Claude judge runtime with OpenAI embeddings for relevancy metrics."""
+    try:
+        from anthropic import AsyncAnthropic
+        from openai import AsyncOpenAI
+        from ragas.embeddings.base import embedding_factory
+        from ragas.llms import llm_factory
+    except ImportError as exc:
+        raise RuntimeError(
+            "Anthropic judging requires `anthropic`, `openai`, and `ragas` in the "
+            "active scoring environment."
+        ) from exc
+
+    anthropic_client = AsyncAnthropic(api_key=resolve_llm_api_key("anthropic"))
+    openai_client = AsyncOpenAI(api_key=resolve_llm_api_key("openai"))
+    llm = llm_factory(
+        judge_model,
+        provider="anthropic",
+        client=anthropic_client,
+        temperature=temperature,
+    )
+    try:
+        embeddings = embedding_factory(
+            "openai",
+            model=embedding_model,
+            client=openai_client,
+            interface="modern",
+        )
+    except TypeError:
+        embeddings = embedding_factory("openai", model=embedding_model, client=openai_client)
+    return RagasRuntime(llm=llm, embeddings=embeddings)
+
+
 def build_ragas_runtime(
     provider: JudgeProvider,
     judge_model: str,
@@ -312,6 +350,8 @@ def build_ragas_runtime(
     """Create the evaluator runtime for the selected judge provider."""
     if provider == "openai":
         return build_openai_runtime(judge_model, embedding_model, temperature)
+    if provider == "anthropic":
+        return build_anthropic_runtime(judge_model, embedding_model, temperature)
     return build_gemini_runtime(judge_model, embedding_model, temperature)
 
 
