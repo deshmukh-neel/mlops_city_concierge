@@ -15,9 +15,11 @@ from scripts.eval_agent import (
     QueryEvalResult,
     aggregate_results,
     answer_place_names_from_state,
+    answer_retrieved_place_coverage,
     contexts_from_state,
     count_tool_calls,
     expected_results_label,
+    rate,
     report_has_errors,
     report_has_violations,
     resolve_chat_model,
@@ -267,6 +269,47 @@ def test_score_expected_results_accepts_counts_inside_range() -> None:
     assert score_expected_results(case, actual) is True
 
 
+def test_rate_handles_empty_denominators() -> None:
+    """Return a stable zero rate for empty eval suites."""
+    assert rate(3, 0) == 0.0
+    assert rate(1, 4) == 0.25
+
+
+def test_answer_retrieved_place_coverage_scores_grounded_answer_names() -> None:
+    """Score how many produced options are visible in retrieved contexts."""
+    assert answer_retrieved_place_coverage(query_result()) == 1.0
+    assert (
+        answer_retrieved_place_coverage(
+            query_result(
+                actual=ActualEvalResult(
+                    result_count=2,
+                    committed_stop_count=0,
+                    place_ids=[],
+                    place_names=["P1", "P2"],
+                    sources=[],
+                    answer_place_names=["P1"],
+                )
+            )
+        )
+        == 0.5
+    )
+    assert (
+        answer_retrieved_place_coverage(
+            query_result(
+                actual=ActualEvalResult(
+                    result_count=0,
+                    committed_stop_count=0,
+                    place_ids=[],
+                    place_names=[],
+                    sources=[],
+                    answer_place_names=[],
+                )
+            )
+        )
+        is None
+    )
+
+
 def test_expected_results_label_formats_range() -> None:
     """Format expected result ranges for eval-only system context."""
     case = eval_case()
@@ -324,13 +367,22 @@ def test_aggregate_results_flattens_mean_metrics() -> None:
 
     assert aggregate["query_count"] == 2
     assert aggregate["queries_with_violations"] == 1
+    assert aggregate["deterministic_pass_rate"] == 0.5
+    assert aggregate["deterministic_violation_rate"] == 0.5
     assert aggregate["expected_results_mismatch_count"] == 1
+    assert aggregate["expected_results_mismatch_rate"] == 0.5
     assert aggregate["tool_error_count"] == 0
     assert aggregate["queries_with_tool_errors"] == 0
+    assert aggregate["tool_error_rate"] == 0.0
+    assert aggregate["tool_success_rate"] == 1.0
     assert aggregate["expected_results_match_rate"] == 0.5
     assert aggregate["results_mean"] == 2.5
     assert aggregate["committed_stops_mean"] == 2.5
+    assert aggregate["committed_itinerary_rate"] == 1.0
     assert aggregate["contexts_mean"] == 1.0
+    assert aggregate["context_presence_rate"] == 1.0
+    assert aggregate["answer_retrieved_place_coverage_mean"] == 0.5
+    assert aggregate["answer_retrieved_place_coverage_count"] == 2
     assert aggregate["tool_calls_mean"] == 3.0
     assert aggregate["revision_hints_mean"] == 0.5
     assert aggregate["constraints_satisfied_mean"] == 0.75

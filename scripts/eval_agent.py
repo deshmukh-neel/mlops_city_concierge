@@ -485,19 +485,44 @@ def mean(values: Sequence[float]) -> float:
     return sum(values) / len(values)
 
 
+def rate(count: int, total: int) -> float:
+    """Return a stable rate for aggregate eval metrics."""
+    if total == 0:
+        return 0.0
+    return count / total
+
+
+def answer_retrieved_place_coverage(result: QueryEvalResult) -> float | None:
+    """Return how many produced place names are visibly grounded in retrieved results."""
+    if result.actual.result_count == 0:
+        return None
+    return min(len(result.actual.answer_place_names) / result.actual.result_count, 1.0)
+
+
 def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | int]:
     """Aggregate per-query deterministic eval results into flat metrics."""
     query_count = len(results)
+    queries_with_violations = sum(1 for result in results if result.deterministic.violations)
+    expected_results_mismatch_count = sum(
+        1 for result in results if result.deterministic.expected_results_met is False
+    )
+    queries_with_tool_errors = sum(1 for result in results if result.deterministic.tool_errors)
+    answer_coverage_scores = [
+        score
+        for result in results
+        if (score := answer_retrieved_place_coverage(result)) is not None
+    ]
     aggregate: dict[str, float | int] = {
         "query_count": query_count,
-        "queries_with_violations": sum(1 for result in results if result.deterministic.violations),
-        "expected_results_mismatch_count": sum(
-            1 for result in results if result.deterministic.expected_results_met is False
-        ),
+        "queries_with_violations": queries_with_violations,
+        "deterministic_pass_rate": 1.0 - rate(queries_with_violations, query_count),
+        "deterministic_violation_rate": rate(queries_with_violations, query_count),
+        "expected_results_mismatch_count": expected_results_mismatch_count,
+        "expected_results_mismatch_rate": rate(expected_results_mismatch_count, query_count),
         "tool_error_count": sum(len(result.deterministic.tool_errors) for result in results),
-        "queries_with_tool_errors": sum(
-            1 for result in results if result.deterministic.tool_errors
-        ),
+        "queries_with_tool_errors": queries_with_tool_errors,
+        "tool_error_rate": rate(queries_with_tool_errors, query_count),
+        "tool_success_rate": 1.0 - rate(queries_with_tool_errors, query_count),
         "check_error_count": sum(
             1
             for result in results
@@ -515,7 +540,13 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
         "committed_stops_mean": mean(
             [float(result.actual.committed_stop_count) for result in results]
         ),
+        "committed_itinerary_rate": mean(
+            [1.0 if result.actual.committed_stop_count > 0 else 0.0 for result in results]
+        ),
         "contexts_mean": mean([float(len(result.contexts)) for result in results]),
+        "context_presence_rate": mean([1.0 if result.contexts else 0.0 for result in results]),
+        "answer_retrieved_place_coverage_mean": mean(answer_coverage_scores),
+        "answer_retrieved_place_coverage_count": len(answer_coverage_scores),
         "tool_calls_mean": mean([float(result.deterministic.tool_calls) for result in results]),
         "revision_hints_mean": mean(
             [float(result.deterministic.revision_hints) for result in results]

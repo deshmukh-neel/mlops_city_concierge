@@ -1,0 +1,349 @@
+{
+  "aggregate": {
+    "answer_relevancy_mean": 0.6491035020125638,
+    "answer_relevancy_scored_count": 5,
+    "context_precision_mean": 0.0,
+    "context_precision_scored_count": 5,
+    "context_recall_mean": 0.0,
+    "context_recall_scored_count": 5,
+    "faithfulness_mean": 0.6821078431372549,
+    "faithfulness_scored_count": 5,
+    "metric_error_count": 0,
+    "queries_with_metric_errors": 0,
+    "query_count": 5
+  },
+  "candidate_chat_model": "gpt-4o-mini",
+  "candidate_llm_provider": "openai",
+  "eval_queries_path": "configs/eval_queries.yaml",
+  "judge_embedding_model": "text-embedding-3-small",
+  "judge_model": "gpt-4o-mini",
+  "judge_provider": "openai",
+  "metrics": [
+    "faithfulness",
+    "answer_relevancy",
+    "context_precision",
+    "context_recall"
+  ],
+  "queries": [
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "north_beach_italian_dinner",
+      "metrics": {
+        "answer_relevancy": 0.8315126232781063,
+        "context_precision": 0.0,
+        "context_recall": 0.0,
+        "faithfulness": 0.7058823529411765
+      },
+      "question": "italian dinner in North Beach on May 16 2026 at 7pm, under $$$",
+      "tags": [
+        "restaurant",
+        "constraint_heavy",
+        "north_beach"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "date_night_dinner_drinks_walkable",
+      "metrics": {
+        "answer_relevancy": 0.7352703339573664,
+        "context_precision": 0.0,
+        "context_recall": 0.0,
+        "faithfulness": 0.35294117647058826
+      },
+      "question": "plan a date night on May 16 2026: dinner then drinks within walking distance, vibes-y, under $$$",
+      "tags": [
+        "multi_stop",
+        "date_night",
+        "walkable"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "mission_vegan_brunch",
+      "metrics": {
+        "answer_relevancy": 0.7984001791143992,
+        "context_precision": 0.0,
+        "context_recall": 0.0,
+        "faithfulness": 0.7058823529411765
+      },
+      "question": "best vegan brunch in the Mission on Saturday May 16 2026 around 11am",
+      "tags": [
+        "brunch",
+        "vegan",
+        "mission"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "soma_quiet_late_cafe",
+      "metrics": {
+        "answer_relevancy": 0.8803343737129473,
+        "context_precision": 0.0,
+        "context_recall": 0.0,
+        "faithfulness": 0.8125
+      },
+      "question": "find a quiet cafe for studying near SOMA open late on Friday May 15 2026",
+      "tags": [
+        "cafe",
+        "late_night",
+        "soma"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "impossible_four_am_five_star",
+      "metrics": {
+        "answer_relevancy": 0.0,
+        "context_precision": 0.0,
+        "context_recall": 0.0,
+        "faithfulness": 0.8333333333333334
+      },
+      "question": "find a 5-star restaurant in San Francisco open at 4am on Sunday May 17 2026",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "late_night"
+      ]
+    }
+  ],
+  "query_count": 5,
+  "source_report_path": "artifacts/eval/openai_gpt4o_mini_eval.json"
+}
