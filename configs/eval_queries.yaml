@@ -7,14 +7,16 @@
 hand_written:
   - id: north_beach_italian_dinner
     query: "italian dinner in North Beach on May 16 2026 at 7pm, under $$$"
-    reference: "A good answer recommends exactly one Italian restaurant in or very near North Beach that is open at 2026-05-16T19:00:00-07:00, costs no more than $$$, and has enough user ratings to avoid thin-signal outliers."
+    reference: "A good answer recommends one to three Italian restaurants in or very near North Beach that are open at 2026-05-16T19:00:00-07:00, cost no more than $$$, and have enough user ratings to avoid thin-signal outliers."
     expected_constraints:
       neighborhood: "North Beach"
       price_level_max: 3
       open_at_iso: "2026-05-16T19:00:00-07:00"
       types_any: ["italian_restaurant", "restaurant"]
       min_user_rating_count: 50
-    expected_stops: 1
+    expected_results:
+      min_stops: 1
+      max_stops: 3
     tags: ["restaurant", "constraint_heavy", "north_beach"]
 
   - id: date_night_dinner_drinks_walkable
@@ -23,7 +25,9 @@ hand_written:
     expected_constraints:
       price_level_max: 3
       min_user_rating_count: 50
-    expected_stops: 2
+    expected_results:
+      min_stops: 2
+      max_stops: 3
     expected_walking_budget_m: 1200
     tags: ["multi_stop", "date_night", "walkable"]
 
@@ -36,7 +40,9 @@ hand_written:
       types_any: ["restaurant", "cafe", "brunch_restaurant"]
       serves_brunch: true
       serves_vegetarian: true
-    expected_stops: 1
+    expected_results:
+      min_stops: 1
+      max_stops: 3
     tags: ["brunch", "vegan", "mission"]
 
   - id: soma_quiet_late_cafe
@@ -47,7 +53,9 @@ hand_written:
       open_at_iso: "2026-05-15T22:00:00-07:00"
       types_any: ["cafe", "coffee_shop"]
       serves_coffee: true
-    expected_stops: 1
+    expected_results:
+      min_stops: 1
+      max_stops: 3
     tags: ["cafe", "late_night", "soma"]
 
   - id: impossible_four_am_five_star

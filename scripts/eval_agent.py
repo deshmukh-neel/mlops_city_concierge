@@ -33,7 +33,12 @@ from app.agent.critique.checks import (  # noqa: E402
 from app.agent.graph import build_agent_graph  # noqa: E402
 from app.agent.state import ItineraryState  # noqa: E402
 from app.config import get_settings, resolve_llm_api_key  # noqa: E402
-from app.eval.config import DEFAULT_EVAL_QUERIES_PATH, EvalQuery, load_eval_queries  # noqa: E402
+from app.eval.config import (  # noqa: E402
+    DEFAULT_EVAL_QUERIES_PATH,
+    EvalQuery,
+    ExpectedResults,
+    load_eval_queries,
+)
 
 LlmProvider = Literal["openai", "gemini"]
 CheckFunction = Callable[[ItineraryState], float]
@@ -50,13 +55,14 @@ EVAL_CONTEXT_TEMPLATE = """Offline eval context:
 - Interpret all San Francisco date/time requests in America/Los_Angeles.
 - If a case's expected open time is provided below, use that exact ISO timestamp
   when setting tool filters.
-- If the expected stop count is 1, answer with exactly one stop and do not ask
-  how many stops the user wants.
+- If an expected result range is provided below, answer with a number of
+  committed stops inside that range and do not ask how many stops the user
+  wants.
 - These instructions provide deterministic eval context; the user's query below
   is the behavior being evaluated.
 
 Expected open time: {open_at}
-Expected stop count: {expected_stops}
+Expected result range: {expected_results}
 """
 
 
@@ -71,20 +77,54 @@ class CheckResult:
 
 
 @dataclass
-class QueryEvalResult:
-    """Per-query deterministic eval output."""
+class ExpectedEvalResult:
+    """Expected behavior metadata for one eval record."""
 
-    case_id: str
-    query: str
-    tags: list[str]
-    expected_stops: int | None
-    stops_count: int
-    expected_stops_met: bool | None
+    min_stops: int | None
+    max_stops: int | None
+    expects_clarification_or_relaxation: bool
+
+
+@dataclass
+class ActualEvalResult:
+    """Actual structured output committed by the agent."""
+
+    result_count: int
+    committed_stop_count: int
+    place_ids: list[str]
+    place_names: list[str]
+    sources: list[str]
+    answer_place_names: list[str]
+
+
+@dataclass
+class DeterministicEvalResult:
+    """Deterministic eval diagnostics for one RAGAS-compatible record."""
+
+    expected_results_met: bool | None
     checks: dict[str, CheckResult]
     violations: list[str]
     tool_errors: list[str]
+    first_tool_error: str | None
     tool_calls: int
+    tool_names: list[str]
     revision_hints: int
+    revision_reasons: list[str]
+
+
+@dataclass
+class QueryEvalResult:
+    """RAGAS-compatible per-query eval output plus deterministic diagnostics."""
+
+    id: str
+    question: str
+    answer: str
+    contexts: list[str]
+    reference: str
+    tags: list[str]
+    expected: ExpectedEvalResult
+    actual: ActualEvalResult
+    deterministic: DeterministicEvalResult
     final_reply: str
 
 
@@ -190,6 +230,63 @@ def count_tool_calls(state: ItineraryState) -> int:
     return sum(len(entries) for entries in state.scratch.values() if isinstance(entries, list))
 
 
+def tool_names_from_state(state: ItineraryState) -> list[str]:
+    """Return tool names that appear in scratchpad insertion order."""
+    names: list[str] = []
+    for tool_name, entries in state.scratch.items():
+        if isinstance(entries, list) and entries:
+            names.append(tool_name)
+    return names
+
+
+def value_from_hit(hit: Any, field_name: str) -> Any:
+    """Read one field from a pydantic model, dict, or generic object."""
+    if isinstance(hit, dict):
+        return hit.get(field_name)
+    return getattr(hit, field_name, None)
+
+
+def context_from_hit(hit: Any) -> str | None:
+    """Format one retrieved place hit as concise context for RAGAS."""
+    name = value_from_hit(hit, "name")
+    snippet = value_from_hit(hit, "snippet")
+    address = value_from_hit(hit, "formatted_address")
+    primary_type = value_from_hit(hit, "primary_type")
+    rating = value_from_hit(hit, "rating")
+    if not name and not snippet:
+        return None
+    parts = [
+        f"name: {name}" if name else None,
+        f"type: {primary_type}" if primary_type else None,
+        f"address: {address}" if address else None,
+        f"rating: {rating}" if rating is not None else None,
+        f"snippet: {snippet}" if snippet else None,
+    ]
+    return " | ".join(part for part in parts if part)
+
+
+def contexts_from_state(state: ItineraryState) -> list[str]:
+    """Extract retrieved text contexts from semantic and nearby tool results."""
+    contexts: list[str] = []
+    seen: set[str] = set()
+    for tool_name in ("semantic_search", "nearby"):
+        entries = state.scratch.get(tool_name)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            result = entry.get("result")
+            if not isinstance(result, list):
+                continue
+            for hit in result:
+                context = context_from_hit(hit)
+                if context and context not in seen:
+                    contexts.append(context)
+                    seen.add(context)
+    return contexts
+
+
 def tool_errors_from_state(state: ItineraryState) -> list[str]:
     """Extract tool error messages captured in the agent scratchpad."""
     errors: list[str] = []
@@ -205,11 +302,79 @@ def tool_errors_from_state(state: ItineraryState) -> list[str]:
     return errors
 
 
-def score_expected_stops(case: EvalQuery, state: ItineraryState) -> bool | None:
-    """Return whether the produced stop count matched the case expectation."""
-    if case.expected_stops is None:
+def revision_reasons_from_state(state: ItineraryState) -> list[str]:
+    """Return critique revision reasons in the order they were emitted."""
+    return [hint.reason for hint in state.revision_hints]
+
+
+def expected_eval_result(case: EvalQuery) -> ExpectedEvalResult:
+    """Build the expected block for the eval report."""
+    expected = case.expected_results
+    return ExpectedEvalResult(
+        min_stops=expected.min_stops if expected else None,
+        max_stops=expected.max_stops if expected else None,
+        expects_clarification_or_relaxation=case.expects_clarification_or_relaxation,
+    )
+
+
+def retrieved_place_names_from_state(state: ItineraryState) -> list[str]:
+    """Return unique place names from retrieval contexts in scratch order."""
+    names: list[str] = []
+    seen: set[str] = set()
+    for tool_name in ("semantic_search", "nearby"):
+        entries = state.scratch.get(tool_name)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            result = entry.get("result")
+            if not isinstance(result, list):
+                continue
+            for hit in result:
+                name = value_from_hit(hit, "name")
+                if isinstance(name, str) and name and name not in seen:
+                    names.append(name)
+                    seen.add(name)
+    return names
+
+
+def answer_place_names_from_state(state: ItineraryState) -> list[str]:
+    """Return retrieved place names that appear in the final answer text."""
+    answer = (state.final_reply or "").lower()
+    if not answer:
+        return []
+    return [name for name in retrieved_place_names_from_state(state) if name.lower() in answer]
+
+
+def actual_eval_result(state: ItineraryState) -> ActualEvalResult:
+    """Build the actual structured-output block for the eval report."""
+    committed_names = [stop.name for stop in state.stops]
+    answer_names = answer_place_names_from_state(state)
+    result_count = len(committed_names) if committed_names else len(answer_names)
+    return ActualEvalResult(
+        result_count=result_count,
+        committed_stop_count=len(state.stops),
+        place_ids=[stop.place_id for stop in state.stops],
+        place_names=committed_names if committed_names else answer_names,
+        sources=[stop.source for stop in state.stops],
+        answer_place_names=answer_names,
+    )
+
+
+def expected_results_label(expected: ExpectedResults | None) -> str:
+    """Format the expected result range for eval-only system context."""
+    if expected is None:
+        return "not specified"
+    return f"{expected.min_stops} to {expected.max_stops} results"
+
+
+def score_expected_results(case: EvalQuery, actual: ActualEvalResult) -> bool | None:
+    """Return whether the produced stop count is inside the expected range."""
+    expected = case.expected_results
+    if expected is None:
         return None
-    return len(state.stops) == case.expected_stops
+    return expected.min_stops <= actual.result_count <= expected.max_stops
 
 
 def score_checks(state: ItineraryState) -> dict[str, CheckResult]:
@@ -241,33 +406,42 @@ def violations_from_checks(checks: dict[str, CheckResult]) -> list[str]:
 
 
 def violations_for_case(
-    expected_stops_met: bool | None,
+    expected_results_met: bool | None,
     checks: dict[str, CheckResult],
 ) -> list[str]:
     """Return all eval violations for a case, including non-check expectations."""
     violations = violations_from_checks(checks)
-    if expected_stops_met is False:
-        violations.append("expected_stops")
+    if expected_results_met is False:
+        violations.append("expected_results")
     return violations
 
 
 def query_result_from_state(case: EvalQuery, state: ItineraryState) -> QueryEvalResult:
     """Build the per-query report row from a final ItineraryState."""
     checks = score_checks(state)
-    expected_stops_met = score_expected_stops(case, state)
+    actual = actual_eval_result(state)
+    expected_results_met = score_expected_results(case, actual)
     tool_errors = tool_errors_from_state(state)
     return QueryEvalResult(
-        case_id=case.id,
-        query=case.query,
+        id=case.id,
+        question=case.query,
+        answer=state.final_reply or "",
+        contexts=contexts_from_state(state),
+        reference=case.reference,
         tags=case.tags,
-        expected_stops=case.expected_stops,
-        stops_count=len(state.stops),
-        expected_stops_met=expected_stops_met,
-        checks=checks,
-        violations=violations_for_case(expected_stops_met, checks),
-        tool_errors=tool_errors,
-        tool_calls=count_tool_calls(state),
-        revision_hints=len(state.revision_hints),
+        expected=expected_eval_result(case),
+        actual=actual,
+        deterministic=DeterministicEvalResult(
+            expected_results_met=expected_results_met,
+            checks=checks,
+            violations=violations_for_case(expected_results_met, checks),
+            tool_errors=tool_errors,
+            first_tool_error=tool_errors[0] if tool_errors else None,
+            tool_calls=count_tool_calls(state),
+            tool_names=tool_names_from_state(state),
+            revision_hints=len(state.revision_hints),
+            revision_reasons=revision_reasons_from_state(state),
+        ),
         final_reply=state.final_reply or "",
     )
 
@@ -277,7 +451,7 @@ async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
     open_at = case.expected_constraints.open_at_iso
     eval_context = EVAL_CONTEXT_TEMPLATE.format(
         open_at=open_at.isoformat() if open_at is not None else "not specified",
-        expected_stops=case.expected_stops if case.expected_stops is not None else "not specified",
+        expected_results=expected_results_label(case.expected_results),
     )
     raw = await graph.ainvoke(
         ItineraryState(
@@ -316,32 +490,41 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
     query_count = len(results)
     aggregate: dict[str, float | int] = {
         "query_count": query_count,
-        "queries_with_violations": sum(1 for result in results if result.violations),
-        "expected_stops_mismatch_count": sum(
-            1 for result in results if result.expected_stops_met is False
+        "queries_with_violations": sum(1 for result in results if result.deterministic.violations),
+        "expected_results_mismatch_count": sum(
+            1 for result in results if result.deterministic.expected_results_met is False
         ),
-        "tool_error_count": sum(len(result.tool_errors) for result in results),
+        "tool_error_count": sum(len(result.deterministic.tool_errors) for result in results),
+        "queries_with_tool_errors": sum(
+            1 for result in results if result.deterministic.tool_errors
+        ),
         "check_error_count": sum(
             1
             for result in results
-            for check in result.checks.values()
+            for check in result.deterministic.checks.values()
             if check.error is not None
         ),
-        "expected_stops_match_rate": mean(
+        "expected_results_match_rate": mean(
             [
-                1.0 if result.expected_stops_met else 0.0
+                1.0 if result.deterministic.expected_results_met else 0.0
                 for result in results
-                if result.expected_stops_met is not None
+                if result.deterministic.expected_results_met is not None
             ]
         ),
-        "stops_mean": mean([float(result.stops_count) for result in results]),
-        "tool_calls_mean": mean([float(result.tool_calls) for result in results]),
-        "revision_hints_mean": mean([float(result.revision_hints) for result in results]),
+        "results_mean": mean([float(result.actual.result_count) for result in results]),
+        "committed_stops_mean": mean(
+            [float(result.actual.committed_stop_count) for result in results]
+        ),
+        "contexts_mean": mean([float(len(result.contexts)) for result in results]),
+        "tool_calls_mean": mean([float(result.deterministic.tool_calls) for result in results]),
+        "revision_hints_mean": mean(
+            [float(result.deterministic.revision_hints) for result in results]
+        ),
     }
     for name in DETERMINISTIC_CHECKS:
         scores: list[float] = []
         for result in results:
-            score = result.checks[name].score
+            score = result.deterministic.checks[name].score
             if score is not None:
                 scores.append(score)
         aggregate[f"{name}_mean"] = mean(scores)

@@ -29,7 +29,10 @@ def valid_payload() -> dict:
                     "types_any": ["italian_restaurant", "restaurant"],
                     "min_user_rating_count": 50,
                 },
-                "expected_stops": 1,
+                "expected_results": {
+                    "min_stops": 1,
+                    "max_stops": 3,
+                },
                 "tags": ["restaurant"],
             }
         ],
@@ -57,7 +60,9 @@ def test_load_eval_queries_loads_valid_yaml(tmp_path: Path) -> None:
     assert isinstance(config, EvalQueriesConfig)
     case = config.hand_written[0]
     assert case.id == "north_beach_italian_dinner"
-    assert case.expected_stops == 1
+    assert case.expected_results is not None
+    assert case.expected_results.min_stops == 1
+    assert case.expected_results.max_stops == 3
     assert case.expected_constraints.open_at_iso is not None
     assert case.expected_constraints.open_at_iso.tzinfo is not None
     assert config.generated is not None
@@ -87,23 +92,26 @@ def test_load_eval_queries_rejects_invalid_required_text(
         load_eval_queries(config_path)
 
 
-def test_load_eval_queries_rejects_zero_expected_stops(tmp_path: Path) -> None:
-    """Reject non-positive expected stop counts."""
+def test_load_eval_queries_rejects_invalid_expected_results_range(tmp_path: Path) -> None:
+    """Reject incoherent expected result ranges."""
     payload = valid_payload()
-    payload["hand_written"][0]["expected_stops"] = 0
+    payload["hand_written"][0]["expected_results"] = {
+        "min_stops": 3,
+        "max_stops": 1,
+    }
     config_path = write_config(tmp_path, payload)
 
-    with pytest.raises(ValidationError, match="expected_stops"):
+    with pytest.raises(ValidationError, match="max_stops"):
         load_eval_queries(config_path)
 
 
-def test_load_eval_queries_requires_expected_stops_for_normal_cases(tmp_path: Path) -> None:
-    """Require normal eval cases to declare their target stop count."""
+def test_load_eval_queries_requires_expected_results_for_normal_cases(tmp_path: Path) -> None:
+    """Require normal eval cases to declare their expected result range."""
     payload = valid_payload()
-    payload["hand_written"][0].pop("expected_stops")
+    payload["hand_written"][0].pop("expected_results")
     config_path = write_config(tmp_path, payload)
 
-    with pytest.raises(ValidationError, match="expected_stops"):
+    with pytest.raises(ValidationError, match="expected_results"):
         load_eval_queries(config_path)
 
 
@@ -113,13 +121,13 @@ def test_load_eval_queries_allows_missing_expected_stops_for_relaxation_case(
     """Allow known-bad cases to omit expected stops when relaxation is desired."""
     payload = valid_payload()
     case = payload["hand_written"][0]
-    case.pop("expected_stops")
+    case.pop("expected_results")
     case["expects_clarification_or_relaxation"] = True
     config_path = write_config(tmp_path, payload)
 
     config = load_eval_queries(config_path)
 
-    assert config.hand_written[0].expected_stops is None
+    assert config.hand_written[0].expected_results is None
     assert config.hand_written[0].expects_clarification_or_relaxation is True
 
 

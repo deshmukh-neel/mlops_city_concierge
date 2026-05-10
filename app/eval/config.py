@@ -71,6 +71,22 @@ class ExpectedConstraints(BaseModel):
         return value
 
 
+class ExpectedResults(BaseModel):
+    """Flexible result-count expectations for one eval case."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_stops: int = Field(ge=0)
+    max_stops: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def max_stops_at_least_min_stops(self) -> ExpectedResults:
+        """Require a coherent inclusive stop-count range."""
+        if self.max_stops < self.min_stops:
+            raise ValueError("max_stops must be greater than or equal to min_stops")
+        return self
+
+
 class EvalQuery(BaseModel):
     """One hand-written offline eval case."""
 
@@ -80,7 +96,7 @@ class EvalQuery(BaseModel):
     query: str
     reference: str
     expected_constraints: ExpectedConstraints = Field(default_factory=ExpectedConstraints)
-    expected_stops: int | None = Field(default=None, ge=1)
+    expected_results: ExpectedResults | None = None
     expected_walking_budget_m: int | None = Field(default=None, gt=0)
     expects_clarification_or_relaxation: bool = False
     tags: list[str] = Field(default_factory=list)
@@ -99,9 +115,11 @@ class EvalQuery(BaseModel):
 
     @model_validator(mode="after")
     def normal_cases_have_expected_stops(self) -> EvalQuery:
-        """Require a target stop count unless the correct behavior is to relax."""
-        if not self.expects_clarification_or_relaxation and self.expected_stops is None:
-            raise ValueError("expected_stops is required unless relaxation/clarification is expected")
+        """Require a result-count range unless the correct behavior is to relax."""
+        if not self.expects_clarification_or_relaxation and self.expected_results is None:
+            raise ValueError(
+                "expected_results is required unless relaxation/clarification is expected"
+            )
         return self
 
 
@@ -154,4 +172,3 @@ def load_eval_queries(path: str | Path = DEFAULT_EVAL_QUERIES_PATH) -> EvalQueri
     if not isinstance(raw, dict):
         raise ValueError("Eval query config must be a YAML mapping.")
     return EvalQueriesConfig.model_validate(raw)
-

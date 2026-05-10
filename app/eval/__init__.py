@@ -5,6 +5,7 @@ from app.eval.config import (
     EvalQueriesConfig,
     EvalQuery,
     ExpectedConstraints,
+    ExpectedResults,
     GeneratedEvalSpec,
     load_eval_queries,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "EvalQueriesConfig",
     "EvalQuery",
     "ExpectedConstraints",
+    "ExpectedResults",
     "GeneratedEvalSpec",
     "load_eval_queries",
 ]
