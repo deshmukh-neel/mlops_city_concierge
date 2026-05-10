@@ -1,0 +1,67 @@
+# City Concierge - offline eval query set
+#
+# Hand-written cases are the stable smoke suite for W6. Generated RAGAS cases
+# will be added later from the `generated` spec below; this first file keeps
+# the contract typed and reproducible.
+
+hand_written:
+  - id: north_beach_italian_dinner
+    query: "italian dinner in North Beach on May 16 2026 at 7pm, under $$$"
+    reference: "A good answer recommends exactly one Italian restaurant in or very near North Beach that is open at 2026-05-16T19:00:00-07:00, costs no more than $$$, and has enough user ratings to avoid thin-signal outliers."
+    expected_constraints:
+      neighborhood: "North Beach"
+      price_level_max: 3
+      open_at_iso: "2026-05-16T19:00:00-07:00"
+      types_any: ["italian_restaurant", "restaurant"]
+      min_user_rating_count: 50
+    expected_stops: 1
+    tags: ["restaurant", "constraint_heavy", "north_beach"]
+
+  - id: date_night_dinner_drinks_walkable
+    query: "plan a date night on May 16 2026: dinner then drinks within walking distance, vibes-y, under $$$"
+    reference: "A good answer creates a two-stop dinner-and-drinks plan with coherent vibes, both stops under $$$, and a short walk between consecutive stops."
+    expected_constraints:
+      price_level_max: 3
+      min_user_rating_count: 50
+    expected_stops: 2
+    expected_walking_budget_m: 1200
+    tags: ["multi_stop", "date_night", "walkable"]
+
+  - id: mission_vegan_brunch
+    query: "best vegan brunch in the Mission on Saturday May 16 2026 around 11am"
+    reference: "A good answer recommends a brunch-friendly restaurant or cafe in the Mission that can satisfy vegetarian or vegan preferences and is open late morning."
+    expected_constraints:
+      neighborhood: "Mission"
+      open_at_iso: "2026-05-16T11:00:00-07:00"
+      types_any: ["restaurant", "cafe", "brunch_restaurant"]
+      serves_brunch: true
+      serves_vegetarian: true
+    expected_stops: 1
+    tags: ["brunch", "vegan", "mission"]
+
+  - id: soma_quiet_late_cafe
+    query: "find a quiet cafe for studying near SOMA open late on Friday May 15 2026"
+    reference: "A good answer recommends a cafe or coffee shop in or near SOMA with a study-friendly rationale and evidence that it is open later than typical daytime cafes."
+    expected_constraints:
+      neighborhood: "SOMA"
+      open_at_iso: "2026-05-15T22:00:00-07:00"
+      types_any: ["cafe", "coffee_shop"]
+      serves_coffee: true
+    expected_stops: 1
+    tags: ["cafe", "late_night", "soma"]
+
+  - id: impossible_four_am_five_star
+    query: "find a 5-star restaurant in San Francisco open at 4am on Sunday May 17 2026"
+    reference: "A good answer should not hallucinate a perfect match; it should either ask to relax constraints or transparently offer the closest available alternatives."
+    expected_constraints:
+      min_rating: 5.0
+      open_at_iso: "2026-05-17T04:00:00-07:00"
+      types_any: ["restaurant"]
+      min_user_rating_count: 50
+    expects_clarification_or_relaxation: true
+    tags: ["known_bad", "self_correction", "late_night"]
+
+generated:
+  source_table: place_embeddings_v2
+  count: 50
+  seed: 42

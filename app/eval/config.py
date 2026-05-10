@@ -98,7 +98,7 @@ class EvalQuery(BaseModel):
         return strip_non_empty_list(value, "tags")
 
     @model_validator(mode="after")
-    def normal_cases_have_expected_stops(self) -> "EvalQuery":
+    def normal_cases_have_expected_stops(self) -> EvalQuery:
         """Require a target stop count unless the correct behavior is to relax."""
         if not self.expects_clarification_or_relaxation and self.expected_stops is None:
             raise ValueError("expected_stops is required unless relaxation/clarification is expected")
@@ -130,7 +130,7 @@ class EvalQueriesConfig(BaseModel):
     generated: GeneratedEvalSpec | None = None
 
     @model_validator(mode="after")
-    def ids_are_unique(self) -> "EvalQueriesConfig":
+    def ids_are_unique(self) -> EvalQueriesConfig:
         """Prevent ambiguous per-query reporting by requiring unique case ids."""
         ids = [case.id for case in self.hand_written]
         if len(ids) != len(set(ids)):
@@ -154,3 +154,4 @@ def load_eval_queries(path: str | Path = DEFAULT_EVAL_QUERIES_PATH) -> EvalQueri
     if not isinstance(raw, dict):
         raise ValueError("Eval query config must be a YAML mapping.")
     return EvalQueriesConfig.model_validate(raw)
+
