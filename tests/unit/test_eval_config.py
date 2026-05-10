@@ -165,13 +165,13 @@ def test_repo_eval_queries_yaml_is_valid() -> None:
     """Keep the checked-in eval query set aligned with the typed schema."""
     config = load_eval_queries(REPO_ROOT / DEFAULT_EVAL_QUERIES_PATH)
 
-    assert len(config.hand_written) >= 5
-    assert {case.id for case in config.hand_written} == {
+    assert len(config.hand_written) == 30
+    assert [case.id for case in config.hand_written[:5]] == [
         "north_beach_italian_dinner",
         "date_night_dinner_drinks_walkable",
         "mission_vegan_brunch",
         "soma_quiet_late_cafe",
         "impossible_four_am_five_star",
-    }
+    ]
     assert all(case.query for case in config.hand_written)
     assert all(case.reference for case in config.hand_written)
