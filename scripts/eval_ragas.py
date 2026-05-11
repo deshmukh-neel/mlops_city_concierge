@@ -9,7 +9,8 @@ import json
 import math
 import os
 import sys
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -40,10 +41,12 @@ DEFAULT_METRICS: tuple[MetricName, ...] = (
 )
 GEMINI_DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
 ANTHROPIC_DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6"
+ANTHROPIC_JUDGE_MAX_TOKENS = 4096
 RAGAS_INSTALL_HINT = (
     "RAGAS is required for this scorer. Install it in the active environment with "
     "`poetry add 'ragas>=0.4'` or `pip install 'ragas>=0.4'`."
 )
+ProgressLogger = Callable[[str], None]
 
 
 class RagasInputQuery(BaseModel):
@@ -141,13 +144,20 @@ class RagasRuntime:
     embeddings: Any
 
 
+class JudgeSmokeResponse(BaseModel):
+    """Minimal structured response used to validate judge API calls."""
+
+    verdict: Literal["pass"]
+    reason: str = Field(min_length=1)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for RAGAS report scoring."""
     settings = get_settings()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--input",
-        required=True,
+        default=None,
         help="Path to a JSON report produced by scripts/eval_agent.py, or '-' for stdin.",
     )
     parser.add_argument(
@@ -183,7 +193,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tracking-uri", default=settings.mlflow_tracking_uri)
     parser.add_argument("--experiment-name", default=DEFAULT_EXPERIMENT_NAME)
     parser.add_argument("--run-name", default=None)
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--smoke-test-judge",
+        action="store_true",
+        help="Run one structured judge call and exit without scoring an eval report.",
+    )
+    args = parser.parse_args(argv)
+    if not args.smoke_test_judge and not args.input:
+        parser.error("--input is required unless --smoke-test-judge is set")
+    return args
 
 
 def resolve_path(path: str | Path) -> Path:
@@ -306,6 +324,14 @@ def build_gemini_runtime(
     return RagasRuntime(llm=llm, embeddings=embeddings)
 
 
+def configure_anthropic_model_args(llm: Any) -> None:
+    """Tune RAGAS' instructor defaults for Anthropic structured judge calls."""
+    model_args = getattr(llm, "model_args", None)
+    if isinstance(model_args, dict):
+        model_args.pop("top_p", None)
+        model_args["max_tokens"] = ANTHROPIC_JUDGE_MAX_TOKENS
+
+
 def build_anthropic_runtime(
     judge_model: str, embedding_model: str, temperature: float
 ) -> RagasRuntime:
@@ -329,6 +355,7 @@ def build_anthropic_runtime(
         client=anthropic_client,
         temperature=temperature,
     )
+    configure_anthropic_model_args(llm)
     try:
         embeddings = embedding_factory(
             "openai",
@@ -403,6 +430,18 @@ def validate_metric_inputs(metric: MetricName, query: RagasInputQuery) -> None:
         raise ValueError("reference is required")
 
 
+def log_progress(message: str) -> None:
+    """Emit RAGAS progress to stderr without corrupting JSON stdout."""
+    print(message, file=sys.stderr, flush=True)
+
+
+def progress_prefix(query_index: int | None, query_count: int | None, query_id: str) -> str:
+    """Build a stable progress prefix for one query."""
+    if query_index is None or query_count is None:
+        return f"[?/?] {query_id}"
+    return f"[{query_index}/{query_count}] {query_id}"
+
+
 async def score_metric(metric: MetricName, scorer: Any, query: RagasInputQuery) -> float:
     """Run one RAGAS metric against one query row."""
     validate_metric_inputs(metric, query)
@@ -431,16 +470,30 @@ async def score_metric(metric: MetricName, scorer: Any, query: RagasInputQuery) 
 async def score_query(
     query: RagasInputQuery,
     scorers: Mapping[str, Any],
+    *,
+    query_index: int | None = None,
+    query_count: int | None = None,
+    progress_logger: ProgressLogger | None = None,
 ) -> RagasQueryScore:
     """Score one eval query with every requested RAGAS metric."""
     scores: dict[str, float | None] = {}
     errors: dict[str, str] = {}
     for metric, scorer in scorers.items():
+        prefix = progress_prefix(query_index, query_count, query.id)
+        start_time = time.monotonic()
+        if progress_logger:
+            progress_logger(f"{prefix} {metric} ... running")
         try:
             scores[metric] = await score_metric(metric, scorer, query)
+            elapsed = time.monotonic() - start_time
+            if progress_logger:
+                progress_logger(f"{prefix} {metric} ... ok {scores[metric]:.4f} ({elapsed:.1f}s)")
         except Exception as exc:  # noqa: BLE001
             scores[metric] = None
             errors[metric] = str(exc)
+            elapsed = time.monotonic() - start_time
+            if progress_logger:
+                progress_logger(f"{prefix} {metric} ... error ({elapsed:.1f}s): {exc}")
     return RagasQueryScore(
         id=query.id,
         question=query.question,
@@ -454,11 +507,22 @@ async def score_query(
 async def score_queries(
     queries: Sequence[RagasInputQuery],
     scorers: Mapping[str, Any],
+    *,
+    progress_logger: ProgressLogger | None = None,
 ) -> list[RagasQueryScore]:
     """Score query rows sequentially to keep evaluator rate limits predictable."""
     results: list[RagasQueryScore] = []
-    for query in queries:
-        results.append(await score_query(query, scorers))
+    query_count = len(queries)
+    for index, query in enumerate(queries, start=1):
+        results.append(
+            await score_query(
+                query,
+                scorers,
+                query_index=index,
+                query_count=query_count,
+                progress_logger=progress_logger,
+            )
+        )
     return results
 
 
@@ -510,11 +574,16 @@ async def build_score_report(
     embedding_model: str,
     metrics: Sequence[MetricName],
     temperature: float,
+    progress_logger: ProgressLogger | None = None,
 ) -> RagasScoreReport:
     """Score an eval-agent report and return a serializable RAGAS report."""
     runtime = build_ragas_runtime(judge_provider, judge_model, embedding_model, temperature)
     scorers = build_metric_scorers(metrics, runtime)
-    query_scores = await score_queries(input_report.queries, scorers)
+    query_scores = await score_queries(
+        input_report.queries,
+        scorers,
+        progress_logger=progress_logger,
+    )
     return RagasScoreReport(
         source_report_path=source_report_path,
         eval_queries_path=input_report.eval_queries_path,
@@ -613,6 +682,44 @@ async def build_report_from_args(args: argparse.Namespace) -> RagasScoreReport:
         embedding_model=embedding_model,
         metrics=metrics,
         temperature=args.temperature,
+        progress_logger=log_progress,
+    )
+
+
+async def smoke_test_judge_call(
+    *,
+    judge_provider: JudgeProvider,
+    judge_model: str,
+    embedding_model: str,
+    temperature: float,
+) -> dict[str, str | float | None]:
+    """Run one structured judge call through the same runtime RAGAS uses."""
+    runtime = build_ragas_runtime(judge_provider, judge_model, embedding_model, temperature)
+    response = await runtime.llm.agenerate(
+        "Return verdict='pass' and a short reason confirming this judge smoke test works.",
+        JudgeSmokeResponse,
+    )
+    smoke_response = JudgeSmokeResponse.model_validate(response)
+    return {
+        "judge_provider": judge_provider,
+        "judge_model": judge_model,
+        "judge_embedding_model": embedding_model,
+        "temperature": temperature,
+        "verdict": smoke_response.verdict,
+        "reason": smoke_response.reason,
+    }
+
+
+async def smoke_test_judge_from_args(args: argparse.Namespace) -> dict[str, str | float | None]:
+    """Resolve CLI judge settings and run a single smoke-test call."""
+    judge_provider: JudgeProvider = args.judge_provider
+    judge_model = resolve_judge_model(judge_provider, args.judge_model)
+    embedding_model = resolve_embedding_model(judge_provider, args.embedding_model)
+    return await smoke_test_judge_call(
+        judge_provider=judge_provider,
+        judge_model=judge_model,
+        embedding_model=embedding_model,
+        temperature=args.temperature,
     )
 
 
@@ -620,6 +727,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run RAGAS scoring from the command line."""
     args = parse_args(argv)
     try:
+        if args.smoke_test_judge:
+            smoke_report = asyncio.run(smoke_test_judge_from_args(args))
+            print(json.dumps(smoke_report, indent=2, sort_keys=True))
+            return 0
         report = asyncio.run(build_report_from_args(args))
         rendered = json.dumps(score_report_to_dict(report), indent=2, sort_keys=True)
         print(rendered)

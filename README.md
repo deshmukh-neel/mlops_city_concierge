@@ -225,7 +225,7 @@ poetry run python scripts/log_model_to_mlflow.py
 # Log and register a Gemini-backed config
 poetry run python scripts/log_model_to_mlflow.py \
   --llm-provider gemini \
-  --chat-model gemini-2.5-flash \
+  --chat-model gemini-3.1-flash-lite-preview \
   --k 5 \
   --temperature 0.2 \
   --register-model

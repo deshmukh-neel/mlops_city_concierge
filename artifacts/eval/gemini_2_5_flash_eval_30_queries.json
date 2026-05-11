@@ -1,0 +1,2698 @@
+{
+  "aggregate": {
+    "answer_retrieved_place_coverage_count": 23,
+    "answer_retrieved_place_coverage_mean": 0.9855072463768116,
+    "check_error_count": 0,
+    "committed_itinerary_rate": 0.5666666666666667,
+    "committed_stops_mean": 1.3666666666666667,
+    "constraints_satisfied_mean": 1.0,
+    "context_presence_rate": 0.8666666666666667,
+    "contexts_mean": 4.2,
+    "deterministic_pass_rate": 0.8,
+    "deterministic_violation_rate": 0.2,
+    "expected_results_match_rate": 0.76,
+    "expected_results_mismatch_count": 6,
+    "expected_results_mismatch_rate": 0.2,
+    "geographic_coherence_mean": 1.0,
+    "no_hallucinated_place_ids_mean": 1.0,
+    "queries_with_tool_errors": 2,
+    "queries_with_violations": 6,
+    "query_count": 30,
+    "results_mean": 1.8333333333333333,
+    "revision_hints_mean": 1.5666666666666667,
+    "temporal_coherence_mean": 1.0,
+    "tool_calls_mean": 3.066666666666667,
+    "tool_error_count": 2,
+    "tool_error_rate": 0.06666666666666667,
+    "tool_success_rate": 0.9333333333333333,
+    "walking_budget_respected_mean": 1.0
+  },
+  "chat_model": "gemini-2.5-flash",
+  "eval_queries_path": "configs/eval_queries.yaml",
+  "llm_provider": "gemini",
+  "queries": [
+    {
+      "actual": {
+        "answer_place_names": [
+          "The Italian Homemade Company",
+          "Ideale",
+          "Acquolina"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJpzBpPPCAhYARSVWETFcLf8M",
+          "ChIJ-55o9_OAhYARxWRg70fFUvU",
+          "ChIJuy5lEfGAhYAR9mmCBjB9aB0"
+        ],
+        "place_names": [
+          "The Italian Homemade Company",
+          "Ideale",
+          "Acquolina"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are 3 Italian dinner spots in North Beach that are open on May 16, 2026, at 7 PM:\n\n*   **The Italian Homemade Company** (716 Columbus Ave): An Italian restaurant with a 4.5-star rating and an inexpensive price level.\n*   **Ideale** (1309 Grant Ave): This Italian restaurant has a 4.5-star rating and a moderate price level.\n*   **Acquolina** (1600 Stockton St): An Italian restaurant with a 4.2-star rating and a moderate price level.",
+      "contexts": [
+        "name: The Italian Homemade Company | type: Italian Restaurant | address: 716 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: The Italian Homemade Company\nPrimary Type: Italian Restaurant\nAddress: 716 Columbus Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, deli, grocery_store, restaurant, food_store, store, food, point_of_interest, establishment\nEditorial Summary: Italian deli & market stocking housemade pasta, imported cheese, charcuterie & more in homey digs.\nRating: 4.5\nUser Ratings: 3295\nPrice Lev",
+        "name: Ideale | type: Italian Restaurant | address: 1309 Grant Ave, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Ideale\nPrimary Type: Italian Restaurant\nAddress: 1309 Grant Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, wine_bar, pizza_restaurant, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Unpretentious trattoria presenting Roman specialties, homemade pasta & an extensive wine list.\nRating: 4.5\nUser Ratings: 493\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: ht",
+        "name: Tommaso's | type: Italian Restaurant | address: 1042 Kearny St, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Tommaso's\nPrimary Type: Italian Restaurant\nAddress: 1042 Kearny St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, seafood_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Family-run institution (since 1935) firing up thin-crust pizzas in its original wood-burning oven.\nRating: 4.5\nUser Ratings: 895\nPrice Level: PRICE_LEVEL_MODERATE",
+        "name: Acquolina | type: Italian Restaurant | address: 1600 Stockton St, San Francisco, CA 94133, USA | rating: 4.2 | snippet: Name: Acquolina\nPrimary Type: Italian Restaurant\nAddress: 1600 Stockton St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Neighborhood bistro serving pizza & other Italian eats in a relaxed space with some sidewalk seats.\nRating: 4.2\nUser Ratings: 1192\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https:"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 Italian dinner spots in North Beach that are open on May 16, 2026, at 7 PM:\n\n*   **The Italian Homemade Company** (716 Columbus Ave): An Italian restaurant with a 4.5-star rating and an inexpensive price level.\n*   **Ideale** (1309 Grant Ave): This Italian restaurant has a 4.5-star rating and a moderate price level.\n*   **Acquolina** (1600 Stockton St): An Italian restaurant with a 4.2-star rating and a moderate price level.",
+      "id": "north_beach_italian_dinner",
+      "question": "italian dinner in North Beach on May 16 2026 at 7pm, under $$$",
+      "reference": "A good answer recommends one to three Italian restaurants in or very near North Beach that are open at 2026-05-16T19:00:00-07:00, cost no more than $$$, and have enough user ratings to avoid thin-signal outliers.",
+      "tags": [
+        "restaurant",
+        "constraint_heavy",
+        "north_beach"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Casaro Osteria",
+          "Grubstake Diner",
+          "Betty Lou's Seafood & Grill"
+        ],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [
+          "Casaro Osteria",
+          "Grubstake Diner",
+          "Betty Lou's Seafood & Grill"
+        ],
+        "result_count": 3,
+        "sources": []
+      },
+      "answer": "Here are some dinner options for your date night:\n\n*   **Casaro Osteria** (Italian Restaurant) at 2136 Union St, San Francisco, CA 94123. It has a 4.4 rating and is moderately priced.\n*   **Grubstake Diner** (Diner) at 1525 Pine St, San Francisco, CA 94109. It has a 4.1 rating and is moderately priced.\n*   **Betty Lou's Seafood & Grill** (Seafood Restaurant) at 318 Columbus Ave, San Francisco, CA 94133. It has a 4.6 rating and is moderately priced.\n\nWhich one would you prefer for dinner? Once you choose, I can look for a nearby bar for drinks.",
+      "contexts": [
+        "name: Movida | type: Restaurant | address: 555 2nd St, San Francisco, CA 94107, USA | rating: 4.4 | snippet: Name: Movida\nPrimary Type: Restaurant\nAddress: 555 2nd St, San Francisco, CA 94107, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 218\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://movidalounge.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u2009\u2013\u20099:30\u202fPM | Tuesday: 5:00\u2009\u2013\u20099:30\u202fPM | Wednesday: 5:00\u2009\u2013\u20099:30\u202fPM | Thursday: 5:00\u2009\u2013\u20099:30\u202fPM | Friday",
+        "name: Jijime | type: Restaurant | address: 5524 Geary Blvd, San Francisco, CA 94121, USA | rating: 4.5 | snippet: Name: Jijime\nPrimary Type: Restaurant\nAddress: 5524 Geary Blvd, San Francisco, CA 94121, USA\nTypes: restaurant, food, point_of_interest, establishment\nEditorial Summary: Neighborhood lunch & dinner soit for Korean fusion & Asian entrees offered in rustic-cool quarters.\nRating: 4.5\nUser Ratings: 378\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.jijime.com/\nBusiness Status: OPERATIONAL\nOpeni",
+        "name: Om Sabor | type: Vegan Restaurant | address: 370 Grove St, San Francisco, CA 94102, USA | rating: 4.5 | snippet: Name: Om Sabor\nPrimary Type: Vegan Restaurant\nAddress: 370 Grove St, San Francisco, CA 94102, USA\nTypes: vegan_restaurant, vegetarian_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 243\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://omsabor.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: Closed | Tuesday: 3:00\u2009\u2013\u200910:00\u202fPM | Wednesday: 3:00\u2009\u2013\u200910:0",
+        "name: Dumpling Kitchen | type: Dumpling Restaurant | address: 1935 Taraval St, San Francisco, CA 94116, USA | rating: 4.4 | snippet: Name: Dumpling Kitchen\nPrimary Type: Dumpling Restaurant\nAddress: 1935 Taraval St, San Francisco, CA 94116, USA\nTypes: dumpling_restaurant, asian_restaurant, noodle_shop, meal_delivery, chinese_restaurant, food_delivery, restaurant, food, point_of_interest, establishment\nEditorial Summary: Modest Chinese joint specializing in meat & vegetarian dumplings also offers soups & noodle dishes.\nRating: 4",
+        "name: Dumpling Story - Valencia | type: Dumpling Restaurant | address: 694 Valencia St, San Francisco, CA 94110, USA | rating: 4.8 | snippet: Name: Dumpling Story - Valencia\nPrimary Type: Dumpling Restaurant\nAddress: 694 Valencia St, San Francisco, CA 94110, USA\nTypes: dumpling_restaurant, dim_sum_restaurant, cantonese_restaurant, chinese_noodle_restaurant, chinese_restaurant, meal_takeaway, restaurant, food, point_of_interest, establishment\nRating: 4.8\nUser Ratings: 398\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://order.toasttab.",
+        "name: Dynasty Dumpling | type: Dumpling Restaurant | address: 2786 California St, San Francisco, CA 94115, USA | rating: 4.4 | snippet: Name: Dynasty Dumpling\nPrimary Type: Dumpling Restaurant\nAddress: 2786 California St, San Francisco, CA 94115, USA\nTypes: dumpling_restaurant, meal_takeaway, chinese_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 213\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.dynastydumplingca.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:00\u202fAM\u2009\u2013\u2009",
+        "name: Casaro Osteria | type: Italian Restaurant | address: 2136 Union St, San Francisco, CA 94123, USA | rating: 4.4 | snippet: Name: Casaro Osteria\nPrimary Type: Italian Restaurant\nAddress: 2136 Union St, San Francisco, CA 94123, USA\nTypes: italian_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 265\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.casaroosteria.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 12:00\u2009\u2013\u200910:00\u202fPM | Tuesday: 12:00\u2009\u2013\u200910:00\u202fPM | Wednesday: 12",
+        "name: Grubstake Diner | type: Diner | address: 1525 Pine St, San Francisco, CA 94109, USA | rating: 4.1 | snippet: Name: Grubstake Diner\nPrimary Type: Diner\nAddress: 1525 Pine St, San Francisco, CA 94109, USA\nTypes: diner, hamburger_restaurant, breakfast_restaurant, dessert_restaurant, american_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Set inside an old train car, this diner slings American staples & some Portuguese dishes till late.\nRating: 4.1\nUser Ratings: 1167\nPrice ",
+        "name: Betty Lou's Seafood & Grill | type: Seafood Restaurant | address: 318 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: Betty Lou's Seafood & Grill\nPrimary Type: Seafood Restaurant\nAddress: 318 Columbus Ave, San Francisco, CA 94133, USA\nTypes: seafood_restaurant, family_restaurant, steak_house, italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Bright, spacious bistro for oysters, chowder, pasta & seafood mains in old-world environs.\nRating: 4.6\nUser Ratings: 1233\nPrice "
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 2
+      },
+      "final_reply": "Here are some dinner options for your date night:\n\n*   **Casaro Osteria** (Italian Restaurant) at 2136 Union St, San Francisco, CA 94123. It has a 4.4 rating and is moderately priced.\n*   **Grubstake Diner** (Diner) at 1525 Pine St, San Francisco, CA 94109. It has a 4.1 rating and is moderately priced.\n*   **Betty Lou's Seafood & Grill** (Seafood Restaurant) at 318 Columbus Ave, San Francisco, CA 94133. It has a 4.6 rating and is moderately priced.\n\nWhich one would you prefer for dinner? Once you choose, I can look for a nearby bar for drinks.",
+      "id": "date_night_dinner_drinks_walkable",
+      "question": "plan a date night on May 16 2026: dinner then drinks within walking distance, vibes-y, under $$$",
+      "reference": "A good answer creates a two-stop dinner-and-drinks plan with coherent vibes, both stops under $$$, and a short walk between consecutive stops.",
+      "tags": [
+        "multi_stop",
+        "date_night",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Doppio Coffee & Brunch",
+          "The Rabbit Hole",
+          "Cafe La Taza"
+        ],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [
+          "Doppio Coffee & Brunch",
+          "The Rabbit Hole",
+          "Cafe La Taza"
+        ],
+        "result_count": 3,
+        "sources": []
+      },
+      "answer": "I found 3 places that serve vegetarian brunch in the Mission district and are open on Saturday, May 16, 2026, at 11 AM.\n\n1.  **Doppio Coffee & Brunch** (4.9 stars from 382 reviews) at 1551 Mission St.\n2.  **The Rabbit Hole** (4.5 stars from 153 reviews) at 3472 Mission St.\n3.  **Cafe La Taza** (4.4 stars from 153 reviews) at 2475 Mission St.\n\nWould you like me to commit any of these to your itinerary?",
+      "contexts": [
+        "name: Doppio Coffee & Brunch | type: Coffee Shop | address: 1551 Mission St, San Francisco, CA 94103, USA | rating: 4.9 | snippet: Name: Doppio Coffee & Brunch\nPrimary Type: Coffee Shop\nAddress: 1551 Mission St, San Francisco, CA 94103, USA\nTypes: coffee_shop, bagel_shop, brunch_restaurant, banquet_hall, bakery, cafe, food_store, breakfast_restaurant, event_venue, restaurant, food, point_of_interest, store, establishment\nRating: 4.9\nUser Ratings: 382\nWebsite: https://doppiosf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: M",
+        "name: The Rabbit Hole | type: Restaurant | address: 3472 Mission St, San Francisco, CA 94110, USA | rating: 4.5 | snippet: Name: The Rabbit Hole\nPrimary Type: Restaurant\nAddress: 3472 Mission St, San Francisco, CA 94110, USA\nTypes: restaurant, breakfast_restaurant, brunch_restaurant, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 153\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://therabbithole-sf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Tuesday: 11:00\u202fAM\u2009\u2013\u200910",
+        "name: The Salad Place & Rotisserie | type: Restaurant | address: 5392 Mission St, San Francisco, CA 94112, USA | rating: 4.8 | snippet: Name: The Salad Place & Rotisserie\nPrimary Type: Restaurant\nAddress: 5392 Mission St, San Francisco, CA 94112, USA\nTypes: restaurant, salad_shop, sandwich_shop, cafeteria, food, point_of_interest, establishment\nEditorial Summary: Humble fixture whipping up breakfast bites, salads, sandwiches & wraps, plus coffee & smoothies.\nRating: 4.8\nUser Ratings: 157\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: ",
+        "name: Cafe La Taza | type: Cafe | address: 2475 Mission St, San Francisco, CA 94110, USA | rating: 4.4 | snippet: Name: Cafe La Taza\nPrimary Type: Cafe\nAddress: 2475 Mission St, San Francisco, CA 94110, USA\nTypes: cafe, brunch_restaurant, sandwich_shop, latin_american_restaurant, vegetarian_restaurant, catering_service, bar, coffee_shop, food_store, american_restaurant, food_delivery, breakfast_restaurant, restaurant, food, point_of_interest, store, service, establishment\nEditorial Summary: Relaxed haunt feat",
+        "name: Terrene | type: Restaurant | address: 8 Mission St, San Francisco, CA 94105, USA | rating: 4.2 | snippet: Name: Terrene\nPrimary Type: Restaurant\nAddress: 8 Mission St, San Francisco, CA 94105, USA\nTypes: restaurant, breakfast_restaurant, brunch_restaurant, food, point_of_interest, establishment\nRating: 4.2\nUser Ratings: 213\nWebsite: https://www.1hotels.com/san-francisco/taste/terrene?utm_source=google-gbp&utm_medium=organic&utm_campaign=gbp\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 7:00\u202fAM\u2009\u2013"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "I found 3 places that serve vegetarian brunch in the Mission district and are open on Saturday, May 16, 2026, at 11 AM.\n\n1.  **Doppio Coffee & Brunch** (4.9 stars from 382 reviews) at 1551 Mission St.\n2.  **The Rabbit Hole** (4.5 stars from 153 reviews) at 3472 Mission St.\n3.  **Cafe La Taza** (4.4 stars from 153 reviews) at 2475 Mission St.\n\nWould you like me to commit any of these to your itinerary?",
+      "id": "mission_vegan_brunch",
+      "question": "best vegan brunch in the Mission on Saturday May 16 2026 around 11am",
+      "reference": "A good answer recommends a brunch-friendly restaurant or cafe in the Mission that can satisfy vegetarian or vegan preferences and is open late morning.",
+      "tags": [
+        "brunch",
+        "vegan",
+        "mission",
+        "constraint_heavy"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Heyma Yemeni Coffee & Brunch"
+        ],
+        "committed_stop_count": 1,
+        "place_ids": [
+          "ChIJ9-7JeueBhYARkfO7QJFB93I"
+        ],
+        "place_names": [
+          "Heyma Yemeni Coffee & Brunch"
+        ],
+        "result_count": 1,
+        "sources": [
+          "google_places"
+        ]
+      },
+      "answer": "I found one option for you: Heyma Yemeni Coffee & Brunch. It's a coffee shop in SOMA, open until 11:30 PM on Friday, May 15, 2026. I cannot guarantee that it will be quiet or ideal for studying, but it fits your other criteria.",
+      "contexts": [
+        "name: Heyma Yemeni Coffee & Brunch | type: Coffee Shop | address: 248 9th St, San Francisco, CA 94103, USA | rating: 4.7 | snippet: Name: Heyma Yemeni Coffee & Brunch\nPrimary Type: Coffee Shop\nAddress: 248 9th St, San Francisco, CA 94103, USA\nTypes: coffee_shop, cafe, food_store, food, point_of_interest, store, establishment\nRating: 4.7\nUser Ratings: 183\nWebsite: https://www.heymacoffeeca.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 7:00\u202fAM\u2009\u2013\u200911:30\u202fPM | Tuesday: 7:00\u202fAM\u2009\u2013\u200911:30\u202fPM | Wednesday: 7:00\u202fAM\u2009\u2013\u200911:30\u202fPM | ",
+        "name: Tony Baloney's Market | type: Convenience Store | address: 1098 Howard St, San Francisco, CA 94103, USA | rating: 4.5 | snippet: Name: Tony Baloney's Market\nPrimary Type: Convenience Store\nAddress: 1098 Howard St, San Francisco, CA 94103, USA\nTypes: convenience_store, breakfast_restaurant, grocery_store, food_store, liquor_store, cafe, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Bright, unfussy deli & market selling sandwiches, soups, salads, coffee & breakfast items.\nRating: 4.5\nUser Rating"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "I found one option for you: Heyma Yemeni Coffee & Brunch. It's a coffee shop in SOMA, open until 11:30 PM on Friday, May 15, 2026. I cannot guarantee that it will be quiet or ideal for studying, but it fits your other criteria.",
+      "id": "soma_quiet_late_cafe",
+      "question": "find a quiet cafe for studying near SOMA open late on Friday May 15 2026",
+      "reference": "A good answer recommends a cafe or coffee shop in or near SOMA with a study-friendly rationale and evidence that it is open later than typical daytime cafes.",
+      "tags": [
+        "cafe",
+        "late_night",
+        "soma",
+        "constraint_heavy"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [],
+        "result_count": 0,
+        "sources": []
+      },
+      "answer": "I couldn't find any 5-star restaurants open at 4 AM on Sunday, May 17, 2026. Would you like me to search for 5-star restaurants that are open at a different time?",
+      "contexts": [],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "empty_results"
+        ],
+        "tool_calls": 1,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": true,
+        "max_stops": null,
+        "min_stops": null
+      },
+      "final_reply": "I couldn't find any 5-star restaurants open at 4 AM on Sunday, May 17, 2026. Would you like me to search for 5-star restaurants that are open at a different time?",
+      "id": "impossible_four_am_five_star",
+      "question": "find a 5-star restaurant in San Francisco open at 4am on Sunday May 17 2026",
+      "reference": "A good answer should not hallucinate a perfect match; it should either ask to relax constraints or transparently offer the closest available alternatives.",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "late_night"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Taqueria Cazadores",
+          "El Gran Taco Loco",
+          "La Taqueria"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJAQAAAEN-j4AROYuqKyodwaA",
+          "ChIJ557UHJ6AhYAR_zj0jhd9fQI",
+          "ChIJrTYB1UZ-j4ARdeRB5Wzp_CE"
+        ],
+        "place_names": [
+          "El Gran Taco Loco",
+          "Taqueria Cazadores",
+          "La Taqueria"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are 3 casual taco spots in the Mission that are open for lunch on Saturday, May 16, 2026:\n\n* El Gran Taco Loco (4591 Mission St)\n* Taqueria Cazadores (1600 Mission St)\n* La Taqueria (2889 Mission St)",
+      "contexts": [
+        "name: Taqueria Cazadores | type: Mexican Restaurant | address: 1600 Mission St, San Francisco, CA 94103, USA | rating: 4.4 | snippet: Name: Taqueria Cazadores\nPrimary Type: Mexican Restaurant\nAddress: 1600 Mission St, San Francisco, CA 94103, USA\nTypes: mexican_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Stationary taco truck with creative fillings like BBQ pork & seafood, plus some picnic tables.\nRating: 4.4\nUser Ratings: 388\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://ordertaqueri",
+        "name: El Gran Taco Loco | type: Mexican Restaurant | address: 4591 Mission St, San Francisco, CA 94112, USA | rating: 4.1 | snippet: Name: El Gran Taco Loco\nPrimary Type: Mexican Restaurant\nAddress: 4591 Mission St, San Francisco, CA 94112, USA\nTypes: mexican_restaurant, latin_american_restaurant, taco_restaurant, american_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.1\nUser Ratings: 600\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://www.elgrantacoloco.com/\nBusiness Status: OPERATIONAL\nOpening ",
+        "name: Taqueria Cancun | type: Mexican Restaurant | address: 2288 Mission St, San Francisco, CA 94110, USA | rating: 4.5 | snippet: Name: Taqueria Cancun\nPrimary Type: Mexican Restaurant\nAddress: 2288 Mission St, San Francisco, CA 94110, USA\nTypes: mexican_restaurant, latin_american_restaurant, burrito_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Late hours are one of the draws at this colorful Mission District joint well-known for its burritos.\nRating: 4.5\nUser Ratings: 2525\nPrice Level: P",
+        "name: La Taqueria | type: Mexican Restaurant | address: 2889 Mission St, San Francisco, CA 94110, USA | rating: 4.5 | snippet: Name: La Taqueria\nPrimary Type: Mexican Restaurant\nAddress: 2889 Mission St, San Francisco, CA 94110, USA\nTypes: mexican_restaurant, burrito_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: This no-frills taqueria serves Mexican eats, including famed traditional-style, rice-free burritos.\nRating: 4.5\nUser Ratings: 7175\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: ",
+        "name: El Rey Taquiza Artesanal | type: Restaurant | address: 2491 Mission St, San Francisco, CA 94110, USA | rating: 4.5 | snippet: Name: El Rey Taquiza Artesanal\nPrimary Type: Restaurant\nAddress: 2491 Mission St, San Francisco, CA 94110, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 267\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.elreytaquiza.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:30\u202fAM\u2009\u2013\u20097:00\u202fPM | Tuesday: 11:30\u202fAM\u2009\u2013\u200910:00\u202fPM | Wednesday: 11:30\u202fAM\u2009\u2013\u200910",
+        "name: New Castillito Taqueria | type: Mexican Restaurant | address: 2092 Mission St, San Francisco, CA 94110, USA | rating: 4.2 | snippet: Name: New Castillito Taqueria\nPrimary Type: Mexican Restaurant\nAddress: 2092 Mission St, San Francisco, CA 94110, USA\nTypes: mexican_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Hearty taqueria fare draws patrons to this basic Mission Mexican spot.\nRating: 4.2\nUser Ratings: 412\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nBusiness Status: OPERATIONAL\nOpening Hours: Mon"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 casual taco spots in the Mission that are open for lunch on Saturday, May 16, 2026:\n\n* El Gran Taco Loco (4591 Mission St)\n* Taqueria Cazadores (1600 Mission St)\n* La Taqueria (2889 Mission St)",
+      "id": "mission_tacos_casual",
+      "question": "best casual tacos in the Mission for lunch on Saturday May 16 2026",
+      "reference": "A good answer recommends one to three casual taco or Mexican restaurants in the Mission that are plausible for lunch and have enough ratings to avoid thin-signal outliers.",
+      "tags": [
+        "simple",
+        "restaurant",
+        "tacos",
+        "mission"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [],
+        "result_count": 0,
+        "sources": []
+      },
+      "answer": "I couldn't find any Italian dinner spots. Is there another type of cuisine you are interested in?",
+      "contexts": [],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": false,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "empty_results",
+          "empty_results"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": [
+          "expected_results"
+        ]
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "I couldn't find any Italian dinner spots. Is there another type of cuisine you are interested in?",
+      "id": "north_beach_italian_options",
+      "question": "good Italian dinner spots in North Beach under $$$",
+      "reference": "A good answer recommends one to three Italian restaurants in or very near North Beach with price level no higher than $$$ and enough review volume to be credible.",
+      "tags": [
+        "simple",
+        "restaurant",
+        "italian",
+        "north_beach"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "La Boulangerie de San Francisco",
+          "Chez Maman West",
+          "The Bird"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJU3tHbqKAhYAR3MDnzOK40Nk",
+          "ChIJ76A_lpiAhYAR6QgSjMe9MoU",
+          "ChIJt9Lr-PyBhYARLAp8Ie5IuS8"
+        ],
+        "place_names": [
+          "La Boulangerie de San Francisco",
+          "Chez Maman West",
+          "The Bird"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are 3 brunch spots in Hayes Valley for Sunday, May 17, 2026, around 11 AM:\n\n*   **La Boulangerie de San Francisco** (Cafe)\n*   **Chez Maman West** (French Restaurant)\n*   **The Bird** (Restaurant)",
+      "contexts": [
+        "name: La Boulangerie de San Francisco | type: Cafe | address: 500 Hayes St, San Francisco, CA 94102, USA | rating: 4.2 | snippet: Name: La Boulangerie de San Francisco\nPrimary Type: Cafe\nAddress: 500 Hayes St, San Francisco, CA 94102, USA\nTypes: cafe, breakfast_restaurant, pastry_shop, dessert_shop, confectionery, bakery, food_store, restaurant, food, store, point_of_interest, establishment\nEditorial Summary: Daytime cafe chain offering baked goods & light American & French fare in a chic, casual setting.\nRating: 4.2\nUser Ra",
+        "name: Chez Maman West | type: French Restaurant | address: 401 Gough St, San Francisco, CA 94102, USA | rating: 4.5 | snippet: Name: Chez Maman West\nPrimary Type: French Restaurant\nAddress: 401 Gough St, San Francisco, CA 94102, USA\nTypes: french_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Cozy, informal eatery serving French bistro classics ranging from burgers and crepes to mussels.\nRating: 4.5\nUser Ratings: 1940\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.chezmamanrestos",
+        "name: The Bird | type: Restaurant | address: 406 Hayes St, San Francisco, CA 94102, USA | rating: 4.1 | snippet: Name: The Bird\nPrimary Type: Restaurant\nAddress: 406 Hayes St, San Francisco, CA 94102, USA\nTypes: restaurant, meal_takeaway, food, point_of_interest, establishment\nRating: 4.1\nUser Ratings: 413\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://thebirdsf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 10:30\u202fAM\u2009\u2013\u200911:00\u202fPM | Tuesday: 10:30\u202fAM\u2009\u2013\u200911:00\u202fPM | Wednesday: 10:30\u202fAM\u2009\u2013\u200911:00\u202fPM "
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": "semantic_search: 1 validation error for semantic_search_args\nquery\n  Field required [type=missing, input_value={'filters': {'neighborhoo...rant', 'cafe']}, 'k': 3}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing",
+        "revision_hints": 3,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity",
+          "tool_error"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [
+          "semantic_search: 1 validation error for semantic_search_args\nquery\n  Field required [type=missing, input_value={'filters': {'neighborhoo...rant', 'cafe']}, 'k': 3}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing"
+        ],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 brunch spots in Hayes Valley for Sunday, May 17, 2026, around 11 AM:\n\n*   **La Boulangerie de San Francisco** (Cafe)\n*   **Chez Maman West** (French Restaurant)\n*   **The Bird** (Restaurant)",
+      "id": "hayes_valley_brunch",
+      "question": "brunch in Hayes Valley for two people on Sunday May 17 2026 around 11am",
+      "reference": "A good answer recommends one to three brunch-friendly restaurants or cafes in Hayes Valley that are open late morning.",
+      "tags": [
+        "simple",
+        "brunch",
+        "hayes_valley"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "HINODEYA Ramen Japantown",
+          "Marufuku Ramen"
+        ],
+        "committed_stop_count": 2,
+        "place_ids": [
+          "ChIJ0yhhzriAhYAR-2lnzuizNZM",
+          "ChIJsYdOvCx-j4ARJItjWBikyOk"
+        ],
+        "place_names": [
+          "HINODEYA Ramen Japantown",
+          "Marufuku Ramen"
+        ],
+        "result_count": 2,
+        "sources": [
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are two highly-rated ramen restaurants in Japantown:\n\n*   **HINODEYA Ramen Japantown** (4.5 stars)\n*   **Marufuku Ramen** (4.5 stars)",
+      "contexts": [
+        "name: HINODEYA Ramen Japantown | type: Ramen Restaurant | address: 1737 Buchanan St, San Francisco, CA 94115, USA | rating: 4.5 | snippet: Name: HINODEYA Ramen Japantown\nPrimary Type: Ramen Restaurant\nAddress: 1737 Buchanan St, San Francisco, CA 94115, USA\nTypes: ramen_restaurant, noodle_shop, catering_service, breakfast_restaurant, vegan_restaurant, food_delivery, vegetarian_restaurant, japanese_restaurant, restaurant, food, point_of_interest, service, establishment\nEditorial Summary: Elevated ramen spot whipping up starters and das",
+        "name: Marufuku Ramen | type: Ramen Restaurant | address: 1581 Webster St #235, San Francisco, CA 94115, USA | rating: 4.5 | snippet: Name: Marufuku Ramen\nPrimary Type: Ramen Restaurant\nAddress: 1581 Webster St #235, San Francisco, CA 94115, USA\nTypes: ramen_restaurant, japanese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Contemporary spot for Japanese ramen (including hakata style), along with rice bowls, beer & sake.\nRating: 4.5\nUser Ratings: 3002\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite:",
+        "name: K Dragon cuisine | type: Asian Fusion Restaurant | address: 22 Peace Plaza Suite 560, San Francisco, CA 94115, USA | rating: 4.7 | snippet: Name: K Dragon cuisine\nPrimary Type: Asian Fusion Restaurant\nAddress: 22 Peace Plaza Suite 560, San Francisco, CA 94115, USA\nTypes: asian_fusion_restaurant, fusion_restaurant, asian_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.7\nUser Ratings: 135\nWebsite: http://www.39miles.com/p/14050368\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:30\u202fAM\u2009\u2013\u20098:00\u202fPM | Tuesday: "
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are two highly-rated ramen restaurants in Japantown:\n\n*   **HINODEYA Ramen Japantown** (4.5 stars)\n*   **Marufuku Ramen** (4.5 stars)",
+      "id": "japantown_ramen",
+      "question": "ramen in Japantown with strong ratings",
+      "reference": "A good answer recommends one to three ramen or Japanese restaurants in Japantown with strong ratings and enough review volume to be useful.",
+      "tags": [
+        "simple",
+        "restaurant",
+        "ramen",
+        "japantown"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Home Coffee Roasters",
+          "Andytown Coffee Roasters"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJrdB62Il9j4ARsRPxJPHaaqQ",
+          "ChIJyQd9b2N9j4ARU0bf2M8oyAk",
+          "ChIJee4DupqHhYARXadb2DlBtr8"
+        ],
+        "place_names": [
+          "Home Coffee Roasters",
+          "Andytown Coffee Roasters",
+          "Andytown Coffee Roasters"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are 3 coffee shops in Outer Sunset where you can sit for a while:\n\n*   **Home Coffee Roasters** (1222 Noriega St): This coffee shop has convivial surroundings, making it a good place to sit for a while.\n*   **Andytown Coffee Roasters** (3629 Taraval St): This is a cozy, contemporary coffee shop, perfect for sitting and relaxing.\n*   **Andytown Coffee Roasters** (3655 Lawton St): Another cozy location of Andytown Coffee Roasters, suitable for a long sit.",
+      "contexts": [
+        "name: Home Coffee Roasters | type: Coffee Shop | address: 1222 Noriega St, San Francisco, CA 94122, USA | rating: 4.6 | snippet: Name: Home Coffee Roasters\nPrimary Type: Coffee Shop\nAddress: 1222 Noriega St, San Francisco, CA 94122, USA\nTypes: coffee_shop, cafe, coffee_roastery, food_store, food, store, point_of_interest, establishment\nEditorial Summary: Creative lattes are artfully presented with pastries & avocado toast in convivial surroundings.\nRating: 4.6\nUser Ratings: 651\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: htt",
+        "name: Diamond Coffee N\u2019 Pastry | type: Coffee Shop | address: 2575 Judah St, San Francisco, CA 94122, USA | rating: 4.6 | snippet: Name: Diamond Coffee N\u2019 Pastry\nPrimary Type: Coffee Shop\nAddress: 2575 Judah St, San Francisco, CA 94122, USA\nTypes: coffee_shop, cafe, food_store, food, store, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 122\nWebsite: https://www.diamondbeans.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 8:30\u202fAM\u2009\u2013\u20094:00\u202fPM | Tuesday: 8:30\u202fAM\u2009\u2013\u20094:00\u202fPM | Wednesday: 8:30\u202fAM\u2009\u2013\u20094:00\u202fPM | Thurs",
+        "name: Andytown Coffee Roasters | type: Coffee Shop | address: 3629 Taraval St, San Francisco, CA 94116, USA | rating: 4.6 | snippet: Name: Andytown Coffee Roasters\nPrimary Type: Coffee Shop\nAddress: 3629 Taraval St, San Francisco, CA 94116, USA\nTypes: coffee_shop, cafe, food_store, store, food, point_of_interest, establishment\nEditorial Summary: Cozy, contemporary coffee shop & cafe with an Irish bent serving espresso drinks, pastries & soups.\nRating: 4.6\nUser Ratings: 480\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://an",
+        "name: Java Beach Cafe | type: Cafe | address: 1396 La Playa St, San Francisco, CA 94122, USA | rating: 4.4 | snippet: Name: Java Beach Cafe\nPrimary Type: Cafe\nAddress: 1396 La Playa St, San Francisco, CA 94122, USA\nTypes: cafe, bagel_shop, catering_service, breakfast_restaurant, pastry_shop, bakery, sandwich_shop, dessert_shop, confectionery, food_delivery, vegetarian_restaurant, coffee_shop, brunch_restaurant, food_store, restaurant, food, point_of_interest, service, store, establishment\nEditorial Summary: Patio",
+        "name: Cafe Bakery Restaurant | type: Chinese Restaurant | address: 1365 Noriega St, San Francisco, CA 94122, USA | rating: 4.2 | snippet: Name: Cafe Bakery Restaurant\nPrimary Type: Chinese Restaurant\nAddress: 1365 Noriega St, San Francisco, CA 94122, USA\nTypes: chinese_restaurant, cafe, bakery, food_store, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Part of an adjacent restaurant, this no-frills Chinese bakery offers pastries, coffee & milk teas.\nRating: 4.2\nUser Ratings: 398\nPrice Level: PRICE_LEVEL",
+        "name: Andytown Coffee Roasters | type: Coffee Shop | address: 3655 Lawton St, San Francisco, CA 94122, USA | rating: 4.6 | snippet: Name: Andytown Coffee Roasters\nPrimary Type: Coffee Shop\nAddress: 3655 Lawton St, San Francisco, CA 94122, USA\nTypes: coffee_shop, cafe, food_store, food, store, point_of_interest, establishment\nEditorial Summary: Cozy, contemporary coffee shop & cafe with an Irish bent serving espresso drinks, pastries & soups.\nRating: 4.6\nUser Ratings: 1181\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://ww",
+        "name: Andytown Roastery, Training Lab, & Coffee Supply | type: Cafe | address: 3016 Taraval St, San Francisco, CA 94116, USA | rating: 4.5 | snippet: Name: Andytown Roastery, Training Lab, & Coffee Supply\nPrimary Type: Cafe\nAddress: 3016 Taraval St, San Francisco, CA 94116, USA\nTypes: cafe, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 119\nWebsite: http://andytownsf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 7:00\u202fAM\u2009\u2013\u20093:00\u202fPM | Tuesday: 7:00\u202fAM\u2009\u2013\u20093:00\u202fPM | Wednesday: 7:00\u202fAM\u2009\u2013\u20093:00\u202fPM | Thursday: 7:00\u202fAM\u2009\u2013\u20093:00\u202f"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 coffee shops in Outer Sunset where you can sit for a while:\n\n*   **Home Coffee Roasters** (1222 Noriega St): This coffee shop has convivial surroundings, making it a good place to sit for a while.\n*   **Andytown Coffee Roasters** (3629 Taraval St): This is a cozy, contemporary coffee shop, perfect for sitting and relaxing.\n*   **Andytown Coffee Roasters** (3655 Lawton St): Another cozy location of Andytown Coffee Roasters, suitable for a long sit.",
+      "id": "outer_sunset_coffee",
+      "question": "coffee shop in Outer Sunset where I can sit for a while",
+      "reference": "A good answer recommends one to three coffee shops or cafes in Outer Sunset and gives a study-or-sit-down rationale grounded in the retrieved context.",
+      "tags": [
+        "simple",
+        "cafe",
+        "coffee",
+        "outer_sunset"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [],
+        "result_count": 0,
+        "sources": []
+      },
+      "answer": "I couldn't find any seafood restaurants near the Marina that fit your criteria. Would you like to broaden the search to a different neighborhood or price range?",
+      "contexts": [
+        "name: El Salvadore\u00f1o Pupuseria | type: Restaurant | address: 3056 Del Monte Blvd, Marina, CA 93933, USA | rating: 4.4 | snippet: Name: El Salvadore\u00f1o Pupuseria\nPrimary Type: Restaurant\nAddress: 3056 Del Monte Blvd, Marina, CA 93933, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 338\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: Closed | Tuesday: 10:00\u202fAM\u2009\u2013\u20098:00\u202fPM | Wednesday: 10:00\u202fAM\u2009\u2013\u20098:00\u202fPM | Thursday: 10:00\u202fAM\u2009\u2013\u20098:00\u202fPM | Friday: 10:00",
+        "name: Radhaus | type: Bar | address: 2 Marina Blvd BUILDING A, San Francisco, CA 94123, USA | rating: 4.4 | snippet: Name: Radhaus\nPrimary Type: Bar\nAddress: 2 Marina Blvd BUILDING A, San Francisco, CA 94123, USA\nTypes: wine_bar, cocktail_bar, german_restaurant, european_restaurant, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Airy Bavarian beer hall in a former U.S. Army machine shop at Fort Mason, with panoramic bay views.\nRating: 4.4\nUser Ratings: 1601\nPrice Level: PRICE_LEVEL_MO"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": false,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 1,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": [
+          "expected_results"
+        ]
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "I couldn't find any seafood restaurants near the Marina that fit your criteria. Would you like to broaden the search to a different neighborhood or price range?",
+      "id": "marina_seafood_dinner",
+      "question": "seafood dinner near the Marina, not too fancy",
+      "reference": "A good answer recommends one to three seafood or seafood-adjacent dinner spots near the Marina with a casual-to-moderate price profile.",
+      "tags": [
+        "simple",
+        "restaurant",
+        "seafood",
+        "marina"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Wing Sing Dim Sum",
+          "Delicious Dim Sum",
+          "Sum Dim Sum"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJo7SnirKBhYARAlLOw0n_s9k",
+          "ChIJaw4mbfOAhYARdyo5E2MKr6g",
+          "ChIJbcVrZ_OAhYAR75zxghr_LcQ"
+        ],
+        "place_names": [
+          "Sum Dim Sum",
+          "Wing Sing Dim Sum",
+          "Delicious Dim Sum"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are 3 dim sum restaurants in Chinatown that would be great for a small group:\n\n*   **Sum Dim Sum** (601 Grant Ave): A colorful Chinese corner locale with Koi Palace ties that serves bubble tea & made-to-order dim sum.\n*   **Wing Sing Dim Sum** (1125 Stockton St): This narrow, no-nonsense option doles out a selection of typical Chinese dim sum.\n*   **Delicious Dim Sum** (752 Jackson St): A highly-rated dim sum restaurant.",
+      "contexts": [
+        "name: Wing Sing Dim Sum | type: Dim Sum Restaurant | address: 1125 Stockton St, San Francisco, CA 94133, USA | rating: 4.0 | snippet: Name: Wing Sing Dim Sum\nPrimary Type: Dim Sum Restaurant\nAddress: 1125 Stockton St, San Francisco, CA 94133, USA\nTypes: dim_sum_restaurant, cantonese_restaurant, chinese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: This narrow, no-nonsense option doles out a selection of typical Chinese dim sum.\nRating: 4.0\nUser Ratings: 245\nPrice Level: PRICE_LEVEL_INEXPENSIVE",
+        "name: Delicious Dim Sum | type: Dim Sum Restaurant | address: 752 Jackson St, San Francisco, CA 94133, USA | rating: 4.4 | snippet: Name: Delicious Dim Sum\nPrimary Type: Dim Sum Restaurant\nAddress: 752 Jackson St, San Francisco, CA 94133, USA\nTypes: dim_sum_restaurant, dumpling_restaurant, cantonese_restaurant, chinese_restaurant, meal_takeaway, restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 544\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://deliciousdimsum.com/\nBusiness Status: OPERATIONAL",
+        "name: House of Dim Sum | type: Dim Sum Restaurant | address: 735 Jackson St, San Francisco, CA 94133, USA | rating: 3.5 | snippet: Name: House of Dim Sum\nPrimary Type: Dim Sum Restaurant\nAddress: 735 Jackson St, San Francisco, CA 94133, USA\nTypes: dim_sum_restaurant, cantonese_restaurant, dumpling_restaurant, tea_house, bakery, chinese_restaurant, food_store, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Casual restaurant dispensing ready-to-eat dim sum that's a popular choice for takeout.\nRatin",
+        "name: Sum Dim Sum | type: Dim Sum Restaurant | address: 601 Grant Ave, San Francisco, CA 94108, USA | rating: 3.7 | snippet: Name: Sum Dim Sum\nPrimary Type: Dim Sum Restaurant\nAddress: 601 Grant Ave, San Francisco, CA 94108, USA\nTypes: dim_sum_restaurant, cantonese_restaurant, chinese_restaurant, tea_house, restaurant, food, point_of_interest, establishment\nEditorial Summary: Colorful Chinese corner locale with Koi Palace ties that serves bubble tea & made-to-order dim sum.\nRating: 3.7\nUser Ratings: 699\nPrice Level: PRI",
+        "name: City View Restaurant | type: Dim Sum Restaurant | address: 33 Walter U Lum Pl, San Francisco, CA 94108, USA | rating: 4.4 | snippet: Name: City View Restaurant\nPrimary Type: Dim Sum Restaurant\nAddress: 33 Walter U Lum Pl, San Francisco, CA 94108, USA\nTypes: dim_sum_restaurant, cantonese_restaurant, chinese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Upbeat spot serving dumplings, pork buns, and other Chinese dim sum dishes in a white-tablecloth setting.\nRating: 4.4\nUser Ratings: 1374\nPrice ",
+        "name: Toppu Ramen And Dim Sum House | type: Chinese Restaurant | address: 941 Kearny St, San Francisco, CA 94133, USA | rating: 3.9 | snippet: Name: Toppu Ramen And Dim Sum House\nPrimary Type: Chinese Restaurant\nAddress: 941 Kearny St, San Francisco, CA 94133, USA\nTypes: chinese_restaurant, ramen_restaurant, dim_sum_restaurant, cantonese_restaurant, japanese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Japanese fare like ramen & stir-fries, plus Chinese offerings, served in modest, compact quarters.\nR"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 dim sum restaurants in Chinatown that would be great for a small group:\n\n*   **Sum Dim Sum** (601 Grant Ave): A colorful Chinese corner locale with Koi Palace ties that serves bubble tea & made-to-order dim sum.\n*   **Wing Sing Dim Sum** (1125 Stockton St): This narrow, no-nonsense option doles out a selection of typical Chinese dim sum.\n*   **Delicious Dim Sum** (752 Jackson St): A highly-rated dim sum restaurant.",
+      "id": "chinatown_dim_sum",
+      "question": "dim sum in Chinatown for a small group",
+      "reference": "A good answer recommends one to three dim sum or Chinese restaurants in Chinatown that make sense for a small group.",
+      "tags": [
+        "simple",
+        "restaurant",
+        "dim_sum",
+        "chinatown"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "QBar",
+          "440 Castro"
+        ],
+        "committed_stop_count": 2,
+        "place_ids": [
+          "ChIJCXJhTBt-j4ARnj6HCH9JX-0",
+          "ChIJlYxnqhx-j4ARE6-6BQBetEI"
+        ],
+        "place_names": [
+          "QBar",
+          "440 Castro"
+        ],
+        "result_count": 2,
+        "sources": [
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Great! I found two cocktail bars in the Castro with a fun vibe for you:\n\n*   **QBar**: A clubby gay bar with a dance floor and occasional dancers.\n*   **440 Castro**: A local gay hangout with drinks and events that draws casual crowds.\n\nWould you like any more details on these, or perhaps something else?",
+      "contexts": [
+        "name: QBar | type: Bar | address: 456 Castro St # B, San Francisco, CA 94114, USA | rating: 3.5 | snippet: Name: QBar\nPrimary Type: Bar\nAddress: 456 Castro St # B, San Francisco, CA 94114, USA\nTypes: bar, point_of_interest, establishment\nEditorial Summary: Clubby gay bar has a dance floor, younger male crowd, occasional dancers & a Tuesday ladies' night.\nRating: 3.5\nUser Ratings: 107\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://qbar-sf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 6",
+        "name: 440 Castro | type: Bar | address: 440 Castro St, San Francisco, CA 94114, USA | rating: 4.4 | snippet: Name: 440 Castro\nPrimary Type: Bar\nAddress: 440 Castro St, San Francisco, CA 94114, USA\nTypes: cocktail_bar, bar, point_of_interest, establishment\nEditorial Summary: Drinks & events draw casual, bearded crowds to this local gay hangout.\nRating: 4.4\nUser Ratings: 505\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://www.the440.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 12:00\u202fPM\u2009\u2013\u20092",
+        "name: Swirl On Castro | type: Liquor Store | address: 572 Castro St, San Francisco, CA 94114, USA | rating: 4.8 | snippet: Name: Swirl On Castro\nPrimary Type: Liquor Store\nAddress: 572 Castro St, San Francisco, CA 94114, USA\nTypes: liquor_store, food, point_of_interest, store, establishment\nEditorial Summary: A wine & spirits shop that offers delivery & party-planning services, plus a wine bar in the back.\nRating: 4.8\nUser Ratings: 106\nWebsite: http://www.swirloncastro.com/\nBusiness Status: OPERATIONAL\nOpening Hours: "
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Great! I found two cocktail bars in the Castro with a fun vibe for you:\n\n*   **QBar**: A clubby gay bar with a dance floor and occasional dancers.\n*   **440 Castro**: A local gay hangout with drinks and events that draws casual crowds.\n\nWould you like any more details on these, or perhaps something else?",
+      "id": "castro_cocktails",
+      "question": "cocktail bar in the Castro with a fun vibe",
+      "reference": "A good answer recommends one to three bars or cocktail bars in the Castro and explains why the vibe fits the request.",
+      "tags": [
+        "simple",
+        "bar",
+        "cocktails",
+        "castro"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Lou's Cafe",
+          "Nosh Cafe & Catering",
+          "Le Regency Deli & Cafe"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJ10DuKWKAhYAREoTuS2aT0M8",
+          "ChIJTSmizmOAhYARVsNut-RgFfI",
+          "ChIJl59CXGGAhYARSsN259OrOtw"
+        ],
+        "place_names": [
+          "Lou's Cafe",
+          "Nosh Cafe & Catering",
+          "Le Regency Deli & Cafe"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are 3 places for a quick lunch in the Financial District under $20:\n\n* Lou's Cafe (Sandwich Shop)\n* Nosh Cafe & Catering (Sandwich Shop)\n* Le Regency Deli & Cafe (Deli)",
+      "contexts": [
+        "name: Lou's Cafe | type: Sandwich Shop | address: 100 Pine St #102, San Francisco, CA 94111, USA | rating: 4.6 | snippet: Name: Lou's Cafe\nPrimary Type: Sandwich Shop\nAddress: 100 Pine St #102, San Francisco, CA 94111, USA\nTypes: sandwich_shop, restaurant, food, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 142\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://www.louscafesf.com/%20%20%20%20%20%20%20%20%20%20%20%20%20%20Email%20:.louscafepine@gmail.com\nBusiness Status: OPERATIONAL\nOpening Hours: Monda",
+        "name: Nosh Cafe & Catering | type: Sandwich Shop | address: 388 Market St, San Francisco, CA 94111, USA | rating: 4.6 | snippet: Name: Nosh Cafe & Catering\nPrimary Type: Sandwich Shop\nAddress: 388 Market St, San Francisco, CA 94111, USA\nTypes: sandwich_shop, breakfast_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Local counter-serve chain featuring a menu of gourmet sandwiches & breakfast in a casual space.\nRating: 4.6\nUser Ratings: 366\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http:/",
+        "name: MIXT Salads | type: Salad Shop | address: 120 Sansome St, San Francisco, CA 94104, USA | rating: 4.1 | snippet: Name: MIXT Salads\nPrimary Type: Salad Shop\nAddress: 120 Sansome St, San Francisco, CA 94104, USA\nTypes: salad_shop, fast_food_restaurant, vegan_restaurant, meal_takeaway, sandwich_shop, vegetarian_restaurant, food_store, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Eco-minded local chain serving gourmet salads & sandwiches in a modern, counter-serve setting.\nRating:",
+        "name: Le Regency Deli & Cafe | type: Deli | address: 18 California St, San Francisco, CA 94111, USA | rating: 4.3 | snippet: Name: Le Regency Deli & Cafe\nPrimary Type: Deli\nAddress: 18 California St, San Francisco, CA 94111, USA\nTypes: deli, catering_service, cafe, food_delivery, sandwich_shop, food_store, store, restaurant, food, point_of_interest, service, establishment\nEditorial Summary: This quaint, old-school spot has been serving sandwiches, salads, breakfasts & coffee since 1977.\nRating: 4.3\nUser Ratings: 100\nPri"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": "semantic_search: 1 validation error for semantic_search_args\nquery\n  Field required [type=missing, input_value={'filters': {'neighborhoo...evel_max': 1.0}, 'k': 3}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing",
+        "revision_hints": 3,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity",
+          "tool_error"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [
+          "semantic_search: 1 validation error for semantic_search_args\nquery\n  Field required [type=missing, input_value={'filters': {'neighborhoo...evel_max': 1.0}, 'k': 3}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing"
+        ],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 places for a quick lunch in the Financial District under $20:\n\n* Lou's Cafe (Sandwich Shop)\n* Nosh Cafe & Catering (Sandwich Shop)\n* Le Regency Deli & Cafe (Deli)",
+      "id": "financial_district_lunch_under_20",
+      "question": "quick lunch in the Financial District under $20 on a weekday",
+      "reference": "A good answer recommends one to three quick lunch spots in the Financial District with inexpensive or moderate pricing.",
+      "tags": [
+        "constraint_heavy",
+        "lunch",
+        "financial_district",
+        "budget"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Muguboka Restaurant",
+          "Brothers Restaurant",
+          "My Tofu House"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJKW84UEeHhYARhQVDd7-EqXM",
+          "ChIJuVgntT6HhYARv2VnL-7xGdM",
+          "ChIJtbIk_j2HhYARssBAcjU143g"
+        ],
+        "place_names": [
+          "Muguboka Restaurant",
+          "Brothers Restaurant",
+          "My Tofu House"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are 3 family-friendly Korean restaurants in Inner Richmond under $$:\n\n*   **Muguboka Restaurant** (401 Balboa St) - A homey, no-frills spot known for large portions of banchan and other hearty fare.\n*   **Brothers Restaurant** (4128 Geary Blvd) - A veteran family-style spot with tabletop grills for cook-your-own Korean BBQ.\n*   **My Tofu House** (4627 Geary Blvd) - An unassuming spot for Korean fare such as specialty tofu soups, barbecue, and bibimbop.",
+      "contexts": [
+        "name: Muguboka Restaurant | type: Korean Barbecue Restaurant | address: 401 Balboa St, San Francisco, CA 94118, USA | rating: 4.7 | snippet: Name: Muguboka Restaurant\nPrimary Type: Korean Barbecue Restaurant\nAddress: 401 Balboa St, San Francisco, CA 94118, USA\nTypes: korean_barbecue_restaurant, korean_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Homey, no-frills spot known for large portions of banchan (Korean side dishes) & other hearty fare.\nRating: 4.7\nUser Ratings: 472\nPrice Level: PRICE_LEVEL_M",
+        "name: Brothers Restaurant | type: Korean Restaurant | address: 4128 Geary Blvd, San Francisco, CA 94118, USA | rating: 4.5 | snippet: Name: Brothers Restaurant\nPrimary Type: Korean Restaurant\nAddress: 4128 Geary Blvd, San Francisco, CA 94118, USA\nTypes: korean_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Tabletop grills fire cook-your-own Korean BBQ feasts at this no-frills veteran family-style spot.\nRating: 4.5\nUser Ratings: 675\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.brothersr",
+        "name: My Tofu House | type: Korean Restaurant | address: 4627 Geary Blvd, San Francisco, CA 94118, USA | rating: 4.4 | snippet: Name: My Tofu House\nPrimary Type: Korean Restaurant\nAddress: 4627 Geary Blvd, San Francisco, CA 94118, USA\nTypes: korean_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Unassuming spot for Korean fare such as specialty tofu soups, barbecue & bibimbop (but no liquor).\nRating: 4.4\nUser Ratings: 517\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://mytofuhouse.menu1"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 family-friendly Korean restaurants in Inner Richmond under $$:\n\n*   **Muguboka Restaurant** (401 Balboa St) - A homey, no-frills spot known for large portions of banchan and other hearty fare.\n*   **Brothers Restaurant** (4128 Geary Blvd) - A veteran family-style spot with tabletop grills for cook-your-own Korean BBQ.\n*   **My Tofu House** (4627 Geary Blvd) - An unassuming spot for Korean fare such as specialty tofu soups, barbecue, and bibimbop.",
+      "id": "richmond_korean_family",
+      "question": "family-friendly Korean restaurant in Inner Richmond, under $$$",
+      "reference": "A good answer recommends one to three Korean restaurants in Inner Richmond with price level no higher than $$$ and enough ratings for confidence.",
+      "tags": [
+        "constraint_heavy",
+        "restaurant",
+        "korean",
+        "inner_richmond"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Collina",
+          "Mayaflor",
+          "Back to Back"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJVVWZC-yAhYARTO9lj9HYPlQ",
+          "ChIJF9tPeQCBhYARIG4-mdO2GLY",
+          "ChIJceWDaF6BhYARTr2IDufhptw"
+        ],
+        "place_names": [
+          "Collina",
+          "Mayaflor",
+          "Back to Back"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are 3 romantic dinner spots near Nob Hill with at least 4.5 stars:\n\n*   **Collina** (Italian Restaurant) - 4.7 stars\n*   **Mayaflor** (Restaurant) - 4.9 stars\n*   **Back to Back** (Restaurant) - 4.6 stars",
+      "contexts": [
+        "name: Collina | type: Italian Restaurant | address: 1550 Hyde St, San Francisco, CA 94109, USA | rating: 4.7 | snippet: Name: Collina\nPrimary Type: Italian Restaurant\nAddress: 1550 Hyde St, San Francisco, CA 94109, USA\nTypes: italian_restaurant, wine_bar, bar, restaurant, food, point_of_interest, establishment\nRating: 4.7\nUser Ratings: 171\nWebsite: https://www.collinasf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u2009\u2013\u20099:00\u202fPM | Tuesday: 5:00\u2009\u2013\u20099:00\u202fPM | Wednesday: 5:00\u2009\u2013\u20099:00\u202fPM | Thursday: 5:00\u2009\u2013\u20099:",
+        "name: Mayaflor | type: Restaurant | address: 1494 California St, San Francisco, CA 94109, USA | rating: 4.9 | snippet: Name: Mayaflor\nPrimary Type: Restaurant\nAddress: 1494 California St, San Francisco, CA 94109, USA\nTypes: restaurant, mexican_restaurant, food, point_of_interest, establishment\nRating: 4.9\nUser Ratings: 126\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://mayaflorsf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u2009\u2013\u20099:00\u202fPM | Tuesday: Closed | Wednesday: 5:00\u2009\u2013\u20099:00\u202fPM | Thursday: ",
+        "name: Back to Back | type: Restaurant | address: 1257 Taylor St, San Francisco, CA 94108, USA | rating: 4.6 | snippet: Name: Back to Back\nPrimary Type: Restaurant\nAddress: 1257 Taylor St, San Francisco, CA 94108, USA\nTypes: restaurant, wine_bar, bar, food, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 267\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://backtobacksf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u2009\u2013\u20099:00\u202fPM | Tuesday: 5:00\u2009\u2013\u20099:00\u202fPM | Wednesday: 5:00\u2009\u2013\u200910:00\u202fPM | Thursda"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 romantic dinner spots near Nob Hill with at least 4.5 stars:\n\n*   **Collina** (Italian Restaurant) - 4.7 stars\n*   **Mayaflor** (Restaurant) - 4.9 stars\n*   **Back to Back** (Restaurant) - 4.6 stars",
+      "id": "nob_hill_date_dinner_rating",
+      "question": "romantic dinner near Nob Hill with at least 4.5 stars",
+      "reference": "A good answer recommends one to three dinner spots near Nob Hill with ratings of at least 4.5 when rating data is available.",
+      "tags": [
+        "constraint_heavy",
+        "restaurant",
+        "date_night",
+        "nob_hill"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Moshi Moshi",
+          "Piccino",
+          "Giuliana's Just For You Cafe"
+        ],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [
+          "Moshi Moshi",
+          "Piccino",
+          "Giuliana's Just For You Cafe"
+        ],
+        "result_count": 3,
+        "sources": []
+      },
+      "answer": "Here are 3 casual places in Dogpatch for a group with beer and food:\n\n*   **Moshi Moshi**: A Japanese restaurant with sushi and soba, an outdoor patio, and a 4.4-star rating.\n*   **Piccino**: An Italian restaurant with a seasonally driven menu, a curated wine list, and craft cocktails. It has a 4.5-star rating.\n*   **Giuliana's Just For You Cafe**: A breakfast/lunch joint with local ingredients and scratch-made breads, rated 4.6 stars.\n\nWould you like to commit to any of these, or would you like to explore other options?",
+      "contexts": [
+        "name: Moshi Moshi | type: Japanese Restaurant | address: 2092 3rd St, San Francisco, CA 94107, USA | rating: 4.4 | snippet: Name: Moshi Moshi\nPrimary Type: Japanese Restaurant\nAddress: 2092 3rd St, San Francisco, CA 94107, USA\nTypes: japanese_restaurant, bar_and_grill, cocktail_bar, asian_restaurant, sushi_restaurant, bar, seafood_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Sushi & soba are among the classic eats at this low-key Japanese eatery with an outdoor patio.\nRating: 4.4\nUs",
+        "name: Piccino | type: Italian Restaurant | address: 1001 Minnesota St, San Francisco, CA 94107, USA | rating: 4.5 | snippet: Name: Piccino\nPrimary Type: Italian Restaurant\nAddress: 1001 Minnesota St, San Francisco, CA 94107, USA\nTypes: italian_restaurant, pizza_restaurant, californian_restaurant, brunch_restaurant, american_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Contemporary restaurant with a seasonally driven menu, a curated wine list & craft cocktails.\nRating: 4.5\nUser Rating",
+        "name: Giuliana's Just For You Cafe | type: Cafe | address: 732 22nd St, San Francisco, CA 94107, USA | rating: 4.6 | snippet: Name: Giuliana's Just For You Cafe\nPrimary Type: Cafe\nAddress: 732 22nd St, San Francisco, CA 94107, USA\nTypes: cafe, breakfast_restaurant, sandwich_shop, restaurant, food, point_of_interest, establishment\nEditorial Summary: Breakfast/lunch joint where local ingredients & scratch-made breads give comfort dining a lift.\nRating: 4.6\nUser Ratings: 1178\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https",
+        "name: THE PLANT cafe organic | type: Restaurant | address: 2335 3rd St, San Francisco, CA 94107, USA | rating: 4.1 | snippet: Name: THE PLANT cafe organic\nPrimary Type: Restaurant\nAddress: 2335 3rd St, San Francisco, CA 94107, USA\nTypes: seafood_restaurant, coffee_shop, cafe, juice_shop, vegan_restaurant, vegetarian_restaurant, food_store, restaurant, food, store, point_of_interest, establishment\nEditorial Summary: Modern, counter-serve cafe chain for organic veggie burgers, juices & other health-oriented staples.\nRating",
+        "name: Third Rail | type: Cocktail Bar | address: 628 20th St, San Francisco, CA 94107, USA | rating: 4.7 | snippet: Name: Third Rail\nPrimary Type: Cocktail Bar\nAddress: 628 20th St, San Francisco, CA 94107, USA\nTypes: cocktail_bar, bar, point_of_interest, establishment\nEditorial Summary: Spiffy, late-keeping bar offering creative drinks, beef jerky & more in train station-inspired digs.\nRating: 4.7\nUser Ratings: 412\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://thirdrailbarsf.com/\nBusiness Status: OPERATION",
+        "name: Long Bridge Pizza Company | type: Pizza Restaurant | address: 2347 3rd St, San Francisco, CA 94107, USA | rating: 4.6 | snippet: Name: Long Bridge Pizza Company\nPrimary Type: Pizza Restaurant\nAddress: 2347 3rd St, San Francisco, CA 94107, USA\nTypes: pizza_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Gourmet thin-crust pies, salads & subs served in a simple, industrial-chic space.\nRating: 4.6\nUser Ratings: 1165\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.longbridgepizza.com/\nBus",
+        "name: Wooly Pig | type: Cafe | address: 2295 3rd St, San Francisco, CA 94107, USA | rating: 4.6 | snippet: Name: Wooly Pig\nPrimary Type: Cafe\nAddress: 2295 3rd St, San Francisco, CA 94107, USA\nTypes: cafe, breakfast_restaurant, asian_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 452\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://woolypigsf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 8:00\u202fAM\u2009\u2013\u20099:00\u202fPM | Tuesday: 8:00\u202fAM\u2009\u2013\u20099:00\u202fPM | Wednesday: 8:",
+        "name: Artesano - Peruvian Fusion | type: Latin American Restaurant | address: 2335 3rd St, San Francisco, CA 94107, USA | rating: 4.3 | snippet: Name: Artesano - Peruvian Fusion\nPrimary Type: Latin American Restaurant\nAddress: 2335 3rd St, San Francisco, CA 94107, USA\nTypes: latin_american_restaurant, family_restaurant, peruvian_restaurant, cuban_restaurant, argentinian_restaurant, south_american_restaurant, american_restaurant, brazilian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Latin cafe supplies "
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 casual places in Dogpatch for a group with beer and food:\n\n*   **Moshi Moshi**: A Japanese restaurant with sushi and soba, an outdoor patio, and a 4.4-star rating.\n*   **Piccino**: An Italian restaurant with a seasonally driven menu, a curated wine list, and craft cocktails. It has a 4.5-star rating.\n*   **Giuliana's Just For You Cafe**: A breakfast/lunch joint with local ingredients and scratch-made breads, rated 4.6 stars.\n\nWould you like to commit to any of these, or would you like to explore other options?",
+      "id": "dogpatch_group_beer_food",
+      "question": "casual place in Dogpatch for a group with beer and food",
+      "reference": "A good answer recommends one to three casual Dogpatch spots that can work for a group and have beer plus food or a restaurant/bar profile.",
+      "tags": [
+        "constraint_heavy",
+        "group",
+        "beer",
+        "dogpatch"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Quince",
+          "Brioche Bakery & Caf\u00e9"
+        ],
+        "committed_stop_count": 2,
+        "place_ids": [
+          "ChIJ8biHnb-AhYARSpU8MDPb5vs",
+          "ChIJW-PUjPSAhYARHfkJMe6zzJ0"
+        ],
+        "place_names": [
+          "Quince",
+          "Brioche Bakery & Caf\u00e9"
+        ],
+        "result_count": 2,
+        "sources": [
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here's your North Beach dinner and dessert plan:\n\n**Dinner:** Quince\n**Dessert:** Brioche Bakery & Caf\u00e9\n\nThese two stops are an easy walk from each other. Enjoy your evening!",
+      "contexts": [
+        "name: Osmanthus Dim Sum Lounge | type: Dim Sum Restaurant | address: 504 Broadway, San Francisco, CA 94133, USA | rating: 4.4 | snippet: Name: Osmanthus Dim Sum Lounge\nPrimary Type: Dim Sum Restaurant\nAddress: 504 Broadway, San Francisco, CA 94133, USA\nTypes: dim_sum_restaurant, dumpling_restaurant, wine_bar, cantonese_restaurant, chinese_restaurant, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Relaxed eatery doling out Pan-Asian staples like samosas, dumpling & noodles, plus beer.\nRating: 4.4\nUser Rat",
+        "name: Betty Lou's Seafood & Grill | type: Seafood Restaurant | address: 318 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: Betty Lou's Seafood & Grill\nPrimary Type: Seafood Restaurant\nAddress: 318 Columbus Ave, San Francisco, CA 94133, USA\nTypes: seafood_restaurant, family_restaurant, steak_house, italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Bright, spacious bistro for oysters, chowder, pasta & seafood mains in old-world environs.\nRating: 4.6\nUser Ratings: 1233\nPrice ",
+        "name: Quince | type: Fine Dining Restaurant | address: 470 Pacific Ave, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: Quince\nPrimary Type: Fine Dining Restaurant\nAddress: 470 Pacific Ave, San Francisco, CA 94133, USA\nTypes: fine_dining_restaurant, italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Celebrated, upscale destination delivering seasonal, locally sourced cuisine & wines.\nRating: 4.6\nUser Ratings: 767\nPrice Level: PRICE_LEVEL_VERY_EXPENSIVE\nWebsite: http://ww",
+        "name: Firenze By Night | type: Italian Restaurant | address: 1429 Stockton St, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: Firenze By Night\nPrimary Type: Italian Restaurant\nAddress: 1429 Stockton St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, seafood_restaurant, mediterranean_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Dinner-only ristorante serving traditional Italian pasta, fish & meat dishes with wine.\nRating: 4.6\nUser Ratings: 666\nPrice Level: PRICE_LEVEL_EX",
+        "name: 606 | type: Chinese Restaurant | address: 606 Broadway, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: 606\nPrimary Type: Chinese Restaurant\nAddress: 606 Broadway, San Francisco, CA 94133, USA\nTypes: chinese_restaurant, asian_restaurant, chinese_noodle_restaurant, brunch_restaurant, dumpling_restaurant, soup_restaurant, dim_sum_restaurant, cantonese_restaurant, meal_takeaway, restaurant, food, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 337\nPrice Level: PRICE_LEVEL_MODERATE\nWebs",
+        "name: Cassava San Francisco | type: Cafe | address: 633 Battery St Ste 130, San Francisco, CA 94111, USA | rating: 4.5 | snippet: Name: Cassava San Francisco\nPrimary Type: Cafe\nAddress: 633 Battery St Ste 130, San Francisco, CA 94111, USA\nTypes: cafe, catering_service, japanese_restaurant, food_delivery, restaurant, food, point_of_interest, service, establishment\nEditorial Summary: New American restaurant serving Californian cuisine & brunch in a cozy space.\nRating: 4.5\nUser Ratings: 830\nPrice Level: PRICE_LEVEL_MODERATE\nWeb",
+        "name: R\u00e9veille Coffee Co. | type: Coffee Shop | address: 200 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.3 | snippet: Name: R\u00e9veille Coffee Co.\nPrimary Type: Coffee Shop\nAddress: 200 Columbus Ave, San Francisco, CA 94133, USA\nTypes: coffee_shop, brunch_restaurant, cafe, food_store, breakfast_restaurant, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Cafe for New American breakfast & lunch plus coffee drinks in a loftlike, contemporary setting.\nRating: 4.3\nUser Ratings: 882\nPrice Leve",
+        "name: Brioche Bakery & Caf\u00e9 | type: French Restaurant | address: 210 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.4 | snippet: Name: Brioche Bakery & Caf\u00e9\nPrimary Type: French Restaurant\nAddress: 210 Columbus Ave, San Francisco, CA 94133, USA\nTypes: french_restaurant, cafe, breakfast_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Airy bistro offering tartines, salads, housemade artisanal breads, desserts & a weekend brunch menu.\nRating: 4.4\nUser Ratings: 841\nPrice Level: PRICE_LEVEL_MODE"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 2
+      },
+      "final_reply": "Here's your North Beach dinner and dessert plan:\n\n**Dinner:** Quince\n**Dessert:** Brioche Bakery & Caf\u00e9\n\nThese two stops are an easy walk from each other. Enjoy your evening!",
+      "id": "north_beach_dinner_dessert",
+      "question": "plan dinner and dessert in North Beach, easy walk between stops",
+      "reference": "A good answer creates a two-stop North Beach plan with dinner followed by dessert and a short walk between stops.",
+      "tags": [
+        "multi_stop",
+        "restaurant",
+        "dessert",
+        "north_beach",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Doppio Coffee & Brunch",
+          "SoMa West Dog Park",
+          "War Memorial Opera House"
+        ],
+        "committed_stop_count": 1,
+        "place_ids": [
+          "ChIJy8vmGC2BhYARu919i3bko-Q"
+        ],
+        "place_names": [
+          "Doppio Coffee & Brunch"
+        ],
+        "result_count": 1,
+        "sources": [
+          "google_places"
+        ]
+      },
+      "answer": "I've committed Doppio Coffee & Brunch for your brunch. For a place to walk around nearby, I found SoMa West Dog Park and War Memorial Opera House. Would you like to visit either of those?",
+      "contexts": [
+        "name: Ariel's Breakfast | type: Breakfast Restaurant | address: 2845 Mission St, San Francisco, CA 94110, USA | rating: 4.3 | snippet: Name: Ariel's Breakfast\nPrimary Type: Breakfast Restaurant\nAddress: 2845 Mission St, San Francisco, CA 94110, USA\nTypes: breakfast_restaurant, mexican_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.3\nUser Ratings: 66\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.arielsbreakfast.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 6:00\u202fAM\u2009\u2013\u20097:00\u202fPM | Tuesday: ",
+        "name: Doppio Coffee & Brunch | type: Coffee Shop | address: 1551 Mission St, San Francisco, CA 94103, USA | rating: 4.9 | snippet: Name: Doppio Coffee & Brunch\nPrimary Type: Coffee Shop\nAddress: 1551 Mission St, San Francisco, CA 94103, USA\nTypes: coffee_shop, bagel_shop, brunch_restaurant, banquet_hall, bakery, cafe, food_store, breakfast_restaurant, event_venue, restaurant, food, point_of_interest, store, establishment\nRating: 4.9\nUser Ratings: 382\nWebsite: https://doppiosf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: M",
+        "name: The Rabbit Hole | type: Restaurant | address: 3472 Mission St, San Francisco, CA 94110, USA | rating: 4.5 | snippet: Name: The Rabbit Hole\nPrimary Type: Restaurant\nAddress: 3472 Mission St, San Francisco, CA 94110, USA\nTypes: restaurant, breakfast_restaurant, brunch_restaurant, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 153\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://therabbithole-sf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Tuesday: 11:00\u202fAM\u2009\u2013\u200910",
+        "name: The Garden Club | type: American Restaurant | address: 1144 Mission Rd, South San Francisco, CA 94080, USA | rating: 4.3 | snippet: Name: The Garden Club\nPrimary Type: American Restaurant\nAddress: 1144 Mission Rd, South San Francisco, CA 94080, USA\nTypes: american_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Cozy, unassuming cafe with simple decor serving generous portions of down-home American classics.\nRating: 4.3\nUser Ratings: 719\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.ga",
+        "name: Terrene | type: Restaurant | address: 8 Mission St, San Francisco, CA 94105, USA | rating: 4.2 | snippet: Name: Terrene\nPrimary Type: Restaurant\nAddress: 8 Mission St, San Francisco, CA 94105, USA\nTypes: restaurant, breakfast_restaurant, brunch_restaurant, food, point_of_interest, establishment\nRating: 4.2\nUser Ratings: 213\nWebsite: https://www.1hotels.com/san-francisco/taste/terrene?utm_source=google-gbp&utm_medium=organic&utm_campaign=gbp\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 7:00\u202fAM\u2009\u2013",
+        "name: Reina's Restaurant | type: Restaurant | address: 5479 Mission St, San Francisco, CA 94112, USA | rating: 4.0 | snippet: Name: Reina's Restaurant\nPrimary Type: Restaurant\nAddress: 5479 Mission St, San Francisco, CA 94112, USA\nTypes: latin_american_restaurant, mexican_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.0\nUser Ratings: 632\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://www.reinasrestaurant.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 9:00\u202fAM\u2009\u2013\u20098:30\u202fPM | Tuesday:",
+        "name: SoMa West Dog Park | type: Dog Park | address: 1400 Stevenson St, San Francisco, CA 94103, USA | rating: 4.3 | snippet: Name: SoMa West Dog Park\nPrimary Type: Dog Park\nAddress: 1400 Stevenson St, San Francisco, CA 94103, USA\nTypes: dog_park, park, point_of_interest, establishment\nRating: 4.3\nUser Ratings: 125\nWebsite: https://sfrecpark.org/Facilities/Facility/Details/SOMA-West-Dog-Park-433\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u202fAM\u2009\u2013\u200912:00\u202fAM | Tuesday: 5:00\u202fAM\u2009\u2013\u200912:00\u202fAM | Wednesday: 5:00\u202fAM\u2009\u2013\u200912:",
+        "name: War Memorial Opera House | type: Opera House | address: 301 Van Ness Ave, San Francisco, CA 94102, USA | rating: 4.8 | snippet: Name: War Memorial Opera House\nPrimary Type: Opera House\nAddress: 301 Van Ness Ave, San Francisco, CA 94102, USA\nTypes: opera_house, concert_hall, auditorium, performing_arts_theater, tourist_attraction, live_music_venue, event_venue, point_of_interest, establishment\nEditorial Summary: Renowned 1932 Beaux-Arts performing arts center & home to the San Francisco Ballet.\nRating: 4.8\nUser Ratings: 247"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": false,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary",
+          "nearby"
+        ],
+        "violations": [
+          "expected_results"
+        ]
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 2
+      },
+      "final_reply": "I've committed Doppio Coffee & Brunch for your brunch. For a place to walk around nearby, I found SoMa West Dog Park and War Memorial Opera House. Would you like to visit either of those?",
+      "id": "mission_brunch_park_walk",
+      "question": "brunch in the Mission followed by somewhere nearby to walk around",
+      "reference": "A good answer creates a brunch-plus-walk plan in or near the Mission with a reasonable walking distance between stops.",
+      "tags": [
+        "multi_stop",
+        "brunch",
+        "mission",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Marufuku Ramen",
+          "Yasukochi's Sweet Stop",
+          "Uji Time Dessert"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJudPX0riAhYAROD5sqRTRePM",
+          "ChIJ0clYyriAhYARC8bZ6x6wXBc",
+          "ChIJ520J0L6AhYARAtr8onYiJ9U"
+        ],
+        "place_names": [
+          "Marufuku Ramen",
+          "Yasukochi's Sweet Stop",
+          "Uji Time Dessert"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Great choices! I've planned a delicious outing for you:\n\n1.  **Marufuku Ramen** in Japantown for your ramen fix.\n2.  Then, for something sweet, you have two fantastic options nearby:\n    *   **Yasukochi's Sweet Stop**, a lively bakery known for its coffee crunch cakes.\n    *   **Uji Time Dessert**, a neighborhood sweet shop with ice cream, mochi, and taiyaki.\n\nEnjoy your ramen and treats!",
+      "contexts": [
+        "name: Ramen Yamadaya | type: Japanese Restaurant | address: 1728 Buchanan St, San Francisco, CA 94115, USA | rating: 4.1 | snippet: Name: Ramen Yamadaya\nPrimary Type: Japanese Restaurant\nAddress: 1728 Buchanan St, San Francisco, CA 94115, USA\nTypes: japanese_restaurant, sushi_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Simple chain dining room specializing in slow-cooked ramen noodle soup, plus other Japanese dishes.\nRating: 4.1\nUser Ratings: 1566\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite:",
+        "name: HINODEYA Ramen Japantown | type: Ramen Restaurant | address: 1737 Buchanan St, San Francisco, CA 94115, USA | rating: 4.5 | snippet: Name: HINODEYA Ramen Japantown\nPrimary Type: Ramen Restaurant\nAddress: 1737 Buchanan St, San Francisco, CA 94115, USA\nTypes: ramen_restaurant, noodle_shop, catering_service, breakfast_restaurant, vegan_restaurant, food_delivery, vegetarian_restaurant, japanese_restaurant, restaurant, food, point_of_interest, service, establishment\nEditorial Summary: Elevated ramen spot whipping up starters and das",
+        "name: Marufuku Ramen | type: Ramen Restaurant | address: 1581 Webster St #235, San Francisco, CA 94115, USA | rating: 4.5 | snippet: Name: Marufuku Ramen\nPrimary Type: Ramen Restaurant\nAddress: 1581 Webster St #235, San Francisco, CA 94115, USA\nTypes: ramen_restaurant, japanese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Contemporary spot for Japanese ramen (including hakata style), along with rice bowls, beer & sake.\nRating: 4.5\nUser Ratings: 3002\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite:",
+        "name: Matsuyama Shabu House | type: Japanese Restaurant | address: 1726 Buchanan St, San Francisco, CA 94115, USA | rating: 4.2 | snippet: Name: Matsuyama Shabu House\nPrimary Type: Japanese Restaurant\nAddress: 1726 Buchanan St, San Francisco, CA 94115, USA\nTypes: japanese_izakaya_restaurant, asian_restaurant, japanese_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.2\nUser Ratings: 116\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.matsuyamashabuhouseca.com/\nBusiness Status: OPERATIONAL\nOpening Hours: ",
+        "name: Ganji | type: Japanese Restaurant | address: 1740 Buchanan St, San Francisco, CA 94115, USA | rating: 4.3 | snippet: Name: Ganji\nPrimary Type: Japanese Restaurant\nAddress: 1740 Buchanan St, San Francisco, CA 94115, USA\nTypes: japanese_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.3\nUser Ratings: 93\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.instagram.com/ganjionjtown\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 12:00\u2009\u2013\u20098:00\u202fPM | Tuesday: 12:00\u2009\u2013\u20098:00\u202fPM | Wednesday: 1",
+        "name: Forest Books | type: Book Store | address: 1748 Buchanan St, San Francisco, CA 94115, USA | rating: 4.6 | snippet: Name: Forest Books\nPrimary Type: Book Store\nAddress: 1748 Buchanan St, San Francisco, CA 94115, USA\nTypes: book_store, store, point_of_interest, establishment\nEditorial Summary: Local shop selling new & used books spanning modern fiction, world literature & Eastern religions.\nRating: 4.6\nUser Ratings: 123\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 12:00\u2009\u2013\u20098:00\u202fPM | Tuesday: 12:00\u2009\u2013\u20098:00\u202fP",
+        "name: Yasukochi's Sweet Stop | type: Bakery | address: 1790 Sutter St, San Francisco, CA 94115, USA | rating: 4.6 | snippet: Name: Yasukochi's Sweet Stop\nPrimary Type: Bakery\nAddress: 1790 Sutter St, San Francisco, CA 94115, USA\nTypes: bakery, food_store, store, food, point_of_interest, establishment\nEditorial Summary: Lively bakery set inside a grocery store known for its coffee crunch cakes & other treats.\nRating: 4.6\nUser Ratings: 210\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://www.sweetstopsf.com/\nBusiness ",
+        "name: NEW PEOPLE | type: Clothing Store | address: 1746 Post St, San Francisco, CA 94115, USA | rating: 4.6 | snippet: Name: NEW PEOPLE\nPrimary Type: Clothing Store\nAddress: 1746 Post St, San Francisco, CA 94115, USA\nTypes: clothing_store, coworking_space, movie_theater, cafe, event_venue, food, store, point_of_interest, establishment\nEditorial Summary: Venue known as the J-Pop Center offers 5 levels of Japanese clothing, anime, manga, snacks & movies.\nRating: 4.6\nUser Ratings: 136\nPrice Level: PRICE_LEVEL_MODERAT",
+        "name: Uji Time Dessert | type: Ice Cream Shop | address: 22 Peace Plaza #440, San Francisco, CA 94115, USA | rating: 4.5 | snippet: Name: Uji Time Dessert\nPrimary Type: Ice Cream Shop\nAddress: 22 Peace Plaza #440, San Francisco, CA 94115, USA\nTypes: ice_cream_shop, dessert_shop, confectionery, food_store, food, point_of_interest, store, establishment\nEditorial Summary: Neighborhood sweet shop with ice cream, mochi, taiyaki & other Japanese desserts in airy environs.\nRating: 4.5\nUser Ratings: 532\nPrice Level: PRICE_LEVEL_INEXPE"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 2
+      },
+      "final_reply": "Great choices! I've planned a delicious outing for you:\n\n1.  **Marufuku Ramen** in Japantown for your ramen fix.\n2.  Then, for something sweet, you have two fantastic options nearby:\n    *   **Yasukochi's Sweet Stop**, a lively bakery known for its coffee crunch cakes.\n    *   **Uji Time Dessert**, a neighborhood sweet shop with ice cream, mochi, and taiyaki.\n\nEnjoy your ramen and treats!",
+      "id": "japantown_ramen_tea",
+      "question": "ramen in Japantown then tea or dessert nearby",
+      "reference": "A good answer creates a two-stop Japantown plan with ramen first and tea or dessert nearby.",
+      "tags": [
+        "multi_stop",
+        "restaurant",
+        "dessert",
+        "japantown",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Ferry Building",
+          "Imperial Tea Court"
+        ],
+        "committed_stop_count": 1,
+        "place_ids": [
+          "ChIJWTGPjmaAhYARTZzu6RdEiSU"
+        ],
+        "place_names": [
+          "Imperial Tea Court"
+        ],
+        "result_count": 1,
+        "sources": [
+          "google_places"
+        ]
+      },
+      "answer": "I've added Imperial Tea Court to your itinerary. It's a tea house in the Ferry Building that also serves coffee.\n\nNow, what kind of scenic waterfront stop are you looking for?",
+      "contexts": [
+        "name: Ferry Building | type: Historical Landmark | address: 1 Ferry Building, San Francisco, CA 94105, USA | rating: 4.6 | snippet: Name: Ferry Building\nPrimary Type: Historical Landmark\nAddress: 1 Ferry Building, San Francisco, CA 94105, USA\nTypes: historical_landmark, ferry_service, market, grocery_store, food_store, historical_place, store, transportation_service, food, point_of_interest, establishment\nEditorial Summary: Vendors sell produce, cheese, coffee, candy & prepared food in this soaring, restored 1898 space.\nRating",
+        "name: Imperial Tea Court | type: Tea House | address: 1 Ferry Plz, San Francisco, CA 94111, USA | rating: 4.1 | snippet: Name: Imperial Tea Court\nPrimary Type: Tea House\nAddress: 1 Ferry Plz, San Francisco, CA 94111, USA\nTypes: tea_house, tea_store, dim_sum_restaurant, cantonese_restaurant, coffee_shop, asian_restaurant, chinese_restaurant, cafe, restaurant, food_store, store, food, point_of_interest, establishment\nEditorial Summary: Teahouse in the Ferry Building serving handmade noodles, dim sum & teas from around"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": false,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": [
+          "expected_results"
+        ]
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 2
+      },
+      "final_reply": "I've added Imperial Tea Court to your itinerary. It's a tea house in the Ferry Building that also serves coffee.\n\nNow, what kind of scenic waterfront stop are you looking for?",
+      "id": "ferry_building_coffee_waterfront",
+      "question": "coffee near the Ferry Building then a scenic waterfront stop",
+      "reference": "A good answer creates a coffee-plus-waterfront plan near the Ferry Building with a short walk and a scenic second stop.",
+      "tags": [
+        "multi_stop",
+        "coffee",
+        "waterfront",
+        "ferry_building",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Suppenk\u00fcche",
+          "Brass Tacks"
+        ],
+        "committed_stop_count": 2,
+        "place_ids": [
+          "ChIJ8fbCTqKAhYAR9Uu7AyP5FyE",
+          "ChIJk6gadKKAhYARcgOWgoUYnU0"
+        ],
+        "place_names": [
+          "Suppenk\u00fcche",
+          "Brass Tacks"
+        ],
+        "result_count": 2,
+        "sources": [
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Great! I've planned a pre-show dinner at Suppenk\u00fcche, a German restaurant in Hayes Valley, followed by cocktails at Brass Tacks, a nearby cocktail bar.",
+      "contexts": [
+        "name: Suppenk\u00fcche | type: German Restaurant | address: 525 Laguna St, San Francisco, CA 94102, USA | rating: 4.5 | snippet: Name: Suppenk\u00fcche\nPrimary Type: German Restaurant\nAddress: 525 Laguna St, San Francisco, CA 94102, USA\nTypes: german_restaurant, european_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Authentic German fare like pretzels & schnitzels plus imported beers served in a glass boot.\nRating: 4.5\nUser Ratings: 1959\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.su",
+        "name: Brass Tacks | type: Cocktail Bar | address: 488a Hayes St, San Francisco, CA 94102, USA | rating: 4.1 | snippet: Name: Brass Tacks\nPrimary Type: Cocktail Bar\nAddress: 488a Hayes St, San Francisco, CA 94102, USA\nTypes: cocktail_bar, bar, point_of_interest, establishment\nEditorial Summary: Laid-back, yet stylish bar pours cocktails, wines on tap & craft beers under snazzy light fixtures.\nRating: 4.1\nUser Ratings: 418\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://brasstackssf.com/\nBusiness Status: OPERATION",
+        "name: a Mano | type: Restaurant | address: 450 Hayes St, San Francisco, CA 94102, USA | rating: 4.3 | snippet: Name: a Mano\nPrimary Type: Restaurant\nAddress: 450 Hayes St, San Francisco, CA 94102, USA\nTypes: restaurant, pizza_restaurant, wine_bar, cocktail_bar, italian_restaurant, bar, food, point_of_interest, establishment\nEditorial Summary: Buzzy neighborhood spot offering housemade pasta, pizza, and Italian wine in spacious environment. \nRating: 4.3\nUser Ratings: 2279\nPrice Level: PRICE_LEVEL_MODERATE\nW"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 2
+      },
+      "final_reply": "Great! I've planned a pre-show dinner at Suppenk\u00fcche, a German restaurant in Hayes Valley, followed by cocktails at Brass Tacks, a nearby cocktail bar.",
+      "id": "hayes_valley_show_dinner",
+      "question": "pre-show dinner near Hayes Valley then a cocktail bar nearby",
+      "reference": "A good answer creates a dinner-and-cocktail plan near Hayes Valley with a practical walk between stops.",
+      "tags": [
+        "multi_stop",
+        "dinner",
+        "cocktails",
+        "hayes_valley",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [],
+        "result_count": 0,
+        "sources": []
+      },
+      "answer": "",
+      "contexts": [
+        "name: Rusty Ladle | type: Soup Restaurant | address: 3645 Lawton St, San Francisco, CA 94122, USA | rating: 4.7 | snippet: Name: Rusty Ladle\nPrimary Type: Soup Restaurant\nAddress: 3645 Lawton St, San Francisco, CA 94122, USA\nTypes: soup_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.7\nUser Ratings: 115\nWebsite: https://rustyladle.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: Closed | Tuesday: Closed | Wednesday: 12:00\u2009\u2013\u20098:00\u202fPM | Thursday: 12:00\u2009\u2013\u20098:00\u202fPM | Friday: 12:00\u2009\u2013\u20099:00\u202fPM ",
+        "name: Lucca Food Deli & Wine Shop | type: Sandwich Shop | address: 1899 Irving St, San Francisco, CA 94122, USA | rating: 4.6 | snippet: Name: Lucca Food Deli & Wine Shop\nPrimary Type: Sandwich Shop\nAddress: 1899 Irving St, San Francisco, CA 94122, USA\nTypes: sandwich_shop, convenience_store, deli, meal_takeaway, liquor_store, grocery_store, food_store, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Small neighborhood grocery store selling hot & cold sandwiches, beer, wine & liquor.\nRating: 4.6\nUser Ra",
+        "name: Fifty Vara | type: Restaurant | address: 1735 Noriega St, San Francisco, CA 94122, USA | rating: 4.6 | snippet: Name: Fifty Vara\nPrimary Type: Restaurant\nAddress: 1735 Noriega St, San Francisco, CA 94122, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 95\nWebsite: http://www.fiftyvarasf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 12:00\u2009\u2013\u20099:00\u202fPM | Tuesday: 12:00\u2009\u2013\u20099:00\u202fPM | Wednesday: 12:00\u2009\u2013\u20099:00\u202fPM | Thursday: 12:00\u2009\u2013\u20099:00\u202fPM | Friday: 12:00\u2009\u2013\u20099:00\u202fPM |",
+        "name: Cafe Bakery Restaurant | type: Chinese Restaurant | address: 1365 Noriega St, San Francisco, CA 94122, USA | rating: 4.2 | snippet: Name: Cafe Bakery Restaurant\nPrimary Type: Chinese Restaurant\nAddress: 1365 Noriega St, San Francisco, CA 94122, USA\nTypes: chinese_restaurant, cafe, bakery, food_store, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Part of an adjacent restaurant, this no-frills Chinese bakery offers pastries, coffee & milk teas.\nRating: 4.2\nUser Ratings: 398\nPrice Level: PRICE_LEVEL",
+        "name: Peking Restaurant | type: Chinese Restaurant | address: 1375 Noriega St, San Francisco, CA 94122, USA | rating: 4.3 | snippet: Name: Peking Restaurant\nPrimary Type: Chinese Restaurant\nAddress: 1375 Noriega St, San Francisco, CA 94122, USA\nTypes: chinese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: A sizable menu of Chinese food is offered by this unassuming eatery with Asian-inspired decor.\nRating: 4.3\nUser Ratings: 87\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.sfpeking.com",
+        "name: Noodle Stop | type: Noodle Shop | address: 1325 Noriega St, San Francisco, CA 94122, USA | rating: 4.2 | snippet: Name: Noodle Stop\nPrimary Type: Noodle Shop\nAddress: 1325 Noriega St, San Francisco, CA 94122, USA\nTypes: noodle_shop, chinese_noodle_restaurant, meal_takeaway, chinese_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.2\nUser Ratings: 141\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://order.toasttab.com/online/noodle-stop-1325-noriega-st\nBusiness Status: OPERATIONAL\nOpen"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": false,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby"
+        ],
+        "violations": [
+          "expected_results"
+        ]
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 2
+      },
+      "final_reply": "",
+      "id": "sunset_beach_day_food",
+      "question": "casual lunch in Outer Sunset then something near Ocean Beach",
+      "reference": "A good answer creates a casual Outer Sunset lunch plus nearby Ocean Beach-area stop with coherent geography.",
+      "tags": [
+        "multi_stop",
+        "lunch",
+        "outer_sunset",
+        "beach",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [],
+        "result_count": 0,
+        "sources": []
+      },
+      "answer": "\"Michelin-level fine dining\" and \"under $\" are conflicting requests. Michelin-level restaurants are almost always expensive. Would you like me to search for:\n\n1. Michelin-level dining in San Francisco (at a higher price point)\n2. Fine dining under $ in San Francisco (not necessarily Michelin-level)",
+      "contexts": [],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 0,
+        "tool_errors": [],
+        "tool_names": [],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": true,
+        "max_stops": null,
+        "min_stops": null
+      },
+      "final_reply": "\"Michelin-level fine dining\" and \"under $\" are conflicting requests. Michelin-level restaurants are almost always expensive. Would you like me to search for:\n\n1. Michelin-level dining in San Francisco (at a higher price point)\n2. Fine dining under $ in San Francisco (not necessarily Michelin-level)",
+      "id": "impossible_cheap_michelin",
+      "question": "Michelin-level fine dining in San Francisco tonight under $",
+      "reference": "A good answer should avoid pretending a perfect match exists; it should explain the constraint conflict and ask to relax price, timing, or fine-dining expectations.",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "budget",
+        "fine_dining"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "The Speakeasy"
+        ],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [
+          "The Speakeasy"
+        ],
+        "result_count": 1,
+        "sources": []
+      },
+      "answer": "I couldn't find any sushi restaurants in North Beach that are open at 4 AM. The closest match was \"The Speakeasy,\" which is not a sushi restaurant.",
+      "contexts": [
+        "name: The Speakeasy | type: Manufacturer | address: 644 Broadway, San Francisco, CA 94133, USA | rating: 4.4 | snippet: Name: The Speakeasy\nPrimary Type: Manufacturer\nAddress: 644 Broadway, San Francisco, CA 94133, USA\nTypes: event_venue, manufacturer, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 77\nWebsite: https://www.thespeakeasysf.com/\nBusiness Status: OPERATIONAL\nLatitude: 37.79803630000001\nLongitude: -122.4078842\nShort Address: 644 Broadway, San Francisco\nPrimary Type ID: manufacturer\nNational P"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 1,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": true,
+        "max_stops": null,
+        "min_stops": null
+      },
+      "final_reply": "I couldn't find any sushi restaurants in North Beach that are open at 4 AM. The closest match was \"The Speakeasy,\" which is not a sushi restaurant.",
+      "id": "impossible_north_beach_sushi_4am",
+      "question": "sushi in North Beach open at 4am",
+      "reference": "A good answer should not hallucinate a 4am North Beach sushi match; it should ask to relax the time, neighborhood, or cuisine, or offer transparent closest alternatives.",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "late_night",
+        "north_beach"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [],
+        "result_count": 0,
+        "sources": []
+      },
+      "answer": "The Marina, Mission, and Outer Sunset neighborhoods are not very walkable from one another, as they are in different parts of San Francisco. Would you like to plan stops in just one of those neighborhoods, or perhaps use a different mode of transportation between them?",
+      "contexts": [],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 0,
+        "tool_errors": [],
+        "tool_names": [],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": true,
+        "max_stops": null,
+        "min_stops": null
+      },
+      "final_reply": "The Marina, Mission, and Outer Sunset neighborhoods are not very walkable from one another, as they are in different parts of San Francisco. Would you like to plan stops in just one of those neighborhoods, or perhaps use a different mode of transportation between them?",
+      "id": "overconstrained_walkable_three_neighborhoods",
+      "question": "plan three stops: Marina, Mission, and Outer Sunset, all walkable between each other",
+      "reference": "A good answer should flag that these neighborhoods are too far apart to be walkable as a single chain and ask to relax geography or use transit.",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "multi_stop",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Ariel's Breakfast"
+        ],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [
+          "Ariel's Breakfast"
+        ],
+        "result_count": 1,
+        "sources": []
+      },
+      "answer": "I couldn't find any highly-rated brunch spots in the Mission that specifically mention vegan pancakes and are open at 6 AM on a Monday. The top result, Ariel's Breakfast, has a 4.3 rating but only a 0.23 similarity score for \"vegan pancakes.\"\n\nWould you like me to broaden the search to include other neighborhoods, or perhaps look for places that serve vegan options in general, rather than specifically vegan pancakes?",
+      "contexts": [
+        "name: Ariel's Breakfast | type: Breakfast Restaurant | address: 2845 Mission St, San Francisco, CA 94110, USA | rating: 4.3 | snippet: Name: Ariel's Breakfast\nPrimary Type: Breakfast Restaurant\nAddress: 2845 Mission St, San Francisco, CA 94110, USA\nTypes: breakfast_restaurant, mexican_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.3\nUser Ratings: 66\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.arielsbreakfast.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 6:00\u202fAM\u2009\u2013\u20097:00\u202fPM | Tuesday: ",
+        "name: Cafe Guatemalteco | type: Restaurant | address: 4794 Mission St, San Francisco, CA 94112, USA | rating: 4.0 | snippet: Name: Cafe Guatemalteco\nPrimary Type: Restaurant\nAddress: 4794 Mission St, San Francisco, CA 94112, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.0\nUser Ratings: 178\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://cafeguatemalteco.net/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 6:00\u202fAM\u2009\u2013\u20099:00\u202fPM | Tuesday: 6:00\u202fAM\u2009\u2013\u20099:00\u202fPM | Wednesday: 6:00\u202fAM\u2009\u2013\u20099:00\u202fPM | T",
+        "name: Universal Bakery on Mission | type: Restaurant | address: 3458 Mission St, San Francisco, CA 94110, USA | rating: 4.4 | snippet: Name: Universal Bakery on Mission\nPrimary Type: Restaurant\nAddress: 3458 Mission St, San Francisco, CA 94110, USA\nTypes: breakfast_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 659\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://www.universal-bakery.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 6:00\u202fAM\u2009\u2013\u20096:00\u202fPM | Tuesday: 6:00\u202fAM\u2009\u2013\u20096:00\u202f",
+        "name: Cafe La Taza | type: Cafe | address: 2475 Mission St, San Francisco, CA 94110, USA | rating: 4.4 | snippet: Name: Cafe La Taza\nPrimary Type: Cafe\nAddress: 2475 Mission St, San Francisco, CA 94110, USA\nTypes: cafe, brunch_restaurant, sandwich_shop, latin_american_restaurant, vegetarian_restaurant, catering_service, bar, coffee_shop, food_store, american_restaurant, food_delivery, breakfast_restaurant, restaurant, food, point_of_interest, store, service, establishment\nEditorial Summary: Relaxed haunt feat",
+        "name: El Capricho Restaurant | type: Mexican Restaurant | address: 2022 Mission St, San Francisco, CA 94110, USA | rating: 4.6 | snippet: Name: El Capricho Restaurant\nPrimary Type: Mexican Restaurant\nAddress: 2022 Mission St, San Francisco, CA 94110, USA\nTypes: mexican_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 90\nPrice Level: PRICE_LEVEL_MODERATE\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u202fAM\u2009\u2013\u200912:00\u202fAM | Tuesday: 5:00\u202fAM\u2009\u2013\u200912:00\u202fAM | Wednesday: 5:00\u202fAM\u2009\u2013\u200912:00\u202fAM | Thursda"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 1,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": true,
+        "max_stops": null,
+        "min_stops": null
+      },
+      "final_reply": "I couldn't find any highly-rated brunch spots in the Mission that specifically mention vegan pancakes and are open at 6 AM on a Monday. The top result, Ariel's Breakfast, has a 4.3 rating but only a 0.23 similarity score for \"vegan pancakes.\"\n\nWould you like me to broaden the search to include other neighborhoods, or perhaps look for places that serve vegan options in general, rather than specifically vegan pancakes?",
+      "id": "closed_monday_brunch",
+      "question": "brunch spot in the Mission open Monday at 6am with vegan pancakes",
+      "reference": "A good answer should be transparent if no strong match exists for vegan pancakes at 6am Monday and should ask to relax time or menu specificity.",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "brunch",
+        "mission"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Great Big Game Show Fisherman's Wharf",
+          "Club Fugazi Experiences",
+          "The Function"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJu3EzmfGAhYARY45tSNDXCqw",
+          "ChIJkdwMnEmBhYARepGRyrh8myI",
+          "ChIJIb2ErByBhYAR1kmVGO7q7nc"
+        ],
+        "place_names": [
+          "Club Fugazi Experiences",
+          "Great Big Game Show Fisherman's Wharf",
+          "The Function"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are 3 fun places for tonight in San Francisco:\n\n*   **Club Fugazi Experiences** is a performing arts theater and night club. (4.9 stars from 1069 reviews, $$)\n*   **Great Big Game Show Fisherman's Wharf** is an amusement center. (5.0 stars from 1745 reviews)\n*   **The Function** is a comedy club and night club. (4.5 stars from 188 reviews)",
+      "contexts": [
+        "name: The Summer Place | type: Bar | address: 801 Bush St, San Francisco, CA 94108, USA | rating: 4.6 | snippet: Name: The Summer Place\nPrimary Type: Bar\nAddress: 801 Bush St, San Francisco, CA 94108, USA\nTypes: bar, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 293\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://thesummerplacesf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 2:00\u202fPM\u2009\u2013\u20092:00\u202fAM | Tuesday: 2:00\u202fPM\u2009\u2013\u20092:00\u202fAM | Wednesday: 2:00\u202fPM\u2009\u2013\u20092:00\u202fAM | Thursday: 2:00\u202fPM\u2009\u2013\u20092:00\u202f",
+        "name: Great Big Game Show Fisherman's Wharf | type: Amusement Center | address: 145 Jefferson St Suite 500, San Francisco, CA 94133, USA | rating: 5.0 | snippet: Name: Great Big Game Show Fisherman's Wharf\nPrimary Type: Amusement Center\nAddress: 145 Jefferson St Suite 500, San Francisco, CA 94133, USA\nTypes: amusement_center, tourist_attraction, point_of_interest, establishment\nRating: 5.0\nUser Ratings: 1745\nWebsite: https://greatbiggameshow.com/san-francisco?utm_source=google&utm_medium=organic&utm_campaign=gbp&utm_id=san-francisco\nBusiness Status: OPERAT",
+        "name: Sandbox VR | type: Amusement Center | address: 767 B Market St, San Francisco, CA 94103, USA | rating: 4.9 | snippet: Name: Sandbox VR\nPrimary Type: Amusement Center\nAddress: 767 B Market St, San Francisco, CA 94103, USA\nTypes: amusement_center, tourist_attraction, video_arcade, event_venue, point_of_interest, establishment\nRating: 4.9\nUser Ratings: 8113\nWebsite: https://sandboxvr.com/sanfrancisco\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 10:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Tuesday: 10:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Wednesday: 1",
+        "name: Club Fugazi Experiences | type: Performing Arts Theater | address: 678 Green St, San Francisco, CA 94133, USA | rating: 4.9 | snippet: Name: Club Fugazi Experiences\nPrimary Type: Performing Arts Theater\nAddress: 678 Green St, San Francisco, CA 94133, USA\nTypes: performing_arts_theater, night_club, live_music_venue, event_venue, restaurant, food, point_of_interest, establishment\nRating: 4.9\nUser Ratings: 1069\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.clubfugazisf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday",
+        "name: The Function | type: Comedy Club | address: 1414 Market St, San Francisco, CA 94102, USA | rating: 4.5 | snippet: Name: The Function\nPrimary Type: Comedy Club\nAddress: 1414 Market St, San Francisco, CA 94102, USA\nTypes: comedy_club, lounge_bar, wine_bar, night_club, cocktail_bar, bar, event_venue, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 188\nWebsite: https://www.thefunctionsf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u2009\u2013\u200911:00\u202fPM | Tuesday: 5:00\u2009\u2013\u200911:00\u202fPM | Wednesday"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are 3 fun places for tonight in San Francisco:\n\n*   **Club Fugazi Experiences** is a performing arts theater and night club. (4.9 stars from 1069 reviews, $$)\n*   **Great Big Game Show Fisherman's Wharf** is an amusement center. (5.0 stars from 1745 reviews)\n*   **The Function** is a comedy club and night club. (4.5 stars from 188 reviews)",
+      "id": "ambiguous_fun_tonight",
+      "question": "somewhere fun tonight in San Francisco",
+      "reference": "A good answer either asks a concise clarifying question or offers one to three broadly fun options while making assumptions explicit.",
+      "tags": [
+        "ambiguous",
+        "nightlife",
+        "san_francisco"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Chestnut Diner",
+          "Dimdoduc",
+          "Dumpling King"
+        ],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [
+          "Chestnut Diner",
+          "Dimdoduc",
+          "Dumpling King"
+        ],
+        "result_count": 3,
+        "sources": []
+      },
+      "answer": "I found three restaurants that serve dinner:\n\n*   **Chestnut Diner** (4.0 stars, 564 reviews) at 1312 Chestnut St. It's an inexpensive, cozy neighborhood diner with American classics.\n*   **Dimdoduc** (4.2 stars, 78 reviews) at 3398 Balboa St. This is an inexpensive dim sum restaurant.\n*   **Dumpling King** (4.6 stars, 126 reviews) at 336 Clement St. This dumpling restaurant is also inexpensive.\n\nWhich one would you like for dinner?",
+      "contexts": [
+        "name: Movida | type: Restaurant | address: 555 2nd St, San Francisco, CA 94107, USA | rating: 4.4 | snippet: Name: Movida\nPrimary Type: Restaurant\nAddress: 555 2nd St, San Francisco, CA 94107, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 218\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://movidalounge.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u2009\u2013\u20099:30\u202fPM | Tuesday: 5:00\u2009\u2013\u20099:30\u202fPM | Wednesday: 5:00\u2009\u2013\u20099:30\u202fPM | Thursday: 5:00\u2009\u2013\u20099:30\u202fPM | Friday",
+        "name: Local Diner ( eggs & tacos) | type: Diner | address: 1244 Market St, San Francisco, CA 94102, USA | rating: 4.4 | snippet: Name: Local Diner ( eggs & tacos)\nPrimary Type: Diner\nAddress: 1244 Market St, San Francisco, CA 94102, USA\nTypes: diner, taco_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Casual, no-frills outpost for all-day American breakfast, plus diner classics like burgers & fries.\nRating: 4.4\nUser Ratings: 442\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://www.loc",
+        "name: Grubstake Diner | type: Diner | address: 1525 Pine St, San Francisco, CA 94109, USA | rating: 4.1 | snippet: Name: Grubstake Diner\nPrimary Type: Diner\nAddress: 1525 Pine St, San Francisco, CA 94109, USA\nTypes: diner, hamburger_restaurant, breakfast_restaurant, dessert_restaurant, american_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Set inside an old train car, this diner slings American staples & some Portuguese dishes till late.\nRating: 4.1\nUser Ratings: 1167\nPrice ",
+        "name: Good Good Culture Club | type: Restaurant | address: 3560 18th St, San Francisco, CA 94110, USA | rating: 4.4 | snippet: Name: Good Good Culture Club\nPrimary Type: Restaurant\nAddress: 3560 18th St, San Francisco, CA 94110, USA\nTypes: restaurant, food, point_of_interest, establishment\nEditorial Summary: Airy spot with a colorful interior & a rooftop terrace serving creative comfort food & cocktails.\nRating: 4.4\nUser Ratings: 456\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://ggccsf.com/\nBusiness Status: OPERATIONA",
+        "name: side a | type: Restaurant | address: 2814 19th St, San Francisco, CA 94110, USA | rating: 4.3 | snippet: Name: side a\nPrimary Type: Restaurant\nAddress: 2814 19th St, San Francisco, CA 94110, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.3\nUser Ratings: 124\nWebsite: https://sideasf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 4:00\u2009\u2013\u200910:00\u202fPM | Tuesday: Closed | Wednesday: Closed | Thursday: 4:00\u2009\u2013\u200910:00\u202fPM | Friday: 4:00\u2009\u2013\u200911:00\u202fPM | Saturday: 4:00\u2009\u2013\u200911:00\u202fPM | Su",
+        "name: Chestnut Diner | type: Diner | address: 1312 Chestnut St, San Francisco, CA 94123, USA | rating: 4.0 | snippet: Name: Chestnut Diner\nPrimary Type: Diner\nAddress: 1312 Chestnut St, San Francisco, CA 94123, USA\nTypes: diner, restaurant, food, point_of_interest, establishment\nEditorial Summary: Cozy neighborhood diner dishing up American classics such as eggs Benedict, pancakes & burgers.\nRating: 4.0\nUser Ratings: 564\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://chestnutdiner.top/\nBusiness Status: OPE",
+        "name: Dimdoduc | type: Dim Sum Restaurant | address: 3398 Balboa St, San Francisco, CA 94121, USA | rating: 4.2 | snippet: Name: Dimdoduc\nPrimary Type: Dim Sum Restaurant\nAddress: 3398 Balboa St, San Francisco, CA 94121, USA\nTypes: dim_sum_restaurant, noodle_shop, cantonese_restaurant, meal_takeaway, asian_fusion_restaurant, fusion_restaurant, asian_restaurant, chinese_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.2\nUser Ratings: 78\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://www.di",
+        "name: Dumpling King | type: Dumpling Restaurant | address: 336 Clement St, San Francisco, CA 94118, USA | rating: 4.6 | snippet: Name: Dumpling King\nPrimary Type: Dumpling Restaurant\nAddress: 336 Clement St, San Francisco, CA 94118, USA\nTypes: dumpling_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 126\nWebsite: http://dumplingkingsf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:00\u202fAM\u2009\u2013\u20093:00\u202fPM, 5:00\u2009\u2013\u20099:00\u202fPM | Tuesday: 11:00\u202fAM\u2009\u2013\u20093:00\u202fPM, 5:00\u2009\u2013\u20099:00\u202fPM | Wednesday: 1"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "I found three restaurants that serve dinner:\n\n*   **Chestnut Diner** (4.0 stars, 564 reviews) at 1312 Chestnut St. It's an inexpensive, cozy neighborhood diner with American classics.\n*   **Dimdoduc** (4.2 stars, 78 reviews) at 3398 Balboa St. This is an inexpensive dim sum restaurant.\n*   **Dumpling King** (4.6 stars, 126 reviews) at 336 Clement St. This dumpling restaurant is also inexpensive.\n\nWhich one would you like for dinner?",
+      "id": "ambiguous_not_touristy",
+      "question": "I want dinner somewhere local, not touristy, with good vibes",
+      "reference": "A good answer recommends one to three dinner spots with a local-feeling rationale and does not overclaim facts that are absent from retrieved context.",
+      "tags": [
+        "ambiguous",
+        "restaurant",
+        "vibes"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [],
+        "result_count": 0,
+        "sources": []
+      },
+      "answer": "I couldn't find any neighborhoods, but I can show you some good restaurants. Would you like me to do that?",
+      "contexts": [
+        "name: Edible Excursions | address: 71 Cuvier St, San Francisco, CA 94112, USA | rating: 4.9 | snippet: Name: Edible Excursions\nAddress: 71 Cuvier St, San Francisco, CA 94112, USA\nTypes: point_of_interest, establishment\nRating: 4.9\nUser Ratings: 134\nWebsite: https://edibleexcursions.net/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 7:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Tuesday: 7:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Wednesday: 7:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Thursday: 7:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Friday: 7:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Saturday: 7:00\u202fAM\u2009\u2013\u2009",
+        "name: Super Duper Burgers | type: American Restaurant | address: 737 Irving St, San Francisco, CA 94122, USA | rating: 4.1 | snippet: Name: Super Duper Burgers\nPrimary Type: American Restaurant\nAddress: 737 Irving St, San Francisco, CA 94122, USA\nTypes: american_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.1\nUser Ratings: 123\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://www.superduperburgers.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 10:30\u202fAM\u2009\u2013\u200910:00\u202fPM | Tuesday: 10:30\u202fAM\u2009\u2013\u200910:",
+        "name: Kung Food | type: Chinese Restaurant | address: 1615 McAllister St #4413, San Francisco, CA 94115, USA | rating: 4.5 | snippet: Name: Kung Food\nPrimary Type: Chinese Restaurant\nAddress: 1615 McAllister St #4413, San Francisco, CA 94115, USA\nTypes: chinese_restaurant, meal_delivery, food_delivery, restaurant, food, point_of_interest, establishment\nEditorial Summary: Chinese eatery with a vast menu of Hunan & Mandarin offerings in a simple space with table seating.\nRating: 4.5\nUser Ratings: 654\nPrice Level: PRICE_LEVEL_INEXP"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": false,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 1,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": [
+          "expected_results"
+        ]
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "I couldn't find any neighborhoods, but I can show you some good restaurants. Would you like me to do that?",
+      "id": "ambiguous_friend_visiting",
+      "question": "my friend is visiting SF and I want to show them a good food neighborhood",
+      "reference": "A good answer recommends one to three food-neighborhood options or a compact food plan, with enough explanation for a visitor-facing choice.",
+      "tags": [
+        "ambiguous",
+        "visitor",
+        "food_neighborhood"
+      ]
+    }
+  ],
+  "query_count": 30
+}

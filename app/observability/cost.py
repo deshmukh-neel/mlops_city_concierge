@@ -28,6 +28,8 @@ PRICING: dict[str, dict[str, float]] = {
     "claude-sonnet-4-6": {"in": 3.00, "out": 15.00},
     "claude-haiku-4-5": {"in": 0.80, "out": 4.00},
     "gemini-2.5-flash": {"in": 0.075, "out": 0.30},
+    "gemini-3.1-flash-lite": {"in": 0.25, "out": 1.50},
+    "gemini-3.1-flash-lite-preview": {"in": 0.25, "out": 1.50},
     "text-embedding-3-small": {"in": 0.02, "out": 0.0},
 }
 

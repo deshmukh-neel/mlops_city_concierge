@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.eval_ragas import (
+    ANTHROPIC_JUDGE_MAX_TOKENS,
     DEFAULT_METRICS,
     RagasInputReport,
     RagasQueryScore,
@@ -15,10 +16,12 @@ from scripts.eval_ragas import (
     aggregate_scores,
     build_ragas_runtime,
     build_score_report,
+    configure_anthropic_model_args,
     load_input_report,
     log_score_report_to_mlflow,
     metric_result_value,
     numeric_aggregate,
+    parse_args,
     report_has_metric_errors,
     resolve_embedding_model,
     resolve_judge_model,
@@ -26,6 +29,7 @@ from scripts.eval_ragas import (
     score_query,
     score_report_to_dict,
     selected_metrics,
+    smoke_test_judge_call,
     write_score_report,
 )
 
@@ -50,6 +54,19 @@ class FakeScorer:
         """Record the score inputs and return the configured fake result."""
         self.calls.append(kwargs)
         return FakeRagasResult(self.value)
+
+
+class FakeJudgeLlm:
+    """Collect structured generation calls for judge smoke tests."""
+
+    def __init__(self) -> None:
+        """Initialize an in-memory fake judge."""
+        self.calls: list[dict] = []
+
+    async def agenerate(self, prompt: str, response_model: type) -> object:
+        """Record the prompt and return a valid response model instance."""
+        self.calls.append({"prompt": prompt, "response_model": response_model})
+        return response_model(verdict="pass", reason="ok")
 
 
 def sample_query_payload(**overrides: object) -> dict:
@@ -158,6 +175,21 @@ def test_selected_metrics_preserves_requested_order() -> None:
     ]
 
 
+def test_parse_args_requires_input_for_full_scoring() -> None:
+    """Require an eval-agent report unless the user only wants a judge smoke test."""
+    with pytest.raises(SystemExit):
+        parse_args([])
+
+
+def test_parse_args_allows_smoke_test_without_input() -> None:
+    """Allow a standalone judge smoke test before running a full RAGAS report."""
+    args = parse_args(["--smoke-test-judge", "--judge-provider", "anthropic"])
+
+    assert args.smoke_test_judge is True
+    assert args.input is None
+    assert args.judge_provider == "anthropic"
+
+
 def test_resolve_judge_model_defaults_anthropic_to_sonnet() -> None:
     """Use Sonnet as the default third-party judge model."""
     assert resolve_judge_model("anthropic", None) == "claude-sonnet-4-6"
@@ -190,6 +222,18 @@ def test_build_ragas_runtime_dispatches_anthropic(mocker) -> None:
         "text-embedding-3-small",
         0.0,
     )
+
+
+def test_configure_anthropic_model_args_removes_top_p_and_expands_output() -> None:
+    """Avoid Anthropic arg conflicts and truncated structured judge output."""
+    llm = SimpleNamespace(model_args={"temperature": 0.0, "top_p": 0.1, "max_tokens": 1024})
+
+    configure_anthropic_model_args(llm)
+
+    assert llm.model_args == {
+        "temperature": 0.0,
+        "max_tokens": ANTHROPIC_JUDGE_MAX_TOKENS,
+    }
 
 
 def test_metric_result_value_accepts_result_objects_and_floats() -> None:
@@ -267,6 +311,58 @@ async def test_score_query_captures_metric_errors() -> None:
 
     assert result.metrics == {"faithfulness": None, "answer_relevancy": 0.5}
     assert result.errors == {"faithfulness": "contexts are required"}
+
+
+@pytest.mark.asyncio
+async def test_score_query_logs_metric_progress() -> None:
+    """Log before and after each metric so long RAGAS runs are observable."""
+    query = RagasInputReport.model_validate(
+        sample_report_payload(queries=[sample_query_payload(contexts=[])])
+    ).queries[0]
+    messages: list[str] = []
+
+    await score_query(
+        query,
+        {
+            "faithfulness": FakeScorer(1.0),
+            "answer_relevancy": FakeScorer(0.5),
+        },
+        query_index=1,
+        query_count=2,
+        progress_logger=messages.append,
+    )
+
+    assert messages[0] == "[1/2] case_one faithfulness ... running"
+    assert messages[1].startswith("[1/2] case_one faithfulness ... error")
+    assert messages[2] == "[1/2] case_one answer_relevancy ... running"
+    assert messages[3].startswith("[1/2] case_one answer_relevancy ... ok 0.5000")
+
+
+@pytest.mark.asyncio
+async def test_smoke_test_judge_call_uses_ragas_runtime(mocker) -> None:
+    """Exercise one structured judge call through the configured RAGAS runtime."""
+    llm = FakeJudgeLlm()
+    build_runtime = mocker.patch(
+        "scripts.eval_ragas.build_ragas_runtime",
+        return_value=RagasRuntime(llm=llm, embeddings=object()),
+    )
+
+    report = await smoke_test_judge_call(
+        judge_provider="anthropic",
+        judge_model="claude-sonnet-4-6",
+        embedding_model="text-embedding-3-small",
+        temperature=0.0,
+    )
+
+    assert report["verdict"] == "pass"
+    assert report["judge_provider"] == "anthropic"
+    assert llm.calls[0]["response_model"].__name__ == "JudgeSmokeResponse"
+    build_runtime.assert_called_once_with(
+        "anthropic",
+        "claude-sonnet-4-6",
+        "text-embedding-3-small",
+        0.0,
+    )
 
 
 def test_aggregate_scores_means_only_successful_scores() -> None:
