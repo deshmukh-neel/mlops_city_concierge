@@ -19,6 +19,9 @@ from scripts.eval_ragas import (
     configure_anthropic_model_args,
     load_input_report,
     log_score_report_to_mlflow,
+    metric_breakdown_csv,
+    metric_breakdown_html,
+    metric_breakdown_rows,
     metric_result_value,
     numeric_aggregate,
     parse_args,
@@ -379,7 +382,7 @@ def test_aggregate_scores_means_only_successful_scores() -> None:
         RagasQueryScore(
             id="two",
             question="q2",
-            tags=[],
+            tags=["known_bad"],
             metrics={"faithfulness": None, "context_recall": 1.0},
             errors={"faithfulness": "contexts are required"},
             deterministic={},
@@ -395,6 +398,41 @@ def test_aggregate_scores_means_only_successful_scores() -> None:
     assert aggregate["faithfulness_scored_count"] == 1
     assert aggregate["context_recall_mean"] == 0.75
     assert aggregate["context_recall_scored_count"] == 2
+    assert aggregate["answerable_query_count"] == 1
+    assert aggregate["answerable_faithfulness_mean"] == 1.0
+    assert aggregate["answerable_context_recall_mean"] == 0.5
+    assert aggregate["known_bad_query_count"] == 1
+    assert aggregate["known_bad_metric_error_count"] == 1
+    assert aggregate["known_bad_faithfulness_mean"] == 0.0
+    assert aggregate["known_bad_context_recall_mean"] == 1.0
+
+
+def test_metric_breakdown_artifacts_split_known_bad_rows() -> None:
+    """Render answerable vs known-bad metric breakdown artifacts."""
+    known_bad = RagasQueryScore(
+        id="bad",
+        question="q",
+        tags=["known_bad"],
+        metrics={"faithfulness": 0.25, "context_precision": 0.5},
+        errors={},
+        deterministic={},
+    )
+    report = score_report(queries=[*score_report().queries, known_bad])
+
+    rows = metric_breakdown_rows(report)
+    csv = metric_breakdown_csv(report)
+    html = metric_breakdown_html(report)
+
+    assert {
+        "subset": "known_bad",
+        "metric": "faithfulness",
+        "mean": 0.25,
+        "scored_count": 1,
+        "query_count": 1,
+    } in rows
+    assert "answerable,faithfulness,0.9,1,1" in csv
+    assert "RAGAS Metric Breakdown" in html
+    assert "known_bad" in html
 
 
 def test_numeric_aggregate_keeps_finite_numbers_only() -> None:
@@ -480,6 +518,7 @@ def test_log_score_report_to_mlflow_logs_params_metrics_and_report(mocker) -> No
     log_params = mocker.patch("scripts.eval_ragas.mlflow.log_params")
     log_metric = mocker.patch("scripts.eval_ragas.mlflow.log_metric")
     log_dict = mocker.patch("scripts.eval_ragas.mlflow.log_dict")
+    log_text = mocker.patch("scripts.eval_ragas.mlflow.log_text")
 
     run_id = log_score_report_to_mlflow(
         report,
@@ -497,4 +536,5 @@ def test_log_score_report_to_mlflow_logs_params_metrics_and_report(mocker) -> No
     log_metric.assert_any_call("ragas.faithfulness_mean", 0.9)
     log_metric.assert_any_call("eval_agent.tool_error_rate", 0.0)
     log_metric.assert_any_call("eval_agent.expected_results_match_rate", 1.0)
-    log_dict.assert_called_once()
+    assert log_dict.call_count == 2
+    assert log_text.call_count == 2

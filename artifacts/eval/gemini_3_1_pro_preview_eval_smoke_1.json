@@ -1,0 +1,132 @@
+{
+  "aggregate": {
+    "answer_retrieved_place_coverage_count": 1,
+    "answer_retrieved_place_coverage_mean": 1.0,
+    "check_error_count": 0,
+    "committed_itinerary_rate": 1.0,
+    "committed_stops_mean": 3.0,
+    "constraints_satisfied_mean": 1.0,
+    "context_presence_rate": 1.0,
+    "contexts_mean": 8.0,
+    "deterministic_pass_rate": 1.0,
+    "deterministic_violation_rate": 0.0,
+    "expected_results_match_rate": 1.0,
+    "expected_results_mismatch_count": 0,
+    "expected_results_mismatch_rate": 0.0,
+    "geographic_coherence_mean": 1.0,
+    "no_hallucinated_place_ids_mean": 1.0,
+    "queries_with_tool_errors": 0,
+    "queries_with_violations": 0,
+    "query_count": 1,
+    "results_mean": 3.0,
+    "revision_hints_mean": 0.0,
+    "temporal_coherence_mean": 1.0,
+    "tool_calls_mean": 2.0,
+    "tool_error_count": 0,
+    "tool_error_rate": 0.0,
+    "tool_success_rate": 1.0,
+    "walking_budget_respected_mean": 1.0
+  },
+  "chat_model": "gemini-3.1-pro-preview",
+  "eval_queries_path": "configs/eval_queries.yaml",
+  "llm_provider": "gemini",
+  "queries": [
+    {
+      "actual": {
+        "answer_place_names": [
+          "Ideale",
+          "The Italian Homemade Company",
+          "Tommaso's"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJ-55o9_OAhYARxWRg70fFUvU",
+          "ChIJpzBpPPCAhYARSVWETFcLf8M",
+          "ChIJD-7c9fSAhYARO7hy4de6RBY"
+        ],
+        "place_names": [
+          "Ideale",
+          "The Italian Homemade Company",
+          "Tommaso's"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are three great options for an Italian dinner in North Beach on May 16th at 7 PM, all under $$$:\n\n1. **Ideale** \nAn unpretentious trattoria offering Roman specialties, homemade pasta, and an extensive wine list. It's a fantastic spot for a relaxed, authentic meal.\n\n2. **The Italian Homemade Company** \nA cozy Italian deli and market that serves up incredible housemade pasta, imported cheeses, and charcuterie in a homey, casual setting.\n\n3. **Tommaso's** \nA family-run institution that has been around since 1935. They are famous for firing up delicious thin-crust pizzas in their original wood-burning oven. \n\nLet me know if you'd like more details on any of these!",
+      "contexts": [
+        "name: Ideale | type: Italian Restaurant | address: 1309 Grant Ave, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Ideale\nPrimary Type: Italian Restaurant\nAddress: 1309 Grant Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, wine_bar, pizza_restaurant, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Unpretentious trattoria presenting Roman specialties, homemade pasta & an extensive wine list.\nRating: 4.5\nUser Ratings: 493\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: ht",
+        "name: The Italian Homemade Company | type: Italian Restaurant | address: 716 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: The Italian Homemade Company\nPrimary Type: Italian Restaurant\nAddress: 716 Columbus Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, deli, grocery_store, restaurant, food_store, store, food, point_of_interest, establishment\nEditorial Summary: Italian deli & market stocking housemade pasta, imported cheese, charcuterie & more in homey digs.\nRating: 4.5\nUser Ratings: 3295\nPrice Lev",
+        "name: Tommaso's | type: Italian Restaurant | address: 1042 Kearny St, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Tommaso's\nPrimary Type: Italian Restaurant\nAddress: 1042 Kearny St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, seafood_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Family-run institution (since 1935) firing up thin-crust pizzas in its original wood-burning oven.\nRating: 4.5\nUser Ratings: 895\nPrice Level: PRICE_LEVEL_MODERATE",
+        "name: Il Casaro Pizzeria | type: Italian Restaurant | address: 348 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: Il Casaro Pizzeria\nPrimary Type: Italian Restaurant\nAddress: 348 Columbus Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Pizza, Italian street food, and wine are served in a cozy space with a mozzarella bar and late-night hours.\nRating: 4.6\nUser Ratings: 2452\nPrice Level: PRICE_LEVEL_MODERAT",
+        "name: Sodini's Trattoria | type: Italian Restaurant | address: 510 Green St, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Sodini's Trattoria\nPrimary Type: Italian Restaurant\nAddress: 510 Green St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Hefty portions of Italian basics served up in a throwback space filled with Sinatra memorabilia.\nRating: 4.5\nUser Ratings: 922\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://sodinisgreenvall",
+        "name: Mona Lisa Restaurant | type: Italian Restaurant | address: 414 Columbus Ave, San Francisco, CA 94123, USA | rating: 4.3 | snippet: Name: Mona Lisa Restaurant\nPrimary Type: Italian Restaurant\nAddress: 414 Columbus Ave, San Francisco, CA 94123, USA\nTypes: italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Renaissance-inspired decor sets the scene for homemade pastas, pizzas & other Italian specialties.\nRating: 4.3\nUser Ratings: 2384\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://monali",
+        "name: Acquolina | type: Italian Restaurant | address: 1600 Stockton St, San Francisco, CA 94133, USA | rating: 4.2 | snippet: Name: Acquolina\nPrimary Type: Italian Restaurant\nAddress: 1600 Stockton St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Neighborhood bistro serving pizza & other Italian eats in a relaxed space with some sidewalk seats.\nRating: 4.2\nUser Ratings: 1192\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https:",
+        "name: Original Joe's | type: Italian Restaurant | address: 601 Union St, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Original Joe's\nPrimary Type: Italian Restaurant\nAddress: 601 Union St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, seafood_restaurant, bar, steak_house, american_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Neighborhood fixture serving traditional, old-school Italian entrees, steaks, and seafood.\nRating: 4.5\nUser Ratings: 3425\nPrice Level: PRI"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are three great options for an Italian dinner in North Beach on May 16th at 7 PM, all under $$$:\n\n1. **Ideale** \nAn unpretentious trattoria offering Roman specialties, homemade pasta, and an extensive wine list. It's a fantastic spot for a relaxed, authentic meal.\n\n2. **The Italian Homemade Company** \nA cozy Italian deli and market that serves up incredible housemade pasta, imported cheeses, and charcuterie in a homey, casual setting.\n\n3. **Tommaso's** \nA family-run institution that has been around since 1935. They are famous for firing up delicious thin-crust pizzas in their original wood-burning oven. \n\nLet me know if you'd like more details on any of these!",
+      "id": "north_beach_italian_dinner",
+      "question": "italian dinner in North Beach on May 16 2026 at 7pm, under $$$",
+      "reference": "A good answer recommends one to three Italian restaurants in or very near North Beach that are open at 2026-05-16T19:00:00-07:00, cost no more than $$$, and have enough user ratings to avoid thin-signal outliers.",
+      "tags": [
+        "restaurant",
+        "constraint_heavy",
+        "north_beach"
+      ]
+    }
+  ],
+  "query_count": 1
+}

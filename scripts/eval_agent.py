@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import sys
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -127,6 +129,7 @@ class QueryEvalResult:
     actual: ActualEvalResult
     deterministic: DeterministicEvalResult
     final_reply: str
+    latency_seconds: float
 
 
 @dataclass
@@ -418,7 +421,11 @@ def violations_for_case(
     return violations
 
 
-def query_result_from_state(case: EvalQuery, state: ItineraryState) -> QueryEvalResult:
+def query_result_from_state(
+    case: EvalQuery,
+    state: ItineraryState,
+    latency_seconds: float = 0.0,
+) -> QueryEvalResult:
     """Build the per-query report row from a final ItineraryState."""
     checks = score_checks(state)
     actual = actual_eval_result(state)
@@ -445,6 +452,7 @@ def query_result_from_state(case: EvalQuery, state: ItineraryState) -> QueryEval
             revision_reasons=revision_reasons_from_state(state),
         ),
         final_reply=state.final_reply or "",
+        latency_seconds=latency_seconds,
     )
 
 
@@ -455,16 +463,20 @@ async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
         open_at=open_at.isoformat() if open_at is not None else "not specified",
         expected_results=expected_results_label(case.expected_results),
     )
-    raw = await graph.ainvoke(
-        ItineraryState(
-            messages=[
-                SystemMessage(content=eval_context),
-                HumanMessage(content=case.query),
-            ]
+    start_time = time.monotonic()
+    try:
+        raw = await graph.ainvoke(
+            ItineraryState(
+                messages=[
+                    SystemMessage(content=eval_context),
+                    HumanMessage(content=case.query),
+                ]
+            )
         )
-    )
+    finally:
+        latency_seconds = time.monotonic() - start_time
     state = state_from_graph_output(raw)
-    return query_result_from_state(case, state)
+    return query_result_from_state(case, state, latency_seconds=latency_seconds)
 
 
 async def evaluate_cases(
@@ -494,6 +506,19 @@ def rate(count: int, total: int) -> float:
     return count / total
 
 
+def percentile(values: Sequence[float], p: float) -> float:
+    """Return the nearest-rank percentile, or 0.0 for empty inputs."""
+    if not values:
+        return 0.0
+    if p <= 0:
+        return min(values)
+    if p >= 100:
+        return max(values)
+    ordered = sorted(values)
+    index = max(0, math.ceil((p / 100) * len(ordered)) - 1)
+    return ordered[index]
+
+
 def answer_retrieved_place_coverage(result: QueryEvalResult) -> float | None:
     """Return how many produced place names are visibly grounded in retrieved results."""
     if result.actual.result_count == 0:
@@ -514,6 +539,7 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
         for result in results
         if (score := answer_retrieved_place_coverage(result)) is not None
     ]
+    latencies = [float(result.latency_seconds) for result in results]
     aggregate: dict[str, float | int] = {
         "query_count": query_count,
         "queries_with_violations": queries_with_violations,
@@ -553,6 +579,11 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
         "revision_hints_mean": mean(
             [float(result.deterministic.revision_hints) for result in results]
         ),
+        "latency_total_seconds": sum(latencies),
+        "latency_mean_seconds": mean(latencies),
+        "latency_p50_seconds": percentile(latencies, 50),
+        "latency_p95_seconds": percentile(latencies, 95),
+        "latency_max_seconds": max(latencies) if latencies else 0.0,
     }
     for name in DETERMINISTIC_CHECKS:
         scores: list[float] = []
@@ -587,13 +618,17 @@ async def build_report(args: argparse.Namespace) -> EvalRunReport:
     eval_config = load_eval_queries(args.eval_queries)
     cases = selected_cases(eval_config.hand_written, args.max_queries)
     llm = build_eval_llm(provider, chat_model, args.temperature)
+    start_time = time.monotonic()
     results = await evaluate_cases(cases, llm, max_steps=args.max_steps)
+    total_runtime_seconds = time.monotonic() - start_time
+    aggregate = aggregate_results(results)
+    aggregate["total_runtime_seconds"] = total_runtime_seconds
     return EvalRunReport(
         eval_queries_path=str(args.eval_queries),
         llm_provider=provider,
         chat_model=chat_model,
         query_count=len(results),
-        aggregate=aggregate_results(results),
+        aggregate=aggregate,
         queries=results,
     )
 

@@ -19,6 +19,7 @@ from scripts.eval_agent import (
     contexts_from_state,
     count_tool_calls,
     expected_results_label,
+    percentile,
     rate,
     report_has_errors,
     report_has_violations,
@@ -92,6 +93,7 @@ def query_result(**overrides: object) -> QueryEvalResult:
             revision_reasons=[],
         ),
         "final_reply": "Try Example Cafe.",
+        "latency_seconds": 1.0,
     }
     payload.update(overrides)
     return QueryEvalResult(**payload)
@@ -275,6 +277,17 @@ def test_rate_handles_empty_denominators() -> None:
     assert rate(1, 4) == 0.25
 
 
+def test_percentile_uses_nearest_rank() -> None:
+    """Summarize latency distributions without extra dependencies."""
+    values = [1.0, 5.0, 2.0, 10.0]
+
+    assert percentile([], 50) == 0.0
+    assert percentile(values, 0) == 1.0
+    assert percentile(values, 50) == 2.0
+    assert percentile(values, 95) == 10.0
+    assert percentile(values, 100) == 10.0
+
+
 def test_answer_retrieved_place_coverage_scores_grounded_answer_names() -> None:
     """Score how many produced options are visible in retrieved contexts."""
     assert answer_retrieved_place_coverage(query_result()) == 1.0
@@ -385,6 +398,11 @@ def test_aggregate_results_flattens_mean_metrics() -> None:
     assert aggregate["answer_retrieved_place_coverage_count"] == 2
     assert aggregate["tool_calls_mean"] == 3.0
     assert aggregate["revision_hints_mean"] == 0.5
+    assert aggregate["latency_total_seconds"] == 2.0
+    assert aggregate["latency_mean_seconds"] == 1.0
+    assert aggregate["latency_p50_seconds"] == 1.0
+    assert aggregate["latency_p95_seconds"] == 1.0
+    assert aggregate["latency_max_seconds"] == 1.0
     assert aggregate["constraints_satisfied_mean"] == 0.75
     assert aggregate["geographic_coherence_mean"] == 1.0
 
