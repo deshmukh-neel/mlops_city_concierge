@@ -1,0 +1,1897 @@
+{
+  "aggregate": {
+    "answer_relevancy_mean": 0.7468237200866017,
+    "answer_relevancy_scored_count": 30,
+    "faithfulness_mean": 0.3567279942279943,
+    "faithfulness_scored_count": 30,
+    "metric_error_count": 0,
+    "queries_with_metric_errors": 0,
+    "query_count": 30
+  },
+  "candidate_chat_model": "gemini-3.1-flash-lite-preview",
+  "candidate_llm_provider": "gemini",
+  "deterministic_aggregate": {
+    "answer_retrieved_place_coverage_count": 29,
+    "answer_retrieved_place_coverage_mean": 0.9885057471264368,
+    "check_error_count": 0,
+    "committed_itinerary_rate": 0.9666666666666667,
+    "committed_stops_mean": 1.5,
+    "constraints_satisfied_mean": 1.0,
+    "context_presence_rate": 1.0,
+    "contexts_mean": 12.4,
+    "deterministic_pass_rate": 0.9666666666666667,
+    "deterministic_violation_rate": 0.03333333333333333,
+    "expected_results_match_rate": 0.96,
+    "expected_results_mismatch_count": 1,
+    "expected_results_mismatch_rate": 0.03333333333333333,
+    "geographic_coherence_mean": 1.0,
+    "no_hallucinated_place_ids_mean": 1.0,
+    "queries_with_tool_errors": 0,
+    "queries_with_violations": 1,
+    "query_count": 30,
+    "results_mean": 1.5,
+    "revision_hints_mean": 0.6,
+    "temporal_coherence_mean": 1.0,
+    "tool_calls_mean": 3.2333333333333334,
+    "tool_error_count": 0,
+    "tool_error_rate": 0.0,
+    "tool_success_rate": 1.0,
+    "walking_budget_respected_mean": 1.0
+  },
+  "eval_queries_path": "configs/eval_queries.yaml",
+  "judge_embedding_model": "text-embedding-3-small",
+  "judge_model": "claude-sonnet-4-6",
+  "judge_provider": "anthropic",
+  "metrics": [
+    "faithfulness",
+    "answer_relevancy"
+  ],
+  "queries": [
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "north_beach_italian_dinner",
+      "metrics": {
+        "answer_relevancy": 0.7913054636204224,
+        "faithfulness": 0.6
+      },
+      "question": "italian dinner in North Beach on May 16 2026 at 7pm, under $$$",
+      "tags": [
+        "restaurant",
+        "constraint_heavy",
+        "north_beach"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "date_night_dinner_drinks_walkable",
+      "metrics": {
+        "answer_relevancy": 0.659908196788506,
+        "faithfulness": 0.25
+      },
+      "question": "plan a date night on May 16 2026: dinner then drinks within walking distance, vibes-y, under $$$",
+      "tags": [
+        "multi_stop",
+        "date_night",
+        "walkable"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "get_details",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "mission_vegan_brunch",
+      "metrics": {
+        "answer_relevancy": 0.8393608707121829,
+        "faithfulness": 0.8571428571428571
+      },
+      "question": "best vegan brunch in the Mission on Saturday May 16 2026 around 11am",
+      "tags": [
+        "brunch",
+        "vegan",
+        "mission",
+        "constraint_heavy"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "soma_quiet_late_cafe",
+      "metrics": {
+        "answer_relevancy": 0.9028954217369052,
+        "faithfulness": 0.4
+      },
+      "question": "find a quiet cafe for studying near SOMA open late on Friday May 15 2026",
+      "tags": [
+        "cafe",
+        "late_night",
+        "soma",
+        "constraint_heavy"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "get_details",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "impossible_four_am_five_star",
+      "metrics": {
+        "answer_relevancy": 0.8144646324181896,
+        "faithfulness": 0.7
+      },
+      "question": "find a 5-star restaurant in San Francisco open at 4am on Sunday May 17 2026",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "late_night"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "mission_tacos_casual",
+      "metrics": {
+        "answer_relevancy": 0.8748703608600286,
+        "faithfulness": 0.45454545454545453
+      },
+      "question": "best casual tacos in the Mission for lunch on Saturday May 16 2026",
+      "tags": [
+        "simple",
+        "restaurant",
+        "tacos",
+        "mission"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "north_beach_italian_options",
+      "metrics": {
+        "answer_relevancy": 0.7714398750691314,
+        "faithfulness": 0.3
+      },
+      "question": "good Italian dinner spots in North Beach under $$$",
+      "tags": [
+        "simple",
+        "restaurant",
+        "italian",
+        "north_beach"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "get_details",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "hayes_valley_brunch",
+      "metrics": {
+        "answer_relevancy": 0.7708190011076543,
+        "faithfulness": 0.3333333333333333
+      },
+      "question": "brunch in Hayes Valley for two people on Sunday May 17 2026 around 11am",
+      "tags": [
+        "simple",
+        "brunch",
+        "hayes_valley"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "japantown_ramen",
+      "metrics": {
+        "answer_relevancy": 0.8135723335484549,
+        "faithfulness": 0.5
+      },
+      "question": "ramen in Japantown with strong ratings",
+      "tags": [
+        "simple",
+        "restaurant",
+        "ramen",
+        "japantown"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "outer_sunset_coffee",
+      "metrics": {
+        "answer_relevancy": 0.8295701977005395,
+        "faithfulness": 0.16666666666666666
+      },
+      "question": "coffee shop in Outer Sunset where I can sit for a while",
+      "tags": [
+        "simple",
+        "cafe",
+        "coffee",
+        "outer_sunset"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "marina_seafood_dinner",
+      "metrics": {
+        "answer_relevancy": 0.7019015709050264,
+        "faithfulness": 0.3333333333333333
+      },
+      "question": "seafood dinner near the Marina, not too fancy",
+      "tags": [
+        "simple",
+        "restaurant",
+        "seafood",
+        "marina"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "chinatown_dim_sum",
+      "metrics": {
+        "answer_relevancy": 0.6157984115727719,
+        "faithfulness": 0.42857142857142855
+      },
+      "question": "dim sum in Chinatown for a small group",
+      "tags": [
+        "simple",
+        "restaurant",
+        "dim_sum",
+        "chinatown"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "castro_cocktails",
+      "metrics": {
+        "answer_relevancy": 0.8157887736860743,
+        "faithfulness": 0.2222222222222222
+      },
+      "question": "cocktail bar in the Castro with a fun vibe",
+      "tags": [
+        "simple",
+        "bar",
+        "cocktails",
+        "castro"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "financial_district_lunch_under_20",
+      "metrics": {
+        "answer_relevancy": 0.7848428660832891,
+        "faithfulness": 0.25
+      },
+      "question": "quick lunch in the Financial District under $20 on a weekday",
+      "tags": [
+        "constraint_heavy",
+        "lunch",
+        "financial_district",
+        "budget"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "richmond_korean_family",
+      "metrics": {
+        "answer_relevancy": 0.7369804827494916,
+        "faithfulness": 0.5
+      },
+      "question": "family-friendly Korean restaurant in Inner Richmond, under $$$",
+      "tags": [
+        "constraint_heavy",
+        "restaurant",
+        "korean",
+        "inner_richmond"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "nob_hill_date_dinner_rating",
+      "metrics": {
+        "answer_relevancy": 0.7678983420627412,
+        "faithfulness": 0.6
+      },
+      "question": "romantic dinner near Nob Hill with at least 4.5 stars",
+      "tags": [
+        "constraint_heavy",
+        "restaurant",
+        "date_night",
+        "nob_hill"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "dogpatch_group_beer_food",
+      "metrics": {
+        "answer_relevancy": 0.8210181377583367,
+        "faithfulness": 0.6666666666666666
+      },
+      "question": "casual place in Dogpatch for a group with beer and food",
+      "tags": [
+        "constraint_heavy",
+        "group",
+        "beer",
+        "dogpatch"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "north_beach_dinner_dessert",
+      "metrics": {
+        "answer_relevancy": 0.7543255957570841,
+        "faithfulness": 0.2222222222222222
+      },
+      "question": "plan dinner and dessert in North Beach, easy walk between stops",
+      "tags": [
+        "multi_stop",
+        "restaurant",
+        "dessert",
+        "north_beach",
+        "walkable"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "mission_brunch_park_walk",
+      "metrics": {
+        "answer_relevancy": 0.8008510352833114,
+        "faithfulness": 0.14285714285714285
+      },
+      "question": "brunch in the Mission followed by somewhere nearby to walk around",
+      "tags": [
+        "multi_stop",
+        "brunch",
+        "mission",
+        "walkable"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "japantown_ramen_tea",
+      "metrics": {
+        "answer_relevancy": 0.7229840307475307,
+        "faithfulness": 0.14285714285714285
+      },
+      "question": "ramen in Japantown then tea or dessert nearby",
+      "tags": [
+        "multi_stop",
+        "restaurant",
+        "dessert",
+        "japantown",
+        "walkable"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": false,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 8,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby"
+        ],
+        "violations": [
+          "expected_results"
+        ]
+      },
+      "errors": {},
+      "id": "ferry_building_coffee_waterfront",
+      "metrics": {
+        "answer_relevancy": 0.0,
+        "faithfulness": 0.0
+      },
+      "question": "coffee near the Ferry Building then a scenic waterfront stop",
+      "tags": [
+        "multi_stop",
+        "coffee",
+        "waterfront",
+        "ferry_building",
+        "walkable"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "hayes_valley_show_dinner",
+      "metrics": {
+        "answer_relevancy": 0.7573001972176199,
+        "faithfulness": 0.2857142857142857
+      },
+      "question": "pre-show dinner near Hayes Valley then a cocktail bar nearby",
+      "tags": [
+        "multi_stop",
+        "dinner",
+        "cocktails",
+        "hayes_valley",
+        "walkable"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "sunset_beach_day_food",
+      "metrics": {
+        "answer_relevancy": 0.8544947257089923,
+        "faithfulness": 0.2222222222222222
+      },
+      "question": "casual lunch in Outer Sunset then something near Ocean Beach",
+      "tags": [
+        "multi_stop",
+        "lunch",
+        "outer_sunset",
+        "beach",
+        "walkable"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "impossible_cheap_michelin",
+      "metrics": {
+        "answer_relevancy": 0.7497677923208265,
+        "faithfulness": 0.3333333333333333
+      },
+      "question": "Michelin-level fine dining in San Francisco tonight under $",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "budget",
+        "fine_dining"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "empty_results"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "get_details",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "impossible_north_beach_sushi_4am",
+      "metrics": {
+        "answer_relevancy": 0.893183489230911,
+        "faithfulness": 0.0
+      },
+      "question": "sushi in North Beach open at 4am",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "late_night",
+        "north_beach"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "overconstrained_walkable_three_neighborhoods",
+      "metrics": {
+        "answer_relevancy": 0.742293336478188,
+        "faithfulness": 0.18181818181818182
+      },
+      "question": "plan three stops: Marina, Mission, and Outer Sunset, all walkable between each other",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "multi_stop",
+        "walkable"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "get_details",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "closed_monday_brunch",
+      "metrics": {
+        "answer_relevancy": 0.7255927818880545,
+        "faithfulness": 0.3333333333333333
+      },
+      "question": "brunch spot in the Mission open Monday at 6am with vegan pancakes",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "brunch",
+        "mission"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "ambiguous_fun_tonight",
+      "metrics": {
+        "answer_relevancy": 0.7237242445412345,
+        "faithfulness": 0.6
+      },
+      "question": "somewhere fun tonight in San Francisco",
+      "tags": [
+        "ambiguous",
+        "nightlife",
+        "san_francisco"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 0,
+        "revision_reasons": [],
+        "tool_calls": 2,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "ambiguous_not_touristy",
+      "metrics": {
+        "answer_relevancy": 0.679391384313961,
+        "faithfulness": 0.375
+      },
+      "question": "I want dinner somewhere local, not touristy, with good vibes",
+      "tags": [
+        "ambiguous",
+        "restaurant",
+        "vibes"
+      ]
+    },
+    {
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "errors": {},
+      "id": "ambiguous_friend_visiting",
+      "metrics": {
+        "answer_relevancy": 0.6883680507305905,
+        "faithfulness": 0.3
+      },
+      "question": "my friend is visiting SF and I want to show them a good food neighborhood",
+      "tags": [
+        "ambiguous",
+        "visitor",
+        "food_neighborhood"
+      ]
+    }
+  ],
+  "query_count": 30,
+  "source_report_path": "artifacts/eval/gemini_3_1_flash_lite_preview_eval_30_queries.json"
+}
