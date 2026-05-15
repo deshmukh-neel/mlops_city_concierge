@@ -135,6 +135,7 @@ params: dict[str, str | int | float | bool] = {
 1. **`kg_traverse` JOIN uses `_view_name()` from `app/tools/retrieval.py`** — NOT hard-coded `place_documents`. Justification: the project supports v1/v2 embedding view switching (`app/tools/retrieval.py:20-23, 56-60`); hard-coding breaks v2-mode. Spec drift acknowledged.
 2. **Construct `RelatedPlace(**row)` directly** — NOT `RelatedPlace(**_row_to_hit(row))`. The `_row_to_hit` helper does not exist in `app/tools/retrieval.py` (verified by grep in RESEARCH.md). `_execute` already returns `list[dict]` from `RealDictCursor`, so `**row` works directly and matches the `semantic_search` pattern (`app/tools/retrieval.py:104`).
 3. **Four-layer test convention** — unit + smoke + functional (this plan) + integration (Plan A). The W7 spec only specifies unit + integration; the project's `.planning/codebase/TESTING.md` requires all four for new modules.
+4. **`kg_traverse` uses a plain function signature (NOT `RunContext[None]`).** CONTEXT.md says "Keep the `RunContext[None]` signature so the LangGraph wiring is unchanged." Verified by reading `app/agent/tools.py:1-130`: the existing stub at lines 76-85 and all four sibling tools (`semantic_search`, `nearby`, `get_details`, `commit_itinerary`) use plain function signatures — **none** use `RunContext[None]`. The CONTEXT.md statement appears to reference a PydanticAI pattern that was never adopted in this codebase. **Decision (locked):** the replacement uses a plain signature `(place_id: str, relation_type: str = "SIMILAR_VECTOR", k: int = 5) -> list[RelatedPlace]` consistent with all sibling tools. The `_to_lc_tool` registration at line 122 and `_args_schema_for` machinery at lines 88-105 build the LangGraph-facing surface; no `RunContext` parameter is required or expected. If LangGraph wiring breaks at execution time, revisit and consult the user — do not silently introduce a `RunContext[None]` param.
 
 <tasks>
 
@@ -173,7 +174,7 @@ params: dict[str, str | int | float | bool] = {
   <action>
     Replace the stub function at `app/agent/tools.py:76-85` with the thin wrapper from RESEARCH.md "Replacement at `app/agent/tools.py:76-85`":
 
-    - Signature: `def kg_traverse(place_id: str, relation_type: str = "SIMILAR_VECTOR", k: int = 5) -> list[RelatedPlace]:` (every param annotated — `_args_schema_for` requires it).
+    - Signature: `def kg_traverse(place_id: str, relation_type: str = "SIMILAR_VECTOR", k: int = 5) -> list[RelatedPlace]:` (every param annotated — `_args_schema_for` requires it). **Plain function signature — NOT `RunContext[None]`.** See Locked Decision #4 above: CONTEXT.md mentions `RunContext[None]` but no sibling tool in this file uses it; verified by reading `app/agent/tools.py:1-130`. The replacement matches the sibling-tool convention.
     - Docstring explains when to use each relation_type — same content as the prompt addition (Task B3), kept short. Mention: SIMILAR_VECTOR for "more like this"; SAME_NEIGHBORHOOD for "same area"; NEAR_LANDMARK for "near landmark X"; NEAR for "geographic neighbors without re-running nearby"; CONTAINED_IN for "inside this place" (rare).
     - Body: lazy-import inside function: `from app.tools.graph import kg_traverse as _kg_traverse`; return `_kg_traverse(place_id=place_id, relation_type=relation_type, k=k)`. Lazy import avoids a circular import risk if graph.py later imports anything from agent.
 
@@ -186,10 +187,10 @@ params: dict[str, str | int | float | bool] = {
     The `_TOOLS` entry at line 122 stays the same — `_to_lc_tool("kg_traverse", kg_traverse.__doc__ or "", kg_traverse)` — only the underlying function changes, so the registration line needs no edit.
   </action>
   <verify>
-    <automated>python -c "from app.agent.tools import all_tools, kg_traverse; t = [x for x in all_tools() if x.name == 'kg_traverse'][0]; assert 'NOT YET AVAILABLE' not in (t.description or ''); import inspect; assert 'relation_type' in inspect.signature(kg_traverse).parameters"</automated>
+    <automated>python -c "from app.agent.tools import all_tools, kg_traverse; t = [x for x in all_tools() if x.name == 'kg_traverse'][0]; assert 'NOT YET AVAILABLE' not in (t.description or ''); import inspect; sig = inspect.signature(kg_traverse); assert 'relation_type' in sig.parameters; assert 'ctx' not in sig.parameters and 'context' not in sig.parameters"</automated>
   </verify>
   <done>
-    Stub gone (no "NOT YET AVAILABLE" or "available: False" in the file). Wrapper present. `all_tools()` still returns 5 tools including kg_traverse. Pre-commit passes.
+    Stub gone (no "NOT YET AVAILABLE" or "available: False" in the file). Wrapper present with plain signature (no `RunContext` param). `all_tools()` still returns 5 tools including kg_traverse. Pre-commit passes.
   </done>
 </task>
 
