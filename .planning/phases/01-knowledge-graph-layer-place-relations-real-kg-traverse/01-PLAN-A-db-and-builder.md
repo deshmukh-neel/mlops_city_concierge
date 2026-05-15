@@ -148,6 +148,7 @@ Plan-specific deviations from spec:
 
     - `argparse` with `--only RELATION_TYPE[,...]` (comma-separated list of relation types; default = all five).
     - Module constants `NEAR_RADIUS_M = 800`, `SIMILAR_TOPK = 10`, `SIMILAR_MIN_COS = 0.65`.
+    - **`main()` signature: `def main(argv: list[str] | None = None) -> int:`** — accept an optional argv list and pass it through to argparse via `parser.parse_args(argv)`. This lets tests call `main(["--only", "NEAR"])` directly without monkeypatching `sys.argv` (Task A4 `test_only_flag_subset` depends on this). Return `0` on success and a non-zero int on failure so tests can also assert on exit codes. If invoked as `__main__`, do `raise SystemExit(main())`.
     - `main()` opens a single connection via `from app.db import get_conn` and `with get_conn() as conn:` (this auto-commits on exit per psycopg2 context manager semantics — confirm by reading `app/db.py`). For each selected sub-builder, call it with the same cursor or open a fresh cursor per call; call `conn.commit()` explicitly between sub-builders to scope failure isolation.
     - Five sub-builder functions, each accepting `(conn)` and returning `int` (rows affected). Copy SQL templates verbatim from the W7 spec:
       - `build_near(conn)` — SQL INSERT with self-join on `places_raw`, haversine ≤ 800m, both directions (src→dst AND dst→src), `business_status='OPERATIONAL'`, non-null lat/lng, `src_place_id < dst_place_id` in the JOIN then UNION ALL the reverse; `weight = haversine_meters`, `source = 'haversine'`, `ON CONFLICT (src_place_id, dst_place_id, relation_type) DO UPDATE SET weight = EXCLUDED.weight, built_at = NOW()`.
@@ -165,7 +166,7 @@ Plan-specific deviations from spec:
     <automated>python -c "from scripts.build_place_relations import build_near, build_same_neighborhood, build_contained_in, build_near_landmark, build_similar_vector, main; import argparse; print('imports ok')" && python scripts/build_place_relations.py --only NEAR --help 2>&1 | grep -q -- "--only"</automated>
   </verify>
   <done>
-    Script imports cleanly. `--only` flag parses. All five sub-builder functions exist. Module constants match spec. Pre-commit (ruff) passes.
+    Script imports cleanly. `--only` flag parses. All five sub-builder functions exist. Module constants match spec. `main(["--only", "NEAR"])` is callable from a test without monkeypatching `sys.argv` and returns `0` on success. Pre-commit (ruff) passes.
   </done>
 </task>
 
