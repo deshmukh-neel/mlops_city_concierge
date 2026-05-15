@@ -298,15 +298,17 @@ params: dict[str, str | int | float | bool] = {
   <action>
     Two edits in one commit (atomic from the user-feature perspective; the script change without the test would be incomplete):
 
-    1. **`scripts/log_model_to_mlflow.py`** around lines 194-201, add `"kg_enabled": True` to the `params` dict (default True after this PR ships; W6 evals will A/B with False). Widen the dict's type annotation to include `bool` if not already (e.g. `dict[str, str | int | float | bool]`). Add a short inline comment: `# W7: KG on by default; W6 evals will A/B with False`.
+    1. **`scripts/log_model_to_mlflow.py`** around lines 194-201, add `"kg_enabled": True` to the `params` dict (default True after this PR ships; W6 evals will A/B with False). **Widen the dict's type annotation to include `bool`** — change it to `dict[str, str | int | float | bool]` if not already. Add a short inline comment: `# W7: KG on by default; W6 evals will A/B with False`.
 
     2. **`tests/unit/test_mlflow_logging.py`** — read the existing file to understand its existing assertion style (it likely patches `mlflow.log_params` or asserts on a built dict). Add one assertion that the params dict produced by the relevant function contains `"kg_enabled"` and that its value is a bool. Do not redesign existing tests.
+
+    Note for verify: `make typecheck` only covers `app/` (see Makefile target). `scripts/log_model_to_mlflow.py` lives outside `app/`, so the verify block runs a direct `mypy scripts/log_model_to_mlflow.py` invocation alongside `make typecheck`. If `bool` is not added to the dict's type union, mypy will fail loudly on the `"kg_enabled": True` line — that is the intended gate.
   </action>
   <verify>
-    <automated>grep -q '"kg_enabled"' scripts/log_model_to_mlflow.py && pytest tests/unit/test_mlflow_logging.py -v --no-cov 2>&1 | tail -10</automated>
+    <automated>grep -q '"kg_enabled"' scripts/log_model_to_mlflow.py && grep -q "bool" scripts/log_model_to_mlflow.py && make typecheck && poetry run mypy scripts/log_model_to_mlflow.py && pytest tests/unit/test_mlflow_logging.py -v --no-cov 2>&1 | tail -10</automated>
   </verify>
   <done>
-    Script grep finds `"kg_enabled"`. Test file has an explicit `kg_enabled` assertion. `pytest tests/unit/test_mlflow_logging.py` passes. Pre-commit ruff passes.
+    Script grep finds `"kg_enabled"`. The params dict type annotation includes `bool`. `make typecheck` passes for `app/`. `poetry run mypy scripts/log_model_to_mlflow.py` passes (would fail if `bool` not in the union). Test file has an explicit `kg_enabled` assertion. `pytest tests/unit/test_mlflow_logging.py` passes. Pre-commit ruff passes.
   </done>
 </task>
 
