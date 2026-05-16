@@ -51,6 +51,10 @@ def test_log_rag_experiment_logs_params_and_artifacts(
     assert run.data.params["temperature"] == "0.15"
     assert run.data.params["embedding_model"] == "text-embedding-3-small"
     assert run.data.params["vector_store"] == "pgvector"
+    # MLOPS-01: kg_enabled logged per run so W6 evals can A/B KG on/off.
+    # MLflow stringifies params; the source value is a bool.
+    assert "kg_enabled" in run.data.params
+    assert run.data.params["kg_enabled"] in {"True", "False"}
 
     config_artifacts = client.list_artifacts(run_id, "config")
     sample_artifacts = client.list_artifacts(run_id, "sample_outputs")

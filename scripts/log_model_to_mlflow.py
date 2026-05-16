@@ -191,13 +191,14 @@ def log_rag_experiment(
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
 
-    params: dict[str, str | int | float] = {
+    params: dict[str, str | int | float | bool] = {
         "llm_provider": llm_provider,
         "chat_model": resolved_chat_model,
         "k": k,
         "temperature": temperature,
         "embedding_model": settings.openai_embedding_model,
         "vector_store": "pgvector",
+        "kg_enabled": True,  # W7: KG on by default; W6 evals will A/B with False
     }
 
     run_name = f"{llm_provider}-{resolved_chat_model}-k{k}-t{temperature}"
