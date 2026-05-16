@@ -73,13 +73,21 @@ def test_get_details_tool_invokes_underlying(monkeypatch) -> None:
     assert captured == {"place_id": "p1"}
 
 
-def test_kg_traverse_tool_returns_unavailable_stub() -> None:
+def test_kg_traverse_tool_delegates_to_graph(monkeypatch) -> None:
+    """The W2 stub is gone; the tool now delegates to app.tools.graph.kg_traverse
+    (lazy-imported inside the wrapper body)."""
+    captured: dict = {}
+
+    def _fake(place_id: str, relation_type: str = "SIMILAR_VECTOR", k: int = 5):
+        captured.update(place_id=place_id, relation_type=relation_type, k=k)
+        return []
+
+    monkeypatch.setattr("app.tools.graph.kg_traverse", _fake)
     tools = {t.name: t for t in all_tools()}
-    result = tools["kg_traverse"].invoke({"place_id": "p1"})
-    assert result == {
-        "available": False,
-        "reason": "knowledge graph not yet built; use semantic_search instead",
-    }
+    result = tools["kg_traverse"].invoke({"place_id": "p1", "relation_type": "NEAR", "k": 3})
+    assert result == []
+    assert captured == {"place_id": "p1", "relation_type": "NEAR", "k": 3}
+    assert "NOT YET AVAILABLE" not in (tools["kg_traverse"].description or "")
 
 
 def test_args_schema_includes_all_params() -> None:
