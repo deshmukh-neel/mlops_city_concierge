@@ -67,6 +67,10 @@ embed-places: ## Generate pgvector embeddings for places
 embed-v2: ## Generate cleaned pgvector embeddings into place_embeddings_v2
 	$(POETRY_RUN) python -m scripts.embed_places_pgvector_v2
 
+.PHONY: build-relations
+build-relations: ## Build the place_relations knowledge graph (args: ARGS="--only NEAR")
+	$(POETRY_RUN) python scripts/build_place_relations.py $(ARGS)
+
 .PHONY: log-mlflow
 log-mlflow: ## Log a RAG configuration and sample outputs to MLflow
 	$(POETRY_RUN) python scripts/log_model_to_mlflow.py --config configs/experiments.yaml
