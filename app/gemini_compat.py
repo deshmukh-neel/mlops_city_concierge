@@ -20,10 +20,11 @@ def patch_langchain_google_genai_for_gemini3() -> None:
     except ImportError:
         return
 
-    if getattr(chat_models, "_city_concierge_gemini3_patch", False):
+    chat_models_dynamic: Any = chat_models
+    if getattr(chat_models_dynamic, "_city_concierge_gemini3_patch", False):
         return
 
-    original_parse_chat_history = chat_models._parse_chat_history
+    original_parse_chat_history = chat_models_dynamic._parse_chat_history
 
     def parse_chat_history_with_signatures(*args: Any, **kwargs: Any) -> Any:
         system_instruction, messages = original_parse_chat_history(*args, **kwargs)
@@ -41,5 +42,5 @@ def patch_langchain_google_genai_for_gemini3() -> None:
                 signature_added = True
         return system_instruction, messages
 
-    chat_models._parse_chat_history = parse_chat_history_with_signatures
-    chat_models._city_concierge_gemini3_patch = True
+    chat_models_dynamic._parse_chat_history = parse_chat_history_with_signatures
+    chat_models_dynamic._city_concierge_gemini3_patch = True
