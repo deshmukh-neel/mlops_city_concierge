@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Score eval-agent JSON reports with RAGAS metrics."""
+
 from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
+import html
+import io
 import json
 import math
 import os
@@ -544,6 +548,38 @@ def numeric_aggregate(values: Mapping[str, Any]) -> dict[str, float | int]:
     return aggregate
 
 
+def is_known_bad_score(score: RagasQueryScore) -> bool:
+    """Return True when an eval query is intentionally difficult or unanswerable."""
+    return any(tag.lower() == "known_bad" for tag in score.tags)
+
+
+def metric_values(scores: Sequence[RagasQueryScore], metric: str) -> list[float]:
+    """Return successfully scored values for one metric."""
+    return [
+        float(score.metrics[metric])
+        for score in scores
+        if metric in score.metrics and score.metrics[metric] is not None
+    ]
+
+
+def aggregate_score_subset(
+    scores: Sequence[RagasQueryScore],
+    metrics: Sequence[MetricName],
+    *,
+    prefix: str,
+) -> dict[str, float | int]:
+    """Aggregate one query subset into flat metric keys."""
+    aggregate: dict[str, float | int] = {
+        f"{prefix}query_count": len(scores),
+        f"{prefix}metric_error_count": sum(len(score.errors) for score in scores),
+    }
+    for metric in metrics:
+        values = metric_values(scores, metric)
+        aggregate[f"{prefix}{metric}_mean"] = mean(values)
+        aggregate[f"{prefix}{metric}_scored_count"] = len(values)
+    return aggregate
+
+
 def aggregate_scores(
     scores: Sequence[RagasQueryScore],
     metrics: Sequence[MetricName],
@@ -555,13 +591,13 @@ def aggregate_scores(
         "queries_with_metric_errors": sum(1 for score in scores if score.errors),
     }
     for metric in metrics:
-        values = [
-            score.metrics[metric]
-            for score in scores
-            if metric in score.metrics and score.metrics[metric] is not None
-        ]
-        aggregate[f"{metric}_mean"] = mean([float(value) for value in values])
+        values = metric_values(scores, metric)
+        aggregate[f"{metric}_mean"] = mean(values)
         aggregate[f"{metric}_scored_count"] = len(values)
+    answerable_scores = [score for score in scores if not is_known_bad_score(score)]
+    known_bad_scores = [score for score in scores if is_known_bad_score(score)]
+    aggregate.update(aggregate_score_subset(answerable_scores, metrics, prefix="answerable_"))
+    aggregate.update(aggregate_score_subset(known_bad_scores, metrics, prefix="known_bad_"))
     return aggregate
 
 
@@ -603,6 +639,78 @@ async def build_score_report(
 def score_report_to_dict(report: RagasScoreReport) -> dict[str, Any]:
     """Convert a RAGAS score report to plain JSON containers."""
     return asdict(report)
+
+
+def metric_breakdown_rows(report: RagasScoreReport) -> list[dict[str, str | float | int]]:
+    """Build answerable vs known-bad metric rows for charting and MLflow artifacts."""
+    subsets = {
+        "all": report.queries,
+        "answerable": [score for score in report.queries if not is_known_bad_score(score)],
+        "known_bad": [score for score in report.queries if is_known_bad_score(score)],
+    }
+    rows: list[dict[str, str | float | int]] = []
+    for subset, scores in subsets.items():
+        for metric in report.metrics:
+            values = metric_values(scores, metric)
+            rows.append(
+                {
+                    "subset": subset,
+                    "metric": metric,
+                    "mean": mean(values),
+                    "scored_count": len(values),
+                    "query_count": len(scores),
+                }
+            )
+    return rows
+
+
+def metric_breakdown_csv(report: RagasScoreReport) -> str:
+    """Render metric breakdown rows as CSV for spreadsheet-friendly artifacts."""
+    buffer = io.StringIO()
+    fieldnames = ["subset", "metric", "mean", "scored_count", "query_count"]
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(metric_breakdown_rows(report))
+    return buffer.getvalue()
+
+
+def metric_breakdown_html(report: RagasScoreReport) -> str:
+    """Render metric breakdown rows as a small standalone HTML table."""
+    header_cells = "".join(
+        f"<th>{html.escape(column)}</th>"
+        for column in ["Subset", "Metric", "Mean", "Scored Count", "Query Count"]
+    )
+    body_rows = []
+    for row in metric_breakdown_rows(report):
+        cells = "".join(
+            f"<td>{html.escape(str(row[column]))}</td>"
+            for column in ["subset", "metric", "mean", "scored_count", "query_count"]
+        )
+        body_rows.append(f"<tr>{cells}</tr>")
+    body = "\n".join(body_rows)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>RAGAS Metric Breakdown</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 24px; }}
+    table {{ border-collapse: collapse; min-width: 720px; }}
+    th, td {{ border: 1px solid #d0d7de; padding: 8px 10px; text-align: left; }}
+    th {{ background: #f6f8fa; }}
+  </style>
+</head>
+<body>
+  <h1>RAGAS Metric Breakdown</h1>
+  <table>
+    <thead><tr>{header_cells}</tr></thead>
+    <tbody>
+{body}
+    </tbody>
+  </table>
+</body>
+</html>
+"""
 
 
 def write_score_report(path: str | Path, report: RagasScoreReport) -> None:
@@ -659,6 +767,9 @@ def log_score_report_to_mlflow(
         for key, value in report.deterministic_aggregate.items():
             mlflow.log_metric(f"eval_agent.{key}", float(value))
         mlflow.log_dict(score_report_to_dict(report), "eval/ragas_report.json")
+        mlflow.log_dict({"rows": metric_breakdown_rows(report)}, "eval/ragas_metric_breakdown.json")
+        mlflow.log_text(metric_breakdown_csv(report), "eval/ragas_metric_breakdown.csv")
+        mlflow.log_text(metric_breakdown_html(report), "eval/ragas_metric_breakdown.html")
         return run.info.run_id
 
 
