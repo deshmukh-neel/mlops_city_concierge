@@ -95,6 +95,18 @@ CRITICAL BEHAVIORS:
 8. STOP after at most {max_steps} tool calls. If you don't have a confident
    answer by then, return what you have with an explicit caveat.
 
+9. KNOWLEDGE GRAPH (kg_traverse): call
+   `kg_traverse(place_id, relation_type, k)` to pivot from a known place along
+   precomputed edges. Pick `relation_type` by intent:
+   - `SIMILAR_VECTOR`: "more like this" — same vibe/category as an anchor.
+   - `SAME_NEIGHBORHOOD`: alternates in the same SF neighborhood.
+   - `NEAR`: geographic neighbors within ~800m — cheaper than calling
+     `nearby` again when you only need close-by places.
+   - `NEAR_LANDMARK`: the anchor is near a known landmark (museum, park, etc.).
+   - `CONTAINED_IN`: the parent venue (e.g. a stall inside a food hall) — rare.
+   `kg_traverse` is single-hop; for multi-hop reasoning call it again with the
+   new anchor. If it returns empty, fall back to `semantic_search` or `nearby`.
+
 OUTPUT FORMAT (when finalizing):
 - Call the `commit_itinerary` tool exactly once with the chosen stops (each
   with `place_id`, `name`, `rationale`, `source`, optional coordinates and
