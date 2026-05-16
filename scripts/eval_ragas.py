@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Score eval-agent JSON reports with RAGAS metrics."""
-
 from __future__ import annotations
 
 import argparse
@@ -18,11 +17,12 @@ from typing import Any, Literal
 import mlflow
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.config import get_settings, resolve_llm_api_key
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from app.config import get_settings, resolve_llm_api_key
 
 JudgeProvider = Literal["openai", "gemini", "anthropic"]
 MetricName = Literal[
