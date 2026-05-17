@@ -1,8 +1,14 @@
-import React, { useState, useCallback } from 'react'
+import React, { useCallback, useReducer, useState } from 'react'
 import TopNav from './components/TopNav'
 import ChatPanel from './components/ChatPanel'
 import RightPanel from './components/RightPanel'
-import { sendMessage, MOCK_PLACES, INITIAL_MESSAGES, formatTime } from './api/chat'
+import { sendMessage, INITIAL_MESSAGES, formatTime } from './api/chat'
+import {
+  emptyPlacesState,
+  replacePlaces,
+  clearPlaces,
+  selectOrderedPlaces,
+} from './state/places'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
@@ -15,71 +21,104 @@ const styles = {
   },
 }
 
+// Single source of truth for the itinerary place set (keyed; streaming-ready).
+function placesReducer(state, action) {
+  switch (action.type) {
+    case 'replace':
+      return replacePlaces(state, action.places)
+    case 'clear':
+      return clearPlaces()
+    default:
+      return state
+  }
+}
+
 export default function App() {
-  const [messages, setMessages]   = useState(INITIAL_MESSAGES)
-  const [places, setPlaces]       = useState(MOCK_PLACES)   // swap to [] when wired to API
+  const [messages, setMessages] = useState(INITIAL_MESSAGES)
+  const [placesState, dispatch] = useReducer(placesReducer, emptyPlacesState)
   const [isLoading, setIsLoading] = useState(false)
+  const [focusId, setFocusId] = useState(null)
+
+  const places = selectOrderedPlaces(placesState)
 
   // ── Send a user message ──────────────────────────────────────────────────
-  const handleSend = useCallback(async (text) => {
-    const userMsg = {
-      id: Date.now(),
-      role: 'user',
-      content: text,
-      time: formatTime(new Date()),
-    }
-    setMessages(prev => [...prev, userMsg])
-    setIsLoading(true)
-
-    try {
-      if (USE_MOCK) {
-        // Dev mode: echo a placeholder response
-        await new Promise(r => setTimeout(r, 1200))
-        const botMsg = {
-          id: Date.now() + 1,
-          role: 'assistant',
-          content: "Got it! In production this response comes from your FastAPI + RAG pipeline. The map and list on the right will update with live Google Places data.",
-          time: formatTime(new Date()),
-        }
-        setMessages(prev => [...prev, botMsg])
-      } else {
-        // Production: call FastAPI
-        const history = messages.map(m => ({ role: m.role, content: typeof m.content === 'string' ? m.content : '' }))
-        const data = await sendMessage(text, history)
-
-        const botMsg = {
-          id: Date.now() + 1,
-          role: 'assistant',
-          content: data.reply,
-          ragLabel: data.ragLabel,
-          time: formatTime(new Date()),
-        }
-        setMessages(prev => [...prev, botMsg])
-        if (data.places?.length) setPlaces(data.places)
-      }
-    } catch (err) {
-      console.error('Chat error:', err)
-      setMessages(prev => [...prev, {
-        id: Date.now() + 2,
-        role: 'assistant',
-        content: 'Something went wrong connecting to the server. Please try again.',
+  const handleSend = useCallback(
+    async (text) => {
+      const userMsg = {
+        id: Date.now(),
+        role: 'user',
+        content: text,
         time: formatTime(new Date()),
-      }])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [messages])
+      }
+      setMessages((prev) => [...prev, userMsg])
+      setIsLoading(true)
+
+      try {
+        if (USE_MOCK) {
+          await new Promise((r) => setTimeout(r, 1200))
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now() + 1,
+              role: 'assistant',
+              content:
+                'Got it! In production this response comes from the FastAPI agent. ' +
+                'The map and list on the right update with the live itinerary.',
+              time: formatTime(new Date()),
+            },
+          ])
+        } else {
+          const history = messages.map((m) => ({
+            role: m.role,
+            content: typeof m.content === 'string' ? m.content : '',
+          }))
+          const data = await sendMessage(text, history)
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now() + 1,
+              role: 'assistant',
+              content: data.reply,
+              ragLabel: data.ragLabel,
+              time: formatTime(new Date()),
+            },
+          ])
+          // Always dispatch: a turn with places finalizes the plan; a turn
+          // without keeps the prior set but un-finalizes (route hides).
+          dispatch({ type: 'replace', places: data.places ?? [] })
+        }
+      } catch (err) {
+        console.error('Chat error:', err)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 2,
+            role: 'assistant',
+            content:
+              'Something went wrong connecting to the server. Please try again.',
+            time: formatTime(new Date()),
+          },
+        ])
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [messages],
+  )
 
   // ── Clear chat ───────────────────────────────────────────────────────────
   const handleClear = useCallback(() => {
     setMessages(INITIAL_MESSAGES)
-    setPlaces([])
+    dispatch({ type: 'clear' })
+    setFocusId(null)
   }, [])
 
-  // ── Highlight place from chat pill or map pin click ──────────────────────
+  // ── Select a place (chat pill or map pin): focus it on the map ───────────
   const handlePlaceClick = useCallback((placeId) => {
-    console.log('Place selected:', placeId)
-    // TODO: pan map to pin, or highlight list card
+    // New object identity each click so the map re-focuses even if the same
+    // pin is clicked twice in a row.
+    setFocusId({ id: placeId })
   }, [])
 
   return (
@@ -95,8 +134,10 @@ export default function App() {
         />
         <RightPanel
           places={places}
+          planFinalized={placesState.planFinalized}
+          focusId={focusId?.id ?? null}
           onPlaceClick={handlePlaceClick}
-          lastRefreshed="4 min ago"
+          lastRefreshed="just now"
         />
       </div>
     </>

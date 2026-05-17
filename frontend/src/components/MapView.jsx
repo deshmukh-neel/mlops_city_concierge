@@ -1,189 +1,184 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import {
+  APIProvider,
+  Map,
+  AdvancedMarker,
+  Pin,
+  useMap,
+} from '@vis.gl/react-google-maps'
+import PlaceTooltip from './PlaceTooltip'
+import RouteOverlay from './RouteOverlay'
+
+const SF_CENTER = { lat: 37.7749, lng: -122.4194 }
+
+// Read env at render (not module scope) so the key can't be baked in before
+// tests set it, and so a late-injected key is picked up.
+const mapsApiKey = () => import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+const mapsMapId = () => import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || 'DEMO_MAP_ID'
 
 const s = {
   container: { flex: 1, position: 'relative', overflow: 'hidden' },
-  mapBg: {
-    width: '100%', height: '100%',
-    backgroundColor: '#E8E4DA',
-    position: 'relative', overflow: 'hidden',
+  fallback: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    background: '#E8E4DA',
+    color: 'var(--warm-gray)',
+    fontSize: '13px',
+    textAlign: 'center',
+    padding: '40px',
   },
-  grid: {
-    position: 'absolute', inset: 0,
-    backgroundImage: `
-      linear-gradient(var(--border) 1px, transparent 1px),
-      linear-gradient(90deg, var(--border) 1px, transparent 1px)
-    `,
-    backgroundSize: '60px 60px',
-    opacity: 0.6,
+  fallbackIcon: { fontSize: '34px', opacity: 0.4 },
+  fallbackCode: {
+    fontFamily: 'monospace',
+    fontSize: '12px',
+    background: 'var(--white)',
+    border: '1px solid var(--border)',
+    borderRadius: '6px',
+    padding: '6px 10px',
+    color: 'var(--charcoal)',
   },
-  neighborhoodLabel: {
+  tooltipWrap: {
     position: 'absolute',
-    fontFamily: 'var(--font-display)',
-    fontStyle: 'italic',
-    fontSize: '14px',
-    color: 'rgba(74,92,63,0.35)',
-    letterSpacing: '0.5px',
+    transform: 'translate(-50%, -120%)',
     pointerEvents: 'none',
-    userSelect: 'none',
+    zIndex: 20,
   },
-  streetLine: {
-    position: 'absolute',
-    left: '5%', right: '5%',
-    height: '0',
-  },
-  streetLabel: {
-    position: 'absolute',
-    fontSize: '9px', color: '#9A9488',
-    fontWeight: 500, letterSpacing: '0.5px',
-    textTransform: 'uppercase',
-  },
-  block: {
-    position: 'absolute',
-    background: '#D8D2C8', borderRadius: '2px',
-  },
-  pin: {
-    position: 'absolute',
-    transform: 'translate(-50%, -100%)',
-    cursor: 'pointer',
-    filter: 'drop-shadow(0 3px 6px rgba(0,0,0,.25))',
-    transition: 'transform .2s',
-  },
-  pinHovered: { transform: 'translate(-50%, -100%) scale(1.15)' },
-  pinBody: {
-    width: '32px', height: '32px',
-    borderRadius: '50% 50% 50% 0',
-    transform: 'rotate(-45deg)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    color: 'white', fontWeight: 700, fontSize: '12px',
-  },
-  pinNum: { transform: 'rotate(45deg)', display: 'inline-block' },
-  tooltip: {
-    position: 'absolute', bottom: '44px', left: '50%',
-    transform: 'translateX(-50%)',
-    background: 'var(--white)', border: '1px solid var(--border)',
-    borderRadius: '8px', padding: '10px 14px',
-    whiteSpace: 'nowrap', minWidth: '160px',
-    boxShadow: '0 4px 16px rgba(0,0,0,.12)',
-    pointerEvents: 'none',
-    fontSize: '12px', zIndex: 10,
-  },
-  ttName: { fontWeight: 500, color: 'var(--charcoal)', marginBottom: '2px' },
-  ttType: { color: 'var(--warm-gray)', fontSize: '11px' },
-  ttRating: { color: 'var(--rust)', fontSize: '11px', marginTop: '2px' },
-  legend: {
-    position: 'absolute', bottom: '20px', left: '20px',
-    background: 'var(--white)', border: '1px solid var(--border)',
-    borderRadius: '8px', padding: '12px 16px',
-    fontSize: '11px', color: 'var(--charcoal)',
-  },
-  legendTitle: {
-    fontWeight: 600, marginBottom: '8px',
-    fontSize: '10px', letterSpacing: '0.5px',
-    textTransform: 'uppercase', color: 'var(--warm-gray)',
-  },
-  legendItem: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' },
-  legendDot: { width: '10px', height: '10px', borderRadius: '50%' },
 }
 
-const STREET_LINES = [
-  { top: '33%', label: 'Mission St', labelLeft: '42%', thickness: '2px' },
-  { top: '50%', label: 'Valencia St', labelLeft: '44%', thickness: '1.5px' },
-  { top: '22%', label: 'Cesar Chavez St', labelLeft: '40%', thickness: '1px' },
-  { top: '66%', label: '24th St', labelLeft: '48%', thickness: '1px' },
-]
+/** Pan/zoom the map when a place is selected from the list or a pin. */
+function FocusController({ focusId, places }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!map || !focusId) return
+    const p = places.find((x) => x.id === focusId)
+    if (!p || typeof p.latitude !== 'number') return
+    map.panTo({ lat: p.latitude, lng: p.longitude })
+    if ((map.getZoom() ?? 0) < 15) map.setZoom(15)
+  }, [map, focusId, places])
+  return null
+}
 
-const BLOCKS = [
-  { width: '80px', height: '50px', top: '36%', left: '18%' },
-  { width: '60px', height: '40px', top: '36%', left: '32%' },
-  { width: '100px', height: '45px', top: '55%', left: '40%' },
-  { width: '70px', height: '55px', top: '38%', left: '58%' },
-  { width: '90px', height: '40px', top: '25%', left: '48%' },
-  { width: '50px', height: '60px', top: '60%', left: '22%' },
-  { width: '110px', height: '35px', top: '44%', left: '68%' },
-]
+/** Fit the viewport to all routable markers whenever the set changes. */
+function FitBounds({ places }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!map || places.length === 0 || !window.google?.maps) return
+    if (places.length === 1) {
+      map.setCenter({ lat: places[0].latitude, lng: places[0].longitude })
+      map.setZoom(15)
+      return
+    }
+    const bounds = new window.google.maps.LatLngBounds()
+    places.forEach((p) => bounds.extend({ lat: p.latitude, lng: p.longitude }))
+    map.fitBounds(bounds, 64)
+  }, [map, places])
+  return null
+}
 
-const NEIGHBORHOODS = [
-  { label: 'The Mission', top: '38%', left: '38%' },
-  { label: 'Castro', top: '18%', left: '12%' },
-  { label: 'Bernal Heights', top: '60%', left: '62%' },
-]
+function GoogleMapInner({ places, routable, onPinClick, planFinalized, focusId }) {
+  const [hoverId, setHoverId] = useState(null)
 
-function MapPin({ place, onPinClick }) {
-  const [hovered, setHovered] = useState(false)
-  const color = place.category === 'dinner' ? 'var(--rust)' : 'var(--moss)'
+  // Memoized so unchanged sets don't re-create markers (Performance #4).
+  const markers = useMemo(
+    () =>
+      routable.map((p) => (
+        <AdvancedMarker
+          key={p.id}
+          position={{ lat: p.latitude, lng: p.longitude }}
+          title={p.name}
+          onClick={() => onPinClick?.(p.id)}
+          onMouseEnter={() => setHoverId(p.id)}
+          onMouseLeave={() => setHoverId(null)}
+        >
+          <Pin
+            background="var(--rust, #B5532F)"
+            borderColor="#7A3620"
+            glyphColor="#fff"
+          >
+            {p.num}
+          </Pin>
+        </AdvancedMarker>
+      )),
+    [routable, onPinClick],
+  )
+
+  const hovered = hoverId ? routable.find((p) => p.id === hoverId) : null
 
   return (
-    <div
-      style={{
-        ...s.pin,
-        left: place.mapPos.x, top: place.mapPos.y,
-        ...(hovered ? s.pinHovered : {}),
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={() => onPinClick?.(place.id)}
+    <Map
+      mapId={mapsMapId()}
+      defaultCenter={SF_CENTER}
+      defaultZoom={13}
+      gestureHandling="greedy"
+      disableDefaultUI={false}
+      style={{ width: '100%', height: '100%' }}
     >
-      {hovered && (
-        <div style={s.tooltip}>
-          <div style={s.ttName}>{place.name}</div>
-          <div style={s.ttType}>{place.type}</div>
-          <div style={s.ttRating}>★ {place.rating} · {place.status === 'busy' ? 'Busy' : 'Open'} {place.hours}</div>
-        </div>
-      )}
-      <div style={{ ...s.pinBody, background: color }}>
-        <span style={s.pinNum}>{place.num}</span>
-      </div>
-    </div>
+      {markers}
+      <FitBounds places={routable} />
+      <FocusController focusId={focusId} places={routable} />
+      {planFinalized && routable.length >= 2 ? (
+        <RouteOverlay stops={routable} />
+      ) : null}
+      {hovered ? (
+        <AdvancedMarker
+          position={{ lat: hovered.latitude, lng: hovered.longitude }}
+          clickable={false}
+        >
+          <div style={s.tooltipWrap}>
+            <PlaceTooltip place={hovered} />
+          </div>
+        </AdvancedMarker>
+      ) : null}
+    </Map>
   )
 }
 
-export default function MapView({ places = [], onPinClick }) {
-  const bars = places.filter(p => p.category === 'bar')
-  const dinner = places.filter(p => p.category === 'dinner')
+/**
+ * Real Google Map. Degrades to an explicit panel when no API key is set so
+ * frontend-only contributors aren't blocked and the SDK is never fetched
+ * (Performance #3 — this component is lazy-loaded by RightPanel).
+ */
+export default function MapView({
+  places = [],
+  onPinClick,
+  planFinalized = false,
+  focusId = null,
+}) {
+  const routable = useMemo(
+    () =>
+      places.filter(
+        (p) => typeof p.latitude === 'number' && typeof p.longitude === 'number',
+      ),
+    [places],
+  )
+
+  const apiKey = mapsApiKey()
+  if (!apiKey) {
+    return (
+      <div style={s.fallback}>
+        <div style={s.fallbackIcon}>🗺️</div>
+        <div>Map unavailable — no Google Maps key configured.</div>
+        <div style={s.fallbackCode}>VITE_GOOGLE_MAPS_API_KEY</div>
+        <div>Set it in <code>frontend/.env.development.local</code> to see the live map.</div>
+      </div>
+    )
+  }
 
   return (
     <div style={s.container}>
-      <div style={s.mapBg}>
-        {/* Grid */}
-        <div style={s.grid} />
-
-        {/* Neighborhood labels */}
-        {NEIGHBORHOODS.map(n => (
-          <div key={n.label} style={{ ...s.neighborhoodLabel, top: n.top, left: n.left }}>
-            {n.label}
-          </div>
-        ))}
-
-        {/* Streets */}
-        {STREET_LINES.map(st => (
-          <div key={st.label} style={{ ...s.streetLine, top: st.top, borderTop: `${st.thickness} solid #C8C0B4` }}>
-            <span style={{ ...s.streetLabel, top: '4px', left: st.labelLeft }}>{st.label}</span>
-          </div>
-        ))}
-
-        {/* Blocks */}
-        {BLOCKS.map((b, i) => (
-          <div key={i} style={{ ...s.block, ...b }} />
-        ))}
-
-        {/* Pins */}
-        {places.map(place => (
-          <MapPin key={place.id} place={place} onPinClick={onPinClick} />
-        ))}
-
-        {/* Legend */}
-        <div style={s.legend}>
-          <div style={s.legendTitle}>Tonight's Route</div>
-          <div style={s.legendItem}>
-            <div style={{ ...s.legendDot, background: 'var(--moss)' }} />
-            Bars ({bars.length})
-          </div>
-          <div style={s.legendItem}>
-            <div style={{ ...s.legendDot, background: 'var(--rust)' }} />
-            Dinner ({dinner.length})
-          </div>
-        </div>
-      </div>
+      <APIProvider apiKey={apiKey}>
+        <GoogleMapInner
+          places={places}
+          routable={routable}
+          onPinClick={onPinClick}
+          planFinalized={planFinalized}
+          focusId={focusId}
+        />
+      </APIProvider>
     </div>
   )
 }
