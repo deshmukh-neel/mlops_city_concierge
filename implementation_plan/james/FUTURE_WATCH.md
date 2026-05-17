@@ -76,11 +76,17 @@ lands, expect: `state.py`, `tools.py`, `prompts.py`, `graph.py`, `planning.py`,
 `graph.py`) pushes past ~400 lines or `app/agent/` exceeds ~10 top-level
 files, navigation gets harder.
 
-**Trigger:** when `app/agent/graph.py` exceeds ~400 lines OR a flat directory
-has 10+ files, split: `app/agent/critique/` is already its own dir; consider
-`app/agent/booking/` (W4) and `app/agent/kg/` (W7 wrapping) at that point. Do
-NOT pre-split — empty subdirs hurt readability more than a flat list of 6
-files.
+**Resolved (2026-05-16):** `graph.py` (604 lines, post-#84) hit the ~400-line
+trigger and was split on branch `refactor/split-agent-graph` into three flat
+sibling modules: `graph.py` (240 — node closures, graph assembly,
+`_prune_for_llm`/`_serialize_tool_result`), `app/agent/commit.py` (133 —
+`commit_stops` + `enrich_stops_with_booking`), and `app/agent/revision.py`
+(272 — critique/revision-diagnosis). Behavior-preserving verbatim move (existing
+suite green with import/rename edits only; mypy clean). Flat-module pattern
+kept — no subdir, per the "do NOT pre-split" guidance. The 10+ top-level-file
+trigger was never met (9 `.py` files after the split), so `critique/` remains
+the only subdir; `app/agent/booking/` and `app/agent/kg/` subdirs stay deferred
+until the file-count trigger is actually reached.
 
 ### W7 KG builder is unscoped O(n²); integration test slow + non-isolated
 
