@@ -61,7 +61,10 @@ resource "google_compute_firewall" "allow_mlflow" {
   priority    = 1000
   disabled    = false
 
-  source_ranges = ["10.128.0.0/9"]
+  # 10.128.0.0/9     — internal subnet (in-VPC clients)
+  # 35.235.240.0/20  — Google IAP TCP forwarding range (laptop access via
+  #                    `make mlflow-tunnel`; VM has no public IP)
+  source_ranges = ["10.128.0.0/9", "35.235.240.0/20"]
   target_tags   = ["mlflow-server"]
 
   allow {
