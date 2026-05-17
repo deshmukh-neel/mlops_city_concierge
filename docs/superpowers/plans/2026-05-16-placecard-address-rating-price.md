@@ -458,6 +458,40 @@ git commit -m "docs(future-watch): mark PlaceCard card-fields item resolved"
 
 ---
 
+### Task 6: Sync the frontend chat contract doc
+
+`docs/api/chat_contract.md` already documents `address`/`rating`/`price_level`
+in the `PlaceCard` shape (lines 69-82) with correct types — the contract was
+right; the backend just wasn't fulfilling it (shipped nulls). So this is NOT a
+shape change. Update only the doc's freshness metadata so the history stays
+honest about when these fields became really populated.
+
+**Files:**
+- Modify: `docs/api/chat_contract.md:9` ("Last updated for" line)
+
+- [ ] **Step 1: Update the freshness line**
+
+In `docs/api/chat_contract.md`, replace line 9:
+
+```markdown
+Last updated for: W5 (coverage-gap ingestion agent). Reflects everything merged W0 → W5. W5 doesn't touch the chat API — it's a data-pipeline workstream — so the contract is unchanged.
+```
+
+with:
+
+```markdown
+Last updated for: W5 (coverage-gap ingestion agent). Reflects everything merged W0 → W5. Note (2026-05-16): the `PlaceCard` `address`/`rating`/`price_level` fields were always in the documented contract but the backend shipped them as `null` until the `fix/placecard-address-rating-price` fix — they are now actually populated. No shape change.
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add docs/api/chat_contract.md
+git commit -m "docs(contract): note PlaceCard card fields now populated"
+```
+
+---
+
 ## Notes for the executor
 
 - Use `poetry run` for pytest/mypy/ruff (project is poetry editable-installed; never add `sys.path` hacks).
