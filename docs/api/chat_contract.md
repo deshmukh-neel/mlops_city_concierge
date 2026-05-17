@@ -6,7 +6,7 @@ calls. Backend code: `app/main.py`, `app/agent/state.py`, `app/agent/io.py`.
 If you find this doc disagreeing with the code, the code wins — but please
 open an issue or fix the doc in the same PR.
 
-Last updated for: W5 (coverage-gap ingestion agent). Reflects everything merged W0 → W5. W5 doesn't touch the chat API — it's a data-pipeline workstream — so the contract is unchanged.
+Last updated for: W5 (coverage-gap ingestion agent). Reflects everything merged W0 → W5. Note (2026-05-16): the `PlaceCard` `address`/`rating`/`price_level` fields were always in the documented contract but the backend shipped them as `null` until the `fix/placecard-address-rating-price` fix — they are now actually populated. No shape change.
 
 ---
 
