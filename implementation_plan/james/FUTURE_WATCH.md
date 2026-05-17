@@ -54,18 +54,17 @@ the fields as optional, so the gap is silent.
 **Concern:** the frontend gets a degraded card — name + booking link but no
 location, no rating, no price tier. Most place-card UIs surface those.
 
-**Trigger:** before/with the next frontend pass that displays place cards
-prominently. Two viable fixes:
-
-1. Extend `Stop` with `address`/`rating`/`price_level` and populate them in
-   `_commit_stops` from the grounded `PlaceHit`/`PlaceDetails` already in
-   `state.scratch`. Preferred — no extra DB calls, data flows once.
-2. Re-fetch via `get_details(place_id)` inside `state_to_cards`. Costs N reads
-   per commit; only worth it if the scratch path doesn't carry the fields.
-
-Touches `app/agent/state.py` (`Stop`), `app/agent/graph.py` (`_commit_stops`),
-`app/agent/io.py` (`state_to_cards`). Not load-bearing for W4 (booking) — the
-gap predates W4 and was surfaced during W4 review.
+**Resolved (2026-05-16):** Fixed via Approach 1 on branch
+`fix/placecard-address-rating-price`. `Stop` now carries
+`address`/`rating`/`price_level`; populated in `enrich_stops_with_booking`
+(`app/agent/graph.py`) from the already-fetched `PlaceDetails` — zero extra DB
+calls, reusing the existing batched `get_details_many` read. `price_level` is
+mapped enum→int 0..4 via `price_level_to_rank` (`app/agent/state.py`, mirrors
+SQL `price_level_rank()`). Card fields are stamped *before* the `when is None`
+booking skip so timeless stops still render full cards. `state_to_cards`
+(`app/agent/io.py`) passes the fields through. Frontend contract
+(`docs/api/chat_contract.md`) already declared these fields — no shape change,
+the backend just stopped shipping them as `null`.
 
 ### `app/agent/` directory size
 
