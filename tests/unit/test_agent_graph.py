@@ -37,6 +37,19 @@ def _details_for(place_id: str, name: str | None = None) -> PlaceDetails:
     )
 
 
+def _rich_details_for(place_id: str) -> PlaceDetails:
+    """PlaceDetails carrying address/rating/price for card-field tests."""
+    return PlaceDetails(
+        place_id=place_id,
+        name=f"Place {place_id}",
+        source="google_places",
+        similarity=0.0,
+        formatted_address=f"{place_id} Main St, San Francisco",
+        rating=4.4,
+        price_level="PRICE_LEVEL_MODERATE",
+    )
+
+
 def _patch_details_many_for(place_ids: list[str]):
     """Patch get_details_many to return a minimal PlaceDetails for each id.
     Returns the patcher so tests can also assert call_count if they care."""
@@ -504,6 +517,68 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
     # Both got party_size=4 from constraints (no per-stop arrival_time).
     assert all(s.booking_provider == "tock" for s in stops)
     assert all("size=4" in (s.booking_url or "") for s in stops)
+
+
+def test_enrich_populates_card_fields_from_details() -> None:
+    """address/rating/price_level flow from PlaceDetails onto Stop."""
+    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    state = ItineraryState(
+        constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
+        return BookingProposal(place_id=details.place_id, provider="tock", booking_url="https://x")
+
+    with (
+        patch(
+            "app.agent.graph.get_details_many",
+            return_value={"p1": _rich_details_for("p1")},
+        ),
+        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+    ):
+        enrich_stops_with_booking(stops, state)
+
+    assert stops[0].address == "p1 Main St, San Francisco"
+    assert stops[0].rating == 4.4
+    assert stops[0].price_level == 2
+
+
+def test_enrich_card_fields_set_even_when_no_booking_time() -> None:
+    """Regression guard: the no-time path skips booking but must NOT skip
+    address/rating/price. These do not depend on `when`."""
+    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    state = ItineraryState(constraints=UserConstraints(party_size=2))  # when=None
+
+    with (
+        patch(
+            "app.agent.graph.get_details_many",
+            return_value={"p1": _rich_details_for("p1")},
+        ),
+        patch("app.agent.graph.propose_booking_from_details") as mock_build,
+    ):
+        enrich_stops_with_booking(stops, state)
+
+    mock_build.assert_not_called()  # no booking without a time
+    assert stops[0].booking_url is None
+    assert stops[0].address == "p1 Main St, San Francisco"
+    assert stops[0].rating == 4.4
+    assert stops[0].price_level == 2
+
+
+def test_enrich_card_fields_none_when_details_missing() -> None:
+    """place_id missing from DB at enrichment time -> fields stay None
+    (same degradation as booking links)."""
+    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    state = ItineraryState(
+        constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+    with patch("app.agent.graph.get_details_many", return_value={}):
+        enrich_stops_with_booking(stops, state)
+
+    assert stops[0].address is None
+    assert stops[0].rating is None
+    assert stops[0].price_level is None
 
 
 def test_enrich_skipped_when_no_time_anywhere() -> None:

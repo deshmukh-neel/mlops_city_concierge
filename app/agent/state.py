@@ -110,9 +110,33 @@ def default_duration_for(primary_type: str | None) -> int:
     return DEFAULT_STOP_DURATION_MIN.get(primary_type.lower(), DEFAULT_STOP_DURATION_MIN_FALLBACK)
 
 
+_PRICE_LEVEL_RANK: dict[str, int] = {
+    "PRICE_LEVEL_FREE": 0,
+    "PRICE_LEVEL_INEXPENSIVE": 1,
+    "PRICE_LEVEL_MODERATE": 2,
+    "PRICE_LEVEL_EXPENSIVE": 3,
+    "PRICE_LEVEL_VERY_EXPENSIVE": 4,
+}
+
+
+def price_level_to_rank(value: str | None) -> int | None:
+    """Map Google's price_level enum string to the 0..4 rank PlaceCard expects.
+
+    Mirrors the SQL `price_level_rank()` function (alembic c428add573d7) so the
+    card's integer tier matches the rank used in SearchFilters comparisons.
+    Unknown / unspecified / None all collapse to None.
+    """
+    if value is None:
+        return None
+    return _PRICE_LEVEL_RANK.get(value)
+
+
 class Stop(BaseModel):
     place_id: str
     name: str
+    address: str | None = None
+    rating: float | None = None
+    price_level: int | None = None  # 0..4, mapped via price_level_to_rank
     arrival_time: datetime | None = None
     planned_duration_min: int = DEFAULT_STOP_DURATION_MIN_FALLBACK
     rationale: str

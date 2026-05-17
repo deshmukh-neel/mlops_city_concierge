@@ -31,7 +31,7 @@ from app.agent.critique import (
 )
 from app.agent.critique.checks import itinerary_violations
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.state import ItineraryState, RevisionHint, Stop
+from app.agent.state import ItineraryState, RevisionHint, Stop, price_level_to_rank
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
 from app.tools.booking import propose_booking_from_details
 from app.tools.retrieval import get_details_many
@@ -127,6 +127,21 @@ def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
         return
 
     for stop in stops:
+        details = details_by_id.get(stop.place_id)
+        if details is None:
+            # place_id grounded in scratch but missing from DB at enrichment
+            # time — race condition on the deletion side, or a stale id. Same
+            # recoverable case as the old ValueError("unknown place_id"): skip
+            # both card-field and booking enrichment for this stop.
+            logger.warning("enrichment skipped: place_id=%s not in DB", stop.place_id)
+            continue
+
+        # Card fields do NOT depend on a booking time — stamp them before the
+        # `when is None` skip so a timeless stop still renders a full card.
+        stop.address = details.formatted_address
+        stop.rating = details.rating
+        stop.price_level = price_level_to_rank(details.price_level)
+
         when = stop.arrival_time or state.constraints.when
         if when is None:
             # No time → no booking link. Falling back to datetime.now() would
@@ -134,13 +149,6 @@ def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
             # (same inputs, different URL each call) and meaning nothing to
             # the user. The card ships without a booking link; downstream can
             # re-enrich once the user supplies a time.
-            continue
-        details = details_by_id.get(stop.place_id)
-        if details is None:
-            # place_id grounded in scratch but missing from DB at enrichment
-            # time — race condition on the deletion side, or a stale id. Same
-            # recoverable case as the old ValueError("unknown place_id"): skip.
-            logger.warning("booking enrichment skipped: place_id=%s not in DB", stop.place_id)
             continue
         proposal = propose_booking_from_details(details, when, party_size)
         stop.booking_url = proposal.booking_url
