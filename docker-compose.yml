@@ -52,6 +52,10 @@ services:
     working_dir: /app
     environment:
       VITE_PROXY_TARGET: http://app:8000
+      # Optional: live Google Map. Unset → map degrades gracefully (see
+      # docs/google_maps_setup.md). Set these in your .env to enable.
+      VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+      VITE_GOOGLE_MAPS_MAP_ID: ${VITE_GOOGLE_MAPS_MAP_ID:-}
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     volumes:

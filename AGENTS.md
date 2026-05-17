@@ -52,6 +52,7 @@ python scripts/seed.py    # Generate sample JSONL data
 - **Scripts**: `scripts/ingest_places_sf.py` loads raw Google Places data, `scripts/embed_places_pgvector.py` refreshes embeddings, and `scripts/log_model_to_mlflow.py` logs experiment runs
 - **Alembic** for database migrations. Add new migrations with `make migration MSG="..."`; apply with `make migrate`. Migration files live in `alembic/versions/`. The DB URL is resolved via `app.db_url.resolve_alembic_database_url()` (reads `DATABASE_URL` or the `POSTGRES_*` env vars). New databases pick up all migrations automatically; pre-existing databases need a one-time `alembic stamp head` to mark current schema as the starting point.
 - **MLflow** for experiment tracking and model-registry-backed runtime selection (shared GCP server)
+- **Frontend** (`frontend/`, Vite + React) drives the **agent** via `POST /chat` (not the legacy `/predict` RAG endpoint). It renders the ordered itinerary on a real Google Map with a Directions route; needs a browser Maps key (`docs/google_maps_setup.md`) and degrades gracefully without one. Frontend tests run with `npm test` (Vitest) in `frontend/`. See `implementation_plan/james/w8_live_map_routing.md`.
 - **React and Vite** for the frontend where user inputs prompt and preferences
 
 ## Infrastructure
