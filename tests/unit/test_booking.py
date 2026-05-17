@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.agent.graph import _commit_stops
+from app.agent.commit import commit_stops
 from app.agent.state import ItineraryState, UserConstraints
 from app.tools.booking import BookingProposal, detect_provider, propose_booking
 from app.tools.retrieval import PlaceDetails, PlaceHit
@@ -283,7 +283,7 @@ def test_notes_match_provider() -> None:
 
 # ─── Functional: graph commit -> real URL construction -> Stop fields ──────
 #
-# These tests drive `_commit_stops` end-to-end with the *real*
+# These tests drive `commit_stops` end-to-end with the *real*
 # propose_booking_from_details implementation. Only the SQL boundary
 # (`get_details_many`, called once per commit) is mocked. This verifies the
 # composition: provider detection + URL building + graph enrichment all work
@@ -306,7 +306,7 @@ def _grounded_state(place_ids: list[str], party_size: int = 2) -> ItineraryState
 def _patch_graph_details_many(place_id: str, details: PlaceDetails):
     """Patch the graph's batched DB call to return one details row."""
     return patch(
-        "app.agent.graph.get_details_many",
+        "app.agent.commit.get_details_many",
         return_value={place_id: details},
     )
 
@@ -324,7 +324,7 @@ def test_functional_commit_attaches_resy_url_via_real_propose_booking() -> None:
         }
     ]
     with _patch_graph_details_many("p1", _fake_details("https://resy.com/cities/sf/foo")):
-        committed, _ = _commit_stops(state, raw_stops)
+        committed, _ = commit_stops(state, raw_stops)
 
     assert len(committed) == 1
     stop = committed[0]
@@ -349,7 +349,7 @@ def test_functional_falls_back_to_venue_website_for_non_provider_site() -> None:
             maps_uri="https://maps.google.com/?cid=999",
         ),
     ):
-        committed, _ = _commit_stops(state, raw_stops)
+        committed, _ = commit_stops(state, raw_stops)
 
     stop = committed[0]
     assert stop.booking_provider == "unknown"
@@ -366,7 +366,7 @@ def test_functional_falls_back_to_maps_when_no_website() -> None:
         "p1",
         _fake_details(website_uri=None, maps_uri="https://maps.google.com/?cid=999"),
     ):
-        committed, _ = _commit_stops(state, raw_stops)
+        committed, _ = commit_stops(state, raw_stops)
 
     stop = committed[0]
     assert stop.booking_provider == "google_maps"
@@ -381,7 +381,7 @@ def test_functional_uses_constraints_when_arrival_time_missing() -> None:
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
     with _patch_graph_details_many("p1", _fake_details("https://www.opentable.com/baz")):
-        committed, _ = _commit_stops(state, raw_stops)
+        committed, _ = commit_stops(state, raw_stops)
 
     stop = committed[0]
     # constraints.when = 2026-05-07 19:00

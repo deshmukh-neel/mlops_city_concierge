@@ -14,12 +14,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from app.agent.graph import (
-    _commit_stops,
-    _prune_for_llm,
-    build_agent_graph,
-    enrich_stops_with_booking,
-)
+from app.agent.commit import commit_stops, enrich_stops_with_booking
+from app.agent.graph import _prune_for_llm, build_agent_graph
 from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.tools.booking import BookingProposal
 from app.tools.retrieval import PlaceDetails, PlaceHit
@@ -54,7 +50,7 @@ def _patch_details_many_for(place_ids: list[str]):
     """Patch get_details_many to return a minimal PlaceDetails for each id.
     Returns the patcher so tests can also assert call_count if they care."""
     return patch(
-        "app.agent.graph.get_details_many",
+        "app.agent.commit.get_details_many",
         return_value={pid: _details_for(pid) for pid in place_ids},
     )
 
@@ -319,7 +315,7 @@ def test_prune_for_llm_drops_oldest_tool_exchanges() -> None:
 
 def _state_with_grounded(place_ids: list[str], party_size: int = 2) -> ItineraryState:
     """Build a state where the given place_ids appear in scratch, so
-    _commit_stops considers them grounded."""
+    commit_stops considers them grounded."""
     hits = [
         PlaceHit(place_id=pid, name=f"Place {pid}", source="google_places", similarity=0.9)
         for pid in place_ids
@@ -350,9 +346,9 @@ def test_commit_stops_enriches_with_booking() -> None:
 
     with (
         _patch_details_many_for(["p1", "p2"]) as mock_get,
-        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
-        committed, payload = _commit_stops(state, raw_stops)
+        committed, payload = commit_stops(state, raw_stops)
 
     assert payload["committed"] == ["p1", "p2"]
     assert all(s.booking_url is not None for s in committed)
@@ -372,8 +368,8 @@ def test_commit_stops_skips_enrichment_for_place_id_missing_from_db() -> None:
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
-    with patch("app.agent.graph.get_details_many", return_value={}):
-        committed, payload = _commit_stops(state, raw_stops)
+    with patch("app.agent.commit.get_details_many", return_value={}):
+        committed, payload = commit_stops(state, raw_stops)
 
     assert payload["committed"] == ["p1"]
     assert committed[0].booking_url is None
@@ -389,10 +385,10 @@ def test_commit_stops_enrichment_swallows_psycopg_db_blip() -> None:
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
     with patch(
-        "app.agent.graph.get_details_many",
+        "app.agent.commit.get_details_many",
         side_effect=psycopg2.OperationalError("connection blip"),
     ):
-        committed, payload = _commit_stops(state, raw_stops)
+        committed, payload = commit_stops(state, raw_stops)
 
     assert payload["committed"] == ["p1"]
     assert committed[0].booking_url is None
@@ -410,12 +406,12 @@ def test_commit_stops_enrichment_propagates_programmer_errors() -> None:
     with (
         _patch_details_many_for(["p1"]),
         patch(
-            "app.agent.graph.propose_booking_from_details",
+            "app.agent.commit.propose_booking_from_details",
             side_effect=TypeError("propose_booking_from_details() got an unexpected kwarg"),
         ),
         pytest.raises(TypeError),
     ):
-        _commit_stops(state, raw_stops)
+        commit_stops(state, raw_stops)
 
 
 def test_commit_stops_re_commit_is_idempotent() -> None:
@@ -437,10 +433,10 @@ def test_commit_stops_re_commit_is_idempotent() -> None:
 
     with (
         _patch_details_many_for(["p1"]),
-        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
-        first_committed, _ = _commit_stops(state, raw_stops)
-        second_committed, _ = _commit_stops(state, raw_stops)
+        first_committed, _ = commit_stops(state, raw_stops)
+        second_committed, _ = commit_stops(state, raw_stops)
 
     assert first_committed[0].booking_url == second_committed[0].booking_url
     assert first_committed[0].booking_provider == second_committed[0].booking_provider
@@ -468,12 +464,12 @@ def test_commit_stops_per_stop_independence_when_one_id_missing() -> None:
 
     with (
         patch(
-            "app.agent.graph.get_details_many",
+            "app.agent.commit.get_details_many",
             return_value={"p2": _details_for("p2")},
         ),
-        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
-        committed, _ = _commit_stops(state, raw_stops)
+        committed, _ = commit_stops(state, raw_stops)
 
     # p1 missing from DB → skipped, no booking fields populated.
     assert committed[0].place_id == "p1"
@@ -488,7 +484,7 @@ def test_commit_stops_per_stop_independence_when_one_id_missing() -> None:
 def test_enrich_stops_with_booking_mutates_in_place() -> None:
     """Direct coverage of the public helper. Future constraint-edit flows
     will call enrich_stops_with_booking on already-built Stop objects without
-    going through _commit_stops; the in-place-mutation contract is what makes
+    going through commit_stops; the in-place-mutation contract is what makes
     that re-enrichment cheap."""
     stops = [
         Stop(place_id="p1", name="A", rationale="r", source="google_places"),
@@ -508,7 +504,7 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
     original_ids = [id(s) for s in stops]
     with (
         _patch_details_many_for(["p1", "p2"]),
-        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
 
@@ -531,10 +527,10 @@ def test_enrich_populates_card_fields_from_details() -> None:
 
     with (
         patch(
-            "app.agent.graph.get_details_many",
+            "app.agent.commit.get_details_many",
             return_value={"p1": _rich_details_for("p1")},
         ),
-        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
 
@@ -551,10 +547,10 @@ def test_enrich_card_fields_set_even_when_no_booking_time() -> None:
 
     with (
         patch(
-            "app.agent.graph.get_details_many",
+            "app.agent.commit.get_details_many",
             return_value={"p1": _rich_details_for("p1")},
         ),
-        patch("app.agent.graph.propose_booking_from_details") as mock_build,
+        patch("app.agent.commit.propose_booking_from_details") as mock_build,
     ):
         enrich_stops_with_booking(stops, state)
 
@@ -573,7 +569,7 @@ def test_enrich_card_fields_none_when_details_missing() -> None:
         constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
     )
 
-    with patch("app.agent.graph.get_details_many", return_value={}):
+    with patch("app.agent.commit.get_details_many", return_value={}):
         enrich_stops_with_booking(stops, state)
 
     assert stops[0].address is None
@@ -591,7 +587,7 @@ def test_enrich_skipped_when_no_time_anywhere() -> None:
 
     with (
         _patch_details_many_for(["p1"]),
-        patch("app.agent.graph.propose_booking_from_details") as mock_build,
+        patch("app.agent.commit.propose_booking_from_details") as mock_build,
     ):
         enrich_stops_with_booking(stops, state)
 
@@ -609,7 +605,7 @@ def test_enrich_idempotent_when_no_time_set() -> None:
 
     with (
         _patch_details_many_for(["p1"]),
-        patch("app.agent.graph.propose_booking_from_details") as mock_build,
+        patch("app.agent.commit.propose_booking_from_details") as mock_build,
     ):
         enrich_stops_with_booking(stops, state)
         first_url = stops[0].booking_url
@@ -638,7 +634,7 @@ def test_enrich_uses_constraints_when_when_arrival_time_missing() -> None:
 
     with (
         _patch_details_many_for(["p1"]),
-        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
 
@@ -670,7 +666,7 @@ def test_enrich_party_size_defaulting(party_size_in: int | None, expected_in_cal
 
     with (
         _patch_details_many_for(["p1"]),
-        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
 
@@ -711,7 +707,7 @@ def test_enrich_stops_with_booking_uses_arrival_time_per_stop() -> None:
 
     with (
         _patch_details_many_for(["p1", "p2"]),
-        patch("app.agent.graph.propose_booking_from_details", side_effect=fake_build),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
 
