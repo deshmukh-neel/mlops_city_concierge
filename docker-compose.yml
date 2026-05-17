@@ -36,7 +36,7 @@ services:
       CLOUD_SQL_INSTANCE_CONNECTION_NAME: ""
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      MLFLOW_TRACKING_URI: http://host.docker.internal:5000
+      MLFLOW_TRACKING_URI: http://host.docker.internal:5050
       MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME:-city-concierge-rag}
     ports:
       - "${APP_PORT:-8000}:8000"
