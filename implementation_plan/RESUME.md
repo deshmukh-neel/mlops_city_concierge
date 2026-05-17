@@ -111,13 +111,20 @@ W8c is in.
 - (#1 w8a, #2 w8b, #6 App.jsx bugfix — DONE)
 
 ## PR status
-- **w8a → PR #86 OPEN** (https://github.com/deshmukh-neel/mlops_city_concierge/pull/86).
-  Both w8a + w8b branches pushed to origin. Merge #86 when CI green (YOU do
-  the merge — don't let the agent run `gh pr merge`).
+- **w8a → PR #86 OPEN, CI FULLY GREEN, READY TO MERGE**
+  (https://github.com/deshmukh-neel/mlops_city_concierge/pull/86). All 5 checks
+  pass. Was failing on a stale `test_chat_endpoint.py` key assertion (W8a added
+  lat/lng but that test's expected-keys set wasn't updated); fixed by
+  cherry-picking `2bd55f7` onto w8a. **Merge it yourself** (don't let the agent
+  run `gh pr merge`). Good first action tomorrow.
 - **w8b → branch pushed, NO PR yet** — open it only AFTER STEP 1 real-API
-  verification. (w8b contains all of w8a; if #86 merges first, retarget/rebase
-  w8b so its PR shows only the frontend diff.)
+  verification. w8b contains all of w8a + the same test fix. If #86 merges
+  first, retarget/rebase w8b so its PR shows only the frontend diff.
 - w10 → its own PR later (independent).
+
+> Lesson logged: a W8a-shaped change (adding a PlaceCard field) must update
+> BOTH hardcoded key-set assertions — `test_agent_state.py` AND
+> `test_chat_endpoint.py`. Grep `tests/` for the field set before claiming green.
 
 ## Memory (loads automatically every session, any branch)
 - `project_gemini3_thought_signatures.md` — W10 root cause
