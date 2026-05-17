@@ -80,6 +80,8 @@ def test_chat_endpoint_returns_reply_places_raglabel(mocker) -> None:
         "rating",
         "price_level",
         "primary_type",
+        "latitude",
+        "longitude",
         "arrival_time",
         "rationale",
         "booking_url",
