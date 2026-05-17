@@ -1,0 +1,374 @@
+# City Concierge - offline eval query set
+#
+# Hand-written cases are the stable smoke suite for W6. Generated RAGAS cases
+# will be added later from the `generated` spec below; this first file keeps
+# the contract typed and reproducible.
+
+hand_written:
+  - id: north_beach_italian_dinner
+    query: "italian dinner in North Beach on May 16 2026 at 7pm, under $$$"
+    reference: "A good answer recommends one to three Italian restaurants in or very near North Beach that are open at 2026-05-16T19:00:00-07:00, cost no more than $$$, and have enough user ratings to avoid thin-signal outliers."
+    expected_constraints:
+      neighborhood: "North Beach"
+      price_level_max: 3
+      open_at_iso: "2026-05-16T19:00:00-07:00"
+      types_any: ["italian_restaurant", "restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["restaurant", "constraint_heavy", "north_beach"]
+
+  - id: date_night_dinner_drinks_walkable
+    query: "plan a date night on May 16 2026: dinner then drinks within walking distance, vibes-y, under $$$"
+    reference: "A good answer creates a two-stop dinner-and-drinks plan with coherent vibes, both stops under $$$, and a short walk between consecutive stops."
+    expected_constraints:
+      price_level_max: 3
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 2
+      max_stops: 3
+    expected_walking_budget_m: 1200
+    tags: ["multi_stop", "date_night", "walkable"]
+
+  - id: mission_vegan_brunch
+    query: "best vegan brunch in the Mission on Saturday May 16 2026 around 11am"
+    reference: "A good answer recommends a brunch-friendly restaurant or cafe in the Mission that can satisfy vegetarian or vegan preferences and is open late morning."
+    expected_constraints:
+      neighborhood: "Mission"
+      open_at_iso: "2026-05-16T11:00:00-07:00"
+      types_any: ["restaurant", "cafe", "brunch_restaurant"]
+      serves_brunch: true
+      serves_vegetarian: true
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["brunch", "vegan", "mission", "constraint_heavy"]
+
+  - id: soma_quiet_late_cafe
+    query: "find a quiet cafe for studying near SOMA open late on Friday May 15 2026"
+    reference: "A good answer recommends a cafe or coffee shop in or near SOMA with a study-friendly rationale and evidence that it is open later than typical daytime cafes."
+    expected_constraints:
+      neighborhood: "SOMA"
+      open_at_iso: "2026-05-15T22:00:00-07:00"
+      types_any: ["cafe", "coffee_shop"]
+      serves_coffee: true
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["cafe", "late_night", "soma", "constraint_heavy"]
+
+  - id: impossible_four_am_five_star
+    query: "find a 5-star restaurant in San Francisco open at 4am on Sunday May 17 2026"
+    reference: "A good answer should not hallucinate a perfect match; it should either ask to relax constraints or transparently offer the closest available alternatives."
+    expected_constraints:
+      min_rating: 5.0
+      open_at_iso: "2026-05-17T04:00:00-07:00"
+      types_any: ["restaurant"]
+      min_user_rating_count: 50
+    expects_clarification_or_relaxation: true
+    tags: ["known_bad", "self_correction", "late_night"]
+
+  - id: mission_tacos_casual
+    query: "best casual tacos in the Mission for lunch on Saturday May 16 2026"
+    reference: "A good answer recommends one to three casual taco or Mexican restaurants in the Mission that are plausible for lunch and have enough ratings to avoid thin-signal outliers."
+    expected_constraints:
+      neighborhood: "Mission"
+      open_at_iso: "2026-05-16T12:30:00-07:00"
+      types_any: ["mexican_restaurant", "restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["simple", "restaurant", "tacos", "mission"]
+
+  - id: north_beach_italian_options
+    query: "good Italian dinner spots in North Beach under $$$"
+    reference: "A good answer recommends one to three Italian restaurants in or very near North Beach with price level no higher than $$$ and enough review volume to be credible."
+    expected_constraints:
+      neighborhood: "North Beach"
+      price_level_max: 3
+      types_any: ["italian_restaurant", "restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["simple", "restaurant", "italian", "north_beach"]
+
+  - id: hayes_valley_brunch
+    query: "brunch in Hayes Valley for two people on Sunday May 17 2026 around 11am"
+    reference: "A good answer recommends one to three brunch-friendly restaurants or cafes in Hayes Valley that are open late morning."
+    expected_constraints:
+      neighborhood: "Hayes Valley"
+      open_at_iso: "2026-05-17T11:00:00-07:00"
+      types_any: ["restaurant", "cafe", "brunch_restaurant"]
+      serves_brunch: true
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["simple", "brunch", "hayes_valley"]
+
+  - id: japantown_ramen
+    query: "ramen in Japantown with strong ratings"
+    reference: "A good answer recommends one to three ramen or Japanese restaurants in Japantown with strong ratings and enough review volume to be useful."
+    expected_constraints:
+      neighborhood: "Japantown"
+      min_rating: 4.0
+      types_any: ["ramen_restaurant", "japanese_restaurant", "restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["simple", "restaurant", "ramen", "japantown"]
+
+  - id: outer_sunset_coffee
+    query: "coffee shop in Outer Sunset where I can sit for a while"
+    reference: "A good answer recommends one to three coffee shops or cafes in Outer Sunset and gives a study-or-sit-down rationale grounded in the retrieved context."
+    expected_constraints:
+      neighborhood: "Outer Sunset"
+      types_any: ["cafe", "coffee_shop"]
+      serves_coffee: true
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["simple", "cafe", "coffee", "outer_sunset"]
+
+  - id: marina_seafood_dinner
+    query: "seafood dinner near the Marina, not too fancy"
+    reference: "A good answer recommends one to three seafood or seafood-adjacent dinner spots near the Marina with a casual-to-moderate price profile."
+    expected_constraints:
+      neighborhood: "Marina District"
+      price_level_max: 3
+      types_any: ["seafood_restaurant", "restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["simple", "restaurant", "seafood", "marina"]
+
+  - id: chinatown_dim_sum
+    query: "dim sum in Chinatown for a small group"
+    reference: "A good answer recommends one to three dim sum or Chinese restaurants in Chinatown that make sense for a small group."
+    expected_constraints:
+      neighborhood: "Chinatown"
+      types_any: ["dim_sum_restaurant", "chinese_restaurant", "restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["simple", "restaurant", "dim_sum", "chinatown"]
+
+  - id: castro_cocktails
+    query: "cocktail bar in the Castro with a fun vibe"
+    reference: "A good answer recommends one to three bars or cocktail bars in the Castro and explains why the vibe fits the request."
+    expected_constraints:
+      neighborhood: "Castro"
+      price_level_max: 3
+      types_any: ["cocktail_bar", "bar"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["simple", "bar", "cocktails", "castro"]
+
+  - id: financial_district_lunch_under_20
+    query: "quick lunch in the Financial District under $20 on a weekday"
+    reference: "A good answer recommends one to three quick lunch spots in the Financial District with inexpensive or moderate pricing."
+    expected_constraints:
+      neighborhood: "Financial District"
+      price_level_max: 2
+      types_any: ["restaurant", "meal_takeaway", "sandwich_shop"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["constraint_heavy", "lunch", "financial_district", "budget"]
+
+  - id: richmond_korean_family
+    query: "family-friendly Korean restaurant in Inner Richmond, under $$$"
+    reference: "A good answer recommends one to three Korean restaurants in Inner Richmond with price level no higher than $$$ and enough ratings for confidence."
+    expected_constraints:
+      neighborhood: "Inner Richmond"
+      price_level_max: 3
+      types_any: ["korean_restaurant", "restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["constraint_heavy", "restaurant", "korean", "inner_richmond"]
+
+  - id: nob_hill_date_dinner_rating
+    query: "romantic dinner near Nob Hill with at least 4.5 stars"
+    reference: "A good answer recommends one to three dinner spots near Nob Hill with ratings of at least 4.5 when rating data is available."
+    expected_constraints:
+      neighborhood: "Nob Hill"
+      min_rating: 4.5
+      types_any: ["restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["constraint_heavy", "restaurant", "date_night", "nob_hill"]
+
+  - id: dogpatch_group_beer_food
+    query: "casual place in Dogpatch for a group with beer and food"
+    reference: "A good answer recommends one to three casual Dogpatch spots that can work for a group and have beer plus food or a restaurant/bar profile."
+    expected_constraints:
+      neighborhood: "Dogpatch"
+      price_level_max: 3
+      types_any: ["bar", "brewpub", "restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["constraint_heavy", "group", "beer", "dogpatch"]
+
+  - id: north_beach_dinner_dessert
+    query: "plan dinner and dessert in North Beach, easy walk between stops"
+    reference: "A good answer creates a two-stop North Beach plan with dinner followed by dessert and a short walk between stops."
+    expected_constraints:
+      neighborhood: "North Beach"
+      price_level_max: 3
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 2
+      max_stops: 3
+    expected_walking_budget_m: 1000
+    tags: ["multi_stop", "restaurant", "dessert", "north_beach", "walkable"]
+
+  - id: mission_brunch_park_walk
+    query: "brunch in the Mission followed by somewhere nearby to walk around"
+    reference: "A good answer creates a brunch-plus-walk plan in or near the Mission with a reasonable walking distance between stops."
+    expected_constraints:
+      neighborhood: "Mission"
+      types_any: ["restaurant", "cafe", "park", "tourist_attraction"]
+    expected_results:
+      min_stops: 2
+      max_stops: 3
+    expected_walking_budget_m: 1500
+    tags: ["multi_stop", "brunch", "mission", "walkable"]
+
+  - id: japantown_ramen_tea
+    query: "ramen in Japantown then tea or dessert nearby"
+    reference: "A good answer creates a two-stop Japantown plan with ramen first and tea or dessert nearby."
+    expected_constraints:
+      neighborhood: "Japantown"
+      price_level_max: 3
+      types_any: ["ramen_restaurant", "japanese_restaurant", "cafe", "dessert_shop"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 2
+      max_stops: 3
+    expected_walking_budget_m: 900
+    tags: ["multi_stop", "restaurant", "dessert", "japantown", "walkable"]
+
+  - id: ferry_building_coffee_waterfront
+    query: "coffee near the Ferry Building then a scenic waterfront stop"
+    reference: "A good answer creates a coffee-plus-waterfront plan near the Ferry Building with a short walk and a scenic second stop."
+    expected_constraints:
+      neighborhood: "Financial District"
+      types_any: ["cafe", "coffee_shop", "tourist_attraction", "point_of_interest"]
+      serves_coffee: true
+    expected_results:
+      min_stops: 2
+      max_stops: 3
+    expected_walking_budget_m: 1200
+    tags: ["multi_stop", "coffee", "waterfront", "ferry_building", "walkable"]
+
+  - id: hayes_valley_show_dinner
+    query: "pre-show dinner near Hayes Valley then a cocktail bar nearby"
+    reference: "A good answer creates a dinner-and-cocktail plan near Hayes Valley with a practical walk between stops."
+    expected_constraints:
+      neighborhood: "Hayes Valley"
+      price_level_max: 3
+      types_any: ["restaurant", "cocktail_bar", "bar"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 2
+      max_stops: 3
+    expected_walking_budget_m: 1000
+    tags: ["multi_stop", "dinner", "cocktails", "hayes_valley", "walkable"]
+
+  - id: sunset_beach_day_food
+    query: "casual lunch in Outer Sunset then something near Ocean Beach"
+    reference: "A good answer creates a casual Outer Sunset lunch plus nearby Ocean Beach-area stop with coherent geography."
+    expected_constraints:
+      neighborhood: "Outer Sunset"
+      price_level_max: 3
+      types_any: ["restaurant", "cafe", "tourist_attraction", "park"]
+    expected_results:
+      min_stops: 2
+      max_stops: 3
+    expected_walking_budget_m: 1800
+    tags: ["multi_stop", "lunch", "outer_sunset", "beach", "walkable"]
+
+  - id: impossible_cheap_michelin
+    query: "Michelin-level fine dining in San Francisco tonight under $"
+    reference: "A good answer should avoid pretending a perfect match exists; it should explain the constraint conflict and ask to relax price, timing, or fine-dining expectations."
+    expected_constraints:
+      price_level_max: 1
+      types_any: ["fine_dining_restaurant", "restaurant"]
+    expects_clarification_or_relaxation: true
+    tags: ["known_bad", "self_correction", "budget", "fine_dining"]
+
+  - id: impossible_north_beach_sushi_4am
+    query: "sushi in North Beach open at 4am"
+    reference: "A good answer should not hallucinate a 4am North Beach sushi match; it should ask to relax the time, neighborhood, or cuisine, or offer transparent closest alternatives."
+    expected_constraints:
+      neighborhood: "North Beach"
+      open_at_iso: "2026-05-17T04:00:00-07:00"
+      types_any: ["sushi_restaurant", "restaurant"]
+    expects_clarification_or_relaxation: true
+    tags: ["known_bad", "self_correction", "late_night", "north_beach"]
+
+  - id: overconstrained_walkable_three_neighborhoods
+    query: "plan three stops: Marina, Mission, and Outer Sunset, all walkable between each other"
+    reference: "A good answer should flag that these neighborhoods are too far apart to be walkable as a single chain and ask to relax geography or use transit."
+    expected_walking_budget_m: 1200
+    expects_clarification_or_relaxation: true
+    tags: ["known_bad", "self_correction", "multi_stop", "walkable"]
+
+  - id: closed_monday_brunch
+    query: "brunch spot in the Mission open Monday at 6am with vegan pancakes"
+    reference: "A good answer should be transparent if no strong match exists for vegan pancakes at 6am Monday and should ask to relax time or menu specificity."
+    expected_constraints:
+      neighborhood: "Mission"
+      open_at_iso: "2026-05-18T06:00:00-07:00"
+      types_any: ["restaurant", "cafe", "brunch_restaurant"]
+      serves_brunch: true
+      serves_vegetarian: true
+    expects_clarification_or_relaxation: true
+    tags: ["known_bad", "self_correction", "brunch", "mission"]
+
+  - id: ambiguous_fun_tonight
+    query: "somewhere fun tonight in San Francisco"
+    reference: "A good answer either asks a concise clarifying question or offers one to three broadly fun options while making assumptions explicit."
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["ambiguous", "nightlife", "san_francisco"]
+
+  - id: ambiguous_not_touristy
+    query: "I want dinner somewhere local, not touristy, with good vibes"
+    reference: "A good answer recommends one to three dinner spots with a local-feeling rationale and does not overclaim facts that are absent from retrieved context."
+    expected_constraints:
+      price_level_max: 3
+      types_any: ["restaurant"]
+      min_user_rating_count: 50
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["ambiguous", "restaurant", "vibes"]
+
+  - id: ambiguous_friend_visiting
+    query: "my friend is visiting SF and I want to show them a good food neighborhood"
+    reference: "A good answer recommends one to three food-neighborhood options or a compact food plan, with enough explanation for a visitor-facing choice."
+    expected_results:
+      min_stops: 1
+      max_stops: 3
+    tags: ["ambiguous", "visitor", "food_neighborhood"]
+
+generated:
+  source_table: place_embeddings_v2
+  count: 50
+  seed: 42

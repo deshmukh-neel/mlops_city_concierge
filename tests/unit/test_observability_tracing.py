@@ -118,7 +118,10 @@ def test_langgraph_callbacks_returns_handler_with_env(monkeypatch: pytest.Monkey
     _set_langfuse_env(monkeypatch)
     sentinel = object()
 
-    with patch("app.observability.CallbackHandler", return_value=sentinel):
+    with (
+        patch("app.observability.Langfuse", object()),
+        patch("app.observability.CallbackHandler", return_value=sentinel),
+    ):
         from app.observability import langgraph_callbacks
 
         callbacks = langgraph_callbacks()

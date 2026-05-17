@@ -1,0 +1,497 @@
+{
+  "aggregate": {
+    "check_error_count": 0,
+    "committed_stops_mean": 1.0,
+    "constraints_satisfied_mean": 1.0,
+    "contexts_mean": 9.4,
+    "expected_results_match_rate": 1.0,
+    "expected_results_mismatch_count": 0,
+    "geographic_coherence_mean": 1.0,
+    "no_hallucinated_place_ids_mean": 1.0,
+    "queries_with_tool_errors": 0,
+    "queries_with_violations": 0,
+    "query_count": 5,
+    "results_mean": 2.6,
+    "revision_hints_mean": 2.0,
+    "temporal_coherence_mean": 1.0,
+    "tool_calls_mean": 3.6,
+    "tool_error_count": 0,
+    "walking_budget_respected_mean": 1.0
+  },
+  "chat_model": "gpt-4o-mini",
+  "eval_queries_path": "configs/eval_queries.yaml",
+  "llm_provider": "openai",
+  "queries": [
+    {
+      "actual": {
+        "answer_place_names": [
+          "Ideale",
+          "Acquolina",
+          "Sodini's Trattoria"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJuy5lEfGAhYAR9mmCBjB9aB0",
+          "ChIJ-55o9_OAhYARxWRg70fFUvU",
+          "ChIJh0o6V_GAhYAR8MKCXUx3Q2Q"
+        ],
+        "place_names": [
+          "Acquolina",
+          "Ideale",
+          "Sodini's Trattoria"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here are three Italian dinner options in North Beach for May 16, 2026, at 7 PM:\n\n1. **Acquolina**\n   - Address: 1600 Stockton St, San Francisco, CA 94133, USA\n   - Rating: 4.2\n   - Price Level: Moderate\n   - Description: Neighborhood bistro serving pizza & other Italian eats in a relaxed space with some sidewalk seats.\n\n2. **Ideale**\n   - Address: 1309 Grant Ave, San Francisco, CA 94133, USA\n   - Rating: 4.5\n   - Price Level: Moderate\n   - Description: Unpretentious trattoria presenting Roman specialties, homemade pasta & an extensive wine list.\n\n3. **Sodini's Trattoria**\n   - Address: 510 Green St, San Francisco, CA 94133, USA\n   - Rating: 4.5\n   - Price Level: Moderate\n   - Description: Hefty portions of Italian basics served up in a throwback space filled with Sinatra memorabilia.\n\nEnjoy your dinner!",
+      "contexts": [
+        "name: The Italian Homemade Company | type: Italian Restaurant | address: 716 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: The Italian Homemade Company\nPrimary Type: Italian Restaurant\nAddress: 716 Columbus Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, deli, grocery_store, restaurant, food_store, store, food, point_of_interest, establishment\nEditorial Summary: Italian deli & market stocking housemade pasta, imported cheese, charcuterie & more in homey digs.\nRating: 4.5\nUser Ratings: 3295\nPrice Lev",
+        "name: Ideale | type: Italian Restaurant | address: 1309 Grant Ave, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Ideale\nPrimary Type: Italian Restaurant\nAddress: 1309 Grant Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, wine_bar, pizza_restaurant, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Unpretentious trattoria presenting Roman specialties, homemade pasta & an extensive wine list.\nRating: 4.5\nUser Ratings: 493\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: ht",
+        "name: Tommaso's | type: Italian Restaurant | address: 1042 Kearny St, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Tommaso's\nPrimary Type: Italian Restaurant\nAddress: 1042 Kearny St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, seafood_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Family-run institution (since 1935) firing up thin-crust pizzas in its original wood-burning oven.\nRating: 4.5\nUser Ratings: 895\nPrice Level: PRICE_LEVEL_MODERATE",
+        "name: Acquolina | type: Italian Restaurant | address: 1600 Stockton St, San Francisco, CA 94133, USA | rating: 4.2 | snippet: Name: Acquolina\nPrimary Type: Italian Restaurant\nAddress: 1600 Stockton St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Neighborhood bistro serving pizza & other Italian eats in a relaxed space with some sidewalk seats.\nRating: 4.2\nUser Ratings: 1192\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https:",
+        "name: Sodini's Trattoria | type: Italian Restaurant | address: 510 Green St, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Sodini's Trattoria\nPrimary Type: Italian Restaurant\nAddress: 510 Green St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Hefty portions of Italian basics served up in a throwback space filled with Sinatra memorabilia.\nRating: 4.5\nUser Ratings: 922\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://sodinisgreenvall",
+        "name: Mona Lisa Restaurant | type: Italian Restaurant | address: 414 Columbus Ave, San Francisco, CA 94123, USA | rating: 4.3 | snippet: Name: Mona Lisa Restaurant\nPrimary Type: Italian Restaurant\nAddress: 414 Columbus Ave, San Francisco, CA 94123, USA\nTypes: italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Renaissance-inspired decor sets the scene for homemade pastas, pizzas & other Italian specialties.\nRating: 4.3\nUser Ratings: 2384\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://monali",
+        "name: Il Casaro Pizzeria | type: Italian Restaurant | address: 348 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: Il Casaro Pizzeria\nPrimary Type: Italian Restaurant\nAddress: 348 Columbus Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Pizza, Italian street food, and wine are served in a cozy space with a mozzarella bar and late-night hours.\nRating: 4.6\nUser Ratings: 2452\nPrice Level: PRICE_LEVEL_MODERAT",
+        "name: Flour + Water Pizza Shop | type: Takeout Restaurant | address: 1533 Stockton St, San Francisco, CA 94133, USA | rating: 4.7 | snippet: Name: Flour + Water Pizza Shop\nPrimary Type: Takeout Restaurant\nAddress: 1533 Stockton St, San Francisco, CA 94133, USA\nTypes: meal_takeaway, restaurant, food, point_of_interest, establishment\nRating: 4.7\nUser Ratings: 69\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.fwpizzashop.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:30\u202fAM\u2009\u2013\u200910:00\u202fPM | Tuesday: 11:30\u202fAM\u2009\u2013\u200910:00\u202fPM | We",
+        "name: Tony's Pizza Napoletana | type: Pizza Restaurant | address: 1570 Stockton St, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Tony's Pizza Napoletana\nPrimary Type: Pizza Restaurant\nAddress: 1570 Stockton St, San Francisco, CA 94133, USA\nTypes: pizza_restaurant, italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Bustling Italian eatery with varied pizza options from coal-fired to Roman-style, plus beer on tap.\nRating: 4.5\nUser Ratings: 10056\nPrice Level: PRICE_LEVEL_MODERATE\nWe",
+        "name: Betty Lou's Seafood & Grill | type: Seafood Restaurant | address: 318 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: Betty Lou's Seafood & Grill\nPrimary Type: Seafood Restaurant\nAddress: 318 Columbus Ave, San Francisco, CA 94133, USA\nTypes: seafood_restaurant, family_restaurant, steak_house, italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Bright, spacious bistro for oysters, chowder, pasta & seafood mains in old-world environs.\nRating: 4.6\nUser Ratings: 1233\nPrice ",
+        "name: Yuet Lee Seafood Restaurant | type: Seafood Restaurant | address: 1300 Stockton St, San Francisco, CA 94133, USA | rating: 4.0 | snippet: Name: Yuet Lee Seafood Restaurant\nPrimary Type: Seafood Restaurant\nAddress: 1300 Stockton St, San Francisco, CA 94133, USA\nTypes: seafood_restaurant, chinese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Busy standby with late-night weekend hours offering typical Cantonese meals in a snug, bright space.\nRating: 4.0\nUser Ratings: 710\nPrice Level: PRICE_LEVEL_INEX",
+        "name: Red Window | type: European Restaurant | address: 500 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.4 | snippet: Name: Red Window\nPrimary Type: European Restaurant\nAddress: 500 Columbus Ave, San Francisco, CA 94133, USA\nTypes: european_restaurant, cocktail_bar, wine_bar, beer_garden, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Vibrant, informal hub for Spanish small plates & low-proof cocktails, plus sidewalk seating.\nRating: 4.4\nUser Ratings: 458\nPrice Level: PRICE_LEVEL_MODER",
+        "name: Original Joe's | type: Italian Restaurant | address: 601 Union St, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Original Joe's\nPrimary Type: Italian Restaurant\nAddress: 601 Union St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, seafood_restaurant, bar, steak_house, american_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Neighborhood fixture serving traditional, old-school Italian entrees, steaks, and seafood.\nRating: 4.5\nUser Ratings: 3425\nPrice Level: PRI",
+        "name: Sotto Mare | type: Seafood Restaurant | address: 552 Green St, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: Sotto Mare\nPrimary Type: Seafood Restaurant\nAddress: 552 Green St, San Francisco, CA 94133, USA\nTypes: seafood_restaurant, italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Neighborhood spot with nautical decor and a menu of pasta, cioppino, and other Italian-style seafood.\nRating: 4.6\nUser Ratings: 4995\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http:"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are three Italian dinner options in North Beach for May 16, 2026, at 7 PM:\n\n1. **Acquolina**\n   - Address: 1600 Stockton St, San Francisco, CA 94133, USA\n   - Rating: 4.2\n   - Price Level: Moderate\n   - Description: Neighborhood bistro serving pizza & other Italian eats in a relaxed space with some sidewalk seats.\n\n2. **Ideale**\n   - Address: 1309 Grant Ave, San Francisco, CA 94133, USA\n   - Rating: 4.5\n   - Price Level: Moderate\n   - Description: Unpretentious trattoria presenting Roman specialties, homemade pasta & an extensive wine list.\n\n3. **Sodini's Trattoria**\n   - Address: 510 Green St, San Francisco, CA 94133, USA\n   - Rating: 4.5\n   - Price Level: Moderate\n   - Description: Hefty portions of Italian basics served up in a throwback space filled with Sinatra memorabilia.\n\nEnjoy your dinner!",
+      "id": "north_beach_italian_dinner",
+      "question": "italian dinner in North Beach on May 16 2026 at 7pm, under $$$",
+      "reference": "A good answer recommends one to three Italian restaurants in or very near North Beach that are open at 2026-05-16T19:00:00-07:00, cost no more than $$$, and have enough user ratings to avoid thin-signal outliers.",
+      "tags": [
+        "restaurant",
+        "constraint_heavy",
+        "north_beach"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "The Spice Jar",
+          "Southern Pacific Brewing"
+        ],
+        "committed_stop_count": 2,
+        "place_ids": [
+          "ChIJdQYBskl-j4ARCz4Sp01J_ZM",
+          "ChIJn5G9Fzp-j4ARRs66QTw4XAY"
+        ],
+        "place_names": [
+          "The Spice Jar",
+          "Southern Pacific Brewing"
+        ],
+        "result_count": 2,
+        "sources": [
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "I've planned a date night for you on May 16, 2026, with dinner followed by drinks, both within walking distance and under budget. Here are the details:\n\n### Dinner\n**The Spice Jar**  \n- **Type:** Californian-Asian Bistro  \n- **Address:** 3066 24th St, San Francisco, CA 94110, USA  \n- **Rating:** 4.3  \n- **Price Level:** Moderate  \n- **Description:** Casual corner bistro for Californian-Asian fare served family-style in a homey, country-chic space.  \n\n### Drinks\n**Southern Pacific Brewing**  \n- **Type:** Brewery  \n- **Address:** 620 Treat Ave, San Francisco, CA 94110, USA  \n- **Rating:** 4.1  \n- **Price Level:** Moderate  \n- **Description:** Massive gastropub serving craft brews, creative cocktails & elevated pub grub for lunch & dinner.  \n\nEnjoy your date night!",
+      "contexts": [
+        "name: Dimdoduc | type: Dim Sum Restaurant | address: 3398 Balboa St, San Francisco, CA 94121, USA | rating: 4.2 | snippet: Name: Dimdoduc\nPrimary Type: Dim Sum Restaurant\nAddress: 3398 Balboa St, San Francisco, CA 94121, USA\nTypes: dim_sum_restaurant, noodle_shop, cantonese_restaurant, meal_takeaway, asian_fusion_restaurant, fusion_restaurant, asian_restaurant, chinese_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.2\nUser Ratings: 78\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://www.di",
+        "name: Dynasty Dumpling | type: Dumpling Restaurant | address: 2786 California St, San Francisco, CA 94115, USA | rating: 4.4 | snippet: Name: Dynasty Dumpling\nPrimary Type: Dumpling Restaurant\nAddress: 2786 California St, San Francisco, CA 94115, USA\nTypes: dumpling_restaurant, meal_takeaway, chinese_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 213\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.dynastydumplingca.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:00\u202fAM\u2009\u2013\u2009",
+        "name: 16th Street Diner | type: Breakfast Restaurant | address: 3147 16th St, San Francisco, CA 94103, USA | rating: 4.7 | snippet: Name: 16th Street Diner\nPrimary Type: Breakfast Restaurant\nAddress: 3147 16th St, San Francisco, CA 94103, USA\nTypes: breakfast_restaurant, diner, halal_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.7\nUser Ratings: 216\nPrice Level: PRICE_LEVEL_MODERATE\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 9:00\u202fAM\u2009\u2013\u20092:30\u202fPM, 5:00\u2009\u2013\u200910:00\u202fPM | Tuesday: 9:00\u202fAM\u2009\u2013\u20092:30\u202fPM, 5:0",
+        "name: Om Sabor | type: Vegan Restaurant | address: 370 Grove St, San Francisco, CA 94102, USA | rating: 4.5 | snippet: Name: Om Sabor\nPrimary Type: Vegan Restaurant\nAddress: 370 Grove St, San Francisco, CA 94102, USA\nTypes: vegan_restaurant, vegetarian_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 243\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://omsabor.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: Closed | Tuesday: 3:00\u2009\u2013\u200910:00\u202fPM | Wednesday: 3:00\u2009\u2013\u200910:0",
+        "name: The Spice Jar | type: Asian Fusion Restaurant | address: 2500 Bryant St, San Francisco, CA 94110, USA | rating: 4.5 | snippet: Name: The Spice Jar\nPrimary Type: Asian Fusion Restaurant\nAddress: 2500 Bryant St, San Francisco, CA 94110, USA\nTypes: asian_fusion_restaurant, fusion_restaurant, asian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Casual corner bistro for Californian-Asian fare served family-style in a homey, country-chic space.\nRating: 4.5\nUser Ratings: 476\nPrice Level: PRICE_",
+        "name: Xiaoyu\u2019s Kitchen | type: Restaurant | address: 560 Balboa St, San Francisco, CA 94118, USA | rating: 4.5 | snippet: Name: Xiaoyu\u2019s Kitchen\nPrimary Type: Restaurant\nAddress: 560 Balboa St, San Francisco, CA 94118, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 90\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.xiaoyuskitchen.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 12:00\u2009\u2013\u20092:30\u202fPM, 4:30\u2009\u2013\u200911:00\u202fPM | Tuesday: 12:00\u2009\u2013\u20092:30\u202fPM, 4:30\u2009\u2013\u200911:00\u202fPM | Wednes",
+        "name: Savor Cafe | type: Vegetarian Restaurant | address: 401 Irving St, San Francisco, CA 94122, USA | rating: 4.7 | snippet: Name: Savor Cafe\nPrimary Type: Vegetarian Restaurant\nAddress: 401 Irving St, San Francisco, CA 94122, USA\nTypes: vegetarian_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.7\nUser Ratings: 370\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://savor.menu/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: Closed | Tuesday: 11:00\u202fAM\u2009\u2013\u20093:00\u202fPM | Wednesday: 11:00\u202fAM\u2009\u2013\u20093:00\u202fPM",
+        "name: Yoji Sushi House | type: Sushi Restaurant | address: 406 Dewey Blvd, San Francisco, CA 94116, USA | rating: 4.2 | snippet: Name: Yoji Sushi House\nPrimary Type: Sushi Restaurant\nAddress: 406 Dewey Blvd, San Francisco, CA 94116, USA\nTypes: sushi_restaurant, yakitori_restaurant, asian_restaurant, meal_delivery, food_delivery, japanese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Narrow Japanese choice with contemporary decor presenting innovative sushi rolls & noodle soups.\nRating: 4.",
+        "name: Dumpling Kitchen - Castro | type: Chinese Restaurant | address: 544 Castro St, San Francisco, CA 94114, USA | rating: 4.4 | snippet: Name: Dumpling Kitchen - Castro\nPrimary Type: Chinese Restaurant\nAddress: 544 Castro St, San Francisco, CA 94114, USA\nTypes: chinese_restaurant, dumpling_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 169\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.dumplingkitchenca.com/locations/dumpling-kitchen-castro/\nBusiness Status: OPERATIONAL\nOpening Hour",
+        "name: SAJJ Mediterranean (SF FiDi) | type: Mediterranean Restaurant | address: 485 Pine St #88, San Francisco, CA 94104, USA | rating: 4.4 | snippet: Name: SAJJ Mediterranean (SF FiDi)\nPrimary Type: Mediterranean Restaurant\nAddress: 485 Pine St #88, San Francisco, CA 94104, USA\nTypes: mediterranean_restaurant, meal_delivery, catering_service, food_delivery, restaurant, food, point_of_interest, service, establishment\nEditorial Summary: Modern counter-serve outlet featuring classic Middle Eastern comfort food in a relaxed space.\nRating: 4.4\nUser ",
+        "name: Charter Oak Food Pickup - by CloudKitchens | type: Restaurant | address: 90 Charter Oak Ave, San Francisco, CA 94124, USA | rating: 4.2 | snippet: Name: Charter Oak Food Pickup - by CloudKitchens\nPrimary Type: Restaurant\nAddress: 90 Charter Oak Ave, San Francisco, CA 94124, USA\nTypes: restaurant, food_court, food, point_of_interest, establishment\nRating: 4.2\nUser Ratings: 54\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://charteroakfood.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 9:00\u202fAM\u2009\u2013\u200911:00\u202fPM | Tuesday: 9:00\u202fAM\u2009\u2013\u200911:00\u202f",
+        "name: Tadka Indian Restaurant | type: Indian Restaurant | address: 3066 24th St, San Francisco, CA 94110, USA | rating: 4.3 | snippet: Name: Tadka Indian Restaurant\nPrimary Type: Indian Restaurant\nAddress: 3066 24th St, San Francisco, CA 94110, USA\nTypes: indian_restaurant, pizza_restaurant, sports_bar, north_indian_restaurant, meal_takeaway, family_restaurant, vegetarian_restaurant, bar, restaurant, food, point_of_interest, establishment\nRating: 4.3\nUser Ratings: 296\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://tadkasf.com",
+        "name: Southern Pacific Brewing | type: Brewery | address: 620 Treat Ave, San Francisco, CA 94110, USA | rating: 4.1 | snippet: Name: Southern Pacific Brewing\nPrimary Type: Brewery\nAddress: 620 Treat Ave, San Francisco, CA 94110, USA\nTypes: brewery, brewpub, pub, gastropub, bar, manufacturer, restaurant, food, point_of_interest, service, establishment\nEditorial Summary: Massive gastropub serving craft brews, creative cocktails & elevated pub grub for lunch & dinner.\nRating: 4.1\nUser Ratings: 2305\nPrice Level: PRICE_LEVEL_M"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 5,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 2
+      },
+      "final_reply": "I've planned a date night for you on May 16, 2026, with dinner followed by drinks, both within walking distance and under budget. Here are the details:\n\n### Dinner\n**The Spice Jar**  \n- **Type:** Californian-Asian Bistro  \n- **Address:** 3066 24th St, San Francisco, CA 94110, USA  \n- **Rating:** 4.3  \n- **Price Level:** Moderate  \n- **Description:** Casual corner bistro for Californian-Asian fare served family-style in a homey, country-chic space.  \n\n### Drinks\n**Southern Pacific Brewing**  \n- **Type:** Brewery  \n- **Address:** 620 Treat Ave, San Francisco, CA 94110, USA  \n- **Rating:** 4.1  \n- **Price Level:** Moderate  \n- **Description:** Massive gastropub serving craft brews, creative cocktails & elevated pub grub for lunch & dinner.  \n\nEnjoy your date night!",
+      "id": "date_night_dinner_drinks_walkable",
+      "question": "plan a date night on May 16 2026: dinner then drinks within walking distance, vibes-y, under $$$",
+      "reference": "A good answer creates a two-stop dinner-and-drinks plan with coherent vibes, both stops under $$$, and a short walk between consecutive stops.",
+      "tags": [
+        "multi_stop",
+        "date_night",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "The Rabbit Hole",
+          "Ariel's Breakfast",
+          "Doppio Coffee & Brunch"
+        ],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [
+          "The Rabbit Hole",
+          "Ariel's Breakfast",
+          "Doppio Coffee & Brunch"
+        ],
+        "result_count": 3,
+        "sources": []
+      },
+      "answer": "Here are some great options for brunch in the Mission on Saturday, May 16, 2026, around 11 AM:\n\n1. **Ariel's Breakfast**\n   - **Type:** Breakfast Restaurant\n   - **Address:** 2845 Mission St, San Francisco, CA 94110, USA\n   - **Rating:** 4.3 (66 user ratings)\n   - **Price Level:** Moderate\n   - **Website:** [arielsbreakfast.com](https://www.arielsbreakfast.com/)\n   - **Business Status:** Operational\n\n2. **Doppio Coffee & Brunch**\n   - **Type:** Coffee Shop\n   - **Address:** 1551 Mission St, San Francisco, CA 94103, USA\n   - **Rating:** 4.9 (382 user ratings)\n   - **Price Level:** Not specified\n   - **Website:** [doppiosf.com](https://doppiosf.com/)\n   - **Business Status:** Operational\n\n3. **The Rabbit Hole**\n   - **Type:** Restaurant\n   - **Address:** 3472 Mission St, San Francisco, CA 94110, USA\n   - **Rating:** 4.5 (153 user ratings)\n   - **Price Level:** Moderate\n   - **Website:** [therabbithole-sf.com](https://therabbithole-sf.com/)\n   - **Business Status:** Operational\n\nThese places are all operational and should provide a delightful brunch experience!",
+      "contexts": [
+        "name: The Rabbit Hole | type: Restaurant | address: 3472 Mission St, San Francisco, CA 94110, USA | rating: 4.5 | snippet: Name: The Rabbit Hole\nPrimary Type: Restaurant\nAddress: 3472 Mission St, San Francisco, CA 94110, USA\nTypes: restaurant, breakfast_restaurant, brunch_restaurant, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 153\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://therabbithole-sf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Tuesday: 11:00\u202fAM\u2009\u2013\u200910",
+        "name: Ariel's Breakfast | type: Breakfast Restaurant | address: 2845 Mission St, San Francisco, CA 94110, USA | rating: 4.3 | snippet: Name: Ariel's Breakfast\nPrimary Type: Breakfast Restaurant\nAddress: 2845 Mission St, San Francisco, CA 94110, USA\nTypes: breakfast_restaurant, mexican_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.3\nUser Ratings: 66\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.arielsbreakfast.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 6:00\u202fAM\u2009\u2013\u20097:00\u202fPM | Tuesday: ",
+        "name: Doppio Coffee & Brunch | type: Coffee Shop | address: 1551 Mission St, San Francisco, CA 94103, USA | rating: 4.9 | snippet: Name: Doppio Coffee & Brunch\nPrimary Type: Coffee Shop\nAddress: 1551 Mission St, San Francisco, CA 94103, USA\nTypes: coffee_shop, bagel_shop, brunch_restaurant, banquet_hall, bakery, cafe, food_store, breakfast_restaurant, event_venue, restaurant, food, point_of_interest, store, establishment\nRating: 4.9\nUser Ratings: 382\nWebsite: https://doppiosf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: M"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are some great options for brunch in the Mission on Saturday, May 16, 2026, around 11 AM:\n\n1. **Ariel's Breakfast**\n   - **Type:** Breakfast Restaurant\n   - **Address:** 2845 Mission St, San Francisco, CA 94110, USA\n   - **Rating:** 4.3 (66 user ratings)\n   - **Price Level:** Moderate\n   - **Website:** [arielsbreakfast.com](https://www.arielsbreakfast.com/)\n   - **Business Status:** Operational\n\n2. **Doppio Coffee & Brunch**\n   - **Type:** Coffee Shop\n   - **Address:** 1551 Mission St, San Francisco, CA 94103, USA\n   - **Rating:** 4.9 (382 user ratings)\n   - **Price Level:** Not specified\n   - **Website:** [doppiosf.com](https://doppiosf.com/)\n   - **Business Status:** Operational\n\n3. **The Rabbit Hole**\n   - **Type:** Restaurant\n   - **Address:** 3472 Mission St, San Francisco, CA 94110, USA\n   - **Rating:** 4.5 (153 user ratings)\n   - **Price Level:** Moderate\n   - **Website:** [therabbithole-sf.com](https://therabbithole-sf.com/)\n   - **Business Status:** Operational\n\nThese places are all operational and should provide a delightful brunch experience!",
+      "id": "mission_vegan_brunch",
+      "question": "best vegan brunch in the Mission on Saturday May 16 2026 around 11am",
+      "reference": "A good answer recommends a brunch-friendly restaurant or cafe in the Mission that can satisfy vegetarian or vegan preferences and is open late morning.",
+      "tags": [
+        "brunch",
+        "vegan",
+        "mission"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Heyma Yemeni Coffee & Brunch",
+          "Rocco's Cafe",
+          "Marlowe"
+        ],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [
+          "Heyma Yemeni Coffee & Brunch",
+          "Rocco's Cafe",
+          "Marlowe"
+        ],
+        "result_count": 3,
+        "sources": []
+      },
+      "answer": "Here are some cafes and restaurants near SOMA that are open late on Friday, May 15, 2026, suitable for studying:\n\n1. **Heyma Yemeni Coffee & Brunch**\n   - **Type:** Coffee Shop\n   - **Address:** 248 9th St, San Francisco, CA 94103, USA\n   - **Rating:** 4.7 (183 ratings)\n   - **Business Status:** Operational\n   - **Website:** [heymacoffeeca.com](https://www.heymacoffeeca.com/)\n   - **Opening Hours:** Monday to Wednesday: 7:00 AM \u2013 11:30 PM\n\n2. **Rocco's Cafe**\n   - **Type:** Italian Restaurant\n   - **Address:** 1131 Folsom St, San Francisco, CA 94103, USA\n   - **Rating:** 4.5 (1152 ratings)\n   - **Business Status:** Operational\n   - **Price Level:** Moderate\n\n3. **Marlowe**\n   - **Type:** American Restaurant\n   - **Address:** 500 Brannan St, San Francisco, CA 94107, USA\n   - **Rating:** 4.3 (1930 ratings)\n   - **Business Status:** Operational\n   - **Price Level:** Moderate\n\nThese options should provide a good environment for studying. Let me know if you need more information or assistance!",
+      "contexts": [
+        "name: Heyma Yemeni Coffee & Brunch | type: Coffee Shop | address: 248 9th St, San Francisco, CA 94103, USA | rating: 4.7 | snippet: Name: Heyma Yemeni Coffee & Brunch\nPrimary Type: Coffee Shop\nAddress: 248 9th St, San Francisco, CA 94103, USA\nTypes: coffee_shop, cafe, food_store, food, point_of_interest, store, establishment\nRating: 4.7\nUser Ratings: 183\nWebsite: https://www.heymacoffeeca.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 7:00\u202fAM\u2009\u2013\u200911:30\u202fPM | Tuesday: 7:00\u202fAM\u2009\u2013\u200911:30\u202fPM | Wednesday: 7:00\u202fAM\u2009\u2013\u200911:30\u202fPM | ",
+        "name: Rocco's Cafe | type: Italian Restaurant | address: 1131 Folsom St, San Francisco, CA 94103, USA | rating: 4.5 | snippet: Name: Rocco's Cafe\nPrimary Type: Italian Restaurant\nAddress: 1131 Folsom St, San Francisco, CA 94103, USA\nTypes: italian_restaurant, brunch_restaurant, food_store, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Family-owned Italian restaurant & bar serving large portions of classic pastas, sandwiches & more.\nRating: 4.5\nUser Ratings: 1152\nPrice Level: PRICE_LEVEL_MODE",
+        "name: Marlowe | type: American Restaurant | address: 500 Brannan St, San Francisco, CA 94107, USA | rating: 4.3 | snippet: Name: Marlowe\nPrimary Type: American Restaurant\nAddress: 500 Brannan St, San Francisco, CA 94107, USA\nTypes: american_restaurant, brunch_restaurant, french_restaurant, californian_restaurant, bistro, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Stylish & lively option serving Californian comfort food in a hip & sprawling space.\nRating: 4.3\nUser Ratings: 1930\nPrice Lev",
+        "name: Martuni's | type: Bar | address: 4 Valencia St, San Francisco, CA 94103, USA | rating: 4.6 | snippet: Name: Martuni's\nPrimary Type: Bar\nAddress: 4 Valencia St, San Francisco, CA 94103, USA\nTypes: live_music_venue, bar, event_venue, point_of_interest, establishment\nEditorial Summary: Patrons belt out show tunes and down large specialty martinis at this popular piano bar.\nRating: 4.6\nUser Ratings: 1176\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.facebook.com/pages/category/Cocktail-Bar/Ma",
+        "name: SoMa Food Court | type: Takeout Restaurant | address: 60 Morris St #23, San Francisco, CA 94107, USA | rating: 3.1 | snippet: Name: SoMa Food Court\nPrimary Type: Takeout Restaurant\nAddress: 60 Morris St #23, San Francisco, CA 94107, USA\nTypes: meal_takeaway, restaurant, food, point_of_interest, establishment\nRating: 3.1\nUser Ratings: 57\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://somafoodcourt.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 10:30\u202fAM\u2009\u2013\u200912:00\u202fAM | Tuesday: 10:30\u202fAM\u2009\u2013\u200912:00\u202fAM | Wednesday: 1",
+        "name: Butter | type: Bar | address: 354 11th St, San Francisco, CA 94103, USA | rating: 4.4 | snippet: Name: Butter\nPrimary Type: Bar\nAddress: 354 11th St, San Francisco, CA 94103, USA\nTypes: bar, point_of_interest, establishment\nEditorial Summary: Items like deep-fried Twinkies & beer bottles in paper bags set the tone at this quirky SoMa bar.\nRating: 4.4\nUser Ratings: 495\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: https://smoothasbutter.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: ",
+        "name: Icu Market Deli & Ice Cream | type: Ice Cream Shop | address: 514 Minna St, San Francisco, CA 94103, USA | rating: 4.3 | snippet: Name: Icu Market Deli & Ice Cream\nPrimary Type: Ice Cream Shop\nAddress: 514 Minna St, San Francisco, CA 94103, USA\nTypes: ice_cream_shop, dessert_shop, confectionery, food_store, store, food, point_of_interest, establishment\nRating: 4.3\nUser Ratings: 183\nPrice Level: PRICE_LEVEL_MODERATE\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 7:00\u202fAM\u2009\u2013\u20092:00\u202fAM | Tuesday: 7:00\u202fAM\u2009\u2013\u20092:00\u202fAM | Wednesday:",
+        "name: Az\u00facar Lounge | type: Bar | address: 299 9th St, San Francisco, CA 94103, USA | rating: 4.4 | snippet: Name: Az\u00facar Lounge\nPrimary Type: Bar\nAddress: 299 9th St, San Francisco, CA 94103, USA\nTypes: bar, lounge_bar, cocktail_bar, taco_restaurant, night_club, event_venue, mexican_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Cocktails & Mexican-style street snacks in a loungelike setting with dim lighting & sofas.\nRating: 4.4\nUser Ratings: 546\nPrice Level: PRICE_LE",
+        "name: El Capitan Taqueria | type: Mexican Restaurant | address: 1198 Folsom St, San Francisco, CA 94103, USA | rating: 3.9 | snippet: Name: El Capitan Taqueria\nPrimary Type: Mexican Restaurant\nAddress: 1198 Folsom St, San Francisco, CA 94103, USA\nTypes: mexican_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Basic set-up for tacos & other Mexican street fare, breakfast & fruit drinks served at the counter.\nRating: 3.9\nUser Ratings: 706\nPrice Level: PRICE_LEVEL_INEXPENSIVE\nWebsite: http://www.elc",
+        "name: DECANTsf Bottle Shop & Bar | type: Wine Bar | address: 1168 Folsom St, San Francisco, CA 94103, USA | rating: 4.8 | snippet: Name: DECANTsf Bottle Shop & Bar\nPrimary Type: Wine Bar\nAddress: 1168 Folsom St, San Francisco, CA 94103, USA\nTypes: wine_bar, liquor_store, grocery_store, event_venue, bar, restaurant, association_or_organization, food_store, food, store, point_of_interest, establishment\nEditorial Summary: Bright, stylish wine bar, bottle shop & educational venue from two fine-dining vets.\nRating: 4.8\nUser Rating",
+        "name: Californios | type: Fine Dining Restaurant | address: 355 11th St, San Francisco, CA 94103, USA | rating: 4.7 | snippet: Name: Californios\nPrimary Type: Fine Dining Restaurant\nAddress: 355 11th St, San Francisco, CA 94103, USA\nTypes: fine_dining_restaurant, californian_restaurant, american_restaurant, mexican_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Mexican restaurant for inventive tasting menus & small-batch wines served in a cozy, luxe interior.\nRating: 4.7\nUser Ratings: 54",
+        "name: moonbowls (Healthy Korean Bowls- SOMA) | type: Restaurant | address: 60 Morris St, San Francisco, CA 94107, USA | rating: 3.7 | snippet: Name: moonbowls (Healthy Korean Bowls- SOMA)\nPrimary Type: Restaurant\nAddress: 60 Morris St, San Francisco, CA 94107, USA\nTypes: meal_delivery, catering_service, food_delivery, korean_restaurant, restaurant, food, point_of_interest, service, establishment\nRating: 3.7\nUser Ratings: 129\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.moonbowls.com/\nBusiness Status: OPERATIONAL\nOpening Hours: ",
+        "name: 1601 Bar & Kitchen | type: Sri Lankan Restaurant | address: 1601 Howard St, San Francisco, CA 94103, USA | rating: 4.6 | snippet: Name: 1601 Bar & Kitchen\nPrimary Type: Sri Lankan Restaurant\nAddress: 1601 Howard St, San Francisco, CA 94103, USA\nTypes: sri_lankan_restaurant, lounge_bar, fine_dining_restaurant, night_club, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Sri Lankan flavors & French culinary techniques define the menu at this upscale, minimalist spot.\nRating: 4.6\nUser Ratings: 202\nPric",
+        "name: Basil Thai Restaurant & Bar | type: Thai Restaurant | address: 1175 Folsom St, San Francisco, CA 94103, USA | rating: 4.3 | snippet: Name: Basil Thai Restaurant & Bar\nPrimary Type: Thai Restaurant\nAddress: 1175 Folsom St, San Francisco, CA 94103, USA\nTypes: thai_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Lively neighborhood spot with a stylish interior serving Thai food & Asian-inspired cocktails.\nRating: 4.3\nUser Ratings: 791\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.basilthai",
+        "name: Question Mark Tavern | type: Restaurant | address: 312 Harriet St, San Francisco, CA 94103, USA | rating: 4.9 | snippet: Name: Question Mark Tavern\nPrimary Type: Restaurant\nAddress: 312 Harriet St, San Francisco, CA 94103, USA\nTypes: restaurant, karaoke, night_club, american_restaurant, bar, food, point_of_interest, establishment\nRating: 4.9\nUser Ratings: 287\nWebsite: http://www.questionmarksf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:30\u202fAM\u2009\u2013\u20092:30\u202fPM, 5:00\u2009\u2013\u200910:00\u202fPM | Tuesday: 11:30\u202fAM\u2009\u2013\u20092:30\u202fPM, "
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Here are some cafes and restaurants near SOMA that are open late on Friday, May 15, 2026, suitable for studying:\n\n1. **Heyma Yemeni Coffee & Brunch**\n   - **Type:** Coffee Shop\n   - **Address:** 248 9th St, San Francisco, CA 94103, USA\n   - **Rating:** 4.7 (183 ratings)\n   - **Business Status:** Operational\n   - **Website:** [heymacoffeeca.com](https://www.heymacoffeeca.com/)\n   - **Opening Hours:** Monday to Wednesday: 7:00 AM \u2013 11:30 PM\n\n2. **Rocco's Cafe**\n   - **Type:** Italian Restaurant\n   - **Address:** 1131 Folsom St, San Francisco, CA 94103, USA\n   - **Rating:** 4.5 (1152 ratings)\n   - **Business Status:** Operational\n   - **Price Level:** Moderate\n\n3. **Marlowe**\n   - **Type:** American Restaurant\n   - **Address:** 500 Brannan St, San Francisco, CA 94107, USA\n   - **Rating:** 4.3 (1930 ratings)\n   - **Business Status:** Operational\n   - **Price Level:** Moderate\n\nThese options should provide a good environment for studying. Let me know if you need more information or assistance!",
+      "id": "soma_quiet_late_cafe",
+      "question": "find a quiet cafe for studying near SOMA open late on Friday May 15 2026",
+      "reference": "A good answer recommends a cafe or coffee shop in or near SOMA with a study-friendly rationale and evidence that it is open later than typical daytime cafes.",
+      "tags": [
+        "cafe",
+        "late_night",
+        "soma"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Treats By The Bay",
+          "Sidewalk Food Tours of San Francisco"
+        ],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [
+          "Treats By The Bay",
+          "Sidewalk Food Tours of San Francisco"
+        ],
+        "result_count": 2,
+        "sources": []
+      },
+      "answer": "I couldn't find a 5-star restaurant specifically open at 4 AM on Sunday, May 17, 2026, in San Francisco. However, here are two highly-rated places that are operational:\n\n1. **Treats By The Bay**\n   - **Rating:** 5.0\n   - **Address:** 210 Lincoln Blvd, San Francisco, CA 94129, USA\n   - **Website:** [treatsbythebay.com](https://www.treatsbythebay.com/home)\n\n2. **Sidewalk Food Tours of San Francisco**\n   - **Rating:** 5.0\n   - **Address:** 186 Gough St, San Francisco, CA 94102, USA\n   - **Website:** [sidewalkfoodtours.com](https://sidewalkfoodtours.com/san-francisco/)\n\nPlease note that while these places have high ratings, they may not be traditional restaurants. If you have any other preferences or need further assistance, let me know!",
+      "contexts": [
+        "name: Treats By The Bay | type: Point of interest | address: 210 Lincoln Blvd, San Francisco, CA 94129, USA | rating: 5.0 | snippet: Name: Treats By The Bay\nPrimary Type: Point of interest\nAddress: 210 Lincoln Blvd, San Francisco, CA 94129, USA\nTypes: point_of_interest, establishment\nRating: 5.0\nUser Ratings: 415\nWebsite: https://www.treatsbythebay.com/home\nBusiness Status: OPERATIONAL\nLatitude: 37.801924199999995\nLongitude: -122.4568527\nShort Address: 210 Lincoln Blvd, San Francisco\nPrimary Type ID: point_of_interest\nNational ",
+        "name: Sidewalk Food Tours of San Francisco | type: Tour Agency | address: 186 Gough St, San Francisco, CA 94102, USA | rating: 5.0 | snippet: Name: Sidewalk Food Tours of San Francisco\nPrimary Type: Tour Agency\nAddress: 186 Gough St, San Francisco, CA 94102, USA\nTypes: tour_agency, travel_agency, point_of_interest, service, establishment\nRating: 5.0\nUser Ratings: 666\nWebsite: https://sidewalkfoodtours.com/san-francisco/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: Open 24 hours | Tuesday: Open 24 hours | Wednesday: Open 24 hours "
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 3,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": true,
+        "max_stops": null,
+        "min_stops": null
+      },
+      "final_reply": "I couldn't find a 5-star restaurant specifically open at 4 AM on Sunday, May 17, 2026, in San Francisco. However, here are two highly-rated places that are operational:\n\n1. **Treats By The Bay**\n   - **Rating:** 5.0\n   - **Address:** 210 Lincoln Blvd, San Francisco, CA 94129, USA\n   - **Website:** [treatsbythebay.com](https://www.treatsbythebay.com/home)\n\n2. **Sidewalk Food Tours of San Francisco**\n   - **Rating:** 5.0\n   - **Address:** 186 Gough St, San Francisco, CA 94102, USA\n   - **Website:** [sidewalkfoodtours.com](https://sidewalkfoodtours.com/san-francisco/)\n\nPlease note that while these places have high ratings, they may not be traditional restaurants. If you have any other preferences or need further assistance, let me know!",
+      "id": "impossible_four_am_five_star",
+      "question": "find a 5-star restaurant in San Francisco open at 4am on Sunday May 17 2026",
+      "reference": "A good answer should not hallucinate a perfect match; it should either ask to relax constraints or transparently offer the closest available alternatives.",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "late_night"
+      ]
+    }
+  ],
+  "query_count": 5
+}

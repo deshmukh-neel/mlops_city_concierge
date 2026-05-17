@@ -89,7 +89,8 @@ class Settings(BaseSettings):
     openai_chat_model: str = "gpt-4o-mini"
     openai_embedding_model: str = "text-embedding-3-small"
     gemini_api_key: str = ""
-    gemini_chat_model: str = "gemini-2.5-flash"
+    gemini_chat_model: str = "gemini-3.1-flash-lite-preview"
+    anthropic_api_key: str = ""
     mlflow_tracking_uri: str = "http://localhost:5000"
     mlflow_artifacts_uri: str = "mlflow-artifacts://localhost:5000"
     mlflow_model_name: str = "city-concierge-rag"
@@ -144,6 +145,8 @@ def resolve_llm_api_key(llm_provider: str) -> str:
         api_key = s.openai_api_key
     elif provider == "gemini":
         api_key = s.gemini_api_key
+    elif provider == "anthropic":
+        api_key = s.anthropic_api_key
     else:
         raise ValueError(f"Unsupported llm_provider: {llm_provider}")
 

@@ -55,6 +55,6 @@ runs:
     k: 10
     temperature: 0.2
   - llm_provider: gemini
-    chat_model: gemini-2.5-flash
+    chat_model: gemini-3.1-flash-lite-preview
     k: 5
     temperature: 0.0

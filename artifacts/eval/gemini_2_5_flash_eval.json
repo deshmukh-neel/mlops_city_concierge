@@ -1,0 +1,476 @@
+{
+  "aggregate": {
+    "check_error_count": 0,
+    "committed_stops_mean": 1.6,
+    "constraints_satisfied_mean": 1.0,
+    "contexts_mean": 5.6,
+    "expected_results_match_rate": 1.0,
+    "expected_results_mismatch_count": 0,
+    "geographic_coherence_mean": 1.0,
+    "no_hallucinated_place_ids_mean": 1.0,
+    "queries_with_tool_errors": 0,
+    "queries_with_violations": 0,
+    "query_count": 5,
+    "results_mean": 1.6,
+    "revision_hints_mean": 1.8,
+    "temporal_coherence_mean": 1.0,
+    "tool_calls_mean": 3.8,
+    "tool_error_count": 0,
+    "walking_budget_respected_mean": 1.0
+  },
+  "chat_model": "gemini-2.5-flash",
+  "eval_queries_path": "configs/eval_queries.yaml",
+  "llm_provider": "gemini",
+  "queries": [
+    {
+      "actual": {
+        "answer_place_names": [
+          "The Italian Homemade Company",
+          "Ideale"
+        ],
+        "committed_stop_count": 2,
+        "place_ids": [
+          "ChIJ-55o9_OAhYARxWRg70fFUvU",
+          "ChIJpzBpPPCAhYARSVWETFcLf8M"
+        ],
+        "place_names": [
+          "Ideale",
+          "The Italian Homemade Company"
+        ],
+        "result_count": 2,
+        "sources": [
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "I found 2 Italian restaurants in North Beach that are open for dinner on May 16, 2026, at 7 PM and are under $$$.\n\nHere are your options:\n\n*   **Ideale**: This Italian restaurant is located at 1309 Grant Ave.\n*   **The Italian Homemade Company**: This Italian restaurant is located at 716 Columbus Ave.\n\nWould you like to book a table at either of these?",
+      "contexts": [
+        "name: The Italian Homemade Company | type: Italian Restaurant | address: 716 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: The Italian Homemade Company\nPrimary Type: Italian Restaurant\nAddress: 716 Columbus Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, deli, grocery_store, restaurant, food_store, store, food, point_of_interest, establishment\nEditorial Summary: Italian deli & market stocking housemade pasta, imported cheese, charcuterie & more in homey digs.\nRating: 4.5\nUser Ratings: 3295\nPrice Lev",
+        "name: Ideale | type: Italian Restaurant | address: 1309 Grant Ave, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Ideale\nPrimary Type: Italian Restaurant\nAddress: 1309 Grant Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, wine_bar, pizza_restaurant, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Unpretentious trattoria presenting Roman specialties, homemade pasta & an extensive wine list.\nRating: 4.5\nUser Ratings: 493\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: ht",
+        "name: Tommaso's | type: Italian Restaurant | address: 1042 Kearny St, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Tommaso's\nPrimary Type: Italian Restaurant\nAddress: 1042 Kearny St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, seafood_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Family-run institution (since 1935) firing up thin-crust pizzas in its original wood-burning oven.\nRating: 4.5\nUser Ratings: 895\nPrice Level: PRICE_LEVEL_MODERATE",
+        "name: Acquolina | type: Italian Restaurant | address: 1600 Stockton St, San Francisco, CA 94133, USA | rating: 4.2 | snippet: Name: Acquolina\nPrimary Type: Italian Restaurant\nAddress: 1600 Stockton St, San Francisco, CA 94133, USA\nTypes: italian_restaurant, pizza_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Neighborhood bistro serving pizza & other Italian eats in a relaxed space with some sidewalk seats.\nRating: 4.2\nUser Ratings: 1192\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https:",
+        "name: Betty Lou's Seafood & Grill | type: Seafood Restaurant | address: 318 Columbus Ave, San Francisco, CA 94133, USA | rating: 4.6 | snippet: Name: Betty Lou's Seafood & Grill\nPrimary Type: Seafood Restaurant\nAddress: 318 Columbus Ave, San Francisco, CA 94133, USA\nTypes: seafood_restaurant, family_restaurant, steak_house, italian_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Bright, spacious bistro for oysters, chowder, pasta & seafood mains in old-world environs.\nRating: 4.6\nUser Ratings: 1233\nPrice ",
+        "name: Yuet Lee Seafood Restaurant | type: Seafood Restaurant | address: 1300 Stockton St, San Francisco, CA 94133, USA | rating: 4.0 | snippet: Name: Yuet Lee Seafood Restaurant\nPrimary Type: Seafood Restaurant\nAddress: 1300 Stockton St, San Francisco, CA 94133, USA\nTypes: seafood_restaurant, chinese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Busy standby with late-night weekend hours offering typical Cantonese meals in a snug, bright space.\nRating: 4.0\nUser Ratings: 710\nPrice Level: PRICE_LEVEL_INEX"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "I found 2 Italian restaurants in North Beach that are open for dinner on May 16, 2026, at 7 PM and are under $$$.\n\nHere are your options:\n\n*   **Ideale**: This Italian restaurant is located at 1309 Grant Ave.\n*   **The Italian Homemade Company**: This Italian restaurant is located at 716 Columbus Ave.\n\nWould you like to book a table at either of these?",
+      "id": "north_beach_italian_dinner",
+      "question": "italian dinner in North Beach on May 16 2026 at 7pm, under $$$",
+      "reference": "A good answer recommends one to three Italian restaurants in or very near North Beach that are open at 2026-05-16T19:00:00-07:00, cost no more than $$$, and have enough user ratings to avoid thin-signal outliers.",
+      "tags": [
+        "restaurant",
+        "constraint_heavy",
+        "north_beach"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Roma Antica",
+          "Mamanoko"
+        ],
+        "committed_stop_count": 2,
+        "place_ids": [
+          "ChIJDRZeoNaAhYARw0Ts88GzCag",
+          "ChIJeXQiItSAhYAR-O1a9npsyI0"
+        ],
+        "place_names": [
+          "Roma Antica",
+          "Mamanoko"
+        ],
+        "result_count": 2,
+        "sources": [
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "Here's a plan for your date night on May 16, 2026:\n\nFirst, for dinner at 7:00 PM, I recommend **Roma Antica**. This Italian restaurant has a 4.5 rating and is described as a \"welcoming neighborhood spot serving modern Italian eats & wine in petite digs with marble accents,\" which fits the \"vibes-y\" and \"romantic dinner\" criteria. It is also within your specified price range.\n\nAfter dinner, for drinks at 9:00 PM, you can head to **Mamanoko**. This Japanese restaurant and cocktail bar has a 4.5 rating and is described as a \"fashionable outpost with a convivial vibe serving sake, spirits, sushi & Japanese small plates,\" which fits the \"vibes-y\" and \"drinks\" criteria. It is also within walking distance of Roma Antica and within your specified price range.",
+      "contexts": [
+        "name: Movida | type: Restaurant | address: 555 2nd St, San Francisco, CA 94107, USA | rating: 4.4 | snippet: Name: Movida\nPrimary Type: Restaurant\nAddress: 555 2nd St, San Francisco, CA 94107, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 218\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://movidalounge.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u2009\u2013\u20099:30\u202fPM | Tuesday: 5:00\u2009\u2013\u20099:30\u202fPM | Wednesday: 5:00\u2009\u2013\u20099:30\u202fPM | Thursday: 5:00\u2009\u2013\u20099:30\u202fPM | Friday",
+        "name: Violet's | type: American Restaurant | address: 2301 Clement St, San Francisco, CA 94121, USA | rating: 4.3 | snippet: Name: Violet's\nPrimary Type: American Restaurant\nAddress: 2301 Clement St, San Francisco, CA 94121, USA\nTypes: american_restaurant, wine_bar, cocktail_bar, bar, restaurant, food, point_of_interest, establishment\nRating: 4.3\nUser Ratings: 292\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.violets-sf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 5:00\u2009\u2013\u20099:00\u202fPM | Tuesday: 5:00\u2009\u2013\u20099:",
+        "name: Cha-Ya | type: Vegan Restaurant | address: 762 Valencia St, San Francisco, CA 94110, USA | rating: 4.5 | snippet: Name: Cha-Ya\nPrimary Type: Vegan Restaurant\nAddress: 762 Valencia St, San Francisco, CA 94110, USA\nTypes: vegan_restaurant, noodle_shop, vegetarian_restaurant, sushi_restaurant, japanese_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: An all-vegan/vegetarian menu sets this eatery apart from typical Japanese options.\nRating: 4.5\nUser Ratings: 919\nPrice Level: PRICE",
+        "name: Ideale | type: Italian Restaurant | address: 1309 Grant Ave, San Francisco, CA 94133, USA | rating: 4.5 | snippet: Name: Ideale\nPrimary Type: Italian Restaurant\nAddress: 1309 Grant Ave, San Francisco, CA 94133, USA\nTypes: italian_restaurant, wine_bar, pizza_restaurant, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Unpretentious trattoria presenting Roman specialties, homemade pasta & an extensive wine list.\nRating: 4.5\nUser Ratings: 493\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: ht",
+        "name: 54 Mint Cucina Romana | type: Italian Restaurant | address: 16 Mint Plaza, San Francisco, CA 94103, USA | rating: 4.4 | snippet: Name: 54 Mint Cucina Romana\nPrimary Type: Italian Restaurant\nAddress: 16 Mint Plaza, San Francisco, CA 94103, USA\nTypes: italian_restaurant, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Modern Italian trattoria serving elevated Roman dishes and Italian wines.\nRating: 4.4\nUser Ratings: 1464\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.54mint.com/?utm_source=gm",
+        "name: Roma Antica | type: Italian Restaurant | address: 3242 Scott St, San Francisco, CA 94123, USA | rating: 4.5 | snippet: Name: Roma Antica\nPrimary Type: Italian Restaurant\nAddress: 3242 Scott St, San Francisco, CA 94123, USA\nTypes: italian_restaurant, wine_bar, food_store, bar, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Welcoming neighborhood spot serving modern Italian eats & wine in petite digs with marble accents.\nRating: 4.5\nUser Ratings: 1710\nPrice Level: PRICE_LEVEL_MODERATE\nW",
+        "name: Dumpling Kitchen | type: Dumpling Restaurant | address: 1935 Taraval St, San Francisco, CA 94116, USA | rating: 4.4 | snippet: Name: Dumpling Kitchen\nPrimary Type: Dumpling Restaurant\nAddress: 1935 Taraval St, San Francisco, CA 94116, USA\nTypes: dumpling_restaurant, asian_restaurant, noodle_shop, meal_delivery, chinese_restaurant, food_delivery, restaurant, food, point_of_interest, establishment\nEditorial Summary: Modest Chinese joint specializing in meat & vegetarian dumplings also offers soups & noodle dishes.\nRating: 4",
+        "name: Dumpling Story - Valencia | type: Dumpling Restaurant | address: 694 Valencia St, San Francisco, CA 94110, USA | rating: 4.8 | snippet: Name: Dumpling Story - Valencia\nPrimary Type: Dumpling Restaurant\nAddress: 694 Valencia St, San Francisco, CA 94110, USA\nTypes: dumpling_restaurant, dim_sum_restaurant, cantonese_restaurant, chinese_noodle_restaurant, chinese_restaurant, meal_takeaway, restaurant, food, point_of_interest, establishment\nRating: 4.8\nUser Ratings: 398\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://order.toasttab.",
+        "name: Dynasty Dumpling | type: Dumpling Restaurant | address: 2786 California St, San Francisco, CA 94115, USA | rating: 4.4 | snippet: Name: Dynasty Dumpling\nPrimary Type: Dumpling Restaurant\nAddress: 2786 California St, San Francisco, CA 94115, USA\nTypes: dumpling_restaurant, meal_takeaway, chinese_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 213\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.dynastydumplingca.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:00\u202fAM\u2009\u2013\u2009",
+        "name: The Rustic - San Francisco | type: Restaurant | address: 215 Church St, San Francisco, CA 94114, USA | rating: 4.4 | snippet: Name: The Rustic - San Francisco\nPrimary Type: Restaurant\nAddress: 215 Church St, San Francisco, CA 94114, USA\nTypes: restaurant, pizza_restaurant, american_restaurant, italian_restaurant, food_store, food, store, point_of_interest, establishment\nRating: 4.4\nUser Ratings: 189\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.therusticsf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday:",
+        "name: Memento SF | type: Restaurant | address: 1305 Castro St, San Francisco, CA 94114, USA | rating: 4.6 | snippet: Name: Memento SF\nPrimary Type: Restaurant\nAddress: 1305 Castro St, San Francisco, CA 94114, USA\nTypes: restaurant, food, point_of_interest, establishment\nRating: 4.6\nUser Ratings: 102\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: http://www.mementosf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: Closed | Tuesday: 5:00\u2009\u2013\u20099:00\u202fPM | Wednesday: 5:00\u2009\u2013\u20099:00\u202fPM | Thursday: 5:00\u2009\u2013\u20099:00\u202fPM | Frida",
+        "name: 'Napizza | type: Italian Restaurant | address: 3258 Scott St, San Francisco, CA 94123, USA | rating: 4.5 | snippet: Name: 'Napizza\nPrimary Type: Italian Restaurant\nAddress: 3258 Scott St, San Francisco, CA 94123, USA\nTypes: italian_restaurant, pizza_restaurant, wine_bar, bar, restaurant, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 651\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://www.napizzasf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 4:00\u2009\u2013\u200911:00\u202fPM | Tuesday: 4:00\u2009\u2013\u200911",
+        "name: Mamanoko | type: Japanese Restaurant | address: 2317 Chestnut St, San Francisco, CA 94123, USA | rating: 4.5 | snippet: Name: Mamanoko\nPrimary Type: Japanese Restaurant\nAddress: 2317 Chestnut St, San Francisco, CA 94123, USA\nTypes: japanese_restaurant, cocktail_bar, japanese_izakaya_restaurant, sushi_restaurant, dessert_restaurant, bar, restaurant, food, point_of_interest, establishment\nEditorial Summary: Fashionable outpost with a convivial vibe serving sake, spirits, sushi & Japanese small plates.\nRating: 4.5\nUse",
+        "name: Ristobar | type: Italian Restaurant | address: 2300 Chestnut St, San Francisco, CA 94123, USA | rating: 4.3 | snippet: Name: Ristobar\nPrimary Type: Italian Restaurant\nAddress: 2300 Chestnut St, San Francisco, CA 94123, USA\nTypes: italian_restaurant, pizza_restaurant, cocktail_bar, dessert_restaurant, wine_bar, bar, seafood_restaurant, restaurant, food, point_of_interest, establishment\nEditorial Summary: Thin-crust pizza & Italian small plates served amid muraled walls & a Venetian glass chandelier.\nRating: 4.3\nUse"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 6,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "nearby",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 2
+      },
+      "final_reply": "Here's a plan for your date night on May 16, 2026:\n\nFirst, for dinner at 7:00 PM, I recommend **Roma Antica**. This Italian restaurant has a 4.5 rating and is described as a \"welcoming neighborhood spot serving modern Italian eats & wine in petite digs with marble accents,\" which fits the \"vibes-y\" and \"romantic dinner\" criteria. It is also within your specified price range.\n\nAfter dinner, for drinks at 9:00 PM, you can head to **Mamanoko**. This Japanese restaurant and cocktail bar has a 4.5 rating and is described as a \"fashionable outpost with a convivial vibe serving sake, spirits, sushi & Japanese small plates,\" which fits the \"vibes-y\" and \"drinks\" criteria. It is also within walking distance of Roma Antica and within your specified price range.",
+      "id": "date_night_dinner_drinks_walkable",
+      "question": "plan a date night on May 16 2026: dinner then drinks within walking distance, vibes-y, under $$$",
+      "reference": "A good answer creates a two-stop dinner-and-drinks plan with coherent vibes, both stops under $$$, and a short walk between consecutive stops.",
+      "tags": [
+        "multi_stop",
+        "date_night",
+        "walkable"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Doppio Coffee & Brunch",
+          "The Rabbit Hole",
+          "Cafe La Taza"
+        ],
+        "committed_stop_count": 3,
+        "place_ids": [
+          "ChIJK1l_rT5-j4ARF9720CKOHxk",
+          "ChIJy8vmGC2BhYARu919i3bko-Q",
+          "ChIJOQVGUgB_j4ARLd3Yerml4TI"
+        ],
+        "place_names": [
+          "Cafe La Taza",
+          "Doppio Coffee & Brunch",
+          "The Rabbit Hole"
+        ],
+        "result_count": 3,
+        "sources": [
+          "google_places",
+          "google_places",
+          "google_places"
+        ]
+      },
+      "answer": "I found 3 places that fit your criteria for vegan brunch in the Mission on Saturday, May 16, 2026, around 11 AM:\n\n*   **Cafe La Taza**: A vegetarian cafe that serves brunch.\n*   **Doppio Coffee & Brunch**: A highly-rated coffee shop that serves brunch.\n*   **The Rabbit Hole**: A restaurant that serves brunch and has good ratings.",
+      "contexts": [
+        "name: Doppio Coffee & Brunch | type: Coffee Shop | address: 1551 Mission St, San Francisco, CA 94103, USA | rating: 4.9 | snippet: Name: Doppio Coffee & Brunch\nPrimary Type: Coffee Shop\nAddress: 1551 Mission St, San Francisco, CA 94103, USA\nTypes: coffee_shop, bagel_shop, brunch_restaurant, banquet_hall, bakery, cafe, food_store, breakfast_restaurant, event_venue, restaurant, food, point_of_interest, store, establishment\nRating: 4.9\nUser Ratings: 382\nWebsite: https://doppiosf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: M",
+        "name: The Rabbit Hole | type: Restaurant | address: 3472 Mission St, San Francisco, CA 94110, USA | rating: 4.5 | snippet: Name: The Rabbit Hole\nPrimary Type: Restaurant\nAddress: 3472 Mission St, San Francisco, CA 94110, USA\nTypes: restaurant, breakfast_restaurant, brunch_restaurant, food, point_of_interest, establishment\nRating: 4.5\nUser Ratings: 153\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://therabbithole-sf.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 11:00\u202fAM\u2009\u2013\u200910:00\u202fPM | Tuesday: 11:00\u202fAM\u2009\u2013\u200910",
+        "name: The Salad Place & Rotisserie | type: Restaurant | address: 5392 Mission St, San Francisco, CA 94112, USA | rating: 4.8 | snippet: Name: The Salad Place & Rotisserie\nPrimary Type: Restaurant\nAddress: 5392 Mission St, San Francisco, CA 94112, USA\nTypes: restaurant, salad_shop, sandwich_shop, cafeteria, food, point_of_interest, establishment\nEditorial Summary: Humble fixture whipping up breakfast bites, salads, sandwiches & wraps, plus coffee & smoothies.\nRating: 4.8\nUser Ratings: 157\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: ",
+        "name: Cafe La Taza | type: Cafe | address: 2475 Mission St, San Francisco, CA 94110, USA | rating: 4.4 | snippet: Name: Cafe La Taza\nPrimary Type: Cafe\nAddress: 2475 Mission St, San Francisco, CA 94110, USA\nTypes: cafe, brunch_restaurant, sandwich_shop, latin_american_restaurant, vegetarian_restaurant, catering_service, bar, coffee_shop, food_store, american_restaurant, food_delivery, breakfast_restaurant, restaurant, food, point_of_interest, store, service, establishment\nEditorial Summary: Relaxed haunt feat",
+        "name: Terrene | type: Restaurant | address: 8 Mission St, San Francisco, CA 94105, USA | rating: 4.2 | snippet: Name: Terrene\nPrimary Type: Restaurant\nAddress: 8 Mission St, San Francisco, CA 94105, USA\nTypes: restaurant, breakfast_restaurant, brunch_restaurant, food, point_of_interest, establishment\nRating: 4.2\nUser Ratings: 213\nWebsite: https://www.1hotels.com/san-francisco/taste/terrene?utm_source=google-gbp&utm_medium=organic&utm_campaign=gbp\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 7:00\u202fAM\u2009\u2013",
+        "name: Rincon Latino Restaurant | type: Restaurant | address: 5080 Mission St, San Francisco, CA 94112, USA | rating: 4.1 | snippet: Name: Rincon Latino Restaurant\nPrimary Type: Restaurant\nAddress: 5080 Mission St, San Francisco, CA 94112, USA\nTypes: latin_american_restaurant, restaurant, food, point_of_interest, establishment\nRating: 4.1\nUser Ratings: 238\nPrice Level: PRICE_LEVEL_MODERATE\nWebsite: https://rinconlatino.us/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 10:00\u202fAM\u2009\u2013\u20099:00\u202fPM | Tuesday: 10:00\u202fAM\u2009\u2013\u20099:00\u202fPM | Wed"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "I found 3 places that fit your criteria for vegan brunch in the Mission on Saturday, May 16, 2026, around 11 AM:\n\n*   **Cafe La Taza**: A vegetarian cafe that serves brunch.\n*   **Doppio Coffee & Brunch**: A highly-rated coffee shop that serves brunch.\n*   **The Rabbit Hole**: A restaurant that serves brunch and has good ratings.",
+      "id": "mission_vegan_brunch",
+      "question": "best vegan brunch in the Mission on Saturday May 16 2026 around 11am",
+      "reference": "A good answer recommends a brunch-friendly restaurant or cafe in the Mission that can satisfy vegetarian or vegan preferences and is open late morning.",
+      "tags": [
+        "brunch",
+        "vegan",
+        "mission"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [
+          "Heyma Yemeni Coffee & Brunch"
+        ],
+        "committed_stop_count": 1,
+        "place_ids": [
+          "ChIJ9-7JeueBhYARkfO7QJFB93I"
+        ],
+        "place_names": [
+          "Heyma Yemeni Coffee & Brunch"
+        ],
+        "result_count": 1,
+        "sources": [
+          "google_places"
+        ]
+      },
+      "answer": "Heyma Yemeni Coffee & Brunch is a highly-rated coffee shop in SOMA that's open until 11:30 PM on Fridays, making it a great spot for late-night studying.",
+      "contexts": [
+        "name: Heyma Yemeni Coffee & Brunch | type: Coffee Shop | address: 248 9th St, San Francisco, CA 94103, USA | rating: 4.7 | snippet: Name: Heyma Yemeni Coffee & Brunch\nPrimary Type: Coffee Shop\nAddress: 248 9th St, San Francisco, CA 94103, USA\nTypes: coffee_shop, cafe, food_store, food, point_of_interest, store, establishment\nRating: 4.7\nUser Ratings: 183\nWebsite: https://www.heymacoffeeca.com/\nBusiness Status: OPERATIONAL\nOpening Hours: Monday: 7:00\u202fAM\u2009\u2013\u200911:30\u202fPM | Tuesday: 7:00\u202fAM\u2009\u2013\u200911:30\u202fPM | Wednesday: 7:00\u202fAM\u2009\u2013\u200911:30\u202fPM | ",
+        "name: Tony Baloney's Market | type: Convenience Store | address: 1098 Howard St, San Francisco, CA 94103, USA | rating: 4.5 | snippet: Name: Tony Baloney's Market\nPrimary Type: Convenience Store\nAddress: 1098 Howard St, San Francisco, CA 94103, USA\nTypes: convenience_store, breakfast_restaurant, grocery_store, food_store, liquor_store, cafe, restaurant, food, point_of_interest, store, establishment\nEditorial Summary: Bright, unfussy deli & market selling sandwiches, soups, salads, coffee & breakfast items.\nRating: 4.5\nUser Rating"
+      ],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": true,
+        "first_tool_error": null,
+        "revision_hints": 2,
+        "revision_reasons": [
+          "low_similarity",
+          "low_similarity"
+        ],
+        "tool_calls": 4,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search",
+          "commit_itinerary"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": false,
+        "max_stops": 3,
+        "min_stops": 1
+      },
+      "final_reply": "Heyma Yemeni Coffee & Brunch is a highly-rated coffee shop in SOMA that's open until 11:30 PM on Fridays, making it a great spot for late-night studying.",
+      "id": "soma_quiet_late_cafe",
+      "question": "find a quiet cafe for studying near SOMA open late on Friday May 15 2026",
+      "reference": "A good answer recommends a cafe or coffee shop in or near SOMA with a study-friendly rationale and evidence that it is open later than typical daytime cafes.",
+      "tags": [
+        "cafe",
+        "late_night",
+        "soma"
+      ]
+    },
+    {
+      "actual": {
+        "answer_place_names": [],
+        "committed_stop_count": 0,
+        "place_ids": [],
+        "place_names": [],
+        "result_count": 0,
+        "sources": []
+      },
+      "answer": "I couldn't find any 5-star restaurants open at 4 AM on Sunday, May 17, 2026. Would you like to search for restaurants open at a different time, or perhaps a different type of establishment?",
+      "contexts": [],
+      "deterministic": {
+        "checks": {
+          "constraints_satisfied": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 0.8
+          },
+          "geographic_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "no_hallucinated_place_ids": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "temporal_coherence": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          },
+          "walking_budget_respected": {
+            "error": null,
+            "passed": true,
+            "score": 1.0,
+            "threshold": 1.0
+          }
+        },
+        "expected_results_met": null,
+        "first_tool_error": null,
+        "revision_hints": 1,
+        "revision_reasons": [
+          "empty_results"
+        ],
+        "tool_calls": 1,
+        "tool_errors": [],
+        "tool_names": [
+          "semantic_search"
+        ],
+        "violations": []
+      },
+      "expected": {
+        "expects_clarification_or_relaxation": true,
+        "max_stops": null,
+        "min_stops": null
+      },
+      "final_reply": "I couldn't find any 5-star restaurants open at 4 AM on Sunday, May 17, 2026. Would you like to search for restaurants open at a different time, or perhaps a different type of establishment?",
+      "id": "impossible_four_am_five_star",
+      "question": "find a 5-star restaurant in San Francisco open at 4am on Sunday May 17 2026",
+      "reference": "A good answer should not hallucinate a perfect match; it should either ask to relax constraints or transparently offer the closest available alternatives.",
+      "tags": [
+        "known_bad",
+        "self_correction",
+        "late_night"
+      ]
+    }
+  ],
+  "query_count": 5
+}
