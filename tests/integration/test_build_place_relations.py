@@ -81,7 +81,29 @@ def _source_json(place_id: str, neighborhood: str) -> dict:
 
 
 @pytest.fixture
-def seed_10_places():
+def _writable_or_skip() -> None:
+    """Skip if the current DB role can't write the fixture tables.
+
+    Mirrors the guard in ``test_coverage_agent.py``: integration runs against
+    the shared Cloud SQL instance authenticate as an IAM role that may have
+    read-only access. Existence of the tables isn't enough — without the
+    GRANTs the seed fixture hard-errors instead of skipping.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT bool_and(has_table_privilege(current_user, t, 'INSERT, DELETE')) "
+            "FROM unnest(ARRAY['places_raw', 'place_embeddings_v2', "
+            "'place_relations']) AS t"
+        )
+        if not cur.fetchone()[0]:
+            pytest.skip(
+                "current DB role lacks INSERT/DELETE on KG fixture tables "
+                "(places_raw / place_embeddings_v2 / place_relations)"
+            )
+
+
+@pytest.fixture
+def seed_10_places(_writable_or_skip):
     rows = [
         (
             pid,
