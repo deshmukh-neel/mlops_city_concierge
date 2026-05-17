@@ -8,6 +8,10 @@ Edge logic:
   plan -> act (if tool call) | END (if final)
   act  -> critique
   critique -> plan (if revise or more work) | END (if good)
+
+Stop-commit + booking enrichment lives in app.agent.commit; critique/
+revision-diagnosis branch logic lives in app.agent.revision (split out of
+graph.py per FUTURE_WATCH: app/agent/ directory size).
 """
 
 from __future__ import annotations
