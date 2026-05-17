@@ -22,7 +22,11 @@ In the project's Google Cloud console → **APIs & Services → Library**, enabl
 Platform → Map Management → Create Map ID**:
 
 - Map type: **JavaScript**
-- Rendering: **Vector** (Raster also works)
+- Rendering: **Vector** (required for Advanced Markers)
+- **Tilt: OFF**, **Rotation: OFF** — this is a route-reading map; a flat
+  top-down view keeps the ordered itinerary legible and keeps the `fitBounds`
+  framing predictable. (Independent toggles; leave them off even though
+  rendering is Vector. Can be enabled later without code changes if ever needed.)
 
 Copy the Map ID (looks like `a1b2c3d4e5f6...`). For quick local prototyping you
 may instead use the literal `DEMO_MAP_ID` (the code defaults to this if
