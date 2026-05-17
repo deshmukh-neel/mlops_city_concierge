@@ -83,6 +83,33 @@ has 10+ files, split: `app/agent/critique/` is already its own dir; consider
 NOT pre-split — empty subdirs hurt readability more than a flat list of 6
 files.
 
+### W7 KG builder is unscoped O(n²); integration test slow + non-isolated
+
+**What:** `build_near` / `build_same_neighborhood` in `scripts/build_place_relations.py`
+self-join the entire `places_raw` table with no fixture/place scoping (~10 min
+per full build at 5,855 SF places → ~2.0M edges). `tests/integration/test_build_place_relations.py`
+seeds a 10-row `KGT_`-prefixed fixture but the builder ignores that scope, so
+each of the suite's 8 `main()` invocations rebuilds the *entire production
+graph* → ~60–90 min wall time, and the run mutates/repopulates the real
+~1.3M-edge graph as a side effect (teardown only deletes `KGT_%` rows).
+
+**Concern:** The integration suite is impractically slow against shared Cloud
+SQL and not isolated — running it pollutes production edges. The builder
+itself is correct and idempotent (verified at full 5,855-place scale during
+W7 UAT); this is a test-isolation / scoping gap, not a correctness bug. Also
+note: Cloud SQL IAM users are read-only (`has_schema_privilege CREATE = f`) —
+`make migrate` / `make build-relations` need the `postgres` role, not a
+per-user IAM token. CI/prod migration steps need a CREATE-capable role.
+
+**Trigger:** before wiring the W7 integration suite into CI, or before anyone
+needs to run it routinely. Fix by scoping the builder to a fixture (place_id
+prefix filter or a temp-schema run) so the integration test is fast and
+isolated. Until then, the suite stays gated behind `APP_ENV=integration` and
+W7's contract is covered by unit/smoke/functional tests + the full-scale UAT
+evidence in `.planning/.../01-HUMAN-UAT.md`. Not load-bearing for the demo
+(the live `kg_traverse` query is an indexed 0.3 ms lookup; only the offline
+builder is slow).
+
 ### v1/v2 embedding script duplication
 
 **What:** `scripts/embed_places_pgvector.py` and `_v2.py` share ~80% of their
