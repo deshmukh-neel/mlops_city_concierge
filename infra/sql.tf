@@ -9,8 +9,8 @@ resource "google_sql_database_instance" "main" {
   deletion_protection = true
 
   settings {
-    tier              = "db-perf-optimized-N-8"
-    edition           = "ENTERPRISE_PLUS"
+    tier              = "db-custom-2-8192"
+    edition           = "ENTERPRISE"
     availability_type = "ZONAL"
     activation_policy = "ALWAYS"
     pricing_plan      = "PER_USE"
@@ -18,8 +18,10 @@ resource "google_sql_database_instance" "main" {
     disk_size         = 100
     disk_autoresize   = false
 
+    # ENTERPRISE edition (data cache is an ENTERPRISE_PLUS-only feature; kept
+    # false to match live state after the console downgrade from ENTERPRISE_PLUS).
     data_cache_config {
-      data_cache_enabled = true
+      data_cache_enabled = false
     }
 
     database_flags {
@@ -31,7 +33,7 @@ resource "google_sql_database_instance" "main" {
       enabled                        = false
       point_in_time_recovery_enabled = false
       start_time                     = "17:00"
-      transaction_log_retention_days = 14
+      transaction_log_retention_days = 7
 
       backup_retention_settings {
         retained_backups = 15
