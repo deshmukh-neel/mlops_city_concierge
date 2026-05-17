@@ -16,12 +16,12 @@ def test_log_rag_experiment_logs_params_and_artifacts(
     tracking_uri = f"sqlite:///{tracking_db}"
     monkeypatch.chdir(tmp_path)
 
-    fake_chain = mocker.Mock()
-    fake_chain.invoke.side_effect = [
+    fake_built = mocker.Mock()
+    fake_built.chain.invoke.side_effect = [
         {"result": "Try Taqueria Example.", "source_documents": []},
         {"result": "Try Caffe Trieste.", "source_documents": []},
     ]
-    mocker.patch("scripts.log_model_to_mlflow.build_rag_chain", return_value=fake_chain)
+    mocker.patch("scripts.log_model_to_mlflow.build_rag_chain", return_value=fake_built)
 
     run_id = log_rag_experiment(
         llm_provider="openai",

@@ -207,7 +207,7 @@ def log_rag_experiment(
             "config/rag_config.json",
         )
 
-        chain = build_rag_chain(
+        built = build_rag_chain(
             connection_string=settings.database_url,
             api_key=api_key,
             llm_provider=llm_provider,
@@ -217,7 +217,7 @@ def log_rag_experiment(
         )
 
         for index, query in enumerate(sample_queries, start=1):
-            result = chain.invoke({"query": query})
+            result = built.chain.invoke({"query": query})
             mlflow.log_text(
                 format_sample_output(query, result),
                 f"sample_outputs/query_{index}.txt",
