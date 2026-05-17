@@ -41,6 +41,9 @@ def state_to_cards(state: ItineraryState) -> list[dict[str, Any]]:
         PlaceCard(
             place_id=s.place_id,
             name=s.name,
+            address=s.address,
+            rating=s.rating,
+            price_level=s.price_level,
             primary_type=s.primary_type,
             arrival_time=s.arrival_time,
             rationale=s.rationale,
