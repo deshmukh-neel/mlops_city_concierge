@@ -64,16 +64,14 @@ export default function RouteOverlay({ stops }) {
   // Build the request once per (itinerary, mode); memo avoids spurious refetch.
   const request = useMemo(() => {
     if (stops.length < 2) return null
-    const origin = { lat: stops[0].latitude, lng: stops[0].longitude }
-    const destination = {
-      lat: stops[stops.length - 1].latitude,
-      lng: stops[stops.length - 1].longitude,
-    }
-    const waypoints = stops.slice(1, -1).map((p) => ({
-      location: { lat: p.latitude, lng: p.longitude },
+    const points = stops.map((p) => ({ lat: p.latitude, lng: p.longitude }))
+    const origin = points[0]
+    const destination = points[points.length - 1]
+    const waypoints = points.slice(1, -1).map((location) => ({
+      location,
       stopover: true,
     }))
-    return { origin, destination, waypoints, mode }
+    return { origin, destination, waypoints, points, mode }
   }, [sig, mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -87,6 +85,13 @@ export default function RouteOverlay({ stops }) {
         suppressMarkers: true, // our AdvancedMarkers already mark the stops
         preserveViewport: true,
       })
+    }
+    // Re-bind to the current map on every run. Binding only at creation left
+    // the renderer orphaned (drawing onto no map, polyline invisible) if the
+    // ref outlived its map association — e.g. the map instance changing, or
+    // the renderer being created before the map context was ready. setMap is
+    // idempotent, so re-asserting it each run is safe.
+    if (rendererRef.current.getMap() !== map) {
       rendererRef.current.setMap(map)
     }
 
@@ -107,25 +112,52 @@ export default function RouteOverlay({ stops }) {
     }
 
     let cancelled = false
-    serviceRef.current.route(
-      {
-        origin: request.origin,
-        destination: request.destination,
-        waypoints: request.waypoints,
-        travelMode: window.google.maps.TravelMode[mode],
-        optimizeWaypoints: false, // itinerary order is intentional
-      },
-      (result, status) => {
+    const travelMode = window.google.maps.TravelMode[mode]
+
+    // One Promise per Directions request.
+    const routeOnce = (params) =>
+      new Promise((resolve, reject) => {
+        serviceRef.current.route(
+          { ...params, travelMode, optimizeWaypoints: false },
+          (result, status) => {
+            if (status === 'OK' && result) resolve(result)
+            else reject(status)
+          },
+        )
+      })
+
+    // TRANSIT forbids intermediate waypoints ("Exactly two waypoints required
+    // in transit requests"), so route each consecutive leg point-to-point and
+    // stitch the legs into one result. Walk/Drive take a single waypointed call.
+    const points = request.points
+    const routed =
+      mode === 'TRANSIT' && points.length > 2
+        ? Promise.all(
+            points.slice(0, -1).map((origin, i) =>
+              routeOnce({ origin, destination: points[i + 1], waypoints: [] }),
+            ),
+          ).then((results) => {
+            const base = results[0]
+            base.routes[0].legs = results.flatMap((r) => r.routes?.[0]?.legs ?? [])
+            return base
+          })
+        : routeOnce({
+            origin: request.origin,
+            destination: request.destination,
+            waypoints: request.waypoints,
+          })
+
+    routed
+      .then((result) => {
         if (cancelled) return
-        if (status === 'OK' && result) {
-          cacheRef.current.set(cacheKey, result)
-          render(result)
-        } else {
-          setError(status === 'ZERO_RESULTS' ? 'No route for this mode' : 'Route unavailable')
-          setSummary(null)
-        }
-      },
-    )
+        cacheRef.current.set(cacheKey, result)
+        render(result)
+      })
+      .catch((status) => {
+        if (cancelled) return
+        setError(status === 'ZERO_RESULTS' ? 'No route for this mode' : 'Route unavailable')
+        setSummary(null)
+      })
     return () => {
       cancelled = true
     }
