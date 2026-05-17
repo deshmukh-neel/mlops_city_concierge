@@ -115,7 +115,7 @@ async def test_step_and_itinerary_critiques_compose(monkeypatch) -> None:
     in one run. Verifies that revision_counts tracks them as separate
     categories (each gets its own MAX_REVISIONS_PER_REASON budget)."""
     monkeypatch.setattr(
-        "app.agent.graph.itinerary_violations",
+        "app.agent.revision.itinerary_violations",
         lambda _state: [],
     )
     # First call empty, second succeeds.
@@ -209,7 +209,7 @@ async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> N
         violation_calls["n"] += 1
         return ["geographic_coherence"] if violation_calls["n"] == 1 else []
 
-    monkeypatch.setattr("app.agent.graph.itinerary_violations", _violations)
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", _violations)
 
     fake = _Scripted(
         scripted=[

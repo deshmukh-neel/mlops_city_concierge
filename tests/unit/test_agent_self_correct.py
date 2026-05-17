@@ -21,11 +21,8 @@ from app.agent.critique.checks import (
     geographic_coherence,
     walking_budget_respected,
 )
-from app.agent.graph import (
-    LOW_SIMILARITY_THRESHOLD,
-    MAX_REVISIONS_PER_REASON,
-    build_agent_graph,
-)
+from app.agent.graph import build_agent_graph
+from app.agent.revision import LOW_SIMILARITY_THRESHOLD, MAX_REVISIONS_PER_REASON
 from app.agent.state import ItineraryState, UserConstraints
 from tests.conftest import make_hit, make_stop
 
@@ -231,7 +228,7 @@ async def test_itinerary_violation_triggers_revision(monkeypatch) -> None:
     to plan."""
     # Stand in for the DB-backed check.
     monkeypatch.setattr(
-        "app.agent.graph.itinerary_violations",
+        "app.agent.revision.itinerary_violations",
         lambda _state: ["geographic_coherence"],
     )
     # Pre-seed state with stops to trigger the per-itinerary path.
@@ -262,7 +259,7 @@ async def test_itinerary_violation_triggers_revision(monkeypatch) -> None:
         calls["n"] += 1
         return ["geographic_coherence"] if calls["n"] == 1 else []
 
-    monkeypatch.setattr("app.agent.graph.itinerary_violations", _violations)
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", _violations)
 
     out = await graph.ainvoke(state)
 
@@ -278,7 +275,7 @@ async def test_itinerary_violation_ships_with_caveats_after_exhaustion(monkeypat
     """If retries are exhausted on a violation, the final reply gets a
     caveat suffix instead of looping forever."""
     monkeypatch.setattr(
-        "app.agent.graph.itinerary_violations",
+        "app.agent.revision.itinerary_violations",
         lambda _state: ["geographic_coherence"],
     )
 
@@ -404,7 +401,7 @@ async def test_finalizing_with_no_stops_just_finalizes(monkeypatch) -> None:
         called["violations"] = True
         return []
 
-    monkeypatch.setattr("app.agent.graph.itinerary_violations", _violations)
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", _violations)
     fake = _make_fake([AIMessage(content="how many stops?", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="plan it")]))
@@ -418,7 +415,7 @@ async def test_multiple_violations_picks_first_actionable(monkeypatch) -> None:
     """When several checks fail, critique acts on the first one with retries
     left — not all of them at once."""
     monkeypatch.setattr(
-        "app.agent.graph.itinerary_violations",
+        "app.agent.revision.itinerary_violations",
         lambda _state: ["temporal_coherence", "geographic_coherence"],
     )
     state = ItineraryState(
@@ -443,7 +440,7 @@ async def test_multiple_violations_picks_first_actionable(monkeypatch) -> None:
         n["i"] += 1
         return ["temporal_coherence", "geographic_coherence"] if n["i"] == 1 else []
 
-    monkeypatch.setattr("app.agent.graph.itinerary_violations", _violations)
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", _violations)
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(state)
 
@@ -527,7 +524,7 @@ async def test_critique_message_is_visible_to_plan(monkeypatch) -> None:
 async def test_diagnose_handles_no_scratch_entry() -> None:
     """If somehow critique fires without any scratch entry (defensive),
     don't crash and don't emit a hint."""
-    from app.agent.graph import _diagnose_last_tool_result
+    from app.agent.revision import _diagnose_last_tool_result
 
     state = ItineraryState(messages=[HumanMessage(content="hi")])
     assert _diagnose_last_tool_result(state) is None
@@ -539,7 +536,7 @@ async def test_diagnose_walks_every_tool_call_in_round() -> None:
     order — not just the last one."""
     from langchain_core.messages import ToolMessage
 
-    from app.agent.graph import _diagnose_last_tool_result
+    from app.agent.revision import _diagnose_last_tool_result
 
     state = ItineraryState(
         messages=[
@@ -578,7 +575,7 @@ async def test_diagnose_walks_every_tool_call_in_round() -> None:
 def test_final_with_caveats_includes_each_violation_name() -> None:
     """Caveats reply must lead with the agent's own body and list every
     violation name verbatim — that's what the user-facing UI relies on."""
-    from app.agent.graph import _final_with_caveats
+    from app.agent.revision import _final_with_caveats
 
     out = _final_with_caveats("my plan", ["v1", "v2"])
     assert out.startswith("my plan")
@@ -590,7 +587,7 @@ def test_final_with_caveats_includes_each_violation_name() -> None:
 def test_final_with_caveats_handles_empty_body() -> None:
     """If the LLM somehow ended up with no content, the caveat must still
     render coherently rather than NoneType-error."""
-    from app.agent.graph import _final_with_caveats
+    from app.agent.revision import _final_with_caveats
 
     out = _final_with_caveats("", ["v1"])
     assert "Caveats:" in out
@@ -617,7 +614,7 @@ def test_hint_for_violation_maps_each_check(
     """Every check name supported by itinerary_violations() must map to a
     structured RevisionHint. The catch-all (anything unmapped) must produce
     a `constraint_unmet_in_final` hint rather than crash."""
-    from app.agent.graph import _hint_for_violation
+    from app.agent.revision import _hint_for_violation
 
     state = ItineraryState(stops=[make_stop("p1", name="A"), make_stop("p2", name="B")])
     hint = _hint_for_violation(check, state)
@@ -630,7 +627,7 @@ async def test_diagnose_pairs_by_tool_call_id() -> None:
     scratch entry by id, not blur into max(step)."""
     from langchain_core.messages import ToolMessage
 
-    from app.agent.graph import _diagnose_last_tool_result
+    from app.agent.revision import _diagnose_last_tool_result
 
     state = ItineraryState(
         messages=[
@@ -682,7 +679,7 @@ class _StubJudge:
 async def test_vibe_pass_injects_revision_when_below_threshold(monkeypatch) -> None:
     """Deterministic checks pass, vibe scores below threshold -> hint and
     re-plan, not finalize."""
-    monkeypatch.setattr("app.agent.graph.itinerary_violations", lambda _state: [])
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", lambda _state: [])
     monkeypatch.setenv(vibe.VIBE_ENV_VAR, "true")
 
     judge = _StubJudge(score=2.0)  # below VIBE_THRESHOLD=3.0
@@ -706,7 +703,7 @@ async def test_vibe_pass_injects_revision_when_below_threshold(monkeypatch) -> N
     def _fake_vibe_check(_state, _judge):
         return judges.pop(0)._score if judges else 4.5
 
-    monkeypatch.setattr("app.agent.graph.vibe.vibe_check", _fake_vibe_check)
+    monkeypatch.setattr("app.agent.revision.vibe.vibe_check", _fake_vibe_check)
 
     graph = build_agent_graph(fake, max_steps=4, judge_llm=judge)
     out = await graph.ainvoke(state)
@@ -720,7 +717,7 @@ async def test_vibe_pass_injects_revision_when_below_threshold(monkeypatch) -> N
 async def test_vibe_pass_skips_when_judge_none(monkeypatch) -> None:
     """No judge wired (env disabled, or make_judge returned None) -> finalize
     without a vibe pass even if vibe_check would normally fire."""
-    monkeypatch.setattr("app.agent.graph.itinerary_violations", lambda _state: [])
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", lambda _state: [])
 
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
@@ -743,8 +740,8 @@ async def test_vibe_pass_skips_when_judge_none(monkeypatch) -> None:
 async def test_vibe_pass_respects_retry_budget(monkeypatch) -> None:
     """Once vibe_mismatch hits MAX_REVISIONS_PER_REASON, finalize with the
     current plan rather than loop forever."""
-    monkeypatch.setattr("app.agent.graph.itinerary_violations", lambda _state: [])
-    monkeypatch.setattr("app.agent.graph.vibe.vibe_check", lambda *_a, **_k: 1.0)
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", lambda _state: [])
+    monkeypatch.setattr("app.agent.revision.vibe.vibe_check", lambda *_a, **_k: 1.0)
 
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
@@ -766,7 +763,7 @@ async def test_vibe_pass_skipped_when_violations_present(monkeypatch) -> None:
     """If deterministic checks fail, we never burn a vibe-judge call — the
     deterministic revision takes precedence."""
     monkeypatch.setattr(
-        "app.agent.graph.itinerary_violations",
+        "app.agent.revision.itinerary_violations",
         lambda _state: ["geographic_coherence"],
     )
     judge_calls = {"n": 0}
@@ -775,7 +772,7 @@ async def test_vibe_pass_skipped_when_violations_present(monkeypatch) -> None:
         judge_calls["n"] += 1
         return 1.0
 
-    monkeypatch.setattr("app.agent.graph.vibe.vibe_check", _vibe)
+    monkeypatch.setattr("app.agent.revision.vibe.vibe_check", _vibe)
 
     state = ItineraryState(
         messages=[HumanMessage(content="hi")],
