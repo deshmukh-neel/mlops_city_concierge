@@ -66,6 +66,7 @@ Cloud Run (`city-concierge-api`) is intentionally **not** managed by Terraform â
 
 - Python 3.10+; ruff for linting/formatting (line-length 100, rules: E, F, I, N, UP, B, SIM)
 - Dependency management: single `pyproject.toml` with Poetry main dependencies plus a `dev` group
+- `app` is editable-installed via Poetry (`packages = [{ include = "app" }]` in `pyproject.toml`). Scripts and tests `from app... import ...` directly â€” **never** re-add a `sys.path.insert`/`REPO_ROOT` bootstrap; `poetry install` makes `app` importable from any cwd
 - Tests use pytest with `asyncio_mode = "auto"`; conftest patches env vars so tests never hit real services
 - Integration tests are skipped unless `APP_ENV=integration` is set
 - Environment variables configured via `.env` (see `.env.example` for all required vars)
