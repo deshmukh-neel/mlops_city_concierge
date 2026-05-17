@@ -128,12 +128,21 @@ merges PRs (do not `gh pr merge`).
 
 **Status:** Planned 2026-05-17. Phased: w8a → w8b → w8c.
 
-- **w8a** (coord propagation) — ✅ built on `feature/agent-w8a-coord-propagation`,
-  57 backend tests green. PR pending (user opens/merges).
-- **w8b** (live map + `/chat` switch) — ✅ built on `feature/agent-w8b-live-map`
-  (branched off w8a), 17 frontend tests green, production build + code-split
-  verified. **Visual verification pending a Google Maps browser key**
-  (`docs/google_maps_setup.md`). Pre-existing Bars/Dinner filter pills are
-  no-ops against real Google `primary_type`s — deferred (filter taxonomy rework
-  is out of scope for "add the map"). PR pending.
+- **w8a** (coord propagation) — ✅ merged to `main` via
+  [PR #86](https://github.com/deshmukh-neel/mlops_city_concierge/pull/86)
+  (2026-05-17), 57 backend tests green.
+- **w8b** (live map + `/chat` switch) — ✅ built + **real-API verified
+  2026-05-17** on `feature/agent-w8b-live-map` (branched off w8a, rebased onto
+  main after PR #86 merged). 27 frontend tests green. All 11 rows of
+  `docs/w8b_verification.md` passed against real Google Maps + Directions
+  (places injected via a dev-only scaffold, since Gemini-3 itinerary-commit is
+  broken — W10). The gate caught two real production bugs the mocked tests
+  missed, both fixed: (1) `DirectionsRenderer` was bound to the map only at
+  creation, so an orphaned renderer drew the route onto no map (polyline
+  invisible, summary still updated and masked it) — now rebinds every effect
+  run; (2) Google Directions rejects TRANSIT requests with waypoints — 3+ stop
+  transit now routes per-leg point-to-point and stitches the legs. Known nit
+  (→ w8c): click-to-focus zoom direction. Pre-existing Bars/Dinner filter pills
+  are no-ops against real Google `primary_type`s — deferred (filter taxonomy
+  rework is out of scope for "add the map"). PR pending (user opens/merges).
 - **w8c** (Directions tool + re-timing node) — not started.
