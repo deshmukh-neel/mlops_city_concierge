@@ -70,6 +70,21 @@ Gemini 3 then preserves reasoning across tool calls and the agent converges.
 - Smaller "fix the bypass to round-trip real signatures on 2.1.12" approach —
   user chose the full migration as the durable fix.
 
+## Pre-migration baseline (2026-05-17, clean W10 branch off main)
+
+- Unit suite: **416 pass, 1 fail**. The 1 failure
+  (`test_chat_functional.py::test_chat_runs_real_graph_with_tool_call`) is a
+  **pre-existing test-ordering flake on `main`**, not a W10 regression: it
+  PASSES in isolation, FAILS in the full run. Cause: `gemini_compat.py`
+  monkeypatches `langchain_google_genai.chat_models` *module-globally* with a
+  sticky guard flag (`_city_concierge_gemini3_patch`) — state leaks across
+  tests. **W10 deleting this hack is expected to FIX this flake.** Treat
+  "416 pass, this 1 known flake" as green baseline; any *other* failure during
+  migration is a real regression.
+- Convergence harness: gemini-3.1-pro-preview ~0/6 on the standard 3-stop
+  Mission query (the bug). This is the Phase-4 regression oracle: W10 is
+  correct only when this goes to consistently passing.
+
 ## Open risks / notes
 
 - LangChain 1.x is a breaking major; `langchain-openai` 1.x may shift the RAG
