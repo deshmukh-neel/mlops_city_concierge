@@ -1,6 +1,9 @@
-import React, { useState } from 'react'
-import MapView from './MapView'
+import React, { Suspense, lazy, useState } from 'react'
 import ListView from './ListView'
+
+// Lazy: the Google Maps SDK is only fetched when the map tab is actually
+// viewed (Performance #3 — keeps chat-first load + keyless dev path fast).
+const MapView = lazy(() => import('./MapView'))
 
 const FILTER_OPTIONS = ['All', 'Bars', 'Dinner', 'Open now']
 
@@ -93,7 +96,13 @@ function ClockIcon() {
   )
 }
 
-export default function RightPanel({ places = [], onPlaceClick, lastRefreshed = '4 min ago' }) {
+export default function RightPanel({
+  places = [],
+  onPlaceClick,
+  planFinalized = false,
+  focusId = null,
+  lastRefreshed = '4 min ago',
+}) {
   const [view, setView] = useState('map')       // 'map' | 'list'
   const [activeFilter, setActiveFilter] = useState('All')
 
@@ -149,10 +158,18 @@ export default function RightPanel({ places = [], onPlaceClick, lastRefreshed = 
       </div>
 
       {/* Map / List */}
-      {view === 'map'
-        ? <MapView places={filteredPlaces} onPinClick={onPlaceClick} />
-        : <ListView places={filteredPlaces} onPlaceClick={onPlaceClick} />
-      }
+      {view === 'map' ? (
+        <Suspense fallback={<div style={{ flex: 1 }} />}>
+          <MapView
+            places={filteredPlaces}
+            onPinClick={onPlaceClick}
+            planFinalized={planFinalized}
+            focusId={focusId}
+          />
+        </Suspense>
+      ) : (
+        <ListView places={filteredPlaces} onPlaceClick={onPlaceClick} />
+      )}
 
       {/* Footer */}
       <div style={s.footer}>

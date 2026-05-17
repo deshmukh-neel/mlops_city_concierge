@@ -9,6 +9,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Proxy FastAPI calls during development (only used if VITE_API_URL is unset / relative).
+      '/chat': {
+        target: proxyTarget,
+        changeOrigin: true,
+      },
       '/predict': {
         target: proxyTarget,
         changeOrigin: true,
@@ -18,5 +22,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.js'],
   },
 })
