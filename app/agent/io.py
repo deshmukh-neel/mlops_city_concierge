@@ -45,6 +45,8 @@ def state_to_cards(state: ItineraryState) -> list[dict[str, Any]]:
             rating=s.rating,
             price_level=s.price_level,
             primary_type=s.primary_type,
+            latitude=s.latitude,
+            longitude=s.longitude,
             arrival_time=s.arrival_time,
             rationale=s.rationale,
             booking_url=s.booking_url,

@@ -135,6 +135,8 @@ def test_place_card_serialization_keys() -> None:
         "rating",
         "price_level",
         "primary_type",
+        "latitude",
+        "longitude",
         "arrival_time",
         "rationale",
         "booking_url",
