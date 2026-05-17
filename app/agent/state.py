@@ -183,6 +183,8 @@ class PlaceCard(BaseModel):
     rating: float | None = None
     price_level: int | None = None
     primary_type: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     arrival_time: datetime | None = None
     rationale: str
     booking_url: str | None = None
