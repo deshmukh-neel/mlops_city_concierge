@@ -39,10 +39,20 @@ Then **restrict it** (the key ships in client JS — referrer restriction is the
 protection, not secrecy):
 
 - **Application restrictions → Websites (HTTP referrers)**, add:
-  - `http://localhost:5173/*` (Vite dev)
-  - the deployed frontend origin (Cloud Run domain) `/*`
+  - `http://localhost:5173/*` (Vite dev) — **add this now**
+  - the deployed frontend origin `/*` — **only when a deployed frontend
+    exists.** There is currently **no deployed frontend** (no CI builds
+    `frontend/`; it runs locally or points at the deployed *backend*). Adding a
+    referrer for a non-existent origin does nothing — defer it. When the
+    frontend is deployed, add its real origin here in the console (no code
+    change). Until then, requests from any non-localhost origin will fail with
+    `RefererNotAllowedMapError` — that is the restriction working, not a bug.
 - **API restrictions → Restrict key** → select **Maps JavaScript API** and
   **Directions API** only.
+
+> Do **not** interpret "no deployed origin yet" as "no restrictions." An
+> unrestricted browser key is world-usable from your shipped JS. Restrict to
+> localhost-only now; widen later.
 
 ## Wire it in
 
