@@ -14,6 +14,7 @@ from pydantic import create_model
 
 from app.agent.state import Stop
 from app.tools.filters import SearchFilters
+from app.tools.graph import RelatedPlace
 from app.tools.retrieval import (
     PlaceDetails,
     PlaceHit,
@@ -73,16 +74,26 @@ def commit_itinerary(stops: list[Stop]) -> dict:
     return {"committed": [s.place_id for s in stops]}
 
 
-def kg_traverse(place_id: str, relation: str = "co_mentioned") -> dict:
-    """Traverse the editorial knowledge graph from `place_id`. NOT YET AVAILABLE.
+def kg_traverse(
+    place_id: str,
+    relation_type: str = "SIMILAR_VECTOR",
+    k: int = 5,
+) -> list[RelatedPlace]:
+    """Traverse the knowledge graph from `place_id` along a relation_type.
 
-    Stub: the KG lands in a future PR after the editorial scrape is done.
-    The tool exists now so the agent's tool surface is stable.
+    Pick the relation_type by intent:
+    - SIMILAR_VECTOR: "more like this" — same vibe/category as the anchor.
+    - SAME_NEIGHBORHOOD: alternates in the same SF neighborhood.
+    - NEAR_LANDMARK: the anchor is near a known landmark (museum, park).
+    - NEAR: geographic neighbors (~800m) without re-running `nearby`.
+    - CONTAINED_IN: the parent venue (e.g. a stall inside a food hall) — rare.
+
+    Single-hop: for multi-hop reasoning call again with the new anchor. If it
+    returns empty, fall back to `semantic_search` or `nearby`.
     """
-    return {
-        "available": False,
-        "reason": "knowledge graph not yet built; use semantic_search instead",
-    }
+    from app.tools.graph import kg_traverse as _kg_traverse
+
+    return _kg_traverse(place_id=place_id, relation_type=relation_type, k=k)
 
 
 def _args_schema_for(fn: Any):

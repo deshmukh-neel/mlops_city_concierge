@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Literal
 
@@ -16,12 +15,10 @@ import yaml
 from langchain_core.documents import Document
 from pydantic import BaseModel, Field, field_validator
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from app.chain import build_rag_chain
+from app.config import get_settings, resolve_llm_api_key
 
-from app.chain import build_rag_chain  # noqa: E402
-from app.config import get_settings, resolve_llm_api_key  # noqa: E402
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 DEFAULT_EXPERIMENT_NAME = "city-concierge-rag-v2"
 DEFAULT_CONFIG_PATH = Path("configs/experiments.yaml")
@@ -191,13 +188,14 @@ def log_rag_experiment(
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
 
-    params: dict[str, str | int | float] = {
+    params: dict[str, str | int | float | bool] = {
         "llm_provider": llm_provider,
         "chat_model": resolved_chat_model,
         "k": k,
         "temperature": temperature,
         "embedding_model": settings.openai_embedding_model,
         "vector_store": "pgvector",
+        "kg_enabled": True,  # W7: KG on by default; W6 evals will A/B with False
     }
 
     run_name = f"{llm_provider}-{resolved_chat_model}-k{k}-t{temperature}"
@@ -209,7 +207,7 @@ def log_rag_experiment(
             "config/rag_config.json",
         )
 
-        chain = build_rag_chain(
+        built = build_rag_chain(
             connection_string=settings.database_url,
             api_key=api_key,
             llm_provider=llm_provider,
@@ -219,7 +217,7 @@ def log_rag_experiment(
         )
 
         for index, query in enumerate(sample_queries, start=1):
-            result = chain.invoke({"query": query})
+            result = built.chain.invoke({"query": query})
             mlflow.log_text(
                 format_sample_output(query, result),
                 f"sample_outputs/query_{index}.txt",

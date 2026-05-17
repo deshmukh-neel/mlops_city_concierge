@@ -10,16 +10,10 @@ effect.
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
 import mlflow
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from app.config import get_settings  # noqa: E402
+from app.config import get_settings
 
 DEFAULT_MODEL_NAME = "city-concierge-rag"
 DEFAULT_ALIAS = "production"

@@ -67,6 +67,10 @@ embed-places: ## Generate pgvector embeddings for places
 embed-v2: ## Generate cleaned pgvector embeddings into place_embeddings_v2
 	$(POETRY_RUN) python -m scripts.embed_places_pgvector_v2
 
+.PHONY: build-relations
+build-relations: ## Build the place_relations knowledge graph (args: ARGS="--only NEAR")
+	$(POETRY_RUN) python scripts/build_place_relations.py $(ARGS)
+
 .PHONY: mlflow-tunnel
 mlflow-tunnel: ## Open IAP tunnel to the private MLflow VM (localhost:5050; run in a separate terminal)
 	gcloud compute start-iap-tunnel mlflow-server 5000 \

@@ -1,10 +1,10 @@
 [tool.poetry]
 name = "mlops-city-concierge"
 version = "0.1.0"
-package-mode = false
 description = "City Concierge — RAG application for city information (USF MSDS 603 MLOps)"
 authors = ["James <pjnhek@gmail.com>"]
 readme = "README.md"
+packages = [{ include = "app" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"

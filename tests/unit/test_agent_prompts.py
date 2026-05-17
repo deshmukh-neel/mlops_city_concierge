@@ -42,6 +42,17 @@ def test_system_prompt_missing_max_steps_raises() -> None:
         SYSTEM_PROMPT.format()
 
 
+def test_system_prompt_contains_relation_type_guidance() -> None:
+    """SYSTEM_PROMPT must name all five relation_type values + the tool name
+    so the agent knows when to pick which edge (TOOL-06)."""
+    s = SYSTEM_PROMPT.lower()
+    assert "kg_traverse" in s
+    assert "similar_vector" in s
+    assert "same_neighborhood" in s
+    assert "near_landmark" in s
+    assert "contained_in" in s
+
+
 def test_clarifying_stops_template_is_a_static_string() -> None:
     assert isinstance(CLARIFYING_STOPS_COUNT_TEMPLATE, str)
     assert "stops" in CLARIFYING_STOPS_COUNT_TEMPLATE
