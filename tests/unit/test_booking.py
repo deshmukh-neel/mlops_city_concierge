@@ -281,12 +281,12 @@ def test_notes_match_provider() -> None:
     assert "Resy" in b.notes
 
 
-# ─── Functional: graph commit -> real URL construction -> Stop fields ──────
+# ─── Functional: commit -> real URL construction -> Stop fields ──────
 #
 # These tests drive `commit_stops` end-to-end with the *real*
 # propose_booking_from_details implementation. Only the SQL boundary
 # (`get_details_many`, called once per commit) is mocked. This verifies the
-# composition: provider detection + URL building + graph enrichment all work
+# composition: provider detection + URL building + commit enrichment all work
 # together. Compare to the unit tests above (mock get_details, hit
 # propose_booking directly) and the test in test_agent_graph (mock the URL
 # builder entirely) — this layer is the in-between.
@@ -303,8 +303,8 @@ def _grounded_state(place_ids: list[str], party_size: int = 2) -> ItineraryState
     )
 
 
-def _patch_graph_details_many(place_id: str, details: PlaceDetails):
-    """Patch the graph's batched DB call to return one details row."""
+def _patch_commit_details_many(place_id: str, details: PlaceDetails):
+    """Patch the commit module's batched DB call to return one details row."""
     return patch(
         "app.agent.commit.get_details_many",
         return_value={place_id: details},
@@ -323,7 +323,7 @@ def test_functional_commit_attaches_resy_url_via_real_propose_booking() -> None:
             "arrival_time": datetime(2026, 5, 7, 19, 30).isoformat(),
         }
     ]
-    with _patch_graph_details_many("p1", _fake_details("https://resy.com/cities/sf/foo")):
+    with _patch_commit_details_many("p1", _fake_details("https://resy.com/cities/sf/foo")):
         committed, _ = commit_stops(state, raw_stops)
 
     assert len(committed) == 1
@@ -342,7 +342,7 @@ def test_functional_falls_back_to_venue_website_for_non_provider_site() -> None:
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
-    with _patch_graph_details_many(
+    with _patch_commit_details_many(
         "p1",
         _fake_details(
             website_uri="https://random-cafe.example",
@@ -362,7 +362,7 @@ def test_functional_falls_back_to_maps_when_no_website() -> None:
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
-    with _patch_graph_details_many(
+    with _patch_commit_details_many(
         "p1",
         _fake_details(website_uri=None, maps_uri="https://maps.google.com/?cid=999"),
     ):
@@ -380,7 +380,7 @@ def test_functional_uses_constraints_when_arrival_time_missing() -> None:
     raw_stops = [
         {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
     ]
-    with _patch_graph_details_many("p1", _fake_details("https://www.opentable.com/baz")):
+    with _patch_commit_details_many("p1", _fake_details("https://www.opentable.com/baz")):
         committed, _ = commit_stops(state, raw_stops)
 
     stop = committed[0]
