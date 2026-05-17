@@ -282,9 +282,12 @@ underperforming on the planner role due to NLU load. Add as a node BEFORE
 
 ### LLM-extracted KG edges
 
-**What:** W7 only seeds free / computed edges (NEAR, SAME_NEIGHBORHOOD,
-CONTAINED_IN, NEAR_LANDMARK, SIMILAR_VECTOR). LLM-extracted edges
-(OPERATED_BY, MENTIONED_WITH, SAME_CHEF) are deferred.
+**What:** W7 (merged in [#83](https://github.com/deshmukh-neel/mlops_city_concierge/pull/83))
+only seeds free / computed edges (NEAR, SAME_NEIGHBORHOOD, CONTAINED_IN,
+NEAR_LANDMARK, SIMILAR_VECTOR). LLM-extracted edges (OPERATED_BY,
+MENTIONED_WITH, SAME_CHEF) and editorial-source edges (Eater / Infatuation
+scrape) were explicitly out-of-scope in #83 and remain deferred. The shipped
+`place_relations` schema is forward-compatible with both.
 
 **Trigger:** once the editorial scrape (Eater / Infatuation) lands and we
 have prose that mentions chefs / owners / sister-restaurants, an extraction
