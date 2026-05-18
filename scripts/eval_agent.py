@@ -41,7 +41,6 @@ from app.eval.config import (  # noqa: E402
     ExpectedResults,
     load_eval_queries,
 )
-from app.gemini_compat import patch_langchain_google_genai_for_gemini3  # noqa: E402
 
 LlmProvider = Literal["openai", "gemini"]
 CheckFunction = Callable[[ItineraryState], float]
@@ -204,7 +203,6 @@ def build_eval_llm(provider: LlmProvider, chat_model: str, temperature: float) -
             api_key=SecretStr(api_key),
             temperature=temperature,
         )
-    patch_langchain_google_genai_for_gemini3()
     return ChatGoogleGenerativeAI(
         model=chat_model,
         google_api_key=SecretStr(api_key),

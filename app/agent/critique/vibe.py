@@ -22,7 +22,6 @@ from pydantic import SecretStr
 
 from app.agent.state import ItineraryState
 from app.config import get_settings
-from app.gemini_compat import patch_langchain_google_genai_for_gemini3
 
 _log = logging.getLogger(__name__)
 
@@ -114,7 +113,6 @@ def make_judge() -> BaseChatModel | None:
                 return None
             from langchain_google_genai import ChatGoogleGenerativeAI
 
-            patch_langchain_google_genai_for_gemini3()
             return ChatGoogleGenerativeAI(
                 model=model,
                 google_api_key=SecretStr(s.gemini_api_key),

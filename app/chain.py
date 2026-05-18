@@ -14,7 +14,6 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from .config import get_settings
-from .gemini_compat import patch_langchain_google_genai_for_gemini3
 from .retriever import PgVectorRetriever
 
 # Default prompt of the legacy langchain RetrievalQA "stuff" chain, preserved
@@ -78,7 +77,6 @@ def build_rag_chain(
     if provider == "openai":
         llm = ChatOpenAI(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)
     elif provider == "gemini":
-        patch_langchain_google_genai_for_gemini3()
         llm = ChatGoogleGenerativeAI(
             model=chat_model,
             google_api_key=SecretStr(api_key),
