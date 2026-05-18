@@ -34,18 +34,18 @@ const s = {
   clearBtn: {
     fontSize: '11px', color: 'var(--warm-gray)',
     background: 'none', border: '1px solid var(--border)',
-    padding: '4px 10px', borderRadius: '4px',
-    cursor: 'pointer', transition: 'all .2s',
+    padding: '4px 12px', borderRadius: '4px',
+    cursor: 'pointer', transition: 'background .2s, color .2s',
     fontFamily: 'var(--font-body)',
   },
   chips: {
     display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '12px',
   },
   chip: {
-    fontSize: '11px', padding: '5px 11px', borderRadius: '20px',
+    fontSize: '11px', padding: '5px 13px', borderRadius: '20px',
     border: '1px solid var(--border)', background: 'var(--cream)',
     cursor: 'pointer', color: 'var(--warm-gray)',
-    transition: 'all .2s', whiteSpace: 'nowrap',
+    transition: 'background .2s, color .2s, border-color .2s', whiteSpace: 'nowrap',
     fontFamily: 'var(--font-body)',
   },
   messages: {
@@ -140,6 +140,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
             <div style={s.subtitle}>Powered by live Google Places data</div>
           </div>
           <button
+            className="press tap-target"
             style={s.clearBtn}
             onClick={onClear}
             onMouseEnter={e => Object.assign(e.target.style, { background: 'var(--cream-dark)', color: 'var(--charcoal)' })}
@@ -152,6 +153,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
           {SUGGESTION_CHIPS.map(chip => (
             <button
               key={chip}
+              className="press tap-target"
               style={s.chip}
               onClick={() => handleChipClick(chip)}
               onMouseEnter={e => Object.assign(e.target.style, { background: 'var(--moss)', color: 'var(--white)', borderColor: 'var(--moss)' })}
@@ -170,7 +172,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
         ))}
         {isLoading && (
           <ChatMessage
-            message={{ role: 'typing', ragLabel: 'Searching nearby · Mission District' }}
+            message={{ role: 'typing', ragLabel: 'Searching SF places…' }}
           />
         )}
         <div ref={messagesEndRef} />
@@ -182,6 +184,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
           <textarea
             ref={textareaRef}
             style={s.textarea}
+            aria-label="Ask the SF concierge"
             placeholder="Ask anything about SF — neighborhoods, food, events…"
             value={input}
             onChange={handleInput}
@@ -191,6 +194,9 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
             onBlur={e => e.target.style.borderColor = 'var(--border)'}
           />
           <button
+            type="button"
+            aria-label="Send message"
+            className="press"
             style={{ ...s.sendBtn, background: sendHovered ? 'var(--charcoal)' : 'var(--moss)' }}
             onClick={handleSend}
             disabled={isLoading}
@@ -203,7 +209,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
         <div style={s.inputMeta}>
           <div style={s.ragIndicator}>
             <div style={s.ragDot} />
-            RAG pipeline active · Places updated 4 min ago
+            RAG pipeline active
           </div>
           <span>↵ to send · ⇧↵ for newline</span>
         </div>

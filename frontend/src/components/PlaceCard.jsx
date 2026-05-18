@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { clickableProps } from './a11y'
 
 const s = {
   card: {
@@ -6,7 +7,8 @@ const s = {
     border: '1px solid var(--border)',
     padding: '16px 18px',
     display: 'flex', gap: '16px', alignItems: 'flex-start',
-    cursor: 'pointer', transition: 'all .2s',
+    cursor: 'pointer',
+    transition: 'border-color .2s, box-shadow .2s, transform .2s',
     position: 'relative', overflow: 'hidden',
   },
   cardActive: {
@@ -73,8 +75,8 @@ export default function PlaceCard({ place, featured = false, onClick }) {
 
   return (
     <div
+      {...clickableProps(onClick, `${place.name} — ${place.type}`)}
       style={{ ...s.card, ...(isHighlighted ? s.cardActive : {}) }}
-      onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >

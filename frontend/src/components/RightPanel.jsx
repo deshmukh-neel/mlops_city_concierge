@@ -25,10 +25,10 @@ const s = {
     borderRadius: '8px', padding: '3px',
   },
   toggleBtn: {
-    display: 'flex', alignItems: 'center', gap: '6px',
+    gap: '6px',
     padding: '6px 14px', borderRadius: '6px', border: 'none',
     fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500,
-    cursor: 'pointer', transition: 'all .2s',
+    cursor: 'pointer', transition: 'background .2s, color .2s, box-shadow .2s',
     color: 'var(--warm-gray)', background: 'transparent',
   },
   toggleBtnActive: {
@@ -39,13 +39,13 @@ const s = {
     fontSize: '12px', color: 'var(--warm-gray)',
     display: 'flex', alignItems: 'center', gap: '16px',
   },
-  metaCount: { fontWeight: 500, color: 'var(--charcoal)' },
+  metaCount: { fontWeight: 500, color: 'var(--charcoal)', fontVariantNumeric: 'tabular-nums' },
   filters: { display: 'flex', gap: '6px', alignItems: 'center' },
   filterPill: {
-    fontSize: '11px', padding: '4px 10px', borderRadius: '20px',
+    fontSize: '11px', padding: '4px 12px', borderRadius: '20px',
     border: '1px solid var(--border)', background: 'var(--white)',
     cursor: 'pointer', color: 'var(--warm-gray)',
-    transition: 'all .2s', fontFamily: 'var(--font-body)',
+    transition: 'background .2s, color .2s, border-color .2s', fontFamily: 'var(--font-body)',
   },
   filterPillActive: {
     background: 'var(--charcoal)', color: 'var(--white)',
@@ -101,7 +101,7 @@ export default function RightPanel({
   onPlaceClick,
   planFinalized = false,
   focusId = null,
-  lastRefreshed = '4 min ago',
+  lastRefreshed = 'just now',
 }) {
   const [view, setView] = useState('map')       // 'map' | 'list'
   const [activeFilter, setActiveFilter] = useState('All')
@@ -128,6 +128,7 @@ export default function RightPanel({
             ].map(({ id, label, Icon }) => (
               <button
                 key={id}
+                className="press tap-target"
                 style={{ ...s.toggleBtn, ...(view === id ? s.toggleBtnActive : {}) }}
                 onClick={() => setView(id)}
               >
@@ -137,10 +138,9 @@ export default function RightPanel({
             ))}
           </div>
 
-          {/* Result count + context */}
+          {/* Result count */}
           <div style={s.meta}>
             <span style={s.metaCount}>{filteredPlaces.length} places</span>
-            <span>Mission District · Tonight</span>
           </div>
         </div>
 
@@ -194,6 +194,7 @@ function FilterPill({ label, active, onClick }) {
 
   return (
     <button
+      className="press tap-target"
       style={{
         ...s.filterPill,
         ...(isActive ? s.filterPillActive : {}),

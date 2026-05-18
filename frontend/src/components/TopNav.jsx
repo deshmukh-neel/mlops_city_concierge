@@ -36,6 +36,7 @@ const styles = {
     display: 'flex', alignItems: 'center', gap: '6px',
     fontSize: '12px', color: 'var(--moss-light)',
   },
+  statusCount: { fontVariantNumeric: 'tabular-nums' },
   statusDot: {
     width: '6px', height: '6px', borderRadius: '50%',
     background: '#6CBF6C',
@@ -65,7 +66,7 @@ export default function TopNav({ indexedCount = 847 }) {
 
       <div style={styles.status}>
         <div style={styles.statusDot} />
-        Live · {indexedCount.toLocaleString()} places indexed
+        Live · <span style={styles.statusCount}>{indexedCount.toLocaleString()}</span> places indexed
       </div>
     </nav>
   )

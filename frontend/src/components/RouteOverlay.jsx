@@ -37,11 +37,11 @@ const s = {
   toggle: { display: 'flex', gap: '2px', background: 'var(--cream-dark)', borderRadius: '7px', padding: '3px' },
   btn: {
     border: 'none', background: 'transparent', cursor: 'pointer',
-    padding: '5px 10px', borderRadius: '5px', fontSize: '12px',
-    fontFamily: 'var(--font-body)', color: 'var(--warm-gray)',
+    padding: '5px 12px', borderRadius: '5px', fontSize: '12px',
+    fontFamily: 'var(--font-body)', color: 'var(--warm-gray)', gap: '4px',
   },
   btnActive: { background: 'var(--white)', color: 'var(--charcoal)', boxShadow: '0 1px 3px rgba(0,0,0,.1)' },
-  total: { fontWeight: 600, color: 'var(--charcoal)', whiteSpace: 'nowrap' },
+  total: { fontWeight: 600, color: 'var(--charcoal)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' },
   err: { color: 'var(--rust)', whiteSpace: 'nowrap' },
 }
 
@@ -176,6 +176,7 @@ export default function RouteOverlay({ stops }) {
         {MODES.map((m) => (
           <button
             key={m.id}
+            className="press tap-target"
             style={{ ...s.btn, ...(mode === m.id ? s.btnActive : {}) }}
             onClick={() => setMode(m.id)}
             aria-pressed={mode === m.id}
