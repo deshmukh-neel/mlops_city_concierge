@@ -30,7 +30,7 @@ from app.agent.commit import commit_stops
 from app.agent.critique import vibe
 from app.agent.critique.checks import CRITIQUE_THRESHOLDS, temporal_coherence
 from app.agent.planning import chain_arrival_times
-from app.agent.prompts import SYSTEM_PROMPT
+from app.agent.prompts import SYSTEM_PROMPT, current_datetime_str
 from app.agent.revision import (
     _final_with_caveats,
     critique_final_with_stops,
@@ -127,7 +127,12 @@ def build_agent_graph(
         messages_in: list[BaseMessage] = list(state.messages)
         if state.step_count == 0 and not any(isinstance(m, SystemMessage) for m in messages_in):
             messages_in = [
-                SystemMessage(SYSTEM_PROMPT.format(max_steps=max_steps)),
+                SystemMessage(
+                    SYSTEM_PROMPT.format(
+                        max_steps=max_steps,
+                        current_datetime=current_datetime_str(),
+                    )
+                ),
                 *messages_in,
             ]
         # Send the LLM a curated view: keep only the most recent ToolMessage
