@@ -780,3 +780,81 @@ async def test_retime_passthrough_when_coordless(monkeypatch, mocker) -> None:
     graph = build_agent_graph(fake, max_steps=4)
     await graph.ainvoke(_committed_state(3, with_coords=False))
     route.assert_not_called()
+
+
+async def test_retime_does_not_double_caveat_when_reply_already_has_one(
+    monkeypatch, mocker
+) -> None:
+    """The END->retime rewire sends the caveats-exhausted revision path
+    through retime too. If final_reply already has 'Caveats:', retime must
+    NOT append a second identical paragraph."""
+
+    async def _slow(stops, mode="walk"):
+        return DirectionsResult(
+            legs=[DirectionsLeg(duration_s=600, distance_m=800.0)] * (len(stops) - 1),
+            total_duration_s=600 * (len(stops) - 1),
+            mode=mode,
+            source="google",
+        )
+
+    mocker.patch("app.agent.graph.route_legs", _slow)
+    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 0.0)  # fails
+    st = _committed_state(2, with_coords=True)
+    st = st.model_copy(
+        update={
+            "final_reply": "Plan.\n\nCaveats: I couldn't fully satisfy "
+            "temporal_coherence after revisions. You may want to adjust the plan."
+        }
+    )
+    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(st)
+    assert out["final_reply"].count("Caveats:") == 1
+
+
+async def test_retime_appends_caveat_when_reply_has_none(monkeypatch, mocker) -> None:
+    """Conversely, when no caveat exists yet and the real-time check fails,
+    retime DOES append exactly one."""
+
+    async def _slow(stops, mode="walk"):
+        return DirectionsResult(
+            legs=[DirectionsLeg(duration_s=600, distance_m=800.0)] * (len(stops) - 1),
+            total_duration_s=600 * (len(stops) - 1),
+            mode=mode,
+            source="google",
+        )
+
+    mocker.patch("app.agent.graph.route_legs", _slow)
+    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 0.0)
+    st = _committed_state(2, with_coords=True)  # final_reply has no "Caveats:"
+    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(st)
+    assert out["final_reply"].count("Caveats:") == 1
+    assert "temporal_coherence" in out["final_reply"]
+
+
+async def test_retime_noop_when_first_stop_has_no_arrival(monkeypatch, mocker) -> None:
+    """chain_arrival_times raises if stops[0].arrival_time is None (possible
+    on a max-steps short-circuit with committed-but-untimed stops). retime
+    must swallow it and no-op, never propagate out of /chat."""
+
+    async def _ok(stops, mode="walk"):
+        return DirectionsResult(
+            legs=[DirectionsLeg(duration_s=600, distance_m=800.0)] * (len(stops) - 1),
+            total_duration_s=600 * (len(stops) - 1),
+            mode=mode,
+            source="google",
+        )
+
+    mocker.patch("app.agent.graph.route_legs", _ok)
+    st = _committed_state(2, with_coords=True)
+    # Clear arrival_time on the first stop (simulates untimed commit).
+    cleared = [s.model_copy(update={"arrival_time": None}) for s in st.stops]
+    st = st.model_copy(update={"stops": cleared})
+    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(st)  # must NOT raise
+    # No-op: stops unchanged (still None on stop 0), reply unchanged.
+    assert out["stops"][0].arrival_time is None
+    assert out["final_reply"] == "Here is your plan."

@@ -245,27 +245,39 @@ def build_agent_graph(
             # stops is the best we have. Leave it.
             return {}
 
-        result = await route_legs(coords, mode="walk")
-        leg_min = [leg.duration_s / 60 for leg in result.legs]
-        retimed = chain_arrival_times(state.stops, leg_min)
+        try:
+            result = await route_legs(coords, mode="walk")
+            leg_min = [leg.duration_s / 60 for leg in result.legs]
+            retimed = chain_arrival_times(state.stops, leg_min)
+        except Exception:  # noqa: BLE001
+            # route_legs never raises, but chain_arrival_times can (e.g.
+            # stops[0].arrival_time unset on a max-steps short-circuit).
+            # Can't retime — leave the existing stops/reply untouched.
+            return {}
 
         update: dict[str, Any] = {"stops": retimed}
 
         # Re-run ONLY the open-at-arrival check on the real times. Other
         # checks (geographic/walking/hallucination) are coord/id-based and
         # unaffected by re-timing, so re-running them would be wasted work.
+        # temporal_coherence is sync psycopg2 I/O — offload to a thread so
+        # the event loop stays responsive (same pattern as act()).
         probe = state.model_copy(update={"stops": retimed})
         try:
-            score = temporal_coherence(probe)
+            score = await asyncio.to_thread(temporal_coherence, probe)
         except Exception:  # noqa: BLE001
             # Fails open exactly like itinerary_violations(): a DB blip must
             # not block /chat. Ship the re-timed plan without the re-check.
             return update
 
+        # Only append a caveat if the revision loop hasn't already shipped
+        # one (the END->retime rewire routes the caveats-exhausted path
+        # through here too; _final_with_caveats is not idempotent, so a
+        # second call would duplicate the identical "Caveats:" paragraph).
         if score < CRITIQUE_THRESHOLDS["temporal_coherence"]:
-            update["final_reply"] = _final_with_caveats(
-                state.final_reply or "", ["temporal_coherence"]
-            )
+            existing = state.final_reply or ""
+            if "Caveats:" not in existing:
+                update["final_reply"] = _final_with_caveats(existing, ["temporal_coherence"])
         return update
 
     def route_after_plan(state: ItineraryState) -> Literal["act", "critique"]:
