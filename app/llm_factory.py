@@ -38,9 +38,10 @@ SUPPORTED_PROVIDERS: tuple[str, ...] = ("openai", "gemini", "deepseek", "kimi")
 #   400 "invalid temperature: only 0.6 is allowed for this model"
 _KIMI_FORCED_TEMPERATURE: dict[str, float] = {"kimi-k2.6": 0.6}
 
-# Gemini models that ONLY work in thinking mode — thinking_budget=0 yields
-#   400 "Budget 0 is invalid. This model only works in thinking mode".
-# These keep thinking ON (no thinking_budget kwarg sent).
+# Gemini models with a hard reasoning floor — both thinking_budget=0 and
+# thinking_level="minimal" yield 400 ("Budget 0 is invalid. This model only
+# works in thinking mode"). thinking_level="low" IS accepted and minimizes
+# reasoning depth, so these participate at minimized (not off) reasoning.
 _GEMINI_THINKING_ONLY: frozenset[str] = frozenset({"gemini-3.1-pro-preview"})
 
 
@@ -54,7 +55,9 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
         return ChatOpenAI(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)
     if provider == "gemini":
         gemini_kwargs: dict[str, object] = {}
-        if chat_model not in _GEMINI_THINKING_ONLY:
+        if chat_model in _GEMINI_THINKING_ONLY:
+            gemini_kwargs["thinking_level"] = "low"  # hard floor; minimize it
+        else:
             gemini_kwargs["thinking_budget"] = 0  # reasoning OFF where supported
         return ChatGoogleGenerativeAI(
             model=chat_model,

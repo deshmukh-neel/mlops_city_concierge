@@ -107,10 +107,11 @@ def test_gemini_flash_lite_disables_thinking(mocker, monkeypatch) -> None:
     assert kwargs["thinking_budget"] == 0
 
 
-def test_gemini_pro_preview_keeps_thinking(mocker, monkeypatch) -> None:
+def test_gemini_pro_preview_minimizes_thinking_via_level(mocker, monkeypatch) -> None:
     """HARD vendor constraint: gemini-3.1-pro-preview rejects thinking_budget=0
-    ('Budget 0 is invalid. This model only works in thinking mode'). The
-    factory must NOT send thinking_budget for thinking-only models."""
+    AND thinking_level='minimal' (both 400 — it has a hard reasoning floor).
+    thinking_level='low' IS accepted (verified live) and minimizes reasoning
+    depth, so pro-preview participates at minimized — not off — reasoning."""
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     from app.config import get_settings
 
@@ -120,4 +121,5 @@ def test_gemini_pro_preview_keeps_thinking(mocker, monkeypatch) -> None:
     build_chat_model("gemini", "gemini-3.1-pro-preview", temperature=1.0)
 
     _, kwargs = cls.call_args
+    assert kwargs.get("thinking_level") == "low"
     assert "thinking_budget" not in kwargs
