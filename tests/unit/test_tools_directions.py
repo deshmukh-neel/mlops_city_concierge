@@ -58,3 +58,13 @@ async def test_fallback_handles_three_stops() -> None:
     result = await route_legs([_A, _B, _A], mode="walk")
     assert result.source == "haversine_fallback"
     assert len(result.legs) == 2  # N-1 legs for N stops
+
+
+async def test_single_stop_returns_empty_legs() -> None:
+    """The <2-stops early return is a distinct path: empty legs, zero total,
+    fallback source — not a haversine computation."""
+    result = await route_legs([_A], mode="walk")
+    assert result.legs == []
+    assert result.total_duration_s == 0
+    assert result.source == "haversine_fallback"
+    assert result.mode == "walk"
