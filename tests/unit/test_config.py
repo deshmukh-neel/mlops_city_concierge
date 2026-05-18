@@ -76,3 +76,13 @@ def test_embedding_table_defaults_to_v2() -> None:
     development, and prod all retrieve against the same v2 corpus."""
     get_settings.cache_clear()
     assert get_settings().embedding_table == "place_embeddings_v2"
+
+
+def test_resolve_llm_api_key_supports_deepseek_and_kimi(monkeypatch) -> None:
+    from app.config import get_settings, resolve_llm_api_key
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-key")
+    monkeypatch.setenv("MOONSHOT_API_KEY", "ms-key")
+    get_settings.cache_clear()
+    assert resolve_llm_api_key("deepseek") == "ds-key"
+    assert resolve_llm_api_key("kimi") == "ms-key"
