@@ -9,18 +9,14 @@ resource "google_sql_database_instance" "main" {
   deletion_protection = true
 
   settings {
-    tier              = "db-perf-optimized-N-8"
-    edition           = "ENTERPRISE_PLUS"
+    tier              = "db-custom-2-8192"
+    edition           = "ENTERPRISE"
     availability_type = "ZONAL"
     activation_policy = "ALWAYS"
     pricing_plan      = "PER_USE"
     disk_type         = "PD_SSD"
     disk_size         = 100
     disk_autoresize   = false
-
-    data_cache_config {
-      data_cache_enabled = true
-    }
 
     database_flags {
       name  = "cloudsql.iam_authentication"
