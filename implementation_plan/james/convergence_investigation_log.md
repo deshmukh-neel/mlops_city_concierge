@@ -230,3 +230,27 @@ itinerary is acceptable and you want the "smart model" story. Avoid Kimi.
 
 Branch feature/agent-convergence-investigation: 4 commits (3 fixes + log),
 suite 469/0/39, mypy/ruff clean. Ready for PR/merge decision on waking.
+
+---
+## deepseek-v4-flash tested (user request) — NOT a winner
+
+deepseek-v4-flash 6x, all fixes: **2/6**, 28-50s/run.
+- Single-call latency 0.9s (vs v4-pro ~18-35s) suggested a speed win, but
+  the AGENT-LOOP wall time is ~40s/run (failing runs go full 8 steps —
+  latency ≈ steps×per-call, weak convergence ⇒ more steps ⇒ still slow).
+- Convergence 2/6: WORSE than gpt-4o-mini (6/6) and v4-pro (5/6). The
+  smaller/faster DeepSeek is a notably weaker instruction-follower for
+  this loop. Worst of the trade-off: ~gpt-4o-mini speed, far worse
+  convergence. Does NOT solve the demo-latency problem.
+
+## UPDATED FINAL MATRIX (all fixes, 6 runs each)
+| model | convergence | latency/run | demo verdict |
+|---|---|---|---|
+| gpt-4o-mini | **6/6** | 31-59s | ✅ BEST — reliable + fast |
+| deepseek-v4-pro | 5/6 | 57-164s | ✅ quality pick, slow |
+| deepseek-v4-flash | 2/6 | 28-50s | ❌ weak converger, no speed gain |
+| kimi-k2.6 | 2/6 | 25-48s | ❌ instruction-following defect |
+
+**Recommendation stands: demo with gpt-4o-mini.** It is, empirically, both
+the most reliable AND among the fastest. v4-pro is the only viable
+"smart model" alt (5/6) but ~2-3x slower. v4-flash and kimi are out.
