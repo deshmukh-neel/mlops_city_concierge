@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.config import resolve_database_url
+from app.config import get_settings, resolve_database_url
 
 
 def test_resolve_database_url_prefers_explicit_database_url() -> None:
@@ -60,3 +60,10 @@ def test_resolve_database_url_builds_cloud_sql_socket_url() -> None:
         resolve_database_url(env)
         == "postgresql://postgres:secret@/city_concierge?host=%2Fcloudsql%2Fproject%3Aregion%3Ainstance"
     )
+
+
+def test_google_directions_api_key_defaults_empty() -> None:
+    """Empty key is the first-class 'use haversine fallback' signal — unit
+    tests must get '' by default so the no-key branch is exercised for free."""
+    get_settings.cache_clear()
+    assert get_settings().google_directions_api_key == ""
