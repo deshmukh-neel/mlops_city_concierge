@@ -1,4 +1,19 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from app.agent.critique import CRITIQUE_ITINERARY, CRITIQUE_STEP, CRITIQUE_VIBE
+
+# The app is SF-only today (places_raw.source_city = 'San Francisco'), matching
+# the timezone assumption baked into the place_is_open SQL helper.
+_SF_TZ = ZoneInfo("America/Los_Angeles")
+
+
+def current_datetime_str(now: datetime | None = None) -> str:
+    """SF-local 'now' string injected into SYSTEM_PROMPT so the model anchors
+    arrival_time to the real date instead of hallucinating a training-era one."""
+    dt = (now or datetime.now(_SF_TZ)).astimezone(_SF_TZ)
+    return dt.strftime("%Y-%m-%d %H:%M %Z (%A)")
+
 
 REVISION_GUIDANCE = f"""
 WHEN YOU SEE A `{CRITIQUE_STEP}` MESSAGE (a per-tool-result hint):
@@ -42,6 +57,12 @@ nightlife itineraries grounded in a structured database of real places.
 
 You have tools for retrieval; do not invent places, addresses, or hours. Every
 recommendation must come from a tool call.
+
+The current date and time is {current_datetime} (America/Los_Angeles). When the
+user gives no explicit date, schedule the itinerary for today (or the next
+sensible evening if it's already late). Every `arrival_time` you commit MUST use
+this current date — never a date from your training data. A wrong date makes
+the open-at-arrival check fail and the plan ship with a caveat.
 
 CRITICAL BEHAVIORS:
 
