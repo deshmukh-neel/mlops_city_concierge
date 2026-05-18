@@ -11,6 +11,7 @@ from app.tools.retrieval import (
     _VIEW_FOR_TABLE,
     PlaceDetails,
     PlaceHit,
+    _view_name,
     get_details,
     get_details_many,
     nearby,
@@ -118,8 +119,9 @@ def test_semantic_search_builds_expected_sql_with_no_filters(patch_get_conn, moc
     hits = semantic_search("croissants", k=5)
 
     # business_status default OPERATIONAL + min_user_rating_count default 50
-    # are both present unless explicitly disabled.
-    assert "FROM place_documents" in cursor.executed_sql
+    # are both present unless explicitly disabled. Assert the *configured*
+    # view (default-independent: v1 or v2 depending on EMBEDDING_TABLE).
+    assert f"FROM {_view_name()}" in cursor.executed_sql
     assert "ORDER BY embedding <=> %s::vector" in cursor.executed_sql
     assert "embedding_model = %s" in cursor.executed_sql
     assert "business_status = %s" in cursor.executed_sql
@@ -186,8 +188,8 @@ def test_nearby_excludes_anchor_and_filters_distance(patch_get_conn) -> None:
     sql = cursor.executed_sql
     # Anchor reads from places_raw (P15).
     assert "FROM places_raw" in sql
-    # Candidate query reads from the view.
-    assert "FROM place_documents pd" in sql
+    # Candidate query reads from the configured view (default-independent).
+    assert f"FROM {_view_name()} pd" in sql
     # Distance filtering moved to outer WHERE per CTE rewrite (Issue #8).
     assert "WHERE dist_m <= %s" in sql
     assert "ORDER BY dist_m ASC" in sql

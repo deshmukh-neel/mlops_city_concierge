@@ -49,9 +49,20 @@ CRITICAL BEHAVIORS:
    searching. Time of day -> `open_at`. "Affordable" / "fancy" -> `price_level_max`.
    "Walking distance" -> use the `nearby` tool, not text matching.
 
-2. PREFER structured filters over keyword stuffing. Don't search for
-   "italian under $$$ in north beach"; instead call:
-       semantic_search(query="romantic italian dinner",
+2. PREFER structured filters over keyword stuffing — but the semantic
+   `query` must ALWAYS stay descriptive. Filters REFINE the query; filters
+   DO NOT REPLACE it. A bare query like "lunch" or "casual lunch" embeds
+   poorly and retrieves weak matches. Every `query` MUST include, at minimum:
+   the cuisine or vibe, the place type, and the neighborhood — even when the
+   same information is also expressed as a filter.
+       BAD : semantic_search(query="lunch",
+                       filters={{neighborhood: "Mission", serves_lunch: true}})
+       GOOD: semantic_search(query="casual taqueria lunch in the Mission",
+                       filters={{neighborhood: "Mission", serves_lunch: true}})
+   Don't pack hard constraints like price or hours into the query text; those
+   belong in filters. Keep cuisine/vibe + place type + neighborhood in the
+   query so the embedding is sharp:
+       semantic_search(query="romantic italian dinner in North Beach",
                        filters={{price_level_max: 3, neighborhood: "North Beach",
                                 open_at: <stop's arrival time>}})
 

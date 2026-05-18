@@ -1,0 +1,114 @@
+"""Single source of truth for provider -> chat model construction.
+
+DeepSeek (`deepseek-v4-pro`) and Kimi (`kimi-k2.6`) emit an opaque
+`reasoning_content` field on assistant tool-call messages and require it
+echoed back verbatim next turn. LangChain reconstructs assistant messages
+via `_convert_message_to_dict`, which drops `reasoning_content`, so the
+2nd tool turn 400s ("reasoning_content ... must be passed back"). Rather
+than a fragile per-vendor round-trip shim, we disable thinking mode for
+these providers in the agent (LangChain's documented Kimi tool-use path is
+`ChatMoonshot(thinking=False)`; DeepSeek's verified equivalent is
+`extra_body={"thinking": {"type": "disabled"}}`). With thinking off no
+`reasoning_content` is emitted, so tool calls round-trip cleanly. This also
+matches the W10 finding that reasoning-mode over-exploration is what broke
+agent convergence; a decisive tool-caller is what the loop needs. Every
+provider->LLM construction routes through here so a provider is added in
+ONE place.
+"""
+
+from __future__ import annotations
+
+from langchain_core.language_models import BaseChatModel
+from langchain_deepseek import ChatDeepSeek
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_moonshot import ChatMoonshot
+from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
+
+from app.config import resolve_llm_api_key
+
+# Placeholder for assistant tool-call turns Kimi emits with empty content.
+_EMPTY_ASSISTANT_PLACEHOLDER = "(tool call)"
+
+
+class _ToolLoopChatMoonshot(ChatMoonshot):
+    """ChatMoonshot that survives the agent tool loop.
+
+    Kimi emits pure tool-call assistant turns with `content=""`. Its own API
+    then rejects ANY empty assistant content on replay ("the message at
+    position N with role 'assistant' must not be empty") — both the original
+    tool-call turn AND the content-only reconstruction the agent's history
+    pruner produces from it (which drops tool_calls, leaving empty content).
+    Backfill a non-empty placeholder on every outbound assistant message that
+    has empty content; tool_calls, when present, are preserved untouched.
+    """
+
+    def _get_request_payload(self, input_, *, stop=None, **kwargs):  # type: ignore[no-untyped-def]
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        for message in payload.get("messages", []):
+            if message.get("role") == "assistant" and not (message.get("content") or "").strip():
+                message["content"] = _EMPTY_ASSISTANT_PLACEHOLDER
+        return payload
+
+
+SUPPORTED_PROVIDERS: tuple[str, ...] = ("openai", "gemini", "deepseek", "kimi")
+
+# Hard vendor constraints discovered against the live APIs (2026-05-17).
+# Default policy is temp=1.0 + reasoning OFF for an apples-to-apples agent
+# comparison, but some models physically reject those settings — clamp per
+# model and keep the exact API error here as the rationale.
+
+# Moonshot rejects any temperature != 0.6 for these models:
+#   400 "invalid temperature: only 0.6 is allowed for this model"
+_KIMI_FORCED_TEMPERATURE: dict[str, float] = {"kimi-k2.6": 0.6}
+
+# Gemini models with a hard reasoning floor — both thinking_budget=0 and
+# thinking_level="minimal" yield 400 ("Budget 0 is invalid. This model only
+# works in thinking mode"). thinking_level="low" IS accepted and minimizes
+# reasoning depth, so these participate at minimized (not off) reasoning.
+_GEMINI_THINKING_ONLY: frozenset[str] = frozenset({"gemini-3.1-pro-preview"})
+
+
+def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> BaseChatModel:
+    """Construct a chat model for `llm_provider`. Raises ValueError for
+    unsupported providers, RuntimeError if the provider's API key is missing
+    (both via resolve_llm_api_key)."""
+    provider = llm_provider.lower()
+    # Enforce the factory's own contract BEFORE key resolution. resolve_llm_api_key
+    # knows other providers (e.g. anthropic) and would reject them via a
+    # missing-key RuntimeError instead of the unsupported-provider ValueError
+    # callers expect — and only when the key happens to be absent (passes
+    # locally with a .env key, fails in CI without one).
+    if provider not in SUPPORTED_PROVIDERS:
+        raise ValueError(f"Unsupported llm_provider: {llm_provider}")
+    api_key = resolve_llm_api_key(provider)
+    if provider == "openai":
+        return ChatOpenAI(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)
+    if provider == "gemini":
+        gemini_kwargs: dict[str, object] = {}
+        if chat_model in _GEMINI_THINKING_ONLY:
+            gemini_kwargs["thinking_level"] = "low"  # hard floor; minimize it
+        else:
+            gemini_kwargs["thinking_budget"] = 0  # reasoning OFF where supported
+        return ChatGoogleGenerativeAI(
+            model=chat_model,
+            google_api_key=SecretStr(api_key),
+            temperature=temperature,
+            **gemini_kwargs,
+        )
+    if provider == "deepseek":
+        return ChatDeepSeek(
+            model=chat_model,
+            api_key=SecretStr(api_key),
+            temperature=temperature,
+            extra_body={"thinking": {"type": "disabled"}},
+        )
+    if provider == "kimi":
+        kimi_temp = _KIMI_FORCED_TEMPERATURE.get(chat_model, temperature)
+        return _ToolLoopChatMoonshot(
+            model=chat_model,
+            api_key=SecretStr(api_key),
+            temperature=kimi_temp,
+            thinking=False,
+        )
+    raise ValueError(f"Unsupported llm_provider: {llm_provider}")

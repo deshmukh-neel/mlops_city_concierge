@@ -99,14 +99,21 @@ class LoadedConfig:
 def parse_active_model_config(
     params: dict[str, str], run_id: str, model_version: str
 ) -> ActiveModelConfig:
+    import os
+
+    from app.llm_factory import SUPPORTED_PROVIDERS
+
     settings = get_settings()
     llm_provider = (params.get("llm_provider") or "openai").lower()
+    if llm_provider not in SUPPORTED_PROVIDERS:
+        raise ValueError(f"Unsupported llm_provider: {llm_provider}")
     if llm_provider == "openai":
         default_chat_model = settings.openai_chat_model
     elif llm_provider == "gemini":
         default_chat_model = settings.gemini_chat_model
     else:
-        raise ValueError(f"Unsupported llm_provider: {llm_provider}")
+        env_var = {"deepseek": "DEEPSEEK_MODEL", "kimi": "MOONSHOT_MODEL"}[llm_provider]
+        default_chat_model = os.getenv(env_var, "")
 
     return ActiveModelConfig(
         llm_provider=llm_provider,

@@ -53,6 +53,25 @@ def test_system_prompt_contains_relation_type_guidance() -> None:
     assert "contained_in" in s
 
 
+def test_system_prompt_requires_rich_semantic_query() -> None:
+    """SYSTEM_PROMPT must teach a minimum semantic-query richness and that
+    structured filters REFINE the query rather than REPLACE it.
+
+    Root cause (W10): Gemini 3 stripped `query` to bare keywords ('lunch')
+    while max-stuffing filters, tanking cosine similarity to ~0.28-0.35 and
+    never converging — while gpt-4o-mini wrote richer queries and committed
+    6/6. The fix is an explicit query-construction contract: the semantic
+    query must always carry cuisine/vibe + place-type + neighborhood, and
+    filters must not be treated as a substitute for query content.
+    """
+    s = SYSTEM_PROMPT.lower()
+    # The query must never be a bare keyword — it must carry semantic content.
+    assert "filters refine" in s or "filters do not replace" in s
+    # Concrete minimum-content guidance the model can follow.
+    assert "cuisine" in s
+    assert "neighborhood" in s and "place type" in s
+
+
 def test_clarifying_stops_template_is_a_static_string() -> None:
     assert isinstance(CLARIFYING_STOPS_COUNT_TEMPLATE, str)
     assert "stops" in CLARIFYING_STOPS_COUNT_TEMPLATE
