@@ -58,8 +58,8 @@ def _haversine_fallback(stops: list[tuple[float, float]], mode: str) -> Directio
 
 
 def _parse_duration_s(raw: str) -> int:
-    # Routes API returns protobuf Duration strings like "780s".
-    return int(raw.rstrip("s"))
+    # Routes API returns protobuf Duration strings like "780s" (integer seconds).
+    return int(raw.removesuffix("s"))
 
 
 def _result_from_legs(legs: list[DirectionsLeg], mode: str) -> DirectionsResult:
@@ -100,7 +100,9 @@ async def _request_legs(
         },
     )
     resp.raise_for_status()
-    routes = resp.json()["routes"]
+    routes = resp.json().get("routes", [])
+    if not routes:
+        raise ValueError("Routes API returned no routes")
     raw_legs = routes[0]["legs"]
     return [
         DirectionsLeg(
@@ -137,6 +139,8 @@ async def route_legs(
             # Routes API TRANSIT/DRIVE + intermediates is unreliable
             # (mirrors the W8b RouteOverlay per-leg fix). Route each leg
             # point-to-point and stitch.
+            # If any sub-leg fails, the whole result degrades to haversine
+            # (all-or-nothing — keeps the "never raises" contract simple).
             legs: list[DirectionsLeg] = []
             async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
                 for a, b in zip(stops[:-1], stops[1:], strict=False):

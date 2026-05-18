@@ -89,21 +89,18 @@ def _ok_response(legs: list[dict]) -> httpx.Response:
 
 async def test_route_legs_walk_parses_legs(monkeypatch, mocker) -> None:
     _key(monkeypatch)
-    mocker.patch(
-        "httpx.AsyncClient.post",
-        mocker.AsyncMock(
-            return_value=_ok_response(
-                [
-                    {"duration": "780s", "distanceMeters": 1040},
-                ]
-            )
-        ),
+    post = mocker.AsyncMock(
+        return_value=_ok_response([{"duration": "780s", "distanceMeters": 1040}])
     )
+    mocker.patch("httpx.AsyncClient.post", post)
     result = await route_legs([_A, _B], mode="walk")
     assert result.source == "google"
     assert result.mode == "walk"
     assert result.legs == [DirectionsLeg(duration_s=780, distance_m=1040.0)]
     assert result.total_duration_s == 780
+    headers = post.call_args.kwargs["headers"]
+    assert headers["X-Goog-FieldMask"] == "routes.legs.duration,routes.legs.distanceMeters"
+    assert headers["X-Goog-Api-Key"] == "test-directions-key"
 
 
 async def test_route_legs_transit_maps_travelmode(monkeypatch, mocker) -> None:
@@ -195,6 +192,24 @@ async def test_malformed_body_falls_back(monkeypatch, mocker) -> None:
             return_value=httpx.Response(
                 200,
                 json={"no_routes": True},
+                request=httpx.Request("POST", "https://x"),
+            )
+        ),
+    )
+    result = await route_legs([_A, _B], mode="walk")
+    assert result.source == "haversine_fallback"
+
+
+async def test_empty_routes_list_falls_back(monkeypatch, mocker) -> None:
+    """Routes API returns {"routes": []} (HTTP 200) for an unroutable pair —
+    must degrade to haversine, NOT raise IndexError out of route_legs."""
+    _key(monkeypatch)
+    mocker.patch(
+        "httpx.AsyncClient.post",
+        mocker.AsyncMock(
+            return_value=httpx.Response(
+                200,
+                json={"routes": []},
                 request=httpx.Request("POST", "https://x"),
             )
         ),
