@@ -27,6 +27,30 @@ from pydantic import SecretStr
 
 from app.config import resolve_llm_api_key
 
+# Placeholder for assistant tool-call turns Kimi emits with empty content.
+_EMPTY_ASSISTANT_PLACEHOLDER = "(tool call)"
+
+
+class _ToolLoopChatMoonshot(ChatMoonshot):
+    """ChatMoonshot that survives the agent tool loop.
+
+    Kimi emits pure tool-call assistant turns with `content=""`. Its own API
+    then rejects ANY empty assistant content on replay ("the message at
+    position N with role 'assistant' must not be empty") — both the original
+    tool-call turn AND the content-only reconstruction the agent's history
+    pruner produces from it (which drops tool_calls, leaving empty content).
+    Backfill a non-empty placeholder on every outbound assistant message that
+    has empty content; tool_calls, when present, are preserved untouched.
+    """
+
+    def _get_request_payload(self, input_, *, stop=None, **kwargs):  # type: ignore[no-untyped-def]
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        for message in payload.get("messages", []):
+            if message.get("role") == "assistant" and not (message.get("content") or "").strip():
+                message["content"] = _EMPTY_ASSISTANT_PLACEHOLDER
+        return payload
+
+
 SUPPORTED_PROVIDERS: tuple[str, ...] = ("openai", "gemini", "deepseek", "kimi")
 
 # Hard vendor constraints discovered against the live APIs (2026-05-17).
@@ -74,7 +98,7 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
         )
     if provider == "kimi":
         kimi_temp = _KIMI_FORCED_TEMPERATURE.get(chat_model, temperature)
-        return ChatMoonshot(
+        return _ToolLoopChatMoonshot(
             model=chat_model,
             api_key=SecretStr(api_key),
             temperature=kimi_temp,

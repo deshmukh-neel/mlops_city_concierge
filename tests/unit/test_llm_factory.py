@@ -11,7 +11,7 @@ from app.llm_factory import SUPPORTED_PROVIDERS, build_chat_model
         ("openai", "app.llm_factory.ChatOpenAI"),
         ("gemini", "app.llm_factory.ChatGoogleGenerativeAI"),
         ("deepseek", "app.llm_factory.ChatDeepSeek"),
-        ("kimi", "app.llm_factory.ChatMoonshot"),
+        ("kimi", "app.llm_factory._ToolLoopChatMoonshot"),
     ],
 )
 def test_build_chat_model_dispatches_per_provider(
@@ -68,7 +68,7 @@ def test_kimi_disables_thinking_for_tool_calls(mocker, monkeypatch) -> None:
     from app.config import get_settings
 
     get_settings.cache_clear()
-    cls = mocker.patch("app.llm_factory.ChatMoonshot", return_value="kimi")
+    cls = mocker.patch("app.llm_factory._ToolLoopChatMoonshot", return_value="kimi")
 
     build_chat_model("kimi", "kimi-k2.6", temperature=1.0)
 
@@ -84,7 +84,7 @@ def test_kimi_k2_6_temperature_clamped_to_0_6(mocker, monkeypatch) -> None:
     from app.config import get_settings
 
     get_settings.cache_clear()
-    cls = mocker.patch("app.llm_factory.ChatMoonshot", return_value="kimi")
+    cls = mocker.patch("app.llm_factory._ToolLoopChatMoonshot", return_value="kimi")
 
     build_chat_model("kimi", "kimi-k2.6", temperature=1.0)
 
@@ -123,3 +123,50 @@ def test_gemini_pro_preview_minimizes_thinking_via_level(mocker, monkeypatch) ->
     _, kwargs = cls.call_args
     assert kwargs.get("thinking_level") == "low"
     assert "thinking_budget" not in kwargs
+
+
+def test_kimi_empty_assistant_content_gets_placeholder(monkeypatch) -> None:
+    """Kimi emits pure tool-call turns with content='' but its own API then
+    rejects empty assistant content on replay ('message at position N with
+    role assistant must not be empty'). The factory's ChatMoonshot subclass
+    must rewrite empty assistant content to a non-empty placeholder in the
+    outbound payload (tool_calls preserved)."""
+    monkeypatch.setenv("MOONSHOT_API_KEY", "k")
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    llm = build_chat_model("kimi", "kimi-k2.6", temperature=1.0)
+
+    empty_tool_call_ai = AIMessage(
+        content="",
+        tool_calls=[{"name": "search", "args": {"q": "x"}, "id": "c1", "type": "tool_call"}],
+    )
+    payload = llm._get_request_payload([HumanMessage(content="hi"), empty_tool_call_ai], stop=None)
+    assistant = [m for m in payload["messages"] if m.get("role") == "assistant"]
+    assert assistant, "expected an assistant message in the payload"
+    assert assistant[0]["content"], "empty assistant content must be replaced"
+    assert assistant[0]["tool_calls"], "tool_calls must be preserved"
+
+
+def test_kimi_empty_content_only_assistant_gets_placeholder(monkeypatch) -> None:
+    """The real agent failure: _prune_for_llm reconstructs Kimi's empty
+    tool-call turns as content-only AIMessages (tool_calls dropped, content
+    still ''). Kimi rejects THAT too. Empty assistant content must be
+    backfilled even when there are no tool_calls."""
+    monkeypatch.setenv("MOONSHOT_API_KEY", "k")
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    llm = build_chat_model("kimi", "kimi-k2.6", temperature=1.0)
+
+    empty_content_only_ai = AIMessage(content="")
+    payload = llm._get_request_payload(
+        [HumanMessage(content="hi"), empty_content_only_ai], stop=None
+    )
+    assistant = [m for m in payload["messages"] if m.get("role") == "assistant"]
+    assert assistant, "expected an assistant message in the payload"
+    assert assistant[0]["content"], "empty content-only assistant must be replaced"
