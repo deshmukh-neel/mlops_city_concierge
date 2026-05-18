@@ -1,13 +1,19 @@
 """Single source of truth for provider -> chat model construction.
 
-Reasoning models (DeepSeek, Kimi/Moonshot, Gemini) emit opaque reasoning
-state with each tool call and require it replayed in history next turn.
-`langchain_openai.ChatOpenAI` deliberately does NOT round-trip the
-non-standard `reasoning_content` field (its docstring directs you to
-provider-specific packages), so OpenAI-compatible reasoning models 400 on
-the second tool turn. We therefore use the provider-specific LangChain
-classes, which preserve reasoning state. Every provider->LLM construction
-in the codebase routes through here so a provider is added in ONE place.
+DeepSeek (`deepseek-v4-pro`) and Kimi (`kimi-k2.6`) emit an opaque
+`reasoning_content` field on assistant tool-call messages and require it
+echoed back verbatim next turn. LangChain reconstructs assistant messages
+via `_convert_message_to_dict`, which drops `reasoning_content`, so the
+2nd tool turn 400s ("reasoning_content ... must be passed back"). Rather
+than a fragile per-vendor round-trip shim, we disable thinking mode for
+these providers in the agent (LangChain's documented Kimi tool-use path is
+`ChatMoonshot(thinking=False)`; DeepSeek's verified equivalent is
+`extra_body={"thinking": {"type": "disabled"}}`). With thinking off no
+`reasoning_content` is emitted, so tool calls round-trip cleanly. This also
+matches the W10 finding that reasoning-mode over-exploration is what broke
+agent convergence; a decisive tool-caller is what the loop needs. Every
+provider->LLM construction routes through here so a provider is added in
+ONE place.
 """
 
 from __future__ import annotations
@@ -37,9 +43,20 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
             model=chat_model,
             google_api_key=SecretStr(api_key),
             temperature=temperature,
+            thinking_budget=0,
         )
     if provider == "deepseek":
-        return ChatDeepSeek(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)
+        return ChatDeepSeek(
+            model=chat_model,
+            api_key=SecretStr(api_key),
+            temperature=temperature,
+            extra_body={"thinking": {"type": "disabled"}},
+        )
     if provider == "kimi":
-        return ChatMoonshot(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)
+        return ChatMoonshot(
+            model=chat_model,
+            api_key=SecretStr(api_key),
+            temperature=temperature,
+            thinking=False,
+        )
     raise ValueError(f"Unsupported llm_provider: {llm_provider}")
