@@ -9,8 +9,13 @@ not need to know about — it just sets `open_at`.
 from __future__ import annotations
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator
+
+# The concierge is San Francisco-only; a naive open_at unambiguously means
+# SF local time.
+_CITY_TZ = ZoneInfo("America/Los_Angeles")
 
 
 class SearchFilters(BaseModel):
@@ -91,13 +96,15 @@ class SearchFilters(BaseModel):
 
     @field_validator("open_at")
     @classmethod
-    def _require_tz_aware(cls, v: datetime | None) -> datetime | None:
-        # Naive datetimes get interpreted in Postgres's session timezone, which
-        # silently produces wrong DOW/hour answers across DST boundaries.
+    def _ensure_tz_aware(cls, v: datetime | None) -> datetime | None:
+        # A naive datetime would be interpreted in Postgres's session timezone,
+        # silently producing wrong DOW/hour answers across DST boundaries.
+        # Hard-rejecting it derailed models that omit the offset (a very common
+        # LLM mistake — it broke gpt-4o-mini on its first tool call). The app
+        # is SF-only, so a naive time unambiguously means SF local: attach the
+        # city tz instead of rejecting. Same correctness, no derailment.
         if v is not None and v.tzinfo is None:
-            raise ValueError(
-                "open_at must be timezone-aware (e.g. ZoneInfo('America/Los_Angeles'))."
-            )
+            return v.replace(tzinfo=_CITY_TZ)
         return v
 
 

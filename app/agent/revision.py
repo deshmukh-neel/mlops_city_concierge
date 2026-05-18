@@ -107,15 +107,23 @@ def _diagnose_one(tool_name: str, entry: dict[str, Any]) -> RevisionHint | None:
                 suggested_action="broaden_query",
                 target={"filter": "business_status"},
             )
-        top = result[0]
-        sim = getattr(top, "similarity", 0.0) or 0.0
-        if sim < LOW_SIMILARITY_THRESHOLD:
-            return RevisionHint(
-                reason="low_similarity",
-                detail=f"Top similarity {sim:.2f} below threshold {LOW_SIMILARITY_THRESHOLD}.",
-                suggested_action="broaden_query",
-                target={"query": args.get("query")},
-            )
+        # low_similarity only makes sense for the vector tool. `nearby`,
+        # `kg_traverse` and `get_details` return similarity=0.0 BY DESIGN
+        # (geographic / graph / lookup — no cosine score), so flagging them
+        # emitted a bogus "Top similarity 0.00, broaden_query" critique that
+        # derailed models following the prompt's anchored-`nearby` pattern.
+        if tool_name == "semantic_search":
+            top = result[0]
+            sim = getattr(top, "similarity", 0.0) or 0.0
+            if sim < LOW_SIMILARITY_THRESHOLD:
+                return RevisionHint(
+                    reason="low_similarity",
+                    detail=(
+                        f"Top similarity {sim:.2f} below threshold {LOW_SIMILARITY_THRESHOLD}."
+                    ),
+                    suggested_action="broaden_query",
+                    target={"query": args.get("query")},
+                )
     return None
 
 

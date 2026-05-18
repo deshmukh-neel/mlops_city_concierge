@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from app.tools.filters import SearchFilters, compile_filters
 
 
@@ -113,9 +111,17 @@ def test_unset_boolean_filters_emit_no_clause() -> None:
         assert f"{col} =" not in where
 
 
-def test_open_at_rejects_naive_datetime() -> None:
-    with pytest.raises(ValueError, match="timezone-aware"):
-        SearchFilters(open_at=datetime(2026, 4, 26, 19, 30))
+def test_open_at_coerces_naive_datetime_to_sf_tz() -> None:
+    """A naive open_at must NOT hard-reject (it derailed gpt-4o-mini on its
+    first tool call — models frequently omit the offset). The app is SF-only,
+    so a naive time unambiguously means SF local; coerce it to
+    America/Los_Angeles. Still satisfies the original correctness goal (no
+    ambiguous Postgres-session-tz interpretation across DST)."""
+    f = SearchFilters(open_at=datetime(2026, 4, 26, 19, 30))
+    assert f.open_at is not None
+    assert f.open_at.tzinfo == ZoneInfo("America/Los_Angeles")
+    # wall-clock preserved (interpreted AS SF local, not converted)
+    assert (f.open_at.hour, f.open_at.minute) == (19, 30)
 
 
 def test_open_at_accepts_tz_aware_datetime() -> None:

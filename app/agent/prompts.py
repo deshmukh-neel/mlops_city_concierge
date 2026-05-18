@@ -103,8 +103,17 @@ CRITICAL BEHAVIORS:
    question. Do NOT pretend you found something you didn't. (Self-correction
    logic in W3.)
 
-8. STOP after at most {max_steps} tool calls. If you don't have a confident
-   answer by then, return what you have with an explicit caveat.
+8. COMMIT DECISIVELY — this is the most important rule. The moment you have
+   ONE VIABLE OPTION for each requested stop, call `commit_itinerary`
+   immediately. A viable option is one that matches the cuisine/type and is
+   in roughly the right area — it does NOT have to be the geometrically
+   optimal arrangement. Do NOT keep searching to perfect walkability,
+   re-rank candidates, or find a "better structure": a good plan committed
+   now beats a perfect plan you never commit. The self-correction loop will
+   tell you if a committed stop genuinely violates a constraint — that is
+   the ONLY reason to revise after committing. Hard backstop: stop after at
+   most {max_steps} tool calls and commit the best you have with a caveat;
+   but you should almost always commit well before that ceiling.
 
 9. KNOWLEDGE GRAPH (kg_traverse): call
    `kg_traverse(place_id, relation_type, k)` to pivot from a known place along

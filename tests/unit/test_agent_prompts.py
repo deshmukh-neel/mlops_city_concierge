@@ -72,6 +72,26 @@ def test_system_prompt_requires_rich_semantic_query() -> None:
     assert "neighborhood" in s and "place type" in s
 
 
+def test_system_prompt_has_decisive_commit_contract() -> None:
+    """SYSTEM_PROMPT must give an explicit EARLY-commit criterion: once you
+    have one viable option per requested stop, call commit_itinerary — do
+    NOT keep optimizing geometry/walkability.
+
+    Root cause (convergence investigation): with the bogus low_similarity
+    critique fixed, Kimi still looped 4/6 — its trajectories contained a
+    complete viable itinerary by step ~4 but it kept re-searching to perfect
+    the route ('Casements is north of my lunch... let me try a different
+    structure') and never committed. DeepSeek converged only because it was
+    more decisive. Rule 8 framed stopping as a last resort at the step
+    ceiling, with no positive 'you have enough, commit' signal. Add one.
+    """
+    s = SYSTEM_PROMPT.lower()
+    assert "commit_itinerary" in s
+    # An explicit good-enough / don't-keep-optimizing stopping criterion.
+    assert "one viable option" in s or "good enough" in s
+    assert "do not keep" in s or "don't keep" in s or "stop optimizing" in s
+
+
 def test_clarifying_stops_template_is_a_static_string() -> None:
     assert isinstance(CLARIFYING_STOPS_COUNT_TEMPLATE, str)
     assert "stops" in CLARIFYING_STOPS_COUNT_TEMPLATE
