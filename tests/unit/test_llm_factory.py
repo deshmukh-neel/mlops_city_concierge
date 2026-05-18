@@ -76,10 +76,41 @@ def test_kimi_disables_thinking_for_tool_calls(mocker, monkeypatch) -> None:
     assert kwargs["thinking"] is False
 
 
-def test_gemini_disables_thinking(mocker, monkeypatch) -> None:
-    """All providers run with reasoning OFF for an apples-to-apples agent
-    comparison; reasoning-mode over-exploration breaks the tool loop.
-    Gemini 2.5+ disables thinking via thinking_budget=0."""
+def test_kimi_k2_6_temperature_clamped_to_0_6(mocker, monkeypatch) -> None:
+    """HARD vendor constraint: the Moonshot API rejects any temperature other
+    than 0.6 for kimi-k2.6 ('invalid temperature: only 0.6 is allowed for
+    this model'). Clamp it regardless of the requested temperature."""
+    monkeypatch.setenv("MOONSHOT_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    cls = mocker.patch("app.llm_factory.ChatMoonshot", return_value="kimi")
+
+    build_chat_model("kimi", "kimi-k2.6", temperature=1.0)
+
+    _, kwargs = cls.call_args
+    assert kwargs["temperature"] == 0.6
+
+
+def test_gemini_flash_lite_disables_thinking(mocker, monkeypatch) -> None:
+    """Gemini models that support it run reasoning OFF (thinking_budget=0)
+    for the apples-to-apples agent comparison."""
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    cls = mocker.patch("app.llm_factory.ChatGoogleGenerativeAI", return_value="gem")
+
+    build_chat_model("gemini", "gemini-3.1-flash-lite-preview", temperature=1.0)
+
+    _, kwargs = cls.call_args
+    assert kwargs["thinking_budget"] == 0
+
+
+def test_gemini_pro_preview_keeps_thinking(mocker, monkeypatch) -> None:
+    """HARD vendor constraint: gemini-3.1-pro-preview rejects thinking_budget=0
+    ('Budget 0 is invalid. This model only works in thinking mode'). The
+    factory must NOT send thinking_budget for thinking-only models."""
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     from app.config import get_settings
 
@@ -89,4 +120,4 @@ def test_gemini_disables_thinking(mocker, monkeypatch) -> None:
     build_chat_model("gemini", "gemini-3.1-pro-preview", temperature=1.0)
 
     _, kwargs = cls.call_args
-    assert kwargs["thinking_budget"] == 0
+    assert "thinking_budget" not in kwargs
