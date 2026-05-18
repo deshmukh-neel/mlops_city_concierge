@@ -6,6 +6,10 @@
   --font-display: 'Playfair Display', serif; --font-body: 'DM Sans', sans-serif;
 }
 html, body, #root { height: 100%; overflow: hidden; font-family: var(--font-body); background: var(--cream); color: var(--charcoal); }
+:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }

@@ -34,19 +34,21 @@ const s = {
   clearBtn: {
     fontSize: '11px', color: 'var(--warm-gray)',
     background: 'none', border: '1px solid var(--border)',
-    padding: '4px 10px', borderRadius: '4px',
+    padding: '4px 12px', borderRadius: '4px', minHeight: '36px',
     cursor: 'pointer', transition: 'all .2s',
     fontFamily: 'var(--font-body)',
+    display: 'inline-flex', alignItems: 'center',
   },
   chips: {
     display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '12px',
   },
   chip: {
-    fontSize: '11px', padding: '5px 11px', borderRadius: '20px',
+    fontSize: '11px', padding: '5px 13px', borderRadius: '20px',
     border: '1px solid var(--border)', background: 'var(--cream)',
     cursor: 'pointer', color: 'var(--warm-gray)',
     transition: 'all .2s', whiteSpace: 'nowrap',
-    fontFamily: 'var(--font-body)',
+    fontFamily: 'var(--font-body)', minHeight: '36px',
+    display: 'inline-flex', alignItems: 'center',
   },
   messages: {
     flex: 1, overflowY: 'auto',
@@ -182,6 +184,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
           <textarea
             ref={textareaRef}
             style={s.textarea}
+            aria-label="Ask the SF concierge"
             placeholder="Ask anything about SF — neighborhoods, food, events…"
             value={input}
             onChange={handleInput}
@@ -191,6 +194,8 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
             onBlur={e => e.target.style.borderColor = 'var(--border)'}
           />
           <button
+            type="button"
+            aria-label="Send message"
             style={{ ...s.sendBtn, background: sendHovered ? 'var(--charcoal)' : 'var(--moss)' }}
             onClick={handleSend}
             disabled={isLoading}

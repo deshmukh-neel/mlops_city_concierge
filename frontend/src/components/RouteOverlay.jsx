@@ -37,8 +37,9 @@ const s = {
   toggle: { display: 'flex', gap: '2px', background: 'var(--cream-dark)', borderRadius: '7px', padding: '3px' },
   btn: {
     border: 'none', background: 'transparent', cursor: 'pointer',
-    padding: '5px 10px', borderRadius: '5px', fontSize: '12px',
+    padding: '5px 12px', borderRadius: '5px', fontSize: '12px',
     fontFamily: 'var(--font-body)', color: 'var(--warm-gray)',
+    minHeight: '36px', display: 'inline-flex', alignItems: 'center', gap: '4px',
   },
   btnActive: { background: 'var(--white)', color: 'var(--charcoal)', boxShadow: '0 1px 3px rgba(0,0,0,.1)' },
   total: { fontWeight: 600, color: 'var(--charcoal)', whiteSpace: 'nowrap' },

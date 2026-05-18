@@ -28,7 +28,7 @@ const s = {
     display: 'flex', alignItems: 'center', gap: '6px',
     padding: '6px 14px', borderRadius: '6px', border: 'none',
     fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500,
-    cursor: 'pointer', transition: 'all .2s',
+    cursor: 'pointer', transition: 'all .2s', minHeight: '36px',
     color: 'var(--warm-gray)', background: 'transparent',
   },
   toggleBtnActive: {
@@ -42,10 +42,11 @@ const s = {
   metaCount: { fontWeight: 500, color: 'var(--charcoal)' },
   filters: { display: 'flex', gap: '6px', alignItems: 'center' },
   filterPill: {
-    fontSize: '11px', padding: '4px 10px', borderRadius: '20px',
+    fontSize: '11px', padding: '4px 12px', borderRadius: '20px',
     border: '1px solid var(--border)', background: 'var(--white)',
     cursor: 'pointer', color: 'var(--warm-gray)',
     transition: 'all .2s', fontFamily: 'var(--font-body)',
+    minHeight: '36px', display: 'inline-flex', alignItems: 'center',
   },
   filterPillActive: {
     background: 'var(--charcoal)', color: 'var(--white)',
