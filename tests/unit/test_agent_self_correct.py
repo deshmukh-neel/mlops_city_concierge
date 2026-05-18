@@ -802,3 +802,24 @@ def test_make_judge_returns_none_without_creds(monkeypatch) -> None:
 class _NoCreds:
     openai_api_key = ""
     gemini_api_key = ""
+
+
+def test_make_judge_uses_factory_for_configured_provider(monkeypatch, mocker) -> None:
+    """make_judge delegates construction to the central llm_factory and
+    passes the env-configured provider + model at temperature 0.0."""
+    monkeypatch.setenv(vibe.JUDGE_PROVIDER_ENV_VAR, "deepseek")
+    monkeypatch.setenv(vibe.JUDGE_MODEL_ENV_VAR, "deepseek-chat")
+
+    class _HasDeepseek:
+        openai_api_key = ""
+        gemini_api_key = ""
+        deepseek_api_key = "ds-key"
+        moonshot_api_key = ""
+
+    monkeypatch.setattr("app.agent.critique.vibe.get_settings", lambda: _HasDeepseek())
+    factory = mocker.patch("app.agent.critique.vibe.build_chat_model", return_value="judge-llm")
+
+    out = vibe.make_judge()
+
+    assert out == "judge-llm"
+    factory.assert_called_once_with("deepseek", "deepseek-chat", temperature=0.0)

@@ -18,10 +18,10 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from pydantic import SecretStr
 
 from app.agent.state import ItineraryState
 from app.config import get_settings
+from app.llm_factory import build_chat_model
 
 _log = logging.getLogger(__name__)
 
@@ -100,28 +100,21 @@ def make_judge() -> BaseChatModel | None:
     model = os.getenv(JUDGE_MODEL_ENV_VAR, DEFAULT_JUDGE_MODEL)
     s = get_settings()
     try:
-        if provider == "openai":
-            if not s.openai_api_key:
-                _log.warning("vibe judge requested but OPENAI_API_KEY missing; skipping")
-                return None
-            from langchain_openai import ChatOpenAI
-
-            return ChatOpenAI(model=model, api_key=SecretStr(s.openai_api_key), temperature=0.0)
-        if provider == "gemini":
-            if not s.gemini_api_key:
-                _log.warning("vibe judge requested but GEMINI_API_KEY missing; skipping")
-                return None
-            from langchain_google_genai import ChatGoogleGenerativeAI
-
-            return ChatGoogleGenerativeAI(
-                model=model,
-                google_api_key=SecretStr(s.gemini_api_key),
-                temperature=0.0,
-            )
+        key_attr = {
+            "openai": "openai_api_key",
+            "gemini": "gemini_api_key",
+            "deepseek": "deepseek_api_key",
+            "kimi": "moonshot_api_key",
+        }.get(provider)
+        if key_attr is None:
+            _log.warning("unknown vibe judge provider %r; skipping", provider)
+            return None
+        if not getattr(s, key_attr, ""):
+            _log.warning("vibe judge requested but key for provider %r missing; skipping", provider)
+            return None
+        return build_chat_model(provider, model, temperature=0.0)
     except Exception as e:  # noqa: BLE001
         _log.warning(
             "vibe judge construction failed (provider=%s model=%s): %s", provider, model, e
         )
         return None
-    _log.warning("unknown vibe judge provider %r; skipping", provider)
-    return None
