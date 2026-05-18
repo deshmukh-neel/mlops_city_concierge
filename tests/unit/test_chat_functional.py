@@ -117,6 +117,11 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
 
     mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
+    # place_id "p1" doesn't exist in places_raw in the test environment; without
+    # this patch, a real DB pool (activated by load_dotenv in ingest_places_sf.py
+    # during full-suite collection) causes no_hallucinated_place_ids -> 0.0 ->
+    # revision loop -> scripted LLM exhausted.
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
 
     with TestClient(app) as client:
         response = client.post("/chat", json={"message": "cocktail bar in SF"})
