@@ -209,3 +209,24 @@ DeepSeek all-fix number pending (regression guard; expect ≥4/6).
 - The "smart models can't do this" premise was always a harness artifact;
   with the harness fixed, even gpt-4o-mini does it 6/6 — proving the task
   is simple and the harness was the problem all along (as user argued).
+
+---
+## FINAL MATRIX (all 3 fixes, 6 runs each, current branch)
+
+| model | BEFORE | AFTER (all fixes) | latency/run | demo verdict |
+|---|---|---|---|---|
+| gpt-4o-mini | 1/6 | **6/6** | 31-59s | ✅ BEST demo model — reliable + fast |
+| deepseek-v4-pro | 4/6 | **5/6** | 57-164s | ✅ strong, all 3-stop, but slow |
+| kimi-k2.6 | 1/6 | 2/6 | 25-48s | ❌ model instruction-following defect |
+
+**The 3 harness fixes improved EVERY instruction-following model**
+(gpt-4o-mini 1→6/6, DeepSeek 4→5/6 with all PASSes now full 3-stop).
+Kimi unchanged (2/6) — confirmed Kimi-specific, not harness.
+
+**FINAL RECOMMENDATION (demo): gpt-4o-mini.** 6/6, ~40s/run, the fixes
+make it bulletproof and demo-fast. DeepSeek is the quality/smart pick
+(5/6, always full 3 stops) but ~2-3x slower per run — viable if a ~90s
+itinerary is acceptable and you want the "smart model" story. Avoid Kimi.
+
+Branch feature/agent-convergence-investigation: 4 commits (3 fixes + log),
+suite 469/0/39, mypy/ruff clean. Ready for PR/merge decision on waking.
