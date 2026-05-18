@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     mlflow_artifacts_uri: str = "mlflow-artifacts://localhost:5000"
     mlflow_model_name: str = "city-concierge-rag"
     retriever_k: int = 5
-    embedding_table: str = "place_embeddings"
+    embedding_table: str = "place_embeddings_v2"
     db_pool_min_connections: int = 0
     db_pool_max_connections: int = 10
 
