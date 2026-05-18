@@ -521,6 +521,34 @@ async def test_critique_message_is_visible_to_plan(monkeypatch) -> None:
     assert "empty_results" in critique_msgs[0].content
 
 
+def test_nearby_zero_similarity_does_not_emit_low_similarity() -> None:
+    """ROOT-CAUSE REGRESSION: `nearby`/`kg_traverse`/`get_details` return
+    similarity=0.0 BY DESIGN (geographic/graph, not vector). The
+    low_similarity check must NOT fire for them — doing so injected a bogus
+    'broaden_query' critique that derailed models following the prompt's
+    anchored-nearby pattern (Kimi looped 0/8; DeepSeek only converged because
+    it happened to avoid `nearby`). low_similarity applies to semantic_search
+    only."""
+    from app.agent.revision import _diagnose_one
+
+    zero_sim_result = [make_hit(place_id="n1", similarity=0.0)]
+
+    # nearby with all-zero similarity (its normal output) → NO low_similarity
+    hint = _diagnose_one("nearby", {"args": {"place_id": "p1"}, "result": zero_sim_result})
+    assert hint is None, f"nearby must not emit low_similarity, got {hint!r}"
+
+    # get_details / kg_traverse likewise exempt
+    assert _diagnose_one("kg_traverse", {"args": {}, "result": zero_sim_result}) is None
+
+    # semantic_search with genuinely low similarity STILL flags (regression
+    # guard the opposite direction — we didn't disable the real check).
+    ss_hint = _diagnose_one(
+        "semantic_search",
+        {"args": {"query": "obscure"}, "result": [make_hit(similarity=0.10)]},
+    )
+    assert ss_hint is not None and ss_hint.reason == "low_similarity"
+
+
 async def test_diagnose_handles_no_scratch_entry() -> None:
     """If somehow critique fires without any scratch entry (defensive),
     don't crash and don't emit a hint."""
