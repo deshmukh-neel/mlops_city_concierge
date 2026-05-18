@@ -254,3 +254,29 @@ deepseek-v4-flash 6x, all fixes: **2/6**, 28-50s/run.
 **Recommendation stands: demo with gpt-4o-mini.** It is, empirically, both
 the most reliable AND among the fastest. v4-pro is the only viable
 "smart model" alt (5/6) but ~2-3x slower. v4-flash and kimi are out.
+
+---
+## Tool coverage (user question: does the model use all the tools?)
+
+Both viable models use **4 of 5 tools**; NEITHER calls `kg_traverse`.
+
+| tool | gpt-4o-mini (4 runs) | deepseek-v4-pro (4 runs) |
+|---|---|---|
+| semantic_search | 12 | 8 |
+| get_details | 12 | 10 |
+| nearby | 11 | 4 |
+| commit_itinerary | 5 | 3 |
+| kg_traverse | **0** | **0** |
+
+Core itinerary flow (search→nearby→details→commit) is fully exercised by
+both. `kg_traverse` (W7 knowledge graph) is never invoked for the standard
+3-stop query — semantic_search/nearby already satisfy every stop and the
+prompt lists kg_traverse as an optional cheaper-alternative. NOT a model
+weakness; the KG is a built-but-dormant feature for this query type. To
+demo the KG you'd need a query that requires graph traversal ("more like
+this anchor", "similar to X").
+
+## Cleanup
+Temp investigation/evidence scripts (scripts/conv_*.py) removed — they were
+throwaway tracers, not shipped. The reusable oracle
+scripts/w10_convergence_check.py is kept (already tracked from W10).
