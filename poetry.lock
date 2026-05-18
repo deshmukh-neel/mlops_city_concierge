@@ -1832,6 +1832,22 @@ typing-extensions = ">=4.7.0,<5.0.0"
 uuid-utils = ">=0.12.0,<1.0"
 
 [[package]]
+name = "langchain-deepseek"
+version = "1.0.1"
+description = "An integration package connecting DeepSeek and LangChain"
+optional = false
+python-versions = "<4.0.0,>=3.10.0"
+groups = ["main"]
+files = [
+    {file = "langchain_deepseek-1.0.1-py3-none-any.whl", hash = "sha256:0a9862f335f1873370bb0fe1928ac19b8b9292b014ef5412da462ded8bb82c5a"},
+    {file = "langchain_deepseek-1.0.1.tar.gz", hash = "sha256:e7a0238f2c14e928e1562641b2df639c19cdf867287a7f2293ffb1372daf83ae"},
+]
+
+[package.dependencies]
+langchain-core = ">=1.0.0,<2.0.0"
+langchain-openai = ">=1.0.0,<2.0.0"
+
+[[package]]
 name = "langchain-google-genai"
 version = "4.2.2"
 description = "An integration package connecting Google's genai package and LangChain"
@@ -1848,6 +1864,22 @@ filetype = ">=1.2.0,<2.0.0"
 google-genai = ">=1.65.0,<2.0.0"
 langchain-core = ">=1.2.29,<2.0.0"
 pydantic = ">=2.0.0,<3.0.0"
+
+[[package]]
+name = "langchain-moonshot"
+version = "0.1.0"
+description = "An integration package connecting Moonshot AI and LangChain"
+optional = false
+python-versions = "<4.0,>=3.10"
+groups = ["main"]
+files = [
+    {file = "langchain_moonshot-0.1.0-py3-none-any.whl", hash = "sha256:1f62d84ae7b0dcdd544c643778149437a632acd034c7f0e9e148f55285bf5796"},
+    {file = "langchain_moonshot-0.1.0.tar.gz", hash = "sha256:0d98b5ca0f707b631a138008087815990b8fc7e2cbc369205724ed5d322d056a"},
+]
+
+[package.dependencies]
+langchain-core = ">=1.2.21,<2.0.0"
+langchain-openai = ">=1.1.0,<2.0.0"
 
 [[package]]
 name = "langchain-openai"
@@ -5478,4 +5510,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "fb36810bedaa1b028a148796a13f352eefb730ca04a406073221418d19b058a6"
+content-hash = "78b6f32ce73b2afcd87f585edebb16d8c8c0a2e290422e066843660b0edde646"
