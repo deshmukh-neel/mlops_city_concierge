@@ -44,6 +44,8 @@ def _rich_details_for(place_id: str) -> PlaceDetails:
         formatted_address=f"{place_id} Main St, San Francisco",
         rating=4.4,
         price_level="PRICE_LEVEL_MODERATE",
+        latitude=37.785,
+        longitude=-122.404,
     )
 
 
@@ -158,6 +160,86 @@ async def test_graph_respects_max_steps(monkeypatch) -> None:
     assert out["step_count"] == 3
     assert out["done"] is True
     assert out["final_reply"]
+
+
+async def test_graph_finalizes_on_commit_even_if_llm_keeps_calling_tools(
+    monkeypatch, mocker
+) -> None:
+    """Root-cause regression: a model that commits a valid itinerary and then
+    keeps calling tools (instead of voluntarily emitting a tool-call-free
+    final message) must still finalize on the successful commit. Before the
+    fix, the graph looped back to `plan` after commit and burned every step
+    until `short_circuit_max_steps` overwrote the good plan with the canned
+    "I hit the planning step limit." message. gpt-4o-mini does this
+    deterministically on multi-stop queries (3/3 live repros)."""
+    # Hard checks pass so the commit is accepted as final (no revision loop).
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    commit_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "commit_itinerary",
+                "id": "commit-1",
+                "args": {
+                    "stops": [
+                        {
+                            "place_id": "p0",
+                            "name": "Place p0",
+                            "rationale": "omakase",
+                            "source": "google_places",
+                        }
+                    ]
+                },
+            }
+        ],
+    )
+    # After committing, the broken model keeps "improving" forever.
+    keep_searching = [
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "semantic_search", "id": f"s{i}", "args": {"query": "x"}}],
+        )
+        for i in range(20)
+    ]
+    fake = _make_fake([commit_call, *keep_searching])
+    graph = build_agent_graph(fake, max_steps=8)
+
+    # p0 must be grounded via a prior tool result or commit_stops rejects it
+    # (mirrors production: the agent searches before it commits).
+    grounded_scratch = {
+        "semantic_search": [
+            {
+                "args": {},
+                "result": [
+                    PlaceHit(
+                        place_id="p0",
+                        name="Place p0",
+                        source="google_places",
+                        similarity=0.9,
+                    )
+                ],
+                "step": 0,
+                "id": "s0",
+            }
+        ]
+    }
+    with _patch_details_many_for(["p0"]):
+        out = await graph.ainvoke(
+            ItineraryState(
+                messages=[HumanMessage(content="omakase date night, 1 stop")],
+                constraints=UserConstraints(num_stops=1),
+                scratch=grounded_scratch,
+            )
+        )
+
+    assert out["done"] is True
+    assert out["stops"], "the committed stop must survive"
+    assert out["stops"][0].place_id == "p0"
+    # The bug's signature: step limit reached + canned error despite a good plan.
+    assert out["step_count"] < 8, "must finalize on commit, not exhaust steps"
+    assert "step limit" not in (out["final_reply"] or "").lower()
 
 
 async def test_graph_handles_unknown_tool_name(monkeypatch) -> None:
@@ -538,6 +620,65 @@ def test_enrich_populates_card_fields_from_details() -> None:
     assert stops[0].address == "p1 Main St, San Francisco"
     assert stops[0].rating == 4.4
     assert stops[0].price_level == 2
+
+
+def test_enrich_backfills_coordinates_when_stop_has_none() -> None:
+    """The LLM commits stops without coordinates (optional in the prompt),
+    so without this backfill every stop is lat=lng=None -> the frontend's
+    `routable` filter drops them all -> no map pins, no route line. The DB
+    details already carry lat/lng; enrichment must copy them onto the stop."""
+    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    state = ItineraryState(
+        constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
+        return BookingProposal(place_id=details.place_id, provider="tock", booking_url="https://x")
+
+    with (
+        patch(
+            "app.agent.commit.get_details_many",
+            return_value={"p1": _rich_details_for("p1")},
+        ),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
+    ):
+        enrich_stops_with_booking(stops, state)
+
+    assert stops[0].latitude == 37.785
+    assert stops[0].longitude == -122.404
+
+
+def test_enrich_does_not_overwrite_llm_supplied_coordinates() -> None:
+    """If the model DID ground a coordinate from a tool result and committed
+    it, that wins — enrichment only fills a missing (None) coordinate."""
+    stops = [
+        Stop(
+            place_id="p1",
+            name="A",
+            rationale="r",
+            source="google_places",
+            latitude=37.111,
+            longitude=-122.999,
+        )
+    ]
+    state = ItineraryState(
+        constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
+        return BookingProposal(place_id=details.place_id, provider="tock", booking_url="https://x")
+
+    with (
+        patch(
+            "app.agent.commit.get_details_many",
+            return_value={"p1": _rich_details_for("p1")},
+        ),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
+    ):
+        enrich_stops_with_booking(stops, state)
+
+    assert stops[0].latitude == 37.111
+    assert stops[0].longitude == -122.999
 
 
 def test_enrich_card_fields_set_even_when_no_booking_time() -> None:

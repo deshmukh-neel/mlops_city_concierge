@@ -110,6 +110,9 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
                 }
             ],
         ),
+        # Obsolete under finalize-on-commit: the graph ends at the passing
+        # commit above, so this narration turn is never reached. Kept only to
+        # show the model would have stopped here anyway.
         AIMessage(content="Try Trick Dog.", tool_calls=[]),
     ]
     fake_llm = _ScriptedLLM(scripted=list(scripted))
@@ -128,7 +131,10 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["reply"] == "Try Trick Dog."
+    # Finalize-on-commit: reply is synthesized from the committed stop, not
+    # the model's narration turn.
+    assert body["reply"].startswith("Here's your itinerary:")
+    assert "Trick Dog" in body["reply"]
     assert body["ragLabel"] == "openai:gpt-4o-mini"
     assert len(body["places"]) == 1
     assert body["places"][0]["place_id"] == "p1"
@@ -326,7 +332,10 @@ def test_chat_retiming_flips_temporal_pass_to_fail(monkeypatch, mocker) -> None:
 
     assert "Caveats" in body["reply"]
     assert "temporal_coherence" in body["reply"]
-    assert body["reply"].startswith("Bar One then Bar Two.")
+    # Finalize-on-commit: base reply is synthesized from the stops, then the
+    # retime caveat is appended once.
+    assert body["reply"].startswith("Here's your itinerary:")
+    assert "Bar One" in body["reply"] and "Bar Two" in body["reply"]
     assert body["reply"].count("Caveats:") == 1
 
 
@@ -357,4 +366,6 @@ def test_chat_directions_failure_keeps_haversine_reply(monkeypatch, mocker) -> N
     assert resp.status_code == 200
     body = resp.json()
     assert "Caveats" not in body["reply"]
-    assert body["reply"] == "Bar One then Bar Two."
+    # Finalize-on-commit: reply synthesized from stops, no caveat (clean pass).
+    assert body["reply"].startswith("Here's your itinerary:")
+    assert "Bar One" in body["reply"] and "Bar Two" in body["reply"]

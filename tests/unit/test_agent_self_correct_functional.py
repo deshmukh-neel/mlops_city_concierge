@@ -261,9 +261,11 @@ async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> N
                     }
                 ],
             ),
-            # 4) finalize attempt — triggers per-itinerary geographic check fail
-            AIMessage(content="here's the plan", tool_calls=[]),
-            # 5) revised commit_itinerary after the [critique:itinerary] hint
+            # 4) revised commit_itinerary, driven by the geographic-coherence
+            # revision hint that commit #1 triggered. Finalize-on-commit means
+            # there is no separate "here's the plan" narration turn between
+            # commits, and no final narration turn after: the graph ends the
+            # moment this revised commit passes the hard checks.
             AIMessage(
                 content="",
                 tool_calls=[
@@ -289,8 +291,6 @@ async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> N
                     }
                 ],
             ),
-            # 6) finalize for real
-            AIMessage(content="revised plan", tool_calls=[]),
         ]
     )
     graph = build_agent_graph(fake, max_steps=10)
@@ -305,6 +305,9 @@ async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> N
     assert reasons == ["empty_results", "geographic_incoherence"]
     # Stops survived both revisions.
     assert len(out["stops"]) == 2
-    # The final reply came from the LLM's revised finalize message — not a caveat.
-    assert out["final_reply"] == "revised plan"
+    # Finalize-on-commit: the reply is synthesized from the committed stops
+    # (the model no longer narrates), and the revised plan passed clean so
+    # there is no caveat.
+    assert out["final_reply"].startswith("Here's your itinerary:")
+    assert "P1" in out["final_reply"] and "P2" in out["final_reply"]
     assert "Caveats:" not in (out["final_reply"] or "")

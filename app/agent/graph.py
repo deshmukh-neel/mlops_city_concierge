@@ -220,7 +220,20 @@ def build_agent_graph(
         last = state.messages[-1] if state.messages else None
         finalizing = isinstance(last, AIMessage) and not last.tool_calls
 
-        if finalizing and state.stops:
+        # A successful commit_itinerary IS a finalization signal. Without
+        # this, termination depends on the model voluntarily emitting a
+        # tool-call-free message after committing — gpt-4o-mini doesn't, so
+        # it burns every step "improving" the plan until short_circuit
+        # overwrites it with the canned step-limit error (3/3 live repros).
+        # Run the same deterministic gauntlet as a model-driven finalize:
+        # if hard checks pass it ends here; if they fail, that path drives
+        # the normal revision loop (done=False + revision HumanMessage), so
+        # legitimate self-correction is preserved.
+        committed_this_step = any(
+            entry.get("step") == state.step_count - 1
+            for entry in state.scratch.get(COMMIT_ITINERARY_TOOL_NAME, [])
+        )
+        if (finalizing or committed_this_step) and state.stops:
             return critique_final_with_stops(state, last, judge_llm)
         if finalizing:
             return finalize_as_is(state, last)

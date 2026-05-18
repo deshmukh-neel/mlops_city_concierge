@@ -119,6 +119,14 @@ def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
         stop.address = details.formatted_address
         stop.rating = details.rating
         stop.price_level = price_level_to_rank(details.price_level)
+        # The LLM commits without coordinates (optional in the prompt), so
+        # backfill from the DB — otherwise every stop is lat=lng=None and the
+        # frontend's `routable` filter drops them all (no pins, no route).
+        # Only fill a missing coord: a model-grounded coordinate still wins.
+        if stop.latitude is None:
+            stop.latitude = details.latitude
+        if stop.longitude is None:
+            stop.longitude = details.longitude
 
         when = stop.arrival_time or state.constraints.when
         if when is None:

@@ -192,11 +192,37 @@ def _last_ai_content(last: BaseMessage | None) -> str:
     return last.content if isinstance(last, AIMessage) and isinstance(last.content, str) else ""
 
 
+def summarize_stops(state: ItineraryState) -> str:
+    """Deterministic user-facing summary built from committed stops.
+
+    The graph finalizes the moment a commit passes the hard checks (so the
+    model can't over-loop), which means the model never narrates the plan
+    itself. Synthesize the summary from the stops instead — same arrival +
+    duration contract the OUTPUT FORMAT prompt asked the model for, minus the
+    extra LLM turn and its latency.
+    """
+    lines = []
+    for i, s in enumerate(state.stops, 1):
+        when = s.arrival_time.strftime("%-I:%M %p").lstrip("0") if s.arrival_time else None
+        timing = f" — arrive {when}, ~{s.planned_duration_min} min" if when else ""
+        rationale = f" {s.rationale}" if s.rationale else ""
+        lines.append(f"{i}. {s.name}{timing}.{rationale}".rstrip())
+    body = "\n".join(lines)
+    return f"Here's your itinerary:\n{body}" if body else ""
+
+
 def short_circuit_max_steps(state: ItineraryState) -> dict[str, Any]:
+    if state.final_reply:
+        return {"done": True, "final_reply": state.final_reply}
+    # Defense-in-depth: the finalize-on-commit routing should make reaching
+    # the step ceiling with committed stops impossible. But if a future model
+    # finds a new way to over-loop, a committed plan must never surface to the
+    # user as "I hit the step limit" — render the stops we actually have.
+    if state.stops:
+        return {"done": True, "final_reply": summarize_stops(state)}
     return {
         "done": True,
-        "final_reply": state.final_reply
-        or "I hit the planning step limit. Here is the best plan I had so far.",
+        "final_reply": "I hit the planning step limit. Here is the best plan I had so far.",
     }
 
 
@@ -257,7 +283,12 @@ def critique_final_with_stops(
             "done": False,
         }
 
-    return {"done": True, "final_reply": state.final_reply or last_content}
+    # last_content is empty when we finalized on a commit (the last message
+    # is the commit tool call, not a model narration) — synthesize instead.
+    return {
+        "done": True,
+        "final_reply": state.final_reply or last_content or summarize_stops(state),
+    }
 
 
 def critique_step(state: ItineraryState) -> dict[str, Any]:
