@@ -25,7 +25,7 @@ DEFAULT_CONFIG_PATH = Path("configs/experiments.yaml")
 
 
 class RunConfig(BaseModel):
-    llm_provider: Literal["openai", "gemini"]
+    llm_provider: Literal["openai", "gemini", "deepseek", "kimi"]
     chat_model: str = Field(min_length=1)
     k: int = Field(gt=0)
     temperature: float
@@ -100,7 +100,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     settings = get_settings()
     parser = argparse.ArgumentParser(description="Log City Concierge RAG experiments to MLflow.")
     parser.add_argument("--config", default=None)
-    parser.add_argument("--llm-provider", default="openai", choices=["openai", "gemini"])
+    parser.add_argument(
+        "--llm-provider", default="openai", choices=["openai", "gemini", "deepseek", "kimi"]
+    )
     parser.add_argument("--chat-model", default=None)
     parser.add_argument("--k", type=int, default=settings.retriever_k)
     parser.add_argument("--temperature", type=float, default=0.0)

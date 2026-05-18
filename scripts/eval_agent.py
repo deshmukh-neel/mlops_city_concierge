@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import json
 import math
+import os
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -16,9 +17,6 @@ from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -34,7 +32,7 @@ from app.agent.critique.checks import (  # noqa: E402
 )
 from app.agent.graph import build_agent_graph  # noqa: E402
 from app.agent.state import ItineraryState  # noqa: E402
-from app.config import get_settings, resolve_llm_api_key  # noqa: E402
+from app.config import get_settings  # noqa: E402
 from app.eval.config import (  # noqa: E402
     DEFAULT_EVAL_QUERIES_PATH,
     EvalQuery,
@@ -42,7 +40,7 @@ from app.eval.config import (  # noqa: E402
     load_eval_queries,
 )
 
-LlmProvider = Literal["openai", "gemini"]
+LlmProvider = Literal["openai", "gemini", "deepseek", "kimi"]
 CheckFunction = Callable[[ItineraryState], float]
 
 DETERMINISTIC_CHECKS: dict[str, CheckFunction] = {
@@ -185,7 +183,13 @@ def resolve_chat_model(provider: LlmProvider, chat_model: str | None) -> str:
     settings = get_settings()
     if provider == "openai":
         return settings.openai_chat_model
-    return settings.gemini_chat_model
+    if provider == "gemini":
+        return settings.gemini_chat_model
+    env_var = {"deepseek": "DEEPSEEK_MODEL", "kimi": "MOONSHOT_MODEL"}[provider]
+    model = os.getenv(env_var)
+    if not model:
+        raise ValueError(f"No chat model for {provider}: pass --chat-model or set {env_var}")
+    return model
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -196,18 +200,9 @@ def validate_args(args: argparse.Namespace) -> None:
 
 def build_eval_llm(provider: LlmProvider, chat_model: str, temperature: float) -> BaseChatModel:
     """Construct the candidate chat model used to drive the agent graph."""
-    api_key = resolve_llm_api_key(provider)
-    if provider == "openai":
-        return ChatOpenAI(
-            model=chat_model,
-            api_key=SecretStr(api_key),
-            temperature=temperature,
-        )
-    return ChatGoogleGenerativeAI(
-        model=chat_model,
-        google_api_key=SecretStr(api_key),
-        temperature=temperature,
-    )
+    from app.llm_factory import build_chat_model
+
+    return build_chat_model(provider, chat_model, temperature=temperature)
 
 
 def selected_cases(cases: list[EvalQuery], max_queries: int | None) -> list[EvalQuery]:
