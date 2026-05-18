@@ -28,8 +28,11 @@ from pydantic import BaseModel
 
 from app.agent.commit import commit_stops
 from app.agent.critique import vibe
+from app.agent.critique.checks import CRITIQUE_THRESHOLDS, temporal_coherence
+from app.agent.planning import chain_arrival_times
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.revision import (
+    _final_with_caveats,
     critique_final_with_stops,
     critique_step,
     finalize_as_is,
@@ -37,6 +40,7 @@ from app.agent.revision import (
 )
 from app.agent.state import ItineraryState, Stop
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
+from app.tools.directions import route_legs
 
 logger = logging.getLogger(__name__)
 
@@ -222,19 +226,65 @@ def build_agent_graph(
             return finalize_as_is(state, last)
         return critique_step(state)
 
+    async def retime(state: ItineraryState) -> dict[str, Any]:
+        """Reconcile final arrival_times against real Google Directions once.
+
+        Self-guards to a no-op on every non-routable path (not done, <2
+        stops with coords). route_legs is natively async (httpx) — awaited
+        directly here, NOT via asyncio.to_thread (contrast act(), which
+        wraps sync DB tools in a worker thread)."""
+        if not state.done or not state.stops:
+            return {}
+        coords = [
+            (s.latitude, s.longitude)
+            for s in state.stops
+            if s.latitude is not None and s.longitude is not None
+        ]
+        if len(coords) < 2 or len(coords) != len(state.stops):
+            # Mixed/absent coords: the haversine arrival_time already on the
+            # stops is the best we have. Leave it.
+            return {}
+
+        result = await route_legs(coords, mode="walk")
+        leg_min = [leg.duration_s / 60 for leg in result.legs]
+        retimed = chain_arrival_times(state.stops, leg_min)
+
+        update: dict[str, Any] = {"stops": retimed}
+
+        # Re-run ONLY the open-at-arrival check on the real times. Other
+        # checks (geographic/walking/hallucination) are coord/id-based and
+        # unaffected by re-timing, so re-running them would be wasted work.
+        probe = state.model_copy(update={"stops": retimed})
+        try:
+            score = temporal_coherence(probe)
+        except Exception:  # noqa: BLE001
+            # Fails open exactly like itinerary_violations(): a DB blip must
+            # not block /chat. Ship the re-timed plan without the re-check.
+            return update
+
+        if score < CRITIQUE_THRESHOLDS["temporal_coherence"]:
+            update["final_reply"] = _final_with_caveats(
+                state.final_reply or "", ["temporal_coherence"]
+            )
+        return update
+
     def route_after_plan(state: ItineraryState) -> Literal["act", "critique"]:
         last = state.messages[-1]
         return "act" if isinstance(last, AIMessage) and last.tool_calls else "critique"
 
     def route_after_critique(state: ItineraryState) -> str:
-        return END if state.done else "plan"
+        # Every finalized plan flows through `retime` (was END). retime
+        # self-guards routability and returns {} when there's nothing to do.
+        return "retime" if state.done else "plan"
 
     g = StateGraph(ItineraryState)
     g.add_node("plan", plan)
     g.add_node("act", act)
     g.add_node("critique", critique)
+    g.add_node("retime", retime)
     g.set_entry_point("plan")
     g.add_conditional_edges("plan", route_after_plan, {"act": "act", "critique": "critique"})
     g.add_edge("act", "critique")
-    g.add_conditional_edges("critique", route_after_critique, {"plan": "plan", END: END})
+    g.add_conditional_edges("critique", route_after_critique, {"plan": "plan", "retime": "retime"})
+    g.add_edge("retime", END)
     return g.compile()
