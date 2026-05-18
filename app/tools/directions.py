@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+import httpx
 from pydantic import BaseModel
 
 from app.agent.planning import WALKING_SPEED_M_PER_MIN, haversine_m
@@ -56,6 +57,60 @@ def _haversine_fallback(stops: list[tuple[float, float]], mode: str) -> Directio
     )
 
 
+def _parse_duration_s(raw: str) -> int:
+    # Routes API returns protobuf Duration strings like "780s".
+    return int(raw.rstrip("s"))
+
+
+def _result_from_legs(legs: list[DirectionsLeg], mode: str) -> DirectionsResult:
+    return DirectionsResult(
+        legs=legs,
+        total_duration_s=sum(leg.duration_s for leg in legs),
+        mode=mode,
+        source="google",
+    )
+
+
+async def _request_legs(
+    client: httpx.AsyncClient,
+    stops: list[tuple[float, float]],
+    travel_mode: str,
+    api_key: str,
+) -> list[DirectionsLeg]:
+    """One computeRoutes POST. Raises on non-2xx or malformed body so the
+    caller's except-clause can fall back."""
+
+    def _waypoint(p: tuple[float, float]) -> dict:
+        return {"location": {"latLng": {"latitude": p[0], "longitude": p[1]}}}
+
+    body: dict = {
+        "origin": _waypoint(stops[0]),
+        "destination": _waypoint(stops[-1]),
+        "travelMode": travel_mode,
+    }
+    if len(stops) > 2:
+        body["intermediates"] = [_waypoint(p) for p in stops[1:-1]]
+
+    resp = await client.post(
+        _ROUTES_URL,
+        json=body,
+        headers={
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": "routes.legs.duration,routes.legs.distanceMeters",
+        },
+    )
+    resp.raise_for_status()
+    routes = resp.json()["routes"]
+    raw_legs = routes[0]["legs"]
+    return [
+        DirectionsLeg(
+            duration_s=_parse_duration_s(leg["duration"]),
+            distance_m=float(leg["distanceMeters"]),
+        )
+        for leg in raw_legs
+    ]
+
+
 async def route_legs(
     stops: list[tuple[float, float]], mode: str = DEFAULT_MODE
 ) -> DirectionsResult:
@@ -76,8 +131,24 @@ async def route_legs(
     if not api_key:
         return _haversine_fallback(stops, mode)
 
-    # Network path implemented in Task 4.
-    return _haversine_fallback(stops, mode)
+    travel_mode = _MODE_TO_ROUTES_TRAVELMODE[mode]
+    try:
+        if travel_mode != "WALK" and len(stops) > 2:
+            # Routes API TRANSIT/DRIVE + intermediates is unreliable
+            # (mirrors the W8b RouteOverlay per-leg fix). Route each leg
+            # point-to-point and stitch.
+            legs: list[DirectionsLeg] = []
+            async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+                for a, b in zip(stops[:-1], stops[1:], strict=False):
+                    leg = await _request_legs(client, [a, b], travel_mode, api_key)
+                    legs.extend(leg)
+            return _result_from_legs(legs, mode)
+
+        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+            legs = await _request_legs(client, stops, travel_mode, api_key)
+        return _result_from_legs(legs, mode)
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        return _haversine_fallback(stops, mode)
 
 
 __all__ = [
