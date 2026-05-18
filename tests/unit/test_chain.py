@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 from langchain_core.documents import Document
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from pydantic import SecretStr
 
 from app.chain import BuiltChain, build_rag_chain, build_retrieval_qa
 
@@ -14,8 +13,7 @@ def test_build_rag_chain_supports_openai(mocker) -> None:
     chain.invoke.return_value = {"result": "Try Taqueria Example.", "source_documents": []}
 
     retriever_cls = mocker.patch("app.chain.PgVectorRetriever", return_value=retriever)
-    openai_cls = mocker.patch("app.chain.ChatOpenAI", return_value="openai-llm")
-    mocker.patch("app.chain.ChatGoogleGenerativeAI")
+    factory = mocker.patch("app.chain.build_chat_model", return_value="openai-llm")
     build_qa = mocker.patch("app.chain.build_retrieval_qa", return_value=chain)
 
     built = build_rag_chain(
@@ -30,11 +28,7 @@ def test_build_rag_chain_supports_openai(mocker) -> None:
     assert isinstance(built, BuiltChain)
     assert built.llm == "openai-llm"
     retriever_cls.assert_called_once()
-    openai_cls.assert_called_once_with(
-        model="gpt-4o-mini",
-        api_key=SecretStr("openai-key"),
-        temperature=0.2,
-    )
+    factory.assert_called_once_with("openai", "gpt-4o-mini", temperature=0.2)
     build_qa.assert_called_once_with(retriever=retriever, llm="openai-llm")
     assert built.chain.invoke({"query": "Best tacos"}) == {
         "result": "Try Taqueria Example.",
@@ -48,11 +42,7 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
     chain.invoke.return_value = {"result": "Try Del Popolo.", "source_documents": []}
 
     mocker.patch("app.chain.PgVectorRetriever", return_value=retriever)
-    mocker.patch("app.chain.ChatOpenAI")
-    gemini_cls = mocker.patch(
-        "app.chain.ChatGoogleGenerativeAI",
-        return_value="gemini-llm",
-    )
+    factory = mocker.patch("app.chain.build_chat_model", return_value="gemini-llm")
     mocker.patch("app.chain.build_retrieval_qa", return_value=chain)
 
     built = build_rag_chain(
@@ -65,11 +55,7 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
     )
 
     assert built.llm == "gemini-llm"
-    gemini_cls.assert_called_once_with(
-        model="gemini-2.5-flash",
-        google_api_key=SecretStr("gemini-key"),
-        temperature=0.1,
-    )
+    factory.assert_called_once_with("gemini", "gemini-2.5-flash", temperature=0.1)
     assert built.chain.invoke({"query": "Pizza"}) == {
         "result": "Try Del Popolo.",
         "source_documents": [],

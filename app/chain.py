@@ -9,11 +9,9 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables import Runnable, RunnableLambda
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
 
 from .config import get_settings
+from .llm_factory import build_chat_model
 from .retriever import PgVectorRetriever
 
 # Default prompt of the legacy langchain RetrievalQA "stuff" chain, preserved
@@ -72,18 +70,7 @@ def build_rag_chain(
         openai_api_key=settings.openai_api_key,
     )
 
-    provider = llm_provider.lower()
-    llm: BaseChatModel
-    if provider == "openai":
-        llm = ChatOpenAI(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)
-    elif provider == "gemini":
-        llm = ChatGoogleGenerativeAI(
-            model=chat_model,
-            google_api_key=SecretStr(api_key),
-            temperature=temperature,
-        )
-    else:
-        raise ValueError(f"Unsupported llm_provider: {llm_provider}")
+    llm: BaseChatModel = build_chat_model(llm_provider, chat_model, temperature=temperature)
 
     chain = build_retrieval_qa(retriever=retriever, llm=llm)
     return BuiltChain(chain=chain, llm=llm)
