@@ -144,5 +144,15 @@ merges PRs (do not `gh pr merge`).
   transit now routes per-leg point-to-point and stitches the legs. Known nit
   (→ w8c): click-to-focus zoom direction. Pre-existing Bars/Dinner filter pills
   are no-ops against real Google `primary_type`s — deferred (filter taxonomy
-  rework is out of scope for "add the map"). PR pending (user opens/merges).
-- **w8c** (Directions tool + re-timing node) — not started.
+  rework is out of scope for "add the map"). ✅ merged to `main` via
+  [PR #87](https://github.com/deshmukh-neel/mlops_city_concierge/pull/87)
+  (2026-05-17).
+- **w8c** (Directions tool + re-timing node) — ✅ merged to `main` via
+  [PR #88](https://github.com/deshmukh-neel/mlops_city_concierge/pull/88)
+  (2026-05-17). Backend Google Routes API v2 client (async, haversine
+  fallback, never raises) + `chain_arrival_times` helper + post-revision
+  `retime` graph node (≤1 Directions call per finalized `/chat`, WALK-only
+  canonical re-time, idempotent caveat, fail-open). 4 test layers green
+  (451 passed / 39 skipped; mypy + ruff clean). Deferred: user-constraint
+  travel-mode parsing (backend re-times WALK only); frontend toggle stays
+  client-side. W8 complete.
