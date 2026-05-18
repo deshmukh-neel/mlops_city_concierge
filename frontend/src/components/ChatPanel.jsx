@@ -172,7 +172,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
         ))}
         {isLoading && (
           <ChatMessage
-            message={{ role: 'typing', ragLabel: 'Searching nearby · Mission District' }}
+            message={{ role: 'typing', ragLabel: 'Searching SF places…' }}
           />
         )}
         <div ref={messagesEndRef} />
@@ -209,7 +209,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
         <div style={s.inputMeta}>
           <div style={s.ragIndicator}>
             <div style={s.ragDot} />
-            RAG pipeline active · Places updated 4 min ago
+            RAG pipeline active
           </div>
           <span>↵ to send · ⇧↵ for newline</span>
         </div>

@@ -101,7 +101,7 @@ export default function RightPanel({
   onPlaceClick,
   planFinalized = false,
   focusId = null,
-  lastRefreshed = '4 min ago',
+  lastRefreshed = 'just now',
 }) {
   const [view, setView] = useState('map')       // 'map' | 'list'
   const [activeFilter, setActiveFilter] = useState('All')
@@ -138,10 +138,9 @@ export default function RightPanel({
             ))}
           </div>
 
-          {/* Result count + context */}
+          {/* Result count */}
           <div style={s.meta}>
             <span style={s.metaCount}>{filteredPlaces.length} places</span>
-            <span>Mission District · Tonight</span>
           </div>
         </div>
 
