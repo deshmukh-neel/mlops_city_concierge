@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_chat_model: str = "gemini-3.1-flash-lite-preview"
     anthropic_api_key: str = ""
+    # Server-side Google key for the Routes API v2 (W8c re-timing). SEPARATE
+    # from the frontend VITE_GOOGLE_MAPS_API_KEY and from scripts'
+    # GOOGLE_PLACES_API_KEY. Empty => the Directions tool uses the haversine
+    # fallback (graceful, no network).
+    google_directions_api_key: str = ""
     mlflow_tracking_uri: str = "http://localhost:5000"
     mlflow_artifacts_uri: str = "mlflow-artifacts://localhost:5000"
     mlflow_model_name: str = "city-concierge-rag"

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from app.agent.planning import (
+    chain_arrival_times,
     haversine_m,
     next_arrival_time,
     remaining_walking_budget_m,
@@ -100,3 +101,52 @@ def test_suggested_radius_clamps_minimum() -> None:
 def test_suggested_radius_clamps_maximum() -> None:
     state = ItineraryState(constraints=UserConstraints(walking_budget_m=10_000))
     assert suggested_radius_m(state, remaining_stops=1) == 1500
+
+
+def _stop_at(pid: str, *, arrival=None, duration=60):
+    return Stop(
+        place_id=pid,
+        name=pid.upper(),
+        source="google_places",
+        rationale="",
+        arrival_time=arrival,
+        planned_duration_min=duration,
+    )
+
+
+def test_chain_arrival_times_empty_is_noop() -> None:
+    assert chain_arrival_times([], []) == []
+
+
+def test_chain_arrival_times_single_stop_unchanged() -> None:
+    start = datetime(2026, 5, 17, 18, 0, tzinfo=timezone.utc)
+    stops = [_stop_at("p1", arrival=start)]
+    out = chain_arrival_times(stops, [])
+    assert out[0].arrival_time == start
+
+
+def test_chain_arrival_times_chains_with_real_legs() -> None:
+    start = datetime(2026, 5, 17, 18, 0, tzinfo=timezone.utc)
+    stops = [
+        _stop_at("p1", arrival=start, duration=90),
+        _stop_at("p2", duration=60),
+        _stop_at("p3", duration=60),
+    ]
+    # Two legs: 10 min then 25 min of travel.
+    out = chain_arrival_times(stops, [10.0, 25.0])
+    assert out[0].arrival_time == start  # start preserved
+    assert out[1].arrival_time == start + timedelta(minutes=90 + 10)
+    assert out[2].arrival_time == start + timedelta(minutes=90 + 10 + 60 + 25)
+
+
+def test_chain_arrival_times_requires_start_arrival() -> None:
+    stops = [_stop_at("p1", arrival=None), _stop_at("p2")]
+    with pytest.raises(ValueError, match="arrival_time"):
+        chain_arrival_times(stops, [10.0])
+
+
+def test_chain_arrival_times_does_not_mutate_input() -> None:
+    start = datetime(2026, 5, 17, 18, 0, tzinfo=timezone.utc)
+    stops = [_stop_at("p1", arrival=start, duration=30), _stop_at("p2")]
+    chain_arrival_times(stops, [5.0])
+    assert stops[1].arrival_time is None  # original untouched

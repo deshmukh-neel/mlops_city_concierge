@@ -32,6 +32,30 @@ def next_arrival_time(prev_stop: Stop, next_lat: float, next_lng: float) -> date
     return prev_stop.arrival_time + timedelta(minutes=prev_stop.planned_duration_min + walk)
 
 
+def chain_arrival_times(stops: list[Stop], leg_durations_min: list[float]) -> list[Stop]:
+    """Re-chain arrival_times from explicit per-leg travel minutes.
+
+    Unlike next_arrival_time (which derives travel from haversine), this takes
+    travel time as data — used by the W8c retime node to apply real Google
+    Directions durations. stops[0].arrival_time is the user's start time and is
+    preserved. Returns a NEW list of model copies; the input is not mutated.
+
+    `leg_durations_min[i]` is the travel time from stops[i] to stops[i+1], so
+    len(leg_durations_min) must be >= len(stops) - 1 (extra entries ignored).
+    """
+    if not stops:
+        return []
+    if stops[0].arrival_time is None:
+        raise ValueError("stops[0].arrival_time must be set before chaining")
+    out = [stops[0].model_copy()]
+    cursor = stops[0].arrival_time
+    for i in range(1, len(stops)):
+        leg_min = leg_durations_min[i - 1]
+        cursor = cursor + timedelta(minutes=stops[i - 1].planned_duration_min + leg_min)
+        out.append(stops[i].model_copy(update={"arrival_time": cursor}))
+    return out
+
+
 def remaining_walking_budget_m(state) -> float:
     """How many meters of walking are left in the user's budget."""
     return max(0.0, state.constraints.walking_budget_m - state.walked_meters_so_far)
