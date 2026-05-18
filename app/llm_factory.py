@@ -74,6 +74,13 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
     unsupported providers, RuntimeError if the provider's API key is missing
     (both via resolve_llm_api_key)."""
     provider = llm_provider.lower()
+    # Enforce the factory's own contract BEFORE key resolution. resolve_llm_api_key
+    # knows other providers (e.g. anthropic) and would reject them via a
+    # missing-key RuntimeError instead of the unsupported-provider ValueError
+    # callers expect — and only when the key happens to be absent (passes
+    # locally with a .env key, fails in CI without one).
+    if provider not in SUPPORTED_PROVIDERS:
+        raise ValueError(f"Unsupported llm_provider: {llm_provider}")
     api_key = resolve_llm_api_key(provider)
     if provider == "openai":
         return ChatOpenAI(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)

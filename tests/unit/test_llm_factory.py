@@ -35,7 +35,18 @@ def test_build_chat_model_dispatches_per_provider(
     assert kwargs["temperature"] == 0.3
 
 
-def test_build_chat_model_rejects_unknown_provider() -> None:
+def test_build_chat_model_rejects_unknown_provider(mocker, monkeypatch) -> None:
+    # anthropic is a provider resolve_llm_api_key KNOWS but the factory does
+    # NOT support. Null every key so the contract is enforced by
+    # SUPPORTED_PROVIDERS, not incidentally by a missing key (the bug: passed
+    # locally with a .env anthropic key, failed in CI without one).
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # If the factory ever calls resolve_llm_api_key for an unsupported
+    # provider, that's the bug — it must reject via SUPPORTED_PROVIDERS first.
+    mocker.patch(
+        "app.llm_factory.resolve_llm_api_key",
+        side_effect=AssertionError("must reject before key resolution"),
+    )
     with pytest.raises(ValueError, match="Unsupported llm_provider"):
         build_chat_model("anthropic", "claude", temperature=0.0)
 
