@@ -1,4 +1,5 @@
 import React from 'react'
+import { clickableProps } from './a11y'
 
 const s = {
   row: {
@@ -159,20 +160,10 @@ function PlacePill({ label, num, onClick }) {
   const [hovered, setHovered] = React.useState(false)
   return (
     <span
-      role="button"
-      tabIndex={0}
-      aria-label={`Show ${label} on map`}
-      className="press"
+      {...clickableProps(onClick, `Show ${label} on map`)}
       style={{
         ...s.pill,
         ...(hovered ? { background: 'var(--moss)', color: 'var(--white)', borderColor: 'var(--moss)' } : {}),
-      }}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onClick?.()
-        }
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

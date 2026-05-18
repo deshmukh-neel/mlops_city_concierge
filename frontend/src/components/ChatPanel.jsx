@@ -34,10 +34,9 @@ const s = {
   clearBtn: {
     fontSize: '11px', color: 'var(--warm-gray)',
     background: 'none', border: '1px solid var(--border)',
-    padding: '4px 12px', borderRadius: '4px', minHeight: '36px',
+    padding: '4px 12px', borderRadius: '4px',
     cursor: 'pointer', transition: 'background .2s, color .2s',
     fontFamily: 'var(--font-body)',
-    display: 'inline-flex', alignItems: 'center',
   },
   chips: {
     display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '12px',
@@ -47,8 +46,7 @@ const s = {
     border: '1px solid var(--border)', background: 'var(--cream)',
     cursor: 'pointer', color: 'var(--warm-gray)',
     transition: 'background .2s, color .2s, border-color .2s', whiteSpace: 'nowrap',
-    fontFamily: 'var(--font-body)', minHeight: '36px',
-    display: 'inline-flex', alignItems: 'center',
+    fontFamily: 'var(--font-body)',
   },
   messages: {
     flex: 1, overflowY: 'auto',
@@ -142,7 +140,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
             <div style={s.subtitle}>Powered by live Google Places data</div>
           </div>
           <button
-            className="press"
+            className="press tap-target"
             style={s.clearBtn}
             onClick={onClear}
             onMouseEnter={e => Object.assign(e.target.style, { background: 'var(--cream-dark)', color: 'var(--charcoal)' })}
@@ -155,7 +153,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
           {SUGGESTION_CHIPS.map(chip => (
             <button
               key={chip}
-              className="press"
+              className="press tap-target"
               style={s.chip}
               onClick={() => handleChipClick(chip)}
               onMouseEnter={e => Object.assign(e.target.style, { background: 'var(--moss)', color: 'var(--white)', borderColor: 'var(--moss)' })}

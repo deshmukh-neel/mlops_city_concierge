@@ -25,10 +25,10 @@ const s = {
     borderRadius: '8px', padding: '3px',
   },
   toggleBtn: {
-    display: 'flex', alignItems: 'center', gap: '6px',
+    gap: '6px',
     padding: '6px 14px', borderRadius: '6px', border: 'none',
     fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500,
-    cursor: 'pointer', transition: 'background .2s, color .2s, box-shadow .2s', minHeight: '36px',
+    cursor: 'pointer', transition: 'background .2s, color .2s, box-shadow .2s',
     color: 'var(--warm-gray)', background: 'transparent',
   },
   toggleBtnActive: {
@@ -46,7 +46,6 @@ const s = {
     border: '1px solid var(--border)', background: 'var(--white)',
     cursor: 'pointer', color: 'var(--warm-gray)',
     transition: 'background .2s, color .2s, border-color .2s', fontFamily: 'var(--font-body)',
-    minHeight: '36px', display: 'inline-flex', alignItems: 'center',
   },
   filterPillActive: {
     background: 'var(--charcoal)', color: 'var(--white)',
@@ -129,7 +128,7 @@ export default function RightPanel({
             ].map(({ id, label, Icon }) => (
               <button
                 key={id}
-                className="press"
+                className="press tap-target"
                 style={{ ...s.toggleBtn, ...(view === id ? s.toggleBtnActive : {}) }}
                 onClick={() => setView(id)}
               >
@@ -196,7 +195,7 @@ function FilterPill({ label, active, onClick }) {
 
   return (
     <button
-      className="press"
+      className="press tap-target"
       style={{
         ...s.filterPill,
         ...(isActive ? s.filterPillActive : {}),

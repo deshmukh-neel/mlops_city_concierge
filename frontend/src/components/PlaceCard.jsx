@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { clickableProps } from './a11y'
 
 const s = {
   card: {
@@ -74,18 +75,8 @@ export default function PlaceCard({ place, featured = false, onClick }) {
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-label={`${place.name} — ${place.type}`}
-      className="press"
+      {...clickableProps(onClick, `${place.name} — ${place.type}`)}
       style={{ ...s.card, ...(isHighlighted ? s.cardActive : {}) }}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onClick?.()
-        }
-      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
