@@ -85,6 +85,35 @@ Gemini 3 then preserves reasoning across tool calls and the agent converges.
   Mission query (the bug). This is the Phase-4 regression oracle: W10 is
   correct only when this goes to consistently passing.
 
+## CORRECTED baseline (2026-05-17, rebranched off post-W8 main)
+
+> The baseline above was measured on a W10 branch that forked **before W8a/b/c**
+> merged. That branch is 34 commits behind current `main`. W10 was rebranched
+> off current `main` (incl. W8a/b/c) as `feature/agent-w10-langchain-v1-rebased`
+> + the 2 W10 docs cherry-picked. The numbers below supersede the section above.
+
+- **Full suite on current main: `451 passed, 39 skipped, 0 failed`** (pre-migration,
+  `feature/agent-w10-langchain-v1-rebased`, no code change yet). This is the
+  authoritative green-line. ANY failure after migration is a real regression.
+- **The documented "known flake" no longer reproduces on current main.**
+  `test_chat_functional.py::test_chat_runs_real_graph_with_tool_call` passes in
+  the full run AND in the historically-contaminating order
+  (`pytest test_gemini_compat.py test_chat_functional.py` → 7 passed). Reason:
+  W8c commit `7cabea2` added `mocker.patch("app.agent.revision.itinerary_violations")`
+  to that test (test-isolation fix), neutralizing the *symptom*. The
+  `gemini_compat.py` global-monkeypatch state-leak (root cause of that flake)
+  still exists in the code — W10-3 deleting the hack is what truly eliminates it.
+  Revised green criterion: **451/0/39 must hold after migration**, and the
+  global monkeypatch must be gone (verified by absence, not by that one test).
+- Pre-migration installed: `langchain 0.3.28`, `langchain_core 0.3.84`,
+  `langchain-google-genai` (pinned `>=1.0.0,<3.0.0`), `langchain-openai`
+  (pinned `>=0.1.0,<1.0.0`), `langchain-community` (pinned, **unused** in code).
+- **Blast radius correction:** the Scope section says "delete gemini_compat.py
+  and its call site in `app/chain.py:43`". On current main there are **4 call
+  sites**, not 1: `app/chain.py:12,43`; `app/agent/critique/vibe.py:25,117`;
+  `scripts/eval_agent.py:44,207`; plus `tests/unit/test_gemini_compat.py` (delete
+  whole file). `vibe.py`/`eval_agent.py` callers merged after W10 branched.
+
 ## Open risks / notes
 
 - LangChain 1.x is a breaking major; `langchain-openai` 1.x may shift the RAG
