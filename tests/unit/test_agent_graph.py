@@ -44,6 +44,8 @@ def _rich_details_for(place_id: str) -> PlaceDetails:
         formatted_address=f"{place_id} Main St, San Francisco",
         rating=4.4,
         price_level="PRICE_LEVEL_MODERATE",
+        latitude=37.785,
+        longitude=-122.404,
     )
 
 
@@ -618,6 +620,65 @@ def test_enrich_populates_card_fields_from_details() -> None:
     assert stops[0].address == "p1 Main St, San Francisco"
     assert stops[0].rating == 4.4
     assert stops[0].price_level == 2
+
+
+def test_enrich_backfills_coordinates_when_stop_has_none() -> None:
+    """The LLM commits stops without coordinates (optional in the prompt),
+    so without this backfill every stop is lat=lng=None -> the frontend's
+    `routable` filter drops them all -> no map pins, no route line. The DB
+    details already carry lat/lng; enrichment must copy them onto the stop."""
+    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    state = ItineraryState(
+        constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
+        return BookingProposal(place_id=details.place_id, provider="tock", booking_url="https://x")
+
+    with (
+        patch(
+            "app.agent.commit.get_details_many",
+            return_value={"p1": _rich_details_for("p1")},
+        ),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
+    ):
+        enrich_stops_with_booking(stops, state)
+
+    assert stops[0].latitude == 37.785
+    assert stops[0].longitude == -122.404
+
+
+def test_enrich_does_not_overwrite_llm_supplied_coordinates() -> None:
+    """If the model DID ground a coordinate from a tool result and committed
+    it, that wins — enrichment only fills a missing (None) coordinate."""
+    stops = [
+        Stop(
+            place_id="p1",
+            name="A",
+            rationale="r",
+            source="google_places",
+            latitude=37.111,
+            longitude=-122.999,
+        )
+    ]
+    state = ItineraryState(
+        constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
+    )
+
+    def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
+        return BookingProposal(place_id=details.place_id, provider="tock", booking_url="https://x")
+
+    with (
+        patch(
+            "app.agent.commit.get_details_many",
+            return_value={"p1": _rich_details_for("p1")},
+        ),
+        patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
+    ):
+        enrich_stops_with_booking(stops, state)
+
+    assert stops[0].latitude == 37.111
+    assert stops[0].longitude == -122.999
 
 
 def test_enrich_card_fields_set_even_when_no_booking_time() -> None:
