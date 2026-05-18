@@ -126,3 +126,55 @@ Gemini 3 then preserves reasoning across tool calls and the agent converges.
   testing. Rolling it back to v1 (`make set-production-alias VERSION=1`) is the
   evidence-backed default until W10 lands; **user has chosen to keep Gemini** —
   decision pending, tracked separately, NOT silently actioned.
+
+## Outcome (2026-05-17) — what W10 actually delivered
+
+The original premise (Gemini-3 fails purely on thought signatures; lcgg 4.x
+fixes it) was **disproven by evidence**. The investigation uncovered a layered
+set of real issues; all the mechanical ones are fixed and committed.
+
+**Shipped & verified (full suite 467 passed / 39 skipped / 0 failed):**
+- LangChain 0.3→1.x migration; RAG chain ported off removed `langchain.chains`
+  to an LCEL stuff-chain (`build_retrieval_qa`, same I/O contract).
+- Resolver cascade: langgraph 1.x, google-genai 1.x, openai 2.x.
+- `app/gemini_compat.py` static-bypass hack + all 4 call sites deleted.
+- Default `EMBEDDING_TABLE` → `place_embeddings_v2` (v1 was noisy; v2 always
+  intended; KG already v2-only). Retrieval SQL tests made default-independent.
+- Prompt query-construction contract: every `semantic_search` query must
+  carry cuisine/vibe + place type + neighborhood (filters refine, don't
+  replace) — models were tanking cosine with bare `"lunch"` queries.
+- Central `app/llm_factory.py:build_chat_model` — the single provider→LLM
+  seam; all 5 prior duplicate construction sites route through it.
+- Reasoning-model support via `langchain-deepseek` / `langchain-moonshot`,
+  with **thinking disabled** (not a fragile reasoning_content shim):
+  kimi `thinking=False`, deepseek `extra_body thinking.type=disabled`,
+  gemini flash-lite `thinking_budget=0`, gemini pro-preview
+  `thinking_level="low"` (hard floor; budget=0/minimal both 400).
+- Per-model hard-constraint clamps (kimi-k2.6 temp forced 0.6).
+- `_ToolLoopChatMoonshot`: backfills empty assistant content (Kimi rejects
+  empty assistant messages on replay — both its own empty tool-call turns
+  and the content-only reconstruction `_prune_for_llm` makes from them).
+- Reusable convergence oracle: `scripts/w10_convergence_check.py`
+  (`--provider openai|gemini|deepseek|kimi`).
+
+**Provider results on the standard 3-stop Mission query (live API + prod DB):**
+
+| Provider / model | Mechanically runs | Converges (commits itinerary) |
+|---|---|---|
+| openai / gpt-4o-mini | yes | 2/6 @ temp 1.0; 4/6 @ temp 0.0 (v2) — best |
+| deepseek / deepseek-v4-pro | yes (was hard-400) | not yet (asks clarifying Q / step limit) |
+| kimi / kimi-k2.6 | yes (was hard-400 ×2) | not yet (step limit) |
+| gemini / gemini-3.1-pro-preview | yes (was hard-400) | 0/3 (step limit) |
+
+**Bottom line:** every provider now runs the agent loop with **zero hard
+errors** — the reasoning-state and serialization bugs are fixed. The
+**remaining gap is convergence quality**: only gpt-4o-mini reliably commits
+a full itinerary; the others run cleanly but tend to hit the step limit /
+ask clarifying questions. That is a separate behavioral problem (see
+[[project_gemini3_thin_query_root_cause]]) — agent-loop/prompt tuning, not
+an integration bug — tracked as follow-up. **gpt-4o-mini is the supported
+production / demo driver.**
+
+**Status:** Migration + v2 + prompt + factory/DRY + reasoning-provider
+support — implemented & verified on `feature/agent-w10-langchain-v1-rebased`.
+Convergence-quality tuning for non-OpenAI providers deferred to follow-up.
