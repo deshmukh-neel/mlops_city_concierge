@@ -42,7 +42,7 @@ const s = {
     minHeight: '36px', display: 'inline-flex', alignItems: 'center', gap: '4px',
   },
   btnActive: { background: 'var(--white)', color: 'var(--charcoal)', boxShadow: '0 1px 3px rgba(0,0,0,.1)' },
-  total: { fontWeight: 600, color: 'var(--charcoal)', whiteSpace: 'nowrap' },
+  total: { fontWeight: 600, color: 'var(--charcoal)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' },
   err: { color: 'var(--rust)', whiteSpace: 'nowrap' },
 }
 
@@ -177,6 +177,7 @@ export default function RouteOverlay({ stops }) {
         {MODES.map((m) => (
           <button
             key={m.id}
+            className="press"
             style={{ ...s.btn, ...(mode === m.id ? s.btnActive : {}) }}
             onClick={() => setMode(m.id)}
             aria-pressed={mode === m.id}

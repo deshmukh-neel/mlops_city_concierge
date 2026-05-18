@@ -5,8 +5,13 @@
   --sage: #C8D4BB; --rust: #C4703A; --white: #FDFCF9; --border: #D8D0C4;
   --font-display: 'Playfair Display', serif; --font-body: 'DM Sans', sans-serif;
 }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 html, body, #root { height: 100%; overflow: hidden; font-family: var(--font-body); background: var(--cream); color: var(--charcoal); }
+h1, h2, h3 { text-wrap: balance; }
+p, li, figcaption { text-wrap: pretty; }
 :focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; border-radius: 3px; }
+.press { transition-property: scale; transition-duration: 150ms; transition-timing-function: ease-out; }
+.press:active:not(:disabled) { scale: .96; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

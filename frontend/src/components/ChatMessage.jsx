@@ -50,6 +50,7 @@ const s = {
   time: {
     fontSize: '10px', color: 'var(--warm-gray)',
     marginTop: '4px', padding: '0 4px',
+    fontVariantNumeric: 'tabular-nums',
   },
   timeUser: { textAlign: 'right' },
   // Pill styles (for place references inside bot messages)
@@ -58,7 +59,7 @@ const s = {
     border: '1px solid var(--border)', borderRadius: '4px',
     padding: '2px 8px', fontSize: '12px', margin: '2px',
     cursor: 'pointer', color: 'var(--charcoal)',
-    transition: 'all .15s',
+    transition: 'background .15s, color .15s, border-color .15s',
   },
   pillNum: { color: 'var(--rust)', fontWeight: 600, marginRight: '4px' },
   typing: {
@@ -161,6 +162,7 @@ function PlacePill({ label, num, onClick }) {
       role="button"
       tabIndex={0}
       aria-label={`Show ${label} on map`}
+      className="press"
       style={{
         ...s.pill,
         ...(hovered ? { background: 'var(--moss)', color: 'var(--white)', borderColor: 'var(--moss)' } : {}),

@@ -65,7 +65,7 @@ export default function TopNav({ indexedCount = 847 }) {
 
       <div style={styles.status}>
         <div style={styles.statusDot} />
-        Live · {indexedCount.toLocaleString()} places indexed
+        Live · <span style={{ fontVariantNumeric: 'tabular-nums' }}>{indexedCount.toLocaleString()}</span> places indexed
       </div>
     </nav>
   )

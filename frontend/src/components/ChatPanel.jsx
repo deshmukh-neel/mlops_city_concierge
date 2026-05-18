@@ -35,7 +35,7 @@ const s = {
     fontSize: '11px', color: 'var(--warm-gray)',
     background: 'none', border: '1px solid var(--border)',
     padding: '4px 12px', borderRadius: '4px', minHeight: '36px',
-    cursor: 'pointer', transition: 'all .2s',
+    cursor: 'pointer', transition: 'background .2s, color .2s',
     fontFamily: 'var(--font-body)',
     display: 'inline-flex', alignItems: 'center',
   },
@@ -46,7 +46,7 @@ const s = {
     fontSize: '11px', padding: '5px 13px', borderRadius: '20px',
     border: '1px solid var(--border)', background: 'var(--cream)',
     cursor: 'pointer', color: 'var(--warm-gray)',
-    transition: 'all .2s', whiteSpace: 'nowrap',
+    transition: 'background .2s, color .2s, border-color .2s', whiteSpace: 'nowrap',
     fontFamily: 'var(--font-body)', minHeight: '36px',
     display: 'inline-flex', alignItems: 'center',
   },
@@ -142,6 +142,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
             <div style={s.subtitle}>Powered by live Google Places data</div>
           </div>
           <button
+            className="press"
             style={s.clearBtn}
             onClick={onClear}
             onMouseEnter={e => Object.assign(e.target.style, { background: 'var(--cream-dark)', color: 'var(--charcoal)' })}
@@ -154,6 +155,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
           {SUGGESTION_CHIPS.map(chip => (
             <button
               key={chip}
+              className="press"
               style={s.chip}
               onClick={() => handleChipClick(chip)}
               onMouseEnter={e => Object.assign(e.target.style, { background: 'var(--moss)', color: 'var(--white)', borderColor: 'var(--moss)' })}
@@ -196,6 +198,7 @@ export default function ChatPanel({ messages, onSend, onClear, onPlacePillClick,
           <button
             type="button"
             aria-label="Send message"
+            className="press"
             style={{ ...s.sendBtn, background: sendHovered ? 'var(--charcoal)' : 'var(--moss)' }}
             onClick={handleSend}
             disabled={isLoading}
