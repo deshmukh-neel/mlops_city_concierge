@@ -20,6 +20,7 @@ from app.agent.critique.checks import (
     geographic_coherence,
     itinerary_violations,
     no_hallucinated_place_ids,
+    stop_count_satisfied,
     temporal_coherence,
     walking_budget_respected,
 )
@@ -321,10 +322,34 @@ def test_constraints_satisfied_skips_hallucinated_pids(patch_db) -> None:
 # --- itinerary_violations aggregation ---------------------------------------
 
 
+def test_stop_count_satisfied_checks_explicit_request() -> None:
+    assert stop_count_satisfied(ItineraryState(stops=[_stop("p1")])) == 1.0
+    assert (
+        stop_count_satisfied(
+            ItineraryState(
+                stops=[_stop("p1"), _stop("p2")],
+                constraints=UserConstraints(num_stops=3),
+            )
+        )
+        == 0.0
+    )
+    assert (
+        stop_count_satisfied(
+            ItineraryState(
+                stops=[_stop("p1"), _stop("p2"), _stop("p3")],
+                constraints=UserConstraints(num_stops=3),
+            )
+        )
+        == 1.0
+    )
+
+
 def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
-    """Order matters: hallucination first, then temporal, geo, walking, then
-    constraints. Mocks each check independently so we can assert the order."""
+    """Order matters: hallucination first, then stop count, temporal, geo,
+    walking, then constraints. Mocks each check independently so we can assert
+    the order."""
     mocker.patch("app.agent.critique.checks.no_hallucinated_place_ids", return_value=0.0)
+    mocker.patch("app.agent.critique.checks.stop_count_satisfied", return_value=0.0)
     mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=0.0)
     mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=0.5)
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=0.0)
@@ -332,6 +357,7 @@ def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
     state = ItineraryState(stops=[_stop("p1")])
     assert itinerary_violations(state) == [
         "no_hallucinated_place_ids",
+        "stop_count_satisfied",
         "temporal_coherence",
         "geographic_coherence",
         "walking_budget_respected",
@@ -342,6 +368,7 @@ def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
 def test_itinerary_violations_empty_when_all_pass(mocker) -> None:
     for fn in (
         "no_hallucinated_place_ids",
+        "stop_count_satisfied",
         "temporal_coherence",
         "geographic_coherence",
         "walking_budget_respected",
@@ -359,6 +386,7 @@ def test_itinerary_violations_fails_open_on_db_error(mocker) -> None:
         "app.agent.critique.checks.no_hallucinated_place_ids",
         side_effect=RuntimeError("db down"),
     )
+    mocker.patch("app.agent.critique.checks.stop_count_satisfied", return_value=1.0)
     mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=1.0)
     mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=1.0)
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=1.0)
@@ -372,6 +400,7 @@ def test_thresholds_are_strict_enough() -> None:
     assert CRITIQUE_THRESHOLDS["geographic_coherence"] == 1.0
     assert CRITIQUE_THRESHOLDS["temporal_coherence"] == 1.0
     assert CRITIQUE_THRESHOLDS["no_hallucinated_place_ids"] == 1.0
+    assert CRITIQUE_THRESHOLDS["stop_count_satisfied"] == 1.0
     assert CRITIQUE_THRESHOLDS["walking_budget_respected"] == 1.0
     # Constraint satisfaction has wiggle room — not every constraint is hard.
     assert CRITIQUE_THRESHOLDS["constraints_satisfied"] == 0.8

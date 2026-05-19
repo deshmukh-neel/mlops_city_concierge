@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # The concierge is San Francisco-only; a naive open_at unambiguously means
 # SF local time.
@@ -27,6 +27,8 @@ class SearchFilters(BaseModel):
     everything — it matches operational places with at least 50 raters. The
     agent must opt out of the floors deliberately.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     price_level_max: int | None = Field(
         default=None,
@@ -86,6 +88,14 @@ class SearchFilters(BaseModel):
     serves_lunch: bool | None = None
     serves_dinner: bool | None = None
     serves_vegetarian: bool | None = None
+    serves_dessert: bool | None = Field(
+        default=None,
+        description=(
+            "Dessert category helper. True matches dessert-oriented Google "
+            "types such as dessert_shop, bakery, ice_cream_shop, cafe, "
+            "tea_house, and confectionery."
+        ),
+    )
     outdoor_seating: bool | None = None
     reservable: bool | None = None
     allows_dogs: bool | None = None
@@ -127,6 +137,32 @@ _BOOL_COLUMNS: tuple[str, ...] = (
     "good_for_sports",
 )
 
+_DESSERT_TYPES: tuple[str, ...] = (
+    "dessert_shop",
+    "bakery",
+    "ice_cream_shop",
+    "candy_store",
+    "chocolate_shop",
+    "coffee_shop",
+    "cafe",
+    "confectionery",
+    "donut_shop",
+    "tea_house",
+)
+
+_DESSERT_PRIMARY_TYPES: tuple[str, ...] = (
+    "Dessert Shop",
+    "Bakery",
+    "Ice Cream Shop",
+    "Candy Store",
+    "Chocolate Shop",
+    "Coffee Shop",
+    "Cafe",
+    "Confectionery store",
+    "Donut Shop",
+    "Tea House",
+)
+
 
 def compile_filters(f: SearchFilters) -> tuple[str, list]:
     """Return (sql_where_fragment, params_list).
@@ -140,8 +176,12 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
     if f.price_level_max is not None:
         # places_raw.price_level is a Google v1 enum string ('PRICE_LEVEL_*');
         # price_level_rank() (alembic c428add573d7) maps it to 0..4 so we can
-        # compare against the integer the agent passes.
-        clauses.append("price_level_rank(price_level) <= %s")
+        # compare against the integer the agent passes. Unknown price passes
+        # rather than disappearing; constraints_satisfied() uses the same
+        # "missing data should not fail" semantics.
+        clauses.append(
+            "(price_level_rank(price_level) IS NULL OR price_level_rank(price_level) <= %s)"
+        )
         params.append(f.price_level_max)
 
     if f.min_rating is not None:
@@ -166,6 +206,15 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
         if value is not None:
             clauses.append(f"{column} = %s")
             params.append(value)
+
+    if f.serves_dessert is not None:
+        dessert_clause = "(types && %s OR primary_type = ANY(%s))"
+        if f.serves_dessert:
+            clauses.append(dessert_clause)
+        else:
+            clauses.append(f"NOT {dessert_clause}")
+        params.append(list(_DESSERT_TYPES))
+        params.append(list(_DESSERT_PRIMARY_TYPES))
 
     if f.types_any:
         clauses.append("types && %s")

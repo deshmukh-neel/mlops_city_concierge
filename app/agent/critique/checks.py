@@ -22,6 +22,7 @@ _log = logging.getLogger(__name__)
 CRITIQUE_THRESHOLDS: dict[str, float] = {
     "constraints_satisfied": 0.8,
     "geographic_coherence": 1.0,
+    "stop_count_satisfied": 1.0,
     "temporal_coherence": 1.0,
     "walking_budget_respected": 1.0,
     "no_hallucinated_place_ids": 1.0,
@@ -40,6 +41,14 @@ def no_hallucinated_place_ids(state: ItineraryState) -> float:
         )
         found = {row[0] for row in cur.fetchall()}
     return 1.0 if all(p in found for p in pids) else 0.0
+
+
+def stop_count_satisfied(state: ItineraryState) -> float:
+    """1.0 iff an explicit requested stop count matches committed stops."""
+    requested = state.constraints.num_stops
+    if requested is None:
+        return 1.0
+    return 1.0 if len(state.stops) == requested else 0.0
 
 
 def temporal_coherence(state: ItineraryState) -> float:
@@ -198,8 +207,11 @@ def itinerary_violations(state: ItineraryState) -> list[str]:
             failed.append(name)
 
     # Order matters: hallucinated_place_ids comes first because every other
-    # check assumes the place_ids are real.
+    # check assumes the place_ids are real. Stop count comes next because a
+    # partially rejected commit is not a complete itinerary even if every
+    # committed place is individually valid.
     _try("no_hallucinated_place_ids", no_hallucinated_place_ids)
+    _try("stop_count_satisfied", stop_count_satisfied)
     _try("temporal_coherence", temporal_coherence)
     _try("geographic_coherence", geographic_coherence)
     _try("walking_budget_respected", walking_budget_respected)

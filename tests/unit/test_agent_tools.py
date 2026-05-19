@@ -47,6 +47,30 @@ def test_semantic_search_tool_invokes_underlying(monkeypatch) -> None:
     assert captured == {"query": "italian", "filters": None, "k": 3}
 
 
+def test_semantic_search_tool_accepts_serves_dessert_filter(monkeypatch) -> None:
+    captured: dict = {}
+
+    def _fake(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr("app.agent.tools._semantic_search", _fake)
+    tools = {t.name: t for t in all_tools()}
+    tools["semantic_search"].invoke(
+        {"query": "dessert in Japantown", "filters": {"serves_dessert": True}}
+    )
+
+    assert captured["filters"].serves_dessert is True
+
+
+def test_semantic_search_tool_rejects_unknown_filter_field() -> None:
+    tools = {t.name: t for t in all_tools()}
+    with pytest.raises(Exception, match="serves_desserts"):
+        tools["semantic_search"].invoke(
+            {"query": "dessert in Japantown", "filters": {"serves_desserts": True}}
+        )
+
+
 def test_nearby_tool_invokes_underlying(monkeypatch) -> None:
     captured: dict = {}
 

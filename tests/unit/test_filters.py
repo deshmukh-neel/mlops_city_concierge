@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+import pytest
+from pydantic import ValidationError
+
 from app.tools.filters import SearchFilters, compile_filters
 
 
@@ -27,10 +30,18 @@ def test_price_and_rating() -> None:
             min_user_rating_count=0,
         )
     )
-    assert "price_level_rank(price_level) <= %s" in where
+    assert "(price_level_rank(price_level) IS NULL OR price_level_rank(price_level) <= %s)" in where
     assert "rating >= %s" in where
     assert 2 in params
     assert 4.3 in params
+
+
+def test_price_filter_keeps_unknown_price_levels() -> None:
+    where, params = compile_filters(
+        SearchFilters(price_level_max=3, business_status=None, min_user_rating_count=0)
+    )
+    assert "price_level_rank(price_level) IS NULL OR" in where
+    assert 3 in params
 
 
 def test_neighborhood_uses_structured_column_with_fallback() -> None:
@@ -57,6 +68,21 @@ def test_types_uses_array_overlap() -> None:
     )
     assert "types && %s" in where
     assert ["bar", "wine_bar"] in params
+
+
+def test_serves_dessert_maps_to_dessert_place_types() -> None:
+    where, params = compile_filters(
+        SearchFilters(serves_dessert=True, business_status=None, min_user_rating_count=0)
+    )
+    assert "types && %s" in where
+    assert "primary_type = ANY(%s)" in where
+    assert "dessert_shop" in params[1]
+    assert "Ice Cream Shop" in params[2]
+
+
+def test_unknown_filter_fields_are_rejected() -> None:
+    with pytest.raises(ValidationError):
+        SearchFilters.model_validate({"serves_desserts": True})
 
 
 def test_open_at_calls_helper() -> None:
