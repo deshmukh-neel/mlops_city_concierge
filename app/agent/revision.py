@@ -16,7 +16,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 
 from app.agent.critique import CRITIQUE_ITINERARY, CRITIQUE_STEP, CRITIQUE_VIBE, vibe
 from app.agent.critique.checks import itinerary_violations
-from app.agent.state import ItineraryState, RevisionHint
+from app.agent.state import ItineraryState, RevisionAction, RevisionHint
 
 LOW_SIMILARITY_THRESHOLD = 0.55
 MAX_REVISIONS_PER_REASON = 2
@@ -161,6 +161,29 @@ def _hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
             detail="Total walking exceeds the user's budget.",
             suggested_action="rebalance_walking_budget",
             target={},
+        )
+    if reason == "stop_count_satisfied":
+        # stop_count_satisfied only fails when num_stops is set (the check
+        # returns 1.0 unconditionally otherwise), so requested is guaranteed
+        # non-None whenever this branch executes. Narrow it explicitly so the
+        # type checker can prove the < below is safe.
+        requested = state.constraints.num_stops
+        if requested is None:
+            raise RuntimeError("stop_count_satisfied invariant: num_stops must be set")
+        actual = len(state.stops)
+        detail = (
+            f"The committed itinerary has {actual} stops, but the user requested {requested} stops."
+        )
+        # Direction is load-bearing — telling the model to "add" when it needs
+        # to "remove" is actively misleading. The reason is also distinct from
+        # the generic constraint_unmet_in_final so debugging and revision-hint
+        # logs can tell a count mismatch apart from a per-stop constraint fail.
+        action: RevisionAction = "add_missing_stops" if actual < requested else "remove_extra_stops"
+        return RevisionHint(
+            reason="stop_count_mismatch",
+            detail=detail,
+            suggested_action=action,
+            target={"requested_stops": requested, "actual_stops": actual},
         )
     if reason == "no_hallucinated_place_ids":
         return RevisionHint(

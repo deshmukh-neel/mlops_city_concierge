@@ -26,6 +26,7 @@ RevisionReason = Literal[
     "temporal_incoherence",
     "walking_budget_exceeded",
     "constraint_unmet_in_final",
+    "stop_count_mismatch",
     "hallucinated_place_id",
     "vibe_mismatch",
 ]
@@ -40,6 +41,8 @@ RevisionAction = Literal[
     "tighten_radius",
     "shift_arrival_time",
     "rebalance_walking_budget",
+    "add_missing_stops",
+    "remove_extra_stops",
 ]
 
 

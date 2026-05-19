@@ -33,8 +33,12 @@ _WORD_STOP_RE = re.compile(
 
 
 class _HasRoleContent(Protocol):
-    role: str
-    content: str
+    # Read-only attribute protocol so concrete classes with narrower types
+    # (e.g. ChatMessage with role: Literal["user", "assistant"]) still match.
+    @property
+    def role(self) -> str: ...
+    @property
+    def content(self) -> str: ...
 
 
 def explicit_num_stops_from_conversation(
