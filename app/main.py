@@ -14,8 +14,9 @@ from psycopg2.extensions import connection
 from pydantic import BaseModel, Field
 
 from .agent.graph import build_agent_graph
+from .agent.input_parsing import explicit_num_stops_from_conversation
 from .agent.io import messages_from_history, state_to_cards
-from .agent.state import ItineraryState
+from .agent.state import ItineraryState, UserConstraints
 from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
 from .db import get_db
@@ -291,7 +292,10 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
             messages=[
                 *messages_from_history(req.history),
                 HumanMessage(content=req.message),
-            ]
+            ],
+            constraints=UserConstraints(
+                num_stops=explicit_num_stops_from_conversation(req.history, req.message),
+            ),
         )
         raw = await graph.ainvoke(
             state,

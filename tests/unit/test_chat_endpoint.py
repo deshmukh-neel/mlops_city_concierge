@@ -141,6 +141,103 @@ def test_chat_endpoint_passes_history_to_graph(mocker) -> None:
     assert state.messages[1].type == "ai"
     assert state.messages[2].type == "human"
     assert state.messages[2].content == "actually make it 4 stops"
+    assert state.constraints.num_stops == 4
+
+
+def test_chat_endpoint_parses_explicit_stop_count(mocker) -> None:
+    fake_graph = mocker.Mock()
+    captured: dict[str, Any] = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": (
+                    "plan a 3-stop omakase date night near Japantown SF: drinks, dinner, dessert"
+                )
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured["state"].constraints.num_stops == 3
+
+
+def test_chat_endpoint_preserves_explicit_stop_count_across_turns(mocker) -> None:
+    """Multi-turn guardrail: turn 1 says "3 stops", turn 2 refines without
+    naming a count. /chat is stateless — every POST rebuilds ItineraryState
+    from scratch — so num_stops must be parsed across req.history + req.message,
+    not only the current message, or the deterministic count guardrail is lost
+    on every follow-up turn."""
+    fake_graph = mocker.Mock()
+    captured: dict[str, Any] = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "make the second one cheaper",
+                "history": [
+                    {"role": "user", "content": "plan a 3-stop omakase date night"},
+                    {"role": "assistant", "content": "Here's your itinerary: ..."},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    # The current message has no stop count; the count must come from history.
+    assert captured["state"].constraints.num_stops == 3
+
+
+def test_chat_endpoint_current_message_count_wins_over_history(mocker) -> None:
+    """If the user revises the count mid-conversation, the latest explicit
+    count wins (e.g. "actually make it 4")."""
+    fake_graph = mocker.Mock()
+    captured: dict[str, Any] = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "actually make it 4 stops",
+                "history": [
+                    {"role": "user", "content": "plan a 3-stop omakase date night"},
+                    {"role": "assistant", "content": "Here's your itinerary: ..."},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured["state"].constraints.num_stops == 4
 
 
 def test_chat_endpoint_accepts_empty_history(mocker) -> None:
