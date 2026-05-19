@@ -22,7 +22,7 @@ import logging
 from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
@@ -46,6 +46,51 @@ logger = logging.getLogger(__name__)
 
 
 _RECENT_TOOL_EXCHANGES_KEPT = 2
+_EXPLICIT_STOP_COUNT_RETRY_KEY = "explicit_num_stops_clarification"
+
+
+def _constraints_context(state: ItineraryState) -> str:
+    """Human-readable deterministic constraints appended to the system prompt."""
+    if state.constraints.num_stops is None:
+        return ""
+    return (
+        "\n\nDETERMINISTIC REQUEST CONTEXT:\n"
+        f"- The user explicitly requested {state.constraints.num_stops} stops. "
+        "Do not ask how many stops they want; plan exactly that many stops."
+    )
+
+
+def _retry_unnecessary_stop_count_clarification(
+    state: ItineraryState,
+) -> dict[str, Any] | None:
+    """One-shot nudge when the user gave an explicit count but the model
+    finalized without any stops. The trigger is structural — no stops
+    committed plus no tool calls (the call site is the `finalizing` branch
+    of critique) — not lexical. An earlier string-match version missed
+    non-stereotyped clarifying phrasings like "what vibe are you going for?"
+    while still gating retries to one per turn via revision_counts."""
+    num_stops = state.constraints.num_stops
+    if num_stops is None:
+        return None
+    if state.stops:
+        return None
+    if state.revision_counts.get(_EXPLICIT_STOP_COUNT_RETRY_KEY, 0) > 0:
+        return None
+    counts = dict(state.revision_counts)
+    counts[_EXPLICIT_STOP_COUNT_RETRY_KEY] = 1
+    return {
+        "revision_counts": counts,
+        "messages": [
+            HumanMessage(
+                content=(
+                    f"The user already specified {num_stops} stops. "
+                    "Do not ask how many stops; use retrieval tools and plan exactly "
+                    f"{num_stops} stops now."
+                )
+            )
+        ],
+        "done": False,
+    }
 
 
 def _prune_for_llm(messages: list[BaseMessage]) -> list[BaseMessage]:
@@ -132,6 +177,7 @@ def build_agent_graph(
                         max_steps=max_steps,
                         current_datetime=current_datetime_str(),
                     )
+                    + _constraints_context(state)
                 ),
                 *messages_in,
             ]
@@ -241,6 +287,9 @@ def build_agent_graph(
         if (finalizing or committed_this_step) and state.stops:
             return critique_final_with_stops(state, last, judge_llm)
         if finalizing:
+            retry = _retry_unnecessary_stop_count_clarification(state)
+            if retry is not None:
+                return retry
             return finalize_as_is(state, last)
         return critique_step(state)
 

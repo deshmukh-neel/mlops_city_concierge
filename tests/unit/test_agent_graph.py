@@ -11,7 +11,7 @@ import psycopg2
 import pytest
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from app.agent.commit import commit_stops, enrich_stops_with_booking
@@ -39,6 +39,7 @@ def _rich_details_for(place_id: str) -> PlaceDetails:
     return PlaceDetails(
         place_id=place_id,
         name=f"Place {place_id}",
+        primary_type="restaurant",
         source="google_places",
         similarity=0.0,
         formatted_address=f"{place_id} Main St, San Francisco",
@@ -93,6 +94,144 @@ async def test_graph_terminates_on_no_tool_call() -> None:
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
     assert out["done"] is True
     assert out["final_reply"] == "here is your plan"
+
+
+async def test_graph_retries_unneeded_stop_count_clarification(monkeypatch) -> None:
+    """If the caller has already parsed an explicit stop count, the model
+    should not be allowed to end the request by asking for that same count."""
+    monkeypatch.setattr(
+        "app.agent.tools._semantic_search",
+        lambda **_kw: [
+            PlaceHit(place_id="p1", name="Place p1", source="google_places", similarity=0.9)
+        ],
+    )
+    fake = _make_fake(
+        [
+            AIMessage(content="How many stops would you like?", tool_calls=[]),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "search-1",
+                        "args": {"query": "romantic dinner in Japantown"},
+                    }
+                ],
+            ),
+            AIMessage(content="planning from results", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+
+    out = await graph.ainvoke(
+        ItineraryState(
+            messages=[HumanMessage(content="plan a 3-stop date night")],
+            constraints=UserConstraints(num_stops=3),
+        )
+    )
+
+    assert out["done"] is True
+    assert out["final_reply"] == "planning from results"
+    assert "semantic_search" in out["scratch"]
+
+
+async def test_graph_retries_finalize_without_stops_regardless_of_wording(monkeypatch) -> None:
+    """#3C: the retry trigger is structural, not lexical. When num_stops is set
+    and the model finalizes with no stops committed, nudge it — regardless of
+    what the AI's text message says. The old string-match heuristic missed
+    phrasings like "I'd love to know the number of places..." Drop the
+    heuristic; the structural condition is sufficient and unambiguous."""
+    monkeypatch.setattr(
+        "app.agent.tools._semantic_search",
+        lambda **_kw: [
+            PlaceHit(place_id="p1", name="Place p1", source="google_places", similarity=0.9)
+        ],
+    )
+    fake = _make_fake(
+        [
+            # Non-stereotyped phrasing — old heuristic would miss this.
+            AIMessage(content="To narrow it down, what vibe are you going for?", tool_calls=[]),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "search-1",
+                        "args": {"query": "romantic dinner in Japantown"},
+                    }
+                ],
+            ),
+            AIMessage(content="planning from results", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(
+        ItineraryState(
+            messages=[HumanMessage(content="plan a 3-stop date night")],
+            constraints=UserConstraints(num_stops=3),
+        )
+    )
+    # Retry fired, model produced a tool call on its second turn, graph ended cleanly.
+    assert out["done"] is True
+    assert "semantic_search" in out["scratch"]
+
+
+async def test_graph_does_not_retry_when_num_stops_unset(monkeypatch) -> None:
+    """No nudge when there's no explicit count — the model is allowed to
+    clarify ambiguous requests."""
+    fake = _make_fake([AIMessage(content="How many stops?", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="plan something")]),
+    )
+    # Without num_stops, the clarifying question is the legitimate final reply.
+    assert out["done"] is True
+    assert out["final_reply"] == "How many stops?"
+
+
+async def test_graph_retry_is_one_shot(monkeypatch) -> None:
+    """If after the nudge the model STILL finalizes empty, the retry doesn't
+    fire a second time — the conversation ends with whatever the model said."""
+    fake = _make_fake(
+        [
+            AIMessage(content="What's your budget?", tool_calls=[]),
+            AIMessage(content="Could you confirm your neighborhood?", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(
+        ItineraryState(
+            messages=[HumanMessage(content="plan a 3-stop date night")],
+            constraints=UserConstraints(num_stops=3),
+        )
+    )
+    assert out["done"] is True
+    # The second clarifying turn becomes the final reply — retry did not loop.
+    assert out["final_reply"] == "Could you confirm your neighborhood?"
+
+
+async def test_graph_injects_explicit_stop_count_context() -> None:
+    # Two messages: the first is the model's empty-finalize, which under #3C
+    # triggers the structural retry nudge (num_stops set + no stops yet); the
+    # second is the model's response to that nudge. We only care that the
+    # system prompt contained the deterministic stop-count context.
+    fake = _make_fake(
+        [
+            AIMessage(content="ok", tool_calls=[]),
+            AIMessage(content="planning", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(
+        ItineraryState(
+            messages=[HumanMessage(content="plan a 3-stop date night")],
+            constraints=UserConstraints(num_stops=3),
+        )
+    )
+
+    system_messages = [m for m in out["messages"] if isinstance(m, SystemMessage)]
+    assert len(system_messages) == 1
+    assert "explicitly requested 3 stops" in system_messages[0].content
 
 
 async def test_graph_executes_tool_and_continues(monkeypatch) -> None:
@@ -599,7 +738,7 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
 
 
 def test_enrich_populates_card_fields_from_details() -> None:
-    """address/rating/price_level flow from PlaceDetails onto Stop."""
+    """Authoritative display fields flow from PlaceDetails onto Stop."""
     stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
     state = ItineraryState(
         constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
@@ -617,6 +756,8 @@ def test_enrich_populates_card_fields_from_details() -> None:
     ):
         enrich_stops_with_booking(stops, state)
 
+    assert stops[0].name == "Place p1"
+    assert stops[0].primary_type == "restaurant"
     assert stops[0].address == "p1 Main St, San Francisco"
     assert stops[0].rating == 4.4
     assert stops[0].price_level == 2
