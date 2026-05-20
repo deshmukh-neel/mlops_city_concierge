@@ -299,3 +299,46 @@ def test_get_details_many_omits_missing_ids_silently(patch_get_conn) -> None:
     out = get_details_many(["p1", "p2"])
     assert "p1" in out
     assert "p2" not in out
+
+
+# --- dist_m projection (closure-aware swap) -------------------------------
+
+
+def test_place_hit_dist_m_defaults_to_none() -> None:
+    """Backward compatibility: semantic_search rows have no dist_m column,
+    so PlaceHit must accept missing dist_m and default to None."""
+    hit = PlaceHit(
+        place_id="p1",
+        name="x",
+        source="google_places",
+        similarity=0.7,
+    )
+    assert hit.dist_m is None
+
+
+def test_nearby_projects_dist_m_in_select_and_returns_it(patch_get_conn) -> None:
+    """nearby() must SELECT dist_m alongside existing fields so the closure
+    swap node can score candidates by route impact."""
+    cursor = patch_get_conn(
+        [
+            {
+                "place_id": "p2",
+                "name": "near",
+                "primary_type": "Bar",
+                "formatted_address": "...",
+                "latitude": 37.78,
+                "longitude": -122.41,
+                "rating": 4.5,
+                "price_level": None,
+                "business_status": "OPERATIONAL",
+                "source": "google_places",
+                "similarity": 0.0,
+                "snippet": "snippet",
+                "dist_m": 250.0,
+            }
+        ]
+    )
+    hits = nearby(place_id="anchor", radius_m=800)
+    # The outer SELECT must project dist_m alongside the other fields.
+    assert "dist_m" in cursor.executed_sql
+    assert hits[0].dist_m == 250.0
