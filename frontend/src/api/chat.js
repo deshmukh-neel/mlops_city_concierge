@@ -29,13 +29,22 @@ const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
  *
  * @param {string} message
  * @param {{ role: string, content: string }[]} [history]
- * @returns {Promise<{ reply: string, places: object[], ragLabel?: string }>}
+ * @param {object|null} [conversationState]  Opaque server-owned state from the
+ *   previous response. The frontend stores it verbatim and sends it back on
+ *   each request; the backend is the source of truth for the schema (see
+ *   app/main.py ConversationState).
+ * @returns {Promise<{ reply: string, places: object[], ragLabel?: string,
+ *   conversation_state: object|null }>}
  */
-export async function sendMessage(message, history = []) {
+export async function sendMessage(message, history = [], conversationState = null) {
   const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({
+      message,
+      history,
+      conversation_state: conversationState ?? null,
+    }),
   })
 
   if (!res.ok) {
@@ -56,6 +65,7 @@ export async function sendMessage(message, history = []) {
     reply: formatReply(data?.reply ?? ''),
     places: cards.map(toUiPlace),
     ragLabel: data?.ragLabel || undefined,
+    conversation_state: data?.conversation_state ?? null,
   }
 }
 
