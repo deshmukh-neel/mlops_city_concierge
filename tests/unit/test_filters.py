@@ -201,3 +201,48 @@ def test_family_of_types_resolves_via_types_array() -> None:
     assert family_of_types(["italian_restaurant", "restaurant"]) == "restaurant"
     assert family_of_types(["dessert_shop"]) == "dessert"
     assert family_of_types([]) is None
+
+
+def test_primary_type_family_filter_compiles_both_columns() -> None:
+    where, params = compile_filters(
+        SearchFilters(
+            primary_type_family="dessert",
+            business_status=None,
+            min_user_rating_count=None,
+        )
+    )
+    assert "(types && %s OR primary_type = ANY(%s))" in where
+    # types list (snake_case) and primary_types list (Title Case) both as params.
+    # Find the two list params (any in the list — column-conventions are
+    # specific enough to assert membership).
+    list_params = [p for p in params if isinstance(p, list)]
+    assert any("dessert_shop" in p for p in list_params)
+    assert any("Dessert Shop" in p for p in list_params)
+
+
+def test_primary_type_family_unknown_family_raises() -> None:
+    with pytest.raises(ValidationError):
+        SearchFilters.model_validate({"primary_type_family": "spaceship"})
+
+
+def test_excluded_place_ids_filter_compiles_to_not_all() -> None:
+    where, params = compile_filters(
+        SearchFilters(
+            excluded_place_ids=["ChIJ_a", "ChIJ_b"],
+            business_status=None,
+            min_user_rating_count=0,
+        )
+    )
+    assert "place_id != ALL(%s)" in where
+    assert ["ChIJ_a", "ChIJ_b"] in params
+
+
+def test_excluded_place_ids_empty_list_emits_no_clause() -> None:
+    where, _ = compile_filters(
+        SearchFilters(
+            excluded_place_ids=[],
+            business_status=None,
+            min_user_rating_count=0,
+        )
+    )
+    assert "place_id != ALL" not in where

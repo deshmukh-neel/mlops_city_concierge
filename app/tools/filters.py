@@ -9,6 +9,7 @@ not need to know about — it just sets `open_at`.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -69,6 +70,24 @@ class SearchFilters(BaseModel):
     types_any: list[str] | None = Field(
         default=None,
         description="Match if any of these strings appears in types[].",
+    )
+    primary_type_family: Literal["dessert", "bar", "restaurant", "cafe"] | None = Field(
+        default=None,
+        description=(
+            "Restrict candidates to a category family (dessert/bar/restaurant/"
+            "cafe). Expands to a `(types && %s OR primary_type = ANY(%s))` "
+            "clause against both column conventions. Distinct from `types_any`, "
+            "which only matches the types[] array."
+        ),
+    )
+    excluded_place_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "place_ids to exclude from results. Used by the closure-aware "
+            "swap path to prevent re-suggesting a place that was previously "
+            "found closed in the same conversation. Empty list (or None) is a "
+            "no-op."
+        ),
     )
     business_status: str | None = Field(
         default="OPERATIONAL",
@@ -336,6 +355,18 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
     if f.types_any:
         clauses.append("types && %s")
         params.append(f.types_any)
+
+    if f.primary_type_family is not None:
+        family = _PRIMARY_TYPE_FAMILIES[f.primary_type_family]
+        clauses.append("(types && %s OR primary_type = ANY(%s))")
+        params.append(list(family["types"]))
+        params.append(list(family["primary_types"]))
+
+    if f.excluded_place_ids:
+        # Empty list is intentionally a no-op (caller signals "no exclusions"
+        # without having to pass None).
+        clauses.append("place_id != ALL(%s)")
+        params.append(f.excluded_place_ids)
 
     if f.source:
         clauses.append("source = %s")
