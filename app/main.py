@@ -11,12 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from psycopg2.extensions import connection
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .agent.graph import build_agent_graph
 from .agent.input_parsing import explicit_num_stops_from_conversation
 from .agent.io import messages_from_history, state_to_cards
-from .agent.state import ItineraryState, UserConstraints
+from .agent.state import ClosureContext, ItineraryState, Stop, UserConstraints
 from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
 from .db import get_db
@@ -78,9 +78,31 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ConversationState(BaseModel):
+    """Opaque-to-frontend state round-tripped via /chat.
+
+    The frontend stores this verbatim from each response and sends it back
+    on the next request; the backend is the source of truth for the schema.
+    `prior_stops` carries the stops the user just saw so an accept/decline
+    early-return path can act on them without /chat round-tripping the full
+    places list.
+    """
+
+    schema_version: int = 1
+    closure_context: list[ClosureContext] = Field(default_factory=list)
+    prior_stops: list[Stop] = Field(default_factory=list)
+
+
 class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = Field(default_factory=list)
+    # Opaque dict so a malformed nested object doesn't 422 before the
+    # handler runs — `/chat` does manual ConversationState.model_validate
+    # and degrades to empty state on ValidationError. `dict | None` still
+    # 422s on non-object payloads (string/list/number), which is the right
+    # answer for those (developer/curl mistakes; the real frontend can't
+    # produce them).
+    conversation_state: dict[str, Any] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -88,6 +110,8 @@ class ChatResponse(BaseModel):
     reply: str
     places: list[dict]
     ragLabel: str  # noqa: N815
+    # Backend always emits a typed, validated shape on the response side.
+    conversation_state: ConversationState | None = None
 
 
 @dataclass
@@ -287,6 +311,20 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
         raise HTTPException(status_code=503, detail=AGENT_UNAVAILABLE_DETAIL)
 
     rag_label = getattr(request.app.state, "rag_label", _rag_label_for(None))
+
+    # Hydrate inbound conversation_state. Manual validation so we degrade
+    # rather than 422 on schema mismatch (same warning-log pattern other
+    # "untrusted opaque state" decoders use in the codebase).
+    incoming: ConversationState
+    if req.conversation_state is None:
+        incoming = ConversationState()
+    else:
+        try:
+            incoming = ConversationState.model_validate(req.conversation_state)
+        except ValidationError:
+            logger.warning("conversation_state.decode_failed", exc_info=True)
+            incoming = ConversationState()
+
     with trace_request("chat", message=req.message[:200]) as trace_id:
         state = ItineraryState(
             messages=[
@@ -296,6 +334,7 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
             constraints=UserConstraints(
                 num_stops=explicit_num_stops_from_conversation(req.history, req.message),
             ),
+            closure_context=incoming.closure_context,
         )
         raw = await graph.ainvoke(
             state,
@@ -305,10 +344,21 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
             },
         )
     final_state = raw if isinstance(raw, ItineraryState) else ItineraryState(**raw)
+
+    # Build outbound conversation_state. prior_stops carries the stops the
+    # user just saw so a follow-up turn's early-return path can act on them
+    # without /chat round-tripping the full places list.
+    outbound = ConversationState(
+        schema_version=1,
+        closure_context=final_state.closure_context,
+        prior_stops=final_state.stops,
+    )
+
     return ChatResponse(
         reply=final_state.final_reply or "",
         places=state_to_cards(final_state),
         ragLabel=rag_label,
+        conversation_state=outbound,
     )
 
 

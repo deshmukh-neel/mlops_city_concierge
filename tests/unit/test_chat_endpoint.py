@@ -69,7 +69,7 @@ def test_chat_endpoint_returns_reply_places_raglabel(mocker) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body.keys()) == {"reply", "places", "ragLabel"}
+    assert set(body.keys()) == {"reply", "places", "ragLabel", "conversation_state"}
     assert body["reply"] == "Trick Dog at 7pm, ~60 min."
     assert body["ragLabel"] == "openai:gpt-4o-mini"
     assert len(body["places"]) == 1
@@ -256,3 +256,155 @@ def test_chat_endpoint_accepts_empty_history(mocker) -> None:
         response = client.post("/chat", json={"message": "hi"})
 
     assert response.status_code == 200
+
+
+# ─── conversation_state round-trip (Task 14) ─────────────────────────────
+
+
+def test_chat_endpoint_accepts_conversation_state(mocker) -> None:
+    """An inbound conversation_state must hydrate into ItineraryState.closure_context."""
+    fake_graph = mocker.Mock()
+    captured: dict = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "make stop 2 cheaper",
+                "history": [
+                    {"role": "user", "content": "plan a 3-stop date"},
+                    {"role": "assistant", "content": "Here's your itinerary..."},
+                ],
+                "conversation_state": {
+                    "schema_version": 1,
+                    "closure_context": [
+                        {
+                            "schema_version": 1,
+                            "place_id": "ChIJ_closed",
+                            "place_name": "Mochill",
+                            "family": "dessert",
+                            "attempted_arrival": "2026-05-19T20:02:00-07:00",
+                            "outcome": "auto_swapped",
+                            "insert_after_place_id": "ChIJ_prev",
+                            "insert_before_place_id": None,
+                            "stop_index_hint": 2,
+                            "proposed_alternative": None,
+                            "proposed_distance_m": None,
+                        }
+                    ],
+                    "prior_stops": [],
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    state = captured["state"]
+    assert len(state.closure_context) == 1
+    assert state.closure_context[0].place_id == "ChIJ_closed"
+    assert state.closure_context[0].outcome == "auto_swapped"
+
+
+def test_chat_endpoint_returns_conversation_state(mocker) -> None:
+    """Final state's closure_context must be echoed in the response."""
+    fake_graph = mocker.Mock()
+
+    async def _ainvoke(state, config=None):
+        d = _final_state_dict(reply="ok")
+        d["closure_context"] = [
+            {
+                "schema_version": 1,
+                "place_id": "ChIJ_closed",
+                "place_name": "Mochill",
+                "family": "dessert",
+                "attempted_arrival": "2026-05-19T20:02:00-07:00",
+                "outcome": "auto_swapped",
+                "insert_after_place_id": None,
+                "insert_before_place_id": None,
+                "stop_index_hint": 2,
+                "proposed_alternative": None,
+                "proposed_distance_m": None,
+            }
+        ]
+        return d
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={"message": "plan a date", "history": []},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "conversation_state" in body
+    cs = body["conversation_state"]
+    assert cs["schema_version"] == 1
+    assert len(cs["closure_context"]) == 1
+    assert cs["closure_context"][0]["place_id"] == "ChIJ_closed"
+
+
+def test_chat_endpoint_degrades_on_malformed_conversation_state(mocker) -> None:
+    """A malformed conversation_state must not 422 — the handler logs and
+    falls back to empty state."""
+    fake_graph = mocker.Mock()
+    captured: dict = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "anything",
+                "conversation_state": {"schema_version": 1, "closure_context": "not-a-list"},
+            },
+        )
+    # Degrades silently -> 200, no closure_context hydrated.
+    assert response.status_code == 200
+    assert captured["state"].closure_context == []
+
+
+def test_chat_endpoint_first_turn_omits_conversation_state(mocker) -> None:
+    fake_graph = mocker.Mock()
+
+    async def _ainvoke(state, config=None):
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"message": "hi"})
+
+    assert response.status_code == 200
+    body = response.json()
+    # Backend always emits a typed conversation_state, never null
+    assert "conversation_state" in body
+    assert body["conversation_state"]["schema_version"] == 1
+    assert body["conversation_state"]["closure_context"] == []
