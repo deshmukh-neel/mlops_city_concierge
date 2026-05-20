@@ -151,6 +151,43 @@ class Stop(BaseModel):
     booking_provider: BookingProvider | None = None
 
 
+ClosureOutcome = Literal[
+    "auto_swapped",
+    "user_accepted_drive",
+    "user_declined_dropped",
+    "pending_user_decision",
+    "queued_user_decision",
+]
+
+
+class ClosureContext(BaseModel):
+    """One closure event recorded during a /chat conversation.
+
+    Persisted across turns via the opaque `conversation_state` round-trip on
+    /chat. Placement anchors (`insert_after_place_id` / `insert_before_place_id`)
+    are durable against neighbor drops/inserts because they reference
+    neighboring stops' place_ids rather than indices; `stop_index_hint` is the
+    last-resort fallback used only when both anchors are absent from current
+    stops. Resolution order is documented in
+    `app.agent.swap._resolve_insert_position`.
+    """
+
+    schema_version: int = 1
+    place_id: str
+    place_name: str
+    family: str
+    attempted_arrival: datetime
+    outcome: ClosureOutcome
+    insert_after_place_id: str | None = None
+    insert_before_place_id: str | None = None
+    stop_index_hint: int
+    proposed_alternative: Stop | None = None
+    proposed_distance_m: float | None = None
+
+
+MAX_CLOSURE_CONTEXT_ENTRIES = 10
+
+
 class ItineraryState(BaseModel):
     """The single piece of state passed through every graph node."""
 
@@ -172,6 +209,7 @@ class ItineraryState(BaseModel):
     walked_meters_so_far: float = 0.0
     revision_hints: list[RevisionHint] = Field(default_factory=list)
     revision_counts: dict[str, int] = Field(default_factory=dict)
+    closure_context: list[ClosureContext] = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

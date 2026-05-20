@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -8,6 +9,7 @@ from app.agent.io import state_to_cards
 from app.agent.state import (
     DEFAULT_STOP_DURATION_MIN,
     DEFAULT_STOP_DURATION_MIN_FALLBACK,
+    ClosureContext,
     ItineraryState,
     PlaceCard,
     Stop,
@@ -143,3 +145,81 @@ def test_place_card_serialization_keys() -> None:
         "booking_provider",
     }
     assert set(payload.keys()) == expected_keys
+
+
+# ─── ClosureContext + ItineraryState.closure_context (closure-aware swap) ───
+
+_SF = ZoneInfo("America/Los_Angeles")
+
+
+def test_closure_context_minimal_fields_validate() -> None:
+    """Pending entry with no proposal — used when nearby() returns no candidate."""
+    ctx = ClosureContext(
+        place_id="ChIJ_closed",
+        place_name="Mochill Mochidonut",
+        family="dessert",
+        attempted_arrival=datetime(2026, 5, 19, 20, 2, tzinfo=_SF),
+        outcome="pending_user_decision",
+        insert_after_place_id="ChIJ_stop1",
+        insert_before_place_id=None,
+        stop_index_hint=2,
+        proposed_alternative=None,
+        proposed_distance_m=None,
+    )
+    assert ctx.schema_version == 1
+    assert ctx.outcome == "pending_user_decision"
+    assert ctx.proposed_alternative is None
+
+
+def test_closure_context_with_proposal_validates() -> None:
+    sophies = Stop(
+        place_id="ChIJ_sophies",
+        name="Sophie's Crepes",
+        rationale="closest open dessert",
+        source="google_places",
+        latitude=37.7849,
+        longitude=-122.4093,
+        primary_type="Dessert Shop",
+        planned_duration_min=30,
+    )
+    ctx = ClosureContext(
+        place_id="ChIJ_closed",
+        place_name="Mochill Mochidonut",
+        family="dessert",
+        attempted_arrival=datetime(2026, 5, 19, 20, 2, tzinfo=_SF),
+        outcome="pending_user_decision",
+        insert_after_place_id="ChIJ_stop1",
+        insert_before_place_id=None,
+        stop_index_hint=2,
+        proposed_alternative=sophies,
+        proposed_distance_m=4800.0,
+    )
+    assert ctx.proposed_alternative is not None
+    assert ctx.proposed_alternative.place_id == "ChIJ_sophies"
+    assert ctx.proposed_distance_m == 4800.0
+
+
+def test_itinerary_state_default_closure_context_empty() -> None:
+    state = ItineraryState()
+    assert state.closure_context == []
+
+
+def test_itinerary_state_accepts_closure_context_list() -> None:
+    state = ItineraryState(
+        closure_context=[
+            ClosureContext(
+                place_id="p",
+                place_name="X",
+                family="bar",
+                attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=_SF),
+                outcome="auto_swapped",
+                insert_after_place_id=None,
+                insert_before_place_id=None,
+                stop_index_hint=0,
+                proposed_alternative=None,
+                proposed_distance_m=None,
+            )
+        ]
+    )
+    assert len(state.closure_context) == 1
+    assert state.closure_context[0].outcome == "auto_swapped"
