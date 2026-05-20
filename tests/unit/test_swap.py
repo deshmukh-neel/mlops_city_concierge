@@ -191,3 +191,127 @@ def test_score_candidate_prefers_family_match() -> None:
     s_match = _score_candidate(candidate, closed, prev_, next_, family_match=True)
     s_nomatch = _score_candidate(candidate, closed, prev_, next_, family_match=False)
     assert s_match > s_nomatch
+
+
+# ─── walking-distance + citywide candidate search (Task 9) ──────────────
+
+
+def test_try_walking_distance_swap_uses_family_and_exclusion(mocker) -> None:
+    """The swap helper must:
+    1. Pass the family to nearby() via SearchFilters.primary_type_family.
+    2. Pass closure_context + current-stops exclusions via excluded_place_ids.
+    3. Pass open_at = attempted_arrival.
+    4. Return the highest-scoring candidate, if any.
+    """
+    from app.agent.state import ClosureContext, ItineraryState
+    from app.agent.swap import _try_walking_distance_swap
+    from app.tools.retrieval import PlaceHit
+
+    captured_calls: list = []
+
+    def _fake_nearby(place_id, radius_m, filters, k):
+        captured_calls.append((place_id, radius_m, filters, k))
+        return [
+            PlaceHit(
+                place_id="alt1",
+                name="Alt 1",
+                primary_type="Dessert Shop",
+                latitude=37.78,
+                longitude=-122.41,
+                rating=4.5,
+                source="google_places",
+                similarity=0.0,
+                dist_m=300.0,
+            )
+        ]
+
+    mocker.patch("app.agent.swap._nearby_search", side_effect=_fake_nearby)
+    closed = _stop(place_id="closed", primary_type="Dessert Shop")
+    prev_ = _stop(place_id="prev", lat=37.78, lng=-122.41)
+    state = ItineraryState(stops=[prev_, closed], closure_context=[])
+    ctx = ClosureContext(
+        place_id="closed",
+        place_name="Closed",
+        family="dessert",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="pending_user_decision",
+        insert_after_place_id="prev",
+        insert_before_place_id=None,
+        stop_index_hint=1,
+    )
+
+    match = _try_walking_distance_swap(state, ctx, anchor_place_id="prev")
+
+    assert match is not None
+    assert match.stop.place_id == "alt1"
+    # captured: (place_id, radius_m, filters, k)
+    _, radius_m, filters, _ = captured_calls[0]
+    assert radius_m <= 500  # walking budget
+    assert filters.primary_type_family == "dessert"
+    assert "closed" in (filters.excluded_place_ids or [])
+    assert filters.open_at == datetime(2026, 5, 19, 20, 0, tzinfo=SF)
+
+
+def test_try_walking_distance_swap_returns_none_when_no_candidates(mocker) -> None:
+    from app.agent.state import ClosureContext, ItineraryState
+    from app.agent.swap import _try_walking_distance_swap
+
+    mocker.patch("app.agent.swap._nearby_search", return_value=[])
+    closed = _stop(place_id="closed", primary_type="Dessert Shop")
+    state = ItineraryState(stops=[_stop(place_id="prev"), closed])
+    ctx = ClosureContext(
+        place_id="closed",
+        place_name="Closed",
+        family="dessert",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="pending_user_decision",
+        insert_after_place_id="prev",
+        insert_before_place_id=None,
+        stop_index_hint=1,
+    )
+    assert _try_walking_distance_swap(state, ctx, anchor_place_id="prev") is None
+
+
+def test_try_any_distance_search_uses_citywide_radius(mocker) -> None:
+    """Fallback search uses _CITYWIDE_RADIUS_M (30 km) so the question can
+    propose a drive-distance alternative when nothing is within walking
+    distance."""
+    from app.agent.state import ClosureContext, ItineraryState
+    from app.agent.swap import _try_any_distance_search
+    from app.tools.retrieval import PlaceHit
+
+    captured = []
+
+    def _fake_nearby(place_id, radius_m, filters, k):
+        captured.append(radius_m)
+        return [
+            PlaceHit(
+                place_id="alt2",
+                name="Alt 2 (far)",
+                primary_type="Dessert Shop",
+                latitude=37.80,
+                longitude=-122.45,
+                source="google_places",
+                similarity=0.0,
+                dist_m=4800.0,
+            )
+        ]
+
+    mocker.patch("app.agent.swap._nearby_search", side_effect=_fake_nearby)
+    closed = _stop(place_id="closed", primary_type="Dessert Shop")
+    state = ItineraryState(stops=[_stop(place_id="prev"), closed])
+    ctx = ClosureContext(
+        place_id="closed",
+        place_name="Closed",
+        family="dessert",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="pending_user_decision",
+        insert_after_place_id="prev",
+        insert_before_place_id=None,
+        stop_index_hint=1,
+    )
+
+    match = _try_any_distance_search(state, ctx, anchor_place_id="prev")
+    assert match is not None
+    assert match.distance_m == 4800.0
+    assert captured[0] == 30_000
