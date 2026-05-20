@@ -131,7 +131,9 @@ POST /chat
         "family": "dessert",
         "attempted_arrival": "2026-05-19T20:02:33-07:00",
         "outcome": "pending_user_decision",
-        "stop_index": 2,
+        "insert_after_place_id": "ChIJ...stop1...",
+        "insert_before_place_id": null,
+        "stop_index_hint": 2,
         "proposed_alternative": {
           "place_id": "ChIJ...sophies...",
           "name": "Sophie's Crepes",
@@ -220,7 +222,7 @@ on `ItineraryState`:
 ```python
 class ClosureContext(BaseModel):
     schema_version: int = 1
-    place_id: str
+    place_id: str                     # the closed place
     place_name: str
     family: str                       # "dessert", "bar", "restaurant", "cafe"
     attempted_arrival: datetime
@@ -231,7 +233,17 @@ class ClosureContext(BaseModel):
         "pending_user_decision",
         "queued_user_decision",
     ]
-    stop_index: int                   # position in the itinerary where the closure occurred
+    # STABLE PLACEMENT ANCHORS — robust against neighbor drops/inserts
+    # between turns. Resolution rules in priority order:
+    #   1) If insert_after_place_id is in current stops → insert at that index + 1.
+    #   2) Else if insert_before_place_id is in current stops → insert at that index.
+    #   3) Else fall back to stop_index_hint, clamped to len(stops).
+    # Indices alone (without anchors) drift when queued closures get
+    # resolved out of order; place_ids on neighboring stops are durable
+    # except when the user also asked us to remove/swap those.
+    insert_after_place_id: str | None = None   # the stop that should be immediately BEFORE this one
+    insert_before_place_id: str | None = None  # the stop that should be immediately AFTER this one
+    stop_index_hint: int                       # original 0-based position, last-resort fallback
     proposed_alternative: Stop | None
     proposed_distance_m: float | None
 
@@ -255,21 +267,34 @@ class ConversationState(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = Field(default_factory=list)
-    conversation_state: ConversationState | None = None
+    # Accept as opaque dict so a malformed payload doesn't 422 before the
+    # handler runs — `/chat` does manual `ConversationState.model_validate(...)`
+    # and degrades to empty state on ValidationError, matching the
+    # decode_from_history failure mode (warning logged, not user-facing).
+    conversation_state: dict[str, Any] | None = None
 
 class ChatResponse(BaseModel):
     reply: str
     places: list[dict]
     ragLabel: str
+    # Response is typed strictly — backend always emits a valid shape.
     conversation_state: ConversationState | None = None
 ```
 
 Extend `/chat` to:
 
-1. Hydrate state from request:
+1. Hydrate state from request (manual validation — handler degrades, never
+   422s):
    ```python
-   incoming = req.conversation_state or ConversationState()
-   closure_context = _validated_closure_context(incoming.closure_context)
+   try:
+       incoming = (
+           ConversationState.model_validate(req.conversation_state)
+           if req.conversation_state else ConversationState()
+       )
+   except ValidationError:
+       logger.warning("conversation_state.decode_failed", exc_info=True)
+       incoming = ConversationState()
+   closure_context = incoming.closure_context  # already validated by model_validate
    prior_stops     = _revalidated_prior_stops(incoming.prior_stops)  # re-enrich via DB
    ```
 2. Find any `pending_user_decision` entry (exactly one if present per v1
@@ -278,10 +303,17 @@ Extend `/chat` to:
    `parse_closure_decision(req.message)`.
 4. **Early-return branches** (before invoking graph):
    - `accept` → re-validate the proposed alternative (re-fetch details,
-     re-check open-at). If still good, insert into `prior_stops` at
-     `stop_index`, mark entry `user_accepted_drive`, run **one bounded
-     retime** on the new stops, re-run `summarize_stops`, return.
-     If the alternative is no longer valid, escalate to a fresh question.
+     re-check open-at). If still good, insert into `prior_stops` at the
+     pending entry's stable position (see Stop placement below), mark
+     entry `user_accepted_drive`, run **one bounded retime** on the new
+     stops, then **re-run `_per_stop_closure_status` on the retimed
+     itinerary**. If new closures surface (the retime shifted arrivals
+     enough to close a different stop): try walking-distance swaps for
+     them (same logic as the swap node) and re-check once more (still
+     bounded — no loops). If anything is still closed after that, mark
+     it pending/queued and ask the user. Only if everything is clean do
+     we ship the summary. If the alternative is no longer valid in the
+     initial re-check, escalate to a fresh question.
    - `decline` → drop the closed stop entirely; if queued entries exist,
      promote the first to `pending_user_decision` and ask about it.
      Otherwise re-run `summarize_stops` and return.
@@ -309,12 +341,15 @@ Internal helpers (underscore-prefixed; white-box tests import them):
   round-trip via `place_is_open`; fail-open on DB error (matches
   graph.py:336-338 precedent).
 - `_try_walking_distance_swap(state, stop_index, per_leg_budget_m) -> CandidateMatch | None`
-  — calls `nearby()` with `open_at`, `primary_types_any` (family
-  members), and place_id exclusions; scores returned candidates and
-  returns the best, or None.
+  — calls `nearby()` with `open_at`, `primary_type_family` (resolved
+  via `family_of(closed_stop.primary_type)`), and place_id exclusions;
+  scores returned candidates and returns the best, or None.
 - `_try_any_distance_search(state, closed_stop) -> CandidateMatch | None`
-  — fallback after walking-distance fails; broader `nearby()` (no
-  budget) for the pending-question proposal.
+  — fallback after walking-distance fails. `nearby()` currently requires
+  `radius_m: int`; pass `_CITYWIDE_RADIUS_M = 30_000` (covers all of SF
+  from any anchor inside it; cheaper than a separate citywide function
+  and keeps SQL behavior consistent). Used only to populate the pending
+  question's `proposed_alternative` + `proposed_distance_m`.
 - `_score_candidate(candidate, closed_stop, prev_stop, next_stop) -> float`
   — combined score: category match + route impact (distance from prev +
   distance to next, both relative to closed_stop's original position).
@@ -324,7 +359,15 @@ Internal helpers (underscore-prefixed; white-box tests import them):
   loop, NO recursion — at most one extra call per swap node invocation.
 - `_promote_pending(closure_context) -> closure_context` — when the
   current pending entry is resolved, promote the first queued entry to
-  pending. Returns the updated list.
+  pending. Returns the updated list. Placement anchors
+  (`insert_after_place_id` / `insert_before_place_id`) are not
+  recomputed here; they remain stable across promotions because they
+  anchor to neighbor place_ids, not indices.
+- `_resolve_insert_position(closure: ClosureContext, stops: list[Stop]) -> int`
+  — applies the placement priority rules from `ClosureContext`:
+  insert_after → insert_before → stop_index_hint (clamped). Used by the
+  accept early-return and by `_apply_swap` to figure out where the
+  replacement goes.
 - `_formulate_closure_question(pending: ClosureContext) -> str` — builds
   question text; differs when `proposed_alternative is None` vs
   populated.
@@ -354,15 +397,38 @@ class CandidateMatch(BaseModel):
 
 **`filters.py` changes:**
 
-- Refactor existing `_DESSERT_TYPES` into a shared
-  `_PRIMARY_TYPE_FAMILIES: dict[str, tuple[str, ...]]` with entries for
-  `dessert`, `bar`, `restaurant`, `cafe`. Single source of truth.
-- Add `family_of(primary_type: str) -> str | None`.
-- Rewire `serves_dessert` to use `_PRIMARY_TYPE_FAMILIES["dessert"]`.
+- Refactor existing `_DESSERT_TYPES` (snake_case, for the `types` array
+  column) and `_DESSERT_PRIMARY_TYPES` (Title Case, for the `primary_type`
+  scalar column) into a single nested mapping that preserves the **two
+  distinct column conventions** the DB uses:
+  ```python
+  _PRIMARY_TYPE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = {
+      "dessert": {
+          "types":        ("dessert_shop", "bakery", "ice_cream_shop", ...),       # snake, secondary
+          "primary_types": ("Dessert Shop", "Bakery", "Ice Cream Shop", ...),     # Title, primary
+      },
+      "bar":     {"types": ("bar", "cocktail_bar", "wine_bar", ...),
+                  "primary_types": ("Bar", "Cocktail Bar", "Wine Bar", ...)},
+      "restaurant": {...},
+      "cafe":    {...},
+  }
+  ```
+  Each family must define both lists. `serves_dessert` continues to use
+  the family entry. The category filter at search time uses the existing
+  `(types && %s OR primary_type = ANY(%s))` clause pattern from
+  `filters.py:211` so a place can match by either column.
+- Add `family_of(primary_type: str) -> str | None` and
+  `family_of_types(types: list[str]) -> str | None` — both perform the
+  reverse lookup against the same `_PRIMARY_TYPE_FAMILIES` (no
+  case-normalization needed because the table preserves casings
+  verbatim). When recording `ClosureContext.family`, prefer the
+  primary-type match; fall back to types array; otherwise leave family
+  empty and skip the swap (still ask the user).
 - Add to `SearchFilters`:
-  - `primary_types_any: list[str] | None = None` — compiles to
-    `primary_type = ANY(%s)` for category constraint. (Distinct from
-    existing `types_any` which queries the `types` array column.)
+  - `primary_type_family: str | None = None` — when set, expands to
+    `(types && %s OR primary_type = ANY(%s))` against the family's
+    members; **one** filter field, not two. (Distinct from existing
+    `types_any` which only queries `types`.)
   - `excluded_place_ids: list[str] | None = None` — compiles to
     `place_id != ALL(%s)` for exclusion.
 
@@ -384,6 +450,27 @@ class CandidateMatch(BaseModel):
     arrival time and should NOT be re-suggested: <comma-separated names>.
     Their place_ids are also excluded from your search-result candidates.
   ```
+- **Server-side filter injection in `act()`** (belt-and-suspenders so the
+  exclusion is enforced at the SQL layer regardless of LLM compliance).
+  Before invoking `semantic_search` / `nearby` / `kg_traverse` tool
+  calls, merge `state.closure_context` exclusions into the tool's
+  `filters.excluded_place_ids` argument:
+  ```python
+  # In act(), after looking up the tool and BEFORE asyncio.to_thread:
+  if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
+      tc["args"] = _inject_closure_exclusions(tc["args"], state.closure_context)
+  ```
+  `_inject_closure_exclusions` (new helper in `swap.py` so the same logic
+  is testable in isolation):
+  - Extracts `excluded` = list of `place_id`s from closure_context where
+    `outcome in {"auto_swapped", "user_declined_dropped",
+    "queued_user_decision"}`.
+  - Reads `args.get("filters", {})`, merges/creates
+    `excluded_place_ids` = union of any LLM-supplied value + `excluded`.
+  - Returns a new args dict; never mutates `tc["args"]` in place to
+    keep act()'s scratch-recording semantics intact.
+  This makes the prompt guidance an optimization (helps the LLM pick
+  better in the first place); the SQL filter is the enforcement.
 
 ### 6. `app/agent/input_parsing.py`
 
@@ -420,9 +507,27 @@ return {
 }
 ```
 
-Caller code in `App.jsx` stores the last `conversation_state` in state and
-passes it to the next `sendMessage` call. ~3 lines in `App.jsx`. The
-frontend never inspects the field's contents.
+Caller code in `App.jsx` stores the last `conversation_state` in a
+**`useRef`**, not `useState`. Reason: `handleSend` is a
+`useCallback(..., [])` with empty deps (see
+`frontend/src/App.jsx:46`). A `useState` value would be captured stale
+in the closure and never update across renders, so every request after
+the first would send the value from the initial render. `useRef.current`
+reads through the closure at call time and stays current:
+
+```js
+const conversationStateRef = useRef(null)
+
+const handleSend = useCallback(async (text) => {
+  // ...build userMsg, append to messages...
+  const data = await sendMessage(text, history, conversationStateRef.current)
+  conversationStateRef.current = data.conversation_state ?? null
+  // ...rest of handler...
+}, [])  // deps still empty — ref handles freshness
+```
+
+The frontend never inspects the field's contents. ~5 lines in `App.jsx`
+plus the 2 in `api/chat.js`.
 
 ## Data Flow
 
@@ -438,7 +543,10 @@ ItineraryState built; graph runs:
     _apply_swap replaces state.stops[K]
     _bounded_retime_after_swap → one extra route_legs call, re-chain
     _per_stop_closure_status re-run → no closures
-    closure_context += ClosureContext(outcome="auto_swapped", stop_index=K, ...)
+    closure_context += ClosureContext(outcome="auto_swapped",
+                                      insert_after_place_id=state.stops[K-1].place_id if K>0 else None,
+                                      insert_before_place_id=state.stops[K+1].place_id if K+1<len(state.stops) else None,
+                                      stop_index_hint=K, ...)
     final_reply = summarize_stops(state)
   ↓
 response: {
@@ -453,11 +561,13 @@ response: {
 **Turn 1:**
 ```
 swap_closed_stops:
-  closure detected at stop_index=2
+  closure detected at position 2 (between stops[1] and end)
   _try_walking_distance_swap → None
   _try_any_distance_search → CandidateMatch(Sophie's Crepes, 4800m)
   closure_context += ClosureContext(outcome="pending_user_decision",
-                                    stop_index=2,
+                                    insert_after_place_id=state.stops[1].place_id,
+                                    insert_before_place_id=None,
+                                    stop_index_hint=2,
                                     proposed_alternative=Sophie's,
                                     proposed_distance_m=4800.0)
   state.final_reply = "The closest open dessert place is Sophie's Crepes,
@@ -575,7 +685,7 @@ Structured warning logs:
 | `tests/unit/test_swap.py` | new | 10 | unit + mock |
 | `tests/unit/test_swap_node.py` | new | 7 | smoke (graph runs, LLM scripted, DB mocked) |
 | `tests/unit/test_chat_endpoint.py` | extend | +8 | functional (TestClient, graph mocked) |
-| `tests/unit/test_filters.py` | extend | +3 | unit (primary_types_any + excluded_place_ids + family_of) |
+| `tests/unit/test_filters.py` | extend | +3 | unit (primary_type_family + excluded_place_ids + family_of) |
 | `tests/integration/test_swap_real_db.py` | new | 3 | integration (`APP_ENV=integration` gate) |
 
 Notable coverage:
