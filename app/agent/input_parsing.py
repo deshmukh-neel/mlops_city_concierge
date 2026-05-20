@@ -31,6 +31,23 @@ _WORD_STOP_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Detects "the assistant just asked a how-many-stops question."
+# Conservative — requires both an interrogative phrase ("how many") and a
+# stop-noun nearby, so a stray "how many drinks?" or a comment like
+# "I'd want 3 stops" doesn't activate the bare-number capture below.
+_ASSISTANT_STOPS_QUESTION_RE = re.compile(
+    rf"how\s+many\s+\w*\s*{_STOP_NOUN}\b",
+    re.IGNORECASE,
+)
+
+# Bare-integer or bare-word-integer in [1, _MAX_EXPLICIT_STOPS]. Used only
+# when the prior assistant turn was a stops-count question.
+_BARE_NUMBER_RE = re.compile(r"^\s*([1-9]|10)\s*[.!]?\s*$")
+_BARE_WORD_NUMBER_RE = re.compile(
+    rf"^\s*({'|'.join(_WORD_TO_INT)})\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
 
 class _HasRoleContent(Protocol):
     # Read-only attribute protocol so concrete classes with narrower types
@@ -50,17 +67,59 @@ def explicit_num_stops_from_conversation(
     `current_message` loses the count on every follow-up turn. Walks history's
     user messages in order, then the current message; the LAST hit wins so a
     mid-conversation revision ("actually make it 4") overrides an earlier "3".
+
+    Bare-number fallback (current_message only): if the prior assistant turn
+    was clearly a how-many-stops question (e.g. "How many stops would you
+    like?") and the current message is a bare integer or bare word-integer
+    (e.g. "3", "three", "3.", "Three!"), treat it as the count. This
+    closes the gap where gpt-4o-mini asked the count question and the user
+    replied with just a number — without it, no count guardrail kicks in
+    and the model can over-loop into the step-limit short-circuit. The
+    bare-number rule applies ONLY to the current message, not to history,
+    because old assistant turns are no longer the prompt at the front of
+    the model's attention.
     """
+    history_list = list(history)
     latest: int | None = None
-    for m in history:
+    for m in history_list:
         if getattr(m, "role", None) == "user":
             found = explicit_num_stops_from_text(getattr(m, "content", "") or "")
             if found is not None:
                 latest = found
     found = explicit_num_stops_from_text(current_message)
     if found is not None:
-        latest = found
+        return found
+    # Bare-number fallback: only activate if the LAST assistant turn (the
+    # one the user is replying to) was a how-many-stops question.
+    last_assistant = next(
+        (
+            getattr(m, "content", "") or ""
+            for m in reversed(history_list)
+            if getattr(m, "role", None) == "assistant"
+        ),
+        None,
+    )
+    if last_assistant and _ASSISTANT_STOPS_QUESTION_RE.search(last_assistant):
+        bare = _parse_bare_count(current_message)
+        if bare is not None:
+            return bare
     return latest
+
+
+def _parse_bare_count(text: str) -> int | None:
+    """Bare digit / word number in [1, 10], or None.
+
+    Anchored match (`^...$`): "3 places" doesn't qualify (the noun-based
+    parser handles that); only standalone numbers or word-numbers.
+    """
+    m = _BARE_NUMBER_RE.match(text)
+    if m:
+        value = int(m.group(1))
+        return value if 1 <= value <= _MAX_EXPLICIT_STOPS else None
+    m = _BARE_WORD_NUMBER_RE.match(text)
+    if m:
+        return _WORD_TO_INT[m.group(1).lower()]
+    return None
 
 
 def explicit_num_stops_from_text(text: str) -> int | None:
