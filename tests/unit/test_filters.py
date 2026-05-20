@@ -6,7 +6,13 @@ from zoneinfo import ZoneInfo
 import pytest
 from pydantic import ValidationError
 
-from app.tools.filters import SearchFilters, compile_filters
+from app.tools.filters import (
+    _PRIMARY_TYPE_FAMILIES,
+    SearchFilters,
+    compile_filters,
+    family_of,
+    family_of_types,
+)
 
 
 def test_empty_filters_no_clauses() -> None:
@@ -159,3 +165,39 @@ def test_open_at_accepts_tz_aware_datetime() -> None:
     f_utc = SearchFilters(open_at=datetime(2026, 4, 26, 19, 30, tzinfo=timezone.utc))
     assert f_utc.open_at is not None
     assert f_utc.open_at.tzinfo is timezone.utc
+
+
+# ─── _PRIMARY_TYPE_FAMILIES + family_of (closure-aware swap) ─────────────
+
+
+def test_primary_type_families_all_have_types_and_primary_types() -> None:
+    for family, members in _PRIMARY_TYPE_FAMILIES.items():
+        assert set(members.keys()) == {"types", "primary_types"}, family
+        assert members["types"], f"{family} types must not be empty"
+        assert members["primary_types"], f"{family} primary_types must not be empty"
+
+
+def test_dessert_family_preserves_existing_dessert_members() -> None:
+    dessert = _PRIMARY_TYPE_FAMILIES["dessert"]
+    assert "dessert_shop" in dessert["types"]
+    assert "Dessert Shop" in dessert["primary_types"]
+    assert "Ice Cream Shop" in dessert["primary_types"]
+
+
+def test_family_of_resolves_primary_type() -> None:
+    assert family_of("Dessert Shop") == "dessert"
+    assert family_of("Bar") == "bar"
+    assert family_of("Cafe") == "cafe"
+    assert family_of("Italian Restaurant") == "restaurant"
+
+
+def test_family_of_returns_none_for_unknown_primary_type() -> None:
+    assert family_of("Spaceship") is None
+    assert family_of(None) is None
+    assert family_of("") is None
+
+
+def test_family_of_types_resolves_via_types_array() -> None:
+    assert family_of_types(["italian_restaurant", "restaurant"]) == "restaurant"
+    assert family_of_types(["dessert_shop"]) == "dessert"
+    assert family_of_types([]) is None

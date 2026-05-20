@@ -137,31 +137,147 @@ _BOOL_COLUMNS: tuple[str, ...] = (
     "good_for_sports",
 )
 
-_DESSERT_TYPES: tuple[str, ...] = (
-    "dessert_shop",
-    "bakery",
-    "ice_cream_shop",
-    "candy_store",
-    "chocolate_shop",
-    "coffee_shop",
-    "cafe",
-    "confectionery",
-    "donut_shop",
-    "tea_house",
-)
+# Maps a family name to the column conventions place_documents/places_raw
+# uses for category matching:
+#   - "types":         snake_case strings used in the `types[]` array column
+#   - "primary_types": Title Case strings used in the `primary_type` scalar
+# Both lists are required for each family because Postgres rows can carry
+# either or both. The `serves_dessert` helper and the `primary_type_family`
+# filter both compile to `(types && %s OR primary_type = ANY(%s))` against
+# these two lists so the row matches on either column.
+_PRIMARY_TYPE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = {
+    "dessert": {
+        "types": (
+            "dessert_shop",
+            "bakery",
+            "ice_cream_shop",
+            "candy_store",
+            "chocolate_shop",
+            "coffee_shop",
+            "cafe",
+            "confectionery",
+            "donut_shop",
+            "tea_house",
+        ),
+        "primary_types": (
+            "Dessert Shop",
+            "Bakery",
+            "Ice Cream Shop",
+            "Candy Store",
+            "Chocolate Shop",
+            "Coffee Shop",
+            "Cafe",
+            "Confectionery store",
+            "Donut Shop",
+            "Tea House",
+        ),
+    },
+    "bar": {
+        "types": (
+            "bar",
+            "cocktail_bar",
+            "wine_bar",
+            "pub",
+            "sports_bar",
+            "night_club",
+        ),
+        "primary_types": (
+            "Bar",
+            "Cocktail Bar",
+            "Wine Bar",
+            "Pub",
+            "Sports Bar",
+            "Night Club",
+        ),
+    },
+    "restaurant": {
+        "types": (
+            "restaurant",
+            "fine_dining_restaurant",
+            "italian_restaurant",
+            "japanese_restaurant",
+            "chinese_restaurant",
+            "mexican_restaurant",
+            "thai_restaurant",
+            "indian_restaurant",
+            "french_restaurant",
+            "vietnamese_restaurant",
+            "korean_restaurant",
+            "mediterranean_restaurant",
+            "seafood_restaurant",
+            "steak_house",
+            "sushi_restaurant",
+            "ramen_restaurant",
+            "pizza_restaurant",
+            "american_restaurant",
+        ),
+        "primary_types": (
+            "Restaurant",
+            "Fine Dining Restaurant",
+            "Italian Restaurant",
+            "Japanese Restaurant",
+            "Chinese Restaurant",
+            "Mexican Restaurant",
+            "Thai Restaurant",
+            "Indian Restaurant",
+            "French Restaurant",
+            "Vietnamese Restaurant",
+            "Korean Restaurant",
+            "Mediterranean Restaurant",
+            "Seafood Restaurant",
+            "Steak House",
+            "Sushi Restaurant",
+            "Ramen Restaurant",
+            "Pizza Restaurant",
+            "American Restaurant",
+        ),
+    },
+    "cafe": {
+        "types": ("cafe", "coffee_shop", "tea_house"),
+        "primary_types": ("Cafe", "Coffee Shop", "Tea House"),
+    },
+}
 
-_DESSERT_PRIMARY_TYPES: tuple[str, ...] = (
-    "Dessert Shop",
-    "Bakery",
-    "Ice Cream Shop",
-    "Candy Store",
-    "Chocolate Shop",
-    "Coffee Shop",
-    "Cafe",
-    "Confectionery store",
-    "Donut Shop",
-    "Tea House",
-)
+
+# Priority order for the reverse-lookup helpers below. The dessert family
+# intentionally overlaps with the cafe family (a cafe serves desserts), but
+# when *identifying* a closed stop's category for the closure-aware swap,
+# we want the more specific family — a closed "Cafe" should swap to another
+# cafe, not arbitrarily into the dessert family. Order: most specific first.
+_FAMILY_LOOKUP_PRIORITY: tuple[str, ...] = ("bar", "restaurant", "cafe", "dessert")
+
+
+def family_of(primary_type: str | None) -> str | None:
+    """Reverse lookup: scalar primary_type column value -> family name.
+
+    Case-preserving comparison — the DB column preserves Title Case verbatim,
+    and `_PRIMARY_TYPE_FAMILIES` stores both casings exactly as the columns do.
+    Returns the first match in `_FAMILY_LOOKUP_PRIORITY` order so overlapping
+    categories (Cafe is in both "cafe" and "dessert") resolve deterministically.
+    Returns None for unknown / empty / None inputs.
+    """
+    if not primary_type:
+        return None
+    for family in _FAMILY_LOOKUP_PRIORITY:
+        if primary_type in _PRIMARY_TYPE_FAMILIES[family]["primary_types"]:
+            return family
+    return None
+
+
+def family_of_types(types: list[str] | None) -> str | None:
+    """Reverse lookup: types[] array values -> family name.
+
+    Returns the first family that overlaps the input list, walking families
+    in `_FAMILY_LOOKUP_PRIORITY` order. Lets the swap node fall back when
+    `primary_type` isn't in the index but `types[]` is populated. Returns
+    None for an empty list.
+    """
+    if not types:
+        return None
+    for family in _FAMILY_LOOKUP_PRIORITY:
+        if any(t in _PRIMARY_TYPE_FAMILIES[family]["types"] for t in types):
+            return family
+    return None
 
 
 def compile_filters(f: SearchFilters) -> tuple[str, list]:
@@ -208,13 +324,14 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
             params.append(value)
 
     if f.serves_dessert is not None:
+        dessert = _PRIMARY_TYPE_FAMILIES["dessert"]
         dessert_clause = "(types && %s OR primary_type = ANY(%s))"
         if f.serves_dessert:
             clauses.append(dessert_clause)
         else:
             clauses.append(f"NOT {dessert_clause}")
-        params.append(list(_DESSERT_TYPES))
-        params.append(list(_DESSERT_PRIMARY_TYPES))
+        params.append(list(dessert["types"]))
+        params.append(list(dessert["primary_types"]))
 
     if f.types_any:
         clauses.append("types && %s")
