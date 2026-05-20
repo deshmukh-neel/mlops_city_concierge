@@ -267,10 +267,17 @@ class ConversationState(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = Field(default_factory=list)
-    # Accept as opaque dict so a malformed payload doesn't 422 before the
-    # handler runs — `/chat` does manual `ConversationState.model_validate(...)`
-    # and degrades to empty state on ValidationError, matching the
-    # decode_from_history failure mode (warning logged, not user-facing).
+    # Accept as opaque dict so a malformed nested object doesn't 422
+    # before the handler runs — `/chat` does manual
+    # `ConversationState.model_validate(...)` and degrades to empty state
+    # on ValidationError, matching the decode_from_history failure mode
+    # (warning logged, not user-facing). Deliberate scope: `dict | None`
+    # still 422s on non-object payloads (string/list/number), which is
+    # the right answer for those — they're developer/curl mistakes, not
+    # things the real frontend can send. Switching to `Any` would
+    # additionally swallow those at the cost of losing OpenAPI schema
+    # documentation for the field; not worth it for this single-tenant
+    # known-sender frontend.
     conversation_state: dict[str, Any] | None = None
 
 class ChatResponse(BaseModel):
@@ -432,6 +439,36 @@ class CandidateMatch(BaseModel):
   - `excluded_place_ids: list[str] | None = None` — compiles to
     `place_id != ALL(%s)` for exclusion.
 
+### 4a. `app/tools/graph.py` (kg_traverse)
+
+`kg_traverse` doesn't use `SearchFilters` — it's a graph traversal with a
+purpose-built signature. Without an exclusion path here, KG-discovered
+places can still surface closed candidates that the model then commits,
+defeating the SQL-level enforcement promise. Add it as a first-class
+parameter:
+
+```python
+def kg_traverse(
+    place_id: str,
+    relation_type: str = "SIMILAR_VECTOR",
+    k: int = 5,
+    excluded_place_ids: list[str] | None = None,   # NEW
+) -> list[RelatedPlace]:
+```
+
+SQL change: append one new clause to the existing `WHERE`:
+
+```sql
+WHERE r.src_place_id = %s
+  AND r.relation_type = %s
+  AND (%s::text[] IS NULL OR pd.place_id != ALL(%s::text[]))   -- NEW
+```
+
+Params: pass `excluded_place_ids` twice (once for the NULL guard, once
+for the comparison) so an unset/None argument is a no-op and a populated
+list filters at the DB layer. Belt-and-suspenders coverage for the KG
+tool reaches feature parity with `nearby`/`semantic_search`.
+
 ### 5. `app/agent/graph.py`
 
 - **Delete** lines 327-347 of `retime` (post-retime `temporal_coherence`
@@ -454,19 +491,25 @@ class CandidateMatch(BaseModel):
   exclusion is enforced at the SQL layer regardless of LLM compliance).
   Before invoking `semantic_search` / `nearby` / `kg_traverse` tool
   calls, merge `state.closure_context` exclusions into the tool's
-  `filters.excluded_place_ids` argument:
+  exclusion argument (shape differs per tool — see bullet below):
   ```python
   # In act(), after looking up the tool and BEFORE asyncio.to_thread:
   if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
       tc["args"] = _inject_closure_exclusions(tc["args"], state.closure_context)
   ```
-  `_inject_closure_exclusions` (new helper in `swap.py` so the same logic
-  is testable in isolation):
+  `_inject_closure_exclusions(tool_name, args, closure_context)` (new
+  helper in `swap.py` so the same logic is testable in isolation):
   - Extracts `excluded` = list of `place_id`s from closure_context where
     `outcome in {"auto_swapped", "user_declined_dropped",
-    "queued_user_decision"}`.
-  - Reads `args.get("filters", {})`, merges/creates
-    `excluded_place_ids` = union of any LLM-supplied value + `excluded`.
+    "queued_user_decision"}`. Also adds the closure's own `place_id`
+    (the closed source) so the model can't propose it again either.
+  - Routes by tool name because arg shapes differ:
+    - `semantic_search` / `nearby` → exclusion lives under `args["filters"]`:
+      read or create `filters`, set `excluded_place_ids` = union of any
+      LLM-supplied value + `excluded`.
+    - `kg_traverse` → exclusion is a top-level arg:
+      set `args["excluded_place_ids"]` = union of any LLM-supplied value
+      + `excluded`.
   - Returns a new args dict; never mutates `tc["args"]` in place to
     keep act()'s scratch-recording semantics intact.
   This makes the prompt guidance an optimization (helps the LLM pick
@@ -482,13 +525,19 @@ def parse_closure_decision(text: str) -> Literal["accept", "decline", "alternati
 ```
 
 Accepted patterns:
-- `accept`: "yes", "yeah", "yep", "sure", "ok", "okay", "👍", "y"
-- `decline`: "no", "nope", "n", "nah"
-- `alternative`: anything else (including questions, free text, "yes! 4 stops")
+- `accept`: any message starting with (or whose first word is) "yes",
+  "yeah", "yep", "sure", "ok", "okay", "👍", "y" — even if other content
+  follows. Examples that match accept: `"yes"`, `"yes! make it 4 stops"`,
+  `"sure thing"`, `"ok let's go"`.
+- `decline`: same first-token logic for "no", "nope", "n", "nah".
+- `alternative`: anything else — questions, free text suggestions, empty
+  string, requests that don't start with a yes/no token. Examples:
+  `"find something cheaper instead"`, `"what about ramen?"`, `""`.
 
-The function returns `accept` even if `req.message` also contains a
-num_stops change ("yes! make it 4 stops"); the existing
-`explicit_num_stops_from_conversation` handles the count separately.
+The first-token rule resolves the "yes + num_stops change" case
+unambiguously: `"yes! make it 4 stops"` returns `accept`, and the
+existing `explicit_num_stops_from_conversation` separately handles the
+count update.
 
 ### 7. Frontend: `frontend/src/api/chat.js` (only frontend change)
 
