@@ -100,3 +100,94 @@ def test_per_stop_closure_status_db_failure_fails_open(mocker) -> None:
     )
     statuses = _per_stop_closure_status([_stop(place_id="p1"), _stop(place_id="p2")])
     assert statuses == [False, False]
+
+
+# ─── _resolve_insert_position + _score_candidate (Task 8) ───────────────
+
+
+def test_resolve_insert_position_uses_insert_after_when_anchor_present() -> None:
+    from app.agent.state import ClosureContext
+    from app.agent.swap import _resolve_insert_position
+
+    stops = [_stop(place_id="a"), _stop(place_id="b"), _stop(place_id="c")]
+    ctx = ClosureContext(
+        place_id="closed",
+        place_name="X",
+        family="bar",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="pending_user_decision",
+        insert_after_place_id="a",
+        insert_before_place_id=None,
+        stop_index_hint=99,
+    )
+    # insert_after a (index 0) -> position 1
+    assert _resolve_insert_position(ctx, stops) == 1
+
+
+def test_resolve_insert_position_falls_back_to_insert_before() -> None:
+    from app.agent.state import ClosureContext
+    from app.agent.swap import _resolve_insert_position
+
+    stops = [_stop(place_id="a"), _stop(place_id="b")]
+    ctx = ClosureContext(
+        place_id="closed",
+        place_name="X",
+        family="bar",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="pending_user_decision",
+        insert_after_place_id="missing",
+        insert_before_place_id="b",
+        stop_index_hint=99,
+    )
+    # insert_after missing; insert_before b (index 1) -> position 1
+    assert _resolve_insert_position(ctx, stops) == 1
+
+
+def test_resolve_insert_position_falls_back_to_index_hint_clamped() -> None:
+    from app.agent.state import ClosureContext
+    from app.agent.swap import _resolve_insert_position
+
+    stops = [_stop(place_id="a"), _stop(place_id="b")]
+    ctx = ClosureContext(
+        place_id="closed",
+        place_name="X",
+        family="bar",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="pending_user_decision",
+        insert_after_place_id="missing",
+        insert_before_place_id="also_missing",
+        stop_index_hint=99,
+    )
+    # Both anchors absent; clamp hint to len(stops)
+    assert _resolve_insert_position(ctx, stops) == 2
+
+
+def test_score_candidate_prefers_lower_route_impact() -> None:
+    """Two candidates with identical family-match: the one with smaller
+    combined prev+next distance scores higher."""
+    from app.agent.swap import _score_candidate
+
+    closed = _stop(place_id="closed", lat=37.78, lng=-122.41)
+    prev_ = _stop(place_id="prev", lat=37.78, lng=-122.41)
+    next_ = _stop(place_id="next", lat=37.785, lng=-122.41)
+
+    close_candidate = _stop(place_id="c1", lat=37.78, lng=-122.41)
+    far_candidate = _stop(place_id="c2", lat=37.90, lng=-122.41)
+
+    s_close = _score_candidate(close_candidate, closed, prev_, next_, family_match=True)
+    s_far = _score_candidate(far_candidate, closed, prev_, next_, family_match=True)
+    assert s_close > s_far
+
+
+def test_score_candidate_prefers_family_match() -> None:
+    """All else equal, a family-matching candidate beats one that doesn't."""
+    from app.agent.swap import _score_candidate
+
+    closed = _stop(place_id="closed")
+    prev_ = _stop(place_id="prev")
+    next_ = _stop(place_id="next")
+    candidate = _stop(place_id="c", lat=37.78, lng=-122.41)
+
+    s_match = _score_candidate(candidate, closed, prev_, next_, family_match=True)
+    s_nomatch = _score_candidate(candidate, closed, prev_, next_, family_match=False)
+    assert s_match > s_nomatch

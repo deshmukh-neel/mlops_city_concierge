@@ -16,8 +16,10 @@ import logging
 from typing import Any
 
 from psycopg2.extras import RealDictCursor
+from pydantic import BaseModel
 
-from app.agent.state import Stop
+from app.agent.planning import haversine_m
+from app.agent.state import ClosureContext, Stop
 from app.db import get_conn
 
 logger = logging.getLogger(__name__)
@@ -75,7 +77,102 @@ def _per_stop_closure_status(stops: list[Stop]) -> list[bool]:
     return out
 
 
+class CandidateMatch(BaseModel):
+    """Internal record returned by candidate-search helpers."""
+
+    stop: Stop
+    distance_m: float
+    family_match_score: float
+    route_impact_score: float
+    total_score: float
+
+
+# Per-leg walking budget (meters) used as the cutoff for the silent-swap
+# path. ~500m at 80 m/min ≈ a 6-minute walk — close enough that swapping
+# doesn't change the user's experience materially. Anything beyond this
+# escalates to a user question.
+_WALKING_DISTANCE_BUDGET_M: int = 500
+
+# Citywide radius used by the fallback search. SF fits comfortably inside
+# 30 km from any anchor in the city; `nearby()` requires an explicit
+# `radius_m: int` so we pass a large constant rather than introducing a
+# separate citywide function.
+_CITYWIDE_RADIUS_M: int = 30_000
+
+
+def _resolve_insert_position(
+    closure: ClosureContext,
+    stops: list[Stop],
+) -> int:
+    """Where in `stops` should we insert the proposed alternative?
+
+    Priority rules (matches the ClosureContext docstring in state.py):
+      1) insert_after_place_id present in stops -> that index + 1
+      2) else insert_before_place_id present in stops -> that index
+      3) else stop_index_hint, clamped to [0, len(stops)]
+    """
+    by_id = {s.place_id: i for i, s in enumerate(stops)}
+    if closure.insert_after_place_id and closure.insert_after_place_id in by_id:
+        return by_id[closure.insert_after_place_id] + 1
+    if closure.insert_before_place_id and closure.insert_before_place_id in by_id:
+        return by_id[closure.insert_before_place_id]
+    return max(0, min(closure.stop_index_hint, len(stops)))
+
+
+def _score_candidate(
+    candidate: Stop,
+    closed_stop: Stop,
+    prev_stop: Stop | None,
+    next_stop: Stop | None,
+    *,
+    family_match: bool,
+) -> float:
+    """Combined score: higher is better.
+
+    Two components, summed equally weighted:
+      - family_match_score: 1.0 if the candidate is in the same family as
+        the closed stop, else 0.0
+      - route_impact_score: 1 - (haversine prev->candidate + candidate->next)
+        / 2000, clamped to [0, 1]. Inside the walking radius the family
+        bonus dominates any plausible route delta.
+    `closed_stop` is currently informational (the prev/next pair carries the
+    geometry); it's threaded through so future scoring tweaks (e.g.
+    rating/category similarity) have access to it without a signature change.
+    """
+    _ = closed_stop  # reserved for future heuristics (rating/category)
+    fam = 1.0 if family_match else 0.0
+    total_dist_m = 0.0
+    if (
+        prev_stop is not None
+        and prev_stop.latitude is not None
+        and prev_stop.longitude is not None
+        and candidate.latitude is not None
+        and candidate.longitude is not None
+    ):
+        total_dist_m += haversine_m(
+            (prev_stop.latitude, prev_stop.longitude),
+            (candidate.latitude, candidate.longitude),
+        )
+    if (
+        next_stop is not None
+        and next_stop.latitude is not None
+        and next_stop.longitude is not None
+        and candidate.latitude is not None
+        and candidate.longitude is not None
+    ):
+        total_dist_m += haversine_m(
+            (candidate.latitude, candidate.longitude),
+            (next_stop.latitude, next_stop.longitude),
+        )
+    # Linear penalty: 0m -> 1.0, 1000m -> 0.5, 2000m+ -> 0
+    route = max(0.0, 1.0 - total_dist_m / 2000.0)
+    return fam + route
+
+
 __all__ = [
+    "CandidateMatch",
     "_execute_closure_query",
     "_per_stop_closure_status",
+    "_resolve_insert_position",
+    "_score_candidate",
 ]
