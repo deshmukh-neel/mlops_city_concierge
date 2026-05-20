@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 
 import mlflow
+import psycopg2
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.language_models import BaseChatModel
@@ -13,15 +16,29 @@ from langchain_core.messages import HumanMessage
 from psycopg2.extensions import connection
 from pydantic import BaseModel, Field, ValidationError
 
+from .agent.commit import enrich_stops_with_booking
 from .agent.graph import build_agent_graph
-from .agent.input_parsing import explicit_num_stops_from_conversation
+from .agent.input_parsing import explicit_num_stops_from_conversation, parse_closure_decision
 from .agent.io import messages_from_history, state_to_cards
+from .agent.revision import summarize_stops
 from .agent.state import ClosureContext, ItineraryState, Stop, UserConstraints
+from .agent.swap import (
+    _bounded_retime_after_swap,
+    _build_closure_context_entry,
+    _formulate_closure_question,
+    _per_stop_closure_status,
+    _promote_pending,
+    _resolve_anchor,
+    _resolve_family_for_stop,
+    _resolve_insert_position,
+    _try_walking_distance_swap,
+)
 from .chain import build_rag_chain
 from .config import get_settings, resolve_llm_api_key
-from .db import get_db
+from .db import get_conn, get_db
 from .db_pool import close_db_pool, init_db_pool
 from .observability import langgraph_callbacks, trace_request
+from .tools.retrieval import get_details
 
 logger = logging.getLogger(__name__)
 
@@ -304,6 +321,187 @@ def health_db(conn: connection = db_connection_dependency) -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _place_is_open_now(hours: dict | None, when: datetime) -> bool:
+    """One-shot SQL call mirroring closure_swap's check, used on the accept
+    path to re-validate a proposed alternative right before applying it.
+
+    Fails OPEN — a DB blip must not block the swap, matching the codebase's
+    "fail-open on DB error" precedent (see app/agent/critique/checks.py:200).
+    """
+    if not hours:
+        return True
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT place_is_open(%s::jsonb, %s)",
+                [json.dumps(hours), when],
+            )
+            row = cur.fetchone()
+            return bool(row[0]) if row else True
+    except psycopg2.Error:
+        logger.warning("_place_is_open_now DB error; treating as open", exc_info=True)
+        return True
+
+
+def _build_outbound_state(
+    closure_context: list[ClosureContext],
+    stops: list[Stop],
+) -> ConversationState:
+    return ConversationState(
+        schema_version=1,
+        closure_context=closure_context,
+        prior_stops=stops,
+    )
+
+
+async def _try_accept_path(
+    pending: ClosureContext,
+    incoming: ConversationState,
+    rag_label: str,
+) -> ChatResponse | None:
+    """User accepted the proposed drive alternative.
+
+    Returns a built ChatResponse for the early-return path, or None if
+    re-validation fails (caller falls through to the graph).
+    """
+    if pending.proposed_alternative is None:
+        return None
+    # Defense in depth: re-fetch the proposal in case the index changed
+    # between the question and the answer.
+    details = get_details(pending.proposed_alternative.place_id)
+    if details is None:
+        logger.warning(
+            "closure_swap.proposed_alternative_invalidated: place_id=%s missing",
+            pending.proposed_alternative.place_id,
+        )
+        return None
+    if not _place_is_open_now(details.regular_opening_hours, pending.attempted_arrival):
+        logger.warning("closure_swap.proposed_alternative_invalidated: now closed")
+        return None
+
+    # Insert at the resolved position and re-chain arrivals on the new plan.
+    insert_at = _resolve_insert_position(pending, incoming.prior_stops)
+    replacement = pending.proposed_alternative.model_copy()
+    new_stops = list(incoming.prior_stops)
+    new_stops.insert(insert_at, replacement)
+
+    retimed = await _bounded_retime_after_swap(new_stops)
+    re_closed = _per_stop_closure_status(retimed)
+
+    # Mark the pending entry as accepted up front so subsequent escalations
+    # see the right outcome shape.
+    updated_context: list[ClosureContext] = [
+        c.model_copy(update={"outcome": "user_accepted_drive"})
+        if c.place_id == pending.place_id and c.outcome == "pending_user_decision"
+        else c
+        for c in incoming.closure_context
+    ]
+
+    probe_state = ItineraryState(stops=retimed, closure_context=updated_context)
+
+    # If the retime exposed a NEW closure on a different stop, try a single
+    # walking-distance swap; escalate anything still closed.
+    new_pending_entries: list[ClosureContext] = []
+    if any(re_closed):
+        still_closed_indices = [i for i, flag in enumerate(re_closed) if flag]
+        for idx in still_closed_indices:
+            closed_stop = retimed[idx]
+            family = _resolve_family_for_stop(closed_stop)
+            anchor = _resolve_anchor(probe_state, closed_stop)
+            match = None
+            if family and anchor:
+                probe_ctx = ClosureContext(
+                    place_id=closed_stop.place_id,
+                    place_name=closed_stop.name,
+                    family=family,
+                    attempted_arrival=closed_stop.arrival_time or datetime.now(),
+                    outcome="pending_user_decision",
+                    insert_after_place_id=None,
+                    insert_before_place_id=None,
+                    stop_index_hint=idx,
+                )
+                match = _try_walking_distance_swap(probe_state, probe_ctx, anchor_place_id=anchor)
+            if match is not None:
+                retimed[idx] = match.stop
+                updated_context.append(
+                    _build_closure_context_entry(retimed, idx, match, "auto_swapped")
+                )
+            else:
+                outcome = (
+                    "pending_user_decision" if not new_pending_entries else "queued_user_decision"
+                )
+                new_pending_entries.append(
+                    _build_closure_context_entry(retimed, idx, None, outcome)
+                )
+
+    if new_pending_entries:
+        updated_context.extend(new_pending_entries)
+
+    # Promote a queued entry if pending was cleared.
+    updated_context = _promote_pending(updated_context)
+
+    # Surface either the next question or the summary.
+    next_pending = next(
+        (c for c in updated_context if c.outcome == "pending_user_decision"),
+        None,
+    )
+    surfaced_stops = list(retimed)
+    if next_pending is not None:
+        final_reply = _formulate_closure_question(next_pending)
+        surfaced_stops = [s for s in surfaced_stops if s.place_id != next_pending.place_id]
+    else:
+        enrich_stops_with_booking(surfaced_stops, probe_state)
+        final_reply = summarize_stops(probe_state.model_copy(update={"stops": surfaced_stops}))
+
+    final_state = ItineraryState(stops=surfaced_stops, closure_context=updated_context)
+    return ChatResponse(
+        reply=final_reply,
+        places=state_to_cards(final_state),
+        ragLabel=rag_label,
+        conversation_state=_build_outbound_state(updated_context, surfaced_stops),
+    )
+
+
+def _decline_path(
+    pending: ClosureContext,
+    incoming: ConversationState,
+    rag_label: str,
+) -> ChatResponse:
+    """User declined the drive option. The closed stop wasn't on prior_stops
+    (it was demoted to pending before the user saw the plan), so we just flip
+    the outcome and promote any queued entry.
+    """
+    updated_context: list[ClosureContext] = [
+        c.model_copy(update={"outcome": "user_declined_dropped"})
+        if c.place_id == pending.place_id and c.outcome == "pending_user_decision"
+        else c
+        for c in incoming.closure_context
+    ]
+    updated_context = _promote_pending(updated_context)
+    next_pending = next(
+        (c for c in updated_context if c.outcome == "pending_user_decision"),
+        None,
+    )
+    probe_state = ItineraryState(
+        stops=incoming.prior_stops,
+        closure_context=updated_context,
+    )
+    if next_pending is not None:
+        final_reply = _formulate_closure_question(next_pending)
+        surfaced_stops = [s for s in incoming.prior_stops if s.place_id != next_pending.place_id]
+    else:
+        final_reply = summarize_stops(probe_state)
+        surfaced_stops = list(incoming.prior_stops)
+
+    final_state = ItineraryState(stops=surfaced_stops, closure_context=updated_context)
+    return ChatResponse(
+        reply=final_reply,
+        places=state_to_cards(final_state),
+        ragLabel=rag_label,
+        conversation_state=_build_outbound_state(updated_context, surfaced_stops),
+    )
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request) -> ChatResponse:
     graph = getattr(request.app.state, "agent_graph", None)
@@ -312,9 +510,6 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
 
     rag_label = getattr(request.app.state, "rag_label", _rag_label_for(None))
 
-    # Hydrate inbound conversation_state. Manual validation so we degrade
-    # rather than 422 on schema mismatch (same warning-log pattern other
-    # "untrusted opaque state" decoders use in the codebase).
     incoming: ConversationState
     if req.conversation_state is None:
         incoming = ConversationState()
@@ -325,10 +520,43 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
             logger.warning("conversation_state.decode_failed", exc_info=True)
             incoming = ConversationState()
 
+    pending = next(
+        (c for c in incoming.closure_context if c.outcome == "pending_user_decision"),
+        None,
+    )
+
+    decision: str | None = None
+    if pending is not None and req.message.strip():
+        decision = parse_closure_decision(req.message)
+        if decision == "accept":
+            early = await _try_accept_path(pending, incoming, rag_label)
+            if early is not None:
+                return early
+            # Re-validation failed — fall through to the graph with the bad
+            # pending entry preserved; the model will plan around it.
+        elif decision == "decline":
+            return _decline_path(pending, incoming, rag_label)
+        # "alternative" falls through to the graph (handled below).
+
     with trace_request("chat", message=req.message[:200]) as trace_id:
+        # If we just routed "alternative", give the model a HumanMessage hint
+        # so it knows the user declined the drive option and what they asked
+        # for instead.
+        hint_messages: list[HumanMessage] = []
+        if pending is not None and decision == "alternative":
+            hint_messages.append(
+                HumanMessage(
+                    content=(
+                        f"User declined the drive option for {pending.place_name}. "
+                        f"They want: '{req.message}'. Plan again with this guidance."
+                    )
+                )
+            )
+
         state = ItineraryState(
             messages=[
                 *messages_from_history(req.history),
+                *hint_messages,
                 HumanMessage(content=req.message),
             ],
             constraints=UserConstraints(
@@ -345,20 +573,11 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
         )
     final_state = raw if isinstance(raw, ItineraryState) else ItineraryState(**raw)
 
-    # Build outbound conversation_state. prior_stops carries the stops the
-    # user just saw so a follow-up turn's early-return path can act on them
-    # without /chat round-tripping the full places list.
-    outbound = ConversationState(
-        schema_version=1,
-        closure_context=final_state.closure_context,
-        prior_stops=final_state.stops,
-    )
-
     return ChatResponse(
         reply=final_state.final_reply or "",
         places=state_to_cards(final_state),
         ragLabel=rag_label,
-        conversation_state=outbound,
+        conversation_state=_build_outbound_state(final_state.closure_context, final_state.stops),
     )
 
 
