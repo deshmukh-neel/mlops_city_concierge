@@ -1038,9 +1038,12 @@ async def test_retime_at_most_one_directions_call(monkeypatch, mocker) -> None:
         )
 
     mocker.patch("app.agent.graph.route_legs", _counting_route_legs)
-    # The node calls temporal_coherence (imported into graph.py in Step 3),
-    # NOT itinerary_violations. Patch the symbol the node actually uses.
-    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 1.0)
+    # The swap_closed_stops node (after retime) runs its own closure check;
+    # stub it to "all open" so we measure retime's route_legs call only.
+    mocker.patch(
+        "app.agent.swap._per_stop_closure_status",
+        side_effect=lambda stops: [False] * len(stops),
+    )
     # Prevent critique from hitting the DB (place_ids p0-p2 don't exist in
     # places_raw in the test environment, which would trigger a revision loop
     # and exhaust the scripted LLM when the full suite runs after any test
@@ -1071,58 +1074,30 @@ async def test_retime_passthrough_when_coordless(monkeypatch, mocker) -> None:
     route.assert_not_called()
 
 
-async def test_retime_does_not_double_caveat_when_reply_already_has_one(
-    monkeypatch, mocker
-) -> None:
-    """The END->retime rewire sends the caveats-exhausted revision path
-    through retime too. If final_reply already has 'Caveats:', retime must
-    NOT append a second identical paragraph."""
+async def test_graph_includes_swap_closed_stops_node(monkeypatch) -> None:
+    """The compiled graph routes retime -> swap_closed_stops -> END so the
+    closure-aware swap pass runs after real-time arrival_times land. Replaces
+    the deleted retime+caveat tests — temporal_coherence handling is now the
+    swap node's job, not retime's."""
+    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)
+    assert "swap_closed_stops" in graph.get_graph().nodes
 
-    async def _slow(stops, mode="walk"):
-        return DirectionsResult(
-            legs=[DirectionsLeg(duration_s=600, distance_m=800.0)] * (len(stops) - 1),
-            total_duration_s=600 * (len(stops) - 1),
-            mode=mode,
-            source="google",
-        )
 
-    mocker.patch("app.agent.graph.route_legs", _slow)
-    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 0.0)  # fails
-    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    st = _committed_state(2, with_coords=True)
-    st = st.model_copy(
-        update={
-            "final_reply": "Plan.\n\nCaveats: I couldn't fully satisfy "
-            "temporal_coherence after revisions. You may want to adjust the plan."
-        }
+async def test_graph_does_not_import_final_with_caveats_in_retime() -> None:
+    """Regression: closure handling lives in app/agent/swap.py now. The
+    retime node must not call _final_with_caveats on temporal_coherence —
+    the caveat text users saw on closure was the worst-of-both-worlds path
+    (broken plan + ugly warning). The swap node replaces it."""
+    import inspect
+
+    from app.agent import graph as graph_mod
+
+    src = inspect.getsource(graph_mod)
+    assert "_final_with_caveats" not in src, (
+        "retime() must not call _final_with_caveats on temporal_coherence; "
+        "closure handling lives in app/agent/swap.py now."
     )
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
-    graph = build_agent_graph(fake, max_steps=4)
-    out = await graph.ainvoke(st)
-    assert out["final_reply"].count("Caveats:") == 1
-
-
-async def test_retime_appends_caveat_when_reply_has_none(monkeypatch, mocker) -> None:
-    """Conversely, when no caveat exists yet and the real-time check fails,
-    retime DOES append exactly one."""
-
-    async def _slow(stops, mode="walk"):
-        return DirectionsResult(
-            legs=[DirectionsLeg(duration_s=600, distance_m=800.0)] * (len(stops) - 1),
-            total_duration_s=600 * (len(stops) - 1),
-            mode=mode,
-            source="google",
-        )
-
-    mocker.patch("app.agent.graph.route_legs", _slow)
-    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 0.0)
-    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    st = _committed_state(2, with_coords=True)  # final_reply has no "Caveats:"
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
-    graph = build_agent_graph(fake, max_steps=4)
-    out = await graph.ainvoke(st)
-    assert out["final_reply"].count("Caveats:") == 1
-    assert "temporal_coherence" in out["final_reply"]
 
 
 async def test_retime_noop_when_first_stop_has_no_arrival(monkeypatch, mocker) -> None:

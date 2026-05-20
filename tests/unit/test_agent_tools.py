@@ -102,15 +102,30 @@ def test_kg_traverse_tool_delegates_to_graph(monkeypatch) -> None:
     (lazy-imported inside the wrapper body)."""
     captured: dict = {}
 
-    def _fake(place_id: str, relation_type: str = "SIMILAR_VECTOR", k: int = 5):
-        captured.update(place_id=place_id, relation_type=relation_type, k=k)
+    def _fake(
+        place_id: str,
+        relation_type: str = "SIMILAR_VECTOR",
+        k: int = 5,
+        excluded_place_ids: list[str] | None = None,
+    ):
+        captured.update(
+            place_id=place_id,
+            relation_type=relation_type,
+            k=k,
+            excluded_place_ids=excluded_place_ids,
+        )
         return []
 
     monkeypatch.setattr("app.tools.graph.kg_traverse", _fake)
     tools = {t.name: t for t in all_tools()}
     result = tools["kg_traverse"].invoke({"place_id": "p1", "relation_type": "NEAR", "k": 3})
     assert result == []
-    assert captured == {"place_id": "p1", "relation_type": "NEAR", "k": 3}
+    assert captured == {
+        "place_id": "p1",
+        "relation_type": "NEAR",
+        "k": 3,
+        "excluded_place_ids": None,
+    }
     assert "NOT YET AVAILABLE" not in (tools["kg_traverse"].description or "")
 
 
