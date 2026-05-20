@@ -475,3 +475,92 @@ def test_formulate_closure_question_without_proposal() -> None:
     assert "Mochill Mochidonut" in q
     # No proposal -> message should ask user to pick / change category
     assert "pick" in q.lower() or "different" in q.lower() or "skip" in q.lower()
+
+
+# ─── _inject_closure_exclusions (Task 12) ────────────────────────────────
+
+
+def _closure_entry(place_id: str = "closed1", outcome: str = "auto_swapped"):
+    from app.agent.state import ClosureContext
+
+    return ClosureContext(
+        place_id=place_id,
+        place_name=place_id,
+        family="bar",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome=outcome,  # type: ignore[arg-type]
+        insert_after_place_id=None,
+        insert_before_place_id=None,
+        stop_index_hint=0,
+    )
+
+
+def test_inject_closure_exclusions_merges_into_semantic_search_filters() -> None:
+    from app.agent.swap import _inject_closure_exclusions
+    from app.tools.filters import SearchFilters
+
+    ctx = [
+        _closure_entry("closed1", "auto_swapped"),
+        _closure_entry("closed2", "user_accepted_drive"),
+    ]
+    args = {
+        "query": "ramen",
+        "filters": SearchFilters(min_rating=4.0, excluded_place_ids=["llm_excluded"]),
+    }
+    out = _inject_closure_exclusions("semantic_search", args, ctx)
+    excluded = out["filters"].excluded_place_ids
+    assert set(excluded) == {"llm_excluded", "closed1", "closed2"}
+    # Returns a new args dict (not in-place mutation)
+    assert out is not args
+
+
+def test_inject_closure_exclusions_creates_filters_when_absent() -> None:
+    from app.agent.swap import _inject_closure_exclusions
+
+    ctx = [_closure_entry("closed1", "auto_swapped")]
+    args = {"query": "ramen"}
+    out = _inject_closure_exclusions("semantic_search", args, ctx)
+    assert "filters" in out
+    assert out["filters"].excluded_place_ids == ["closed1"]
+
+
+def test_inject_closure_exclusions_kg_traverse_is_top_level() -> None:
+    """kg_traverse takes excluded_place_ids as a top-level arg, not via filters."""
+    from app.agent.swap import _inject_closure_exclusions
+
+    ctx = [_closure_entry("closed1", "auto_swapped")]
+    args = {"place_id": "anchor", "relation_type": "SIMILAR_VECTOR"}
+    out = _inject_closure_exclusions("kg_traverse", args, ctx)
+    assert out["excluded_place_ids"] == ["closed1"]
+
+
+def test_inject_closure_exclusions_empty_context_is_noop() -> None:
+    from app.agent.swap import _inject_closure_exclusions
+
+    args = {"query": "ramen"}
+    out = _inject_closure_exclusions("semantic_search", args, [])
+    assert out == args
+    assert "filters" not in out
+
+
+def test_inject_closure_exclusions_unknown_tool_is_noop() -> None:
+    from app.agent.swap import _inject_closure_exclusions
+
+    ctx = [_closure_entry("closed1", "auto_swapped")]
+    args = {"foo": "bar"}
+    out = _inject_closure_exclusions("get_details", args, ctx)
+    assert out == args
+
+
+def test_inject_closure_exclusions_accepts_dict_filters_from_llm() -> None:
+    """LangChain may deliver `filters` as a dict (StructuredTool args_schema
+    builds a Pydantic model but tools can pass either shape). The helper
+    must handle dicts by validating into SearchFilters."""
+    from app.agent.swap import _inject_closure_exclusions
+
+    ctx = [_closure_entry("closed1", "auto_swapped")]
+    args = {"query": "ramen", "filters": {"min_rating": 4.0, "excluded_place_ids": ["llm_excl"]}}
+    out = _inject_closure_exclusions("semantic_search", args, ctx)
+    assert out["filters"].excluded_place_ids
+    assert "closed1" in out["filters"].excluded_place_ids
+    assert "llm_excl" in out["filters"].excluded_place_ids

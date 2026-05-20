@@ -453,6 +453,57 @@ def _formulate_closure_question(pending: ClosureContext) -> str:
     )
 
 
+def _inject_closure_exclusions(
+    tool_name: str,
+    args: dict[str, Any],
+    closure_context: list[ClosureContext],
+) -> dict[str, Any]:
+    """Merge closure_context place_ids into a tool call's exclusion argument.
+
+    Server-side belt-and-suspenders enforcement so the prompt guidance is an
+    optimization, not the only line of defense. Routes by tool name because
+    the exclusion argument lives in different places per tool:
+
+      - semantic_search / nearby -> args["filters"].excluded_place_ids
+      - kg_traverse              -> args["excluded_place_ids"]  (top-level)
+      - anything else            -> no-op
+
+    Returns a NEW args dict; never mutates the input (the graph.act node
+    records the original args verbatim in scratch for tracing).
+
+    Every closure_context outcome contributes — auto_swapped through
+    pending_user_decision all exclude the source closed place_id. The
+    proposed_alternative.place_id is NOT in this set unless that place was
+    itself later recorded as a closure.
+    """
+    if not closure_context:
+        return dict(args)
+    excluded = {c.place_id for c in closure_context}
+    new_args = dict(args)
+    if tool_name in ("semantic_search", "nearby"):
+        existing_filters = new_args.get("filters")
+        if existing_filters is None:
+            filters = SearchFilters(excluded_place_ids=sorted(excluded))
+        elif isinstance(existing_filters, SearchFilters):
+            llm_excluded = set(existing_filters.excluded_place_ids or [])
+            filters = existing_filters.model_copy(
+                update={"excluded_place_ids": sorted(llm_excluded | excluded)}
+            )
+        else:
+            # LangChain may deliver `filters` as a plain dict; validate it
+            # through SearchFilters so the merged value is type-correct.
+            llm = SearchFilters.model_validate(existing_filters)
+            llm_excluded = set(llm.excluded_place_ids or [])
+            filters = llm.model_copy(update={"excluded_place_ids": sorted(llm_excluded | excluded)})
+        new_args["filters"] = filters
+        return new_args
+    if tool_name == "kg_traverse":
+        llm_excluded = set(new_args.get("excluded_place_ids") or [])
+        new_args["excluded_place_ids"] = sorted(llm_excluded | excluded)
+        return new_args
+    return new_args
+
+
 def _cap_closure_context(entries: list[ClosureContext]) -> list[ClosureContext]:
     """Append-and-drop-oldest to `MAX_CLOSURE_CONTEXT_ENTRIES`."""
     if len(entries) <= MAX_CLOSURE_CONTEXT_ENTRIES:
@@ -629,6 +680,7 @@ __all__ = [
     "_build_closure_context_entry",
     "_execute_closure_query",
     "_formulate_closure_question",
+    "_inject_closure_exclusions",
     "_per_stop_closure_status",
     "_promote_pending",
     "_resolve_anchor",
