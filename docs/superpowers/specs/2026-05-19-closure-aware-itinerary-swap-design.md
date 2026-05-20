@@ -480,8 +480,12 @@ tool reaches feature parity with `nearby`/`semantic_search`.
   g.add_edge("swap_closed_stops", END)
   ```
 - Extend `_constraints_context` to include closure exclusion guidance
-  when `state.closure_context` has any `auto_swapped` /
-  `user_declined_dropped` / `queued_user_decision` entries:
+  whenever `state.closure_context` is non-empty — i.e. on *every*
+  outcome including `auto_swapped`, `user_accepted_drive`,
+  `user_declined_dropped`, `pending_user_decision`, and
+  `queued_user_decision`. Even after the user accepts the drive
+  alternative, the original closed source place must stay excluded on
+  refinement turns so the model doesn't re-suggest it:
   ```
   - Earlier in this conversation, these places were closed at the planned
     arrival time and should NOT be re-suggested: <comma-separated names>.
@@ -495,14 +499,18 @@ tool reaches feature parity with `nearby`/`semantic_search`.
   ```python
   # In act(), after looking up the tool and BEFORE asyncio.to_thread:
   if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
-      tc["args"] = _inject_closure_exclusions(tc["args"], state.closure_context)
+      tc["args"] = _inject_closure_exclusions(
+          tc["name"], tc["args"], state.closure_context
+      )
   ```
   `_inject_closure_exclusions(tool_name, args, closure_context)` (new
   helper in `swap.py` so the same logic is testable in isolation):
-  - Extracts `excluded` = list of `place_id`s from closure_context where
-    `outcome in {"auto_swapped", "user_declined_dropped",
-    "queued_user_decision"}`. Also adds the closure's own `place_id`
-    (the closed source) so the model can't propose it again either.
+  - Extracts `excluded = {entry.place_id for entry in closure_context}`.
+    Every outcome contributes — once a place has been recorded as closed
+    in this conversation, it must never resurface as a candidate
+    regardless of whether the user accepted a drive alternative,
+    declined, or hasn't answered yet. The `proposed_alternative.place_id`
+    is NOT in this set unless it was itself later recorded as a closure.
   - Routes by tool name because arg shapes differ:
     - `semantic_search` / `nearby` → exclusion lives under `args["filters"]`:
       read or create `filters`, set `excluded_place_ids` = union of any
@@ -638,8 +646,14 @@ response: {
   re-fetch get_details(proposed_alternative.place_id) → exists ✓
   re-run place_is_open(proposed.hours, proposed.attempted_arrival) → open ✓
   EARLY RETURN:
-    insert Sophie's into prior_stops at index=2
+    resolve placement via _resolve_insert_position (insert_after_place_id → idx)
+    insert Sophie's into prior_stops at that idx
     _bounded_retime on the new 3-stop set (one route_legs call)
+    _per_stop_closure_status(retimed) → no new closures ✓
+    # If the retime exposed a new closure on a different stop:
+    #   try walking-distance swap once; re-check; remaining unresolved
+    #   closures get promoted to pending/queued and a fresh question is
+    #   surfaced instead of summarize_stops.
     closure_context entry → mark "user_accepted_drive"
     final_reply = summarize_stops(state)
 response: {
