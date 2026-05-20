@@ -13,14 +13,22 @@ for the architecture rationale and contract details.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from psycopg2.extras import RealDictCursor
 from pydantic import BaseModel
 
 from app.agent.commit import enrich_stops_with_booking
 from app.agent.planning import chain_arrival_times, haversine_m
-from app.agent.state import ClosureContext, ItineraryState, Stop
+from app.agent.revision import summarize_stops
+from app.agent.state import (
+    MAX_CLOSURE_CONTEXT_ENTRIES,
+    ClosureContext,
+    ItineraryState,
+    Stop,
+)
 from app.db import get_conn
 from app.tools.directions import route_legs
 from app.tools.filters import SearchFilters, family_of
@@ -445,17 +453,189 @@ def _formulate_closure_question(pending: ClosureContext) -> str:
     )
 
 
+def _cap_closure_context(entries: list[ClosureContext]) -> list[ClosureContext]:
+    """Append-and-drop-oldest to `MAX_CLOSURE_CONTEXT_ENTRIES`."""
+    if len(entries) <= MAX_CLOSURE_CONTEXT_ENTRIES:
+        return entries
+    dropped = len(entries) - MAX_CLOSURE_CONTEXT_ENTRIES
+    logger.warning("closure_context.cap_exceeded: dropped %d oldest entries", dropped)
+    return entries[dropped:]
+
+
+def _resolve_family_for_stop(stop: Stop) -> str:
+    """family from primary_type. Returns "" when nothing resolves so the
+    caller can still record the closure (without searching for a swap)."""
+    fam = family_of(stop.primary_type) if stop.primary_type else None
+    return fam or ""
+
+
+def _build_closure_context_entry(
+    stops: list[Stop],
+    closed_index: int,
+    proposed: CandidateMatch | None,
+    outcome: str,
+) -> ClosureContext:
+    """Build a ClosureContext entry for a closed stop at `closed_index`,
+    with stable anchors derived from neighboring stops."""
+    closed = stops[closed_index]
+    insert_after = stops[closed_index - 1].place_id if closed_index > 0 else None
+    insert_before = stops[closed_index + 1].place_id if closed_index + 1 < len(stops) else None
+    return ClosureContext(
+        place_id=closed.place_id,
+        place_name=closed.name,
+        family=_resolve_family_for_stop(closed),
+        attempted_arrival=closed.arrival_time
+        or datetime.fromtimestamp(0, tz=ZoneInfo("America/Los_Angeles")),
+        outcome=outcome,  # type: ignore[arg-type]
+        insert_after_place_id=insert_after,
+        insert_before_place_id=insert_before,
+        stop_index_hint=closed_index,
+        proposed_alternative=proposed.stop if proposed else None,
+        proposed_distance_m=proposed.distance_m if proposed else None,
+    )
+
+
+async def swap_closed_stops(state: ItineraryState) -> dict[str, Any]:
+    """LangGraph node — closure-aware swap pass.
+
+    1. Per-stop closure check on real arrival times.
+    2. For each closed stop, try a walking-distance swap of the same family.
+    3. Auto-swaps batched; one bounded retime + re-check covers all of them.
+    4. Any remaining closures: first becomes pending_user_decision, the rest
+       queued_user_decision. Citywide fallback search populates the pending
+       entry's proposed_alternative when possible.
+    5. Final reply = the question text if anything is pending, else the
+       regenerated summary.
+
+    Returns the LangGraph update dict (subset of ItineraryState fields).
+    No-op (empty update) when no closures are detected.
+    """
+    if not state.stops:
+        return {}
+
+    closed = _per_stop_closure_status(state.stops)
+    if not any(closed):
+        return {}
+
+    # Phase 1: try a walking-distance swap for each closed stop.
+    working_stops = list(state.stops)
+    auto_swapped_entries: list[tuple[int, CandidateMatch]] = []
+    pending_indices: list[int] = []
+
+    for idx, is_closed in enumerate(closed):
+        if not is_closed:
+            continue
+        closed_stop = working_stops[idx]
+        family = _resolve_family_for_stop(closed_stop)
+        if not family:
+            pending_indices.append(idx)
+            continue
+        anchor = _resolve_anchor(state, closed_stop)
+        if anchor is None:
+            pending_indices.append(idx)
+            continue
+        probe_ctx = ClosureContext(
+            place_id=closed_stop.place_id,
+            place_name=closed_stop.name,
+            family=family,
+            attempted_arrival=closed_stop.arrival_time or datetime.now(),
+            outcome="pending_user_decision",
+            insert_after_place_id=None,
+            insert_before_place_id=None,
+            stop_index_hint=idx,
+        )
+        match = _try_walking_distance_swap(state, probe_ctx, anchor_place_id=anchor)
+        if match is None:
+            pending_indices.append(idx)
+            continue
+        auto_swapped_entries.append((idx, match))
+
+    # Apply auto-swaps in one pass.
+    new_closure_entries: list[ClosureContext] = []
+    if auto_swapped_entries:
+        for idx, match in auto_swapped_entries:
+            working_stops[idx] = match.stop
+            new_closure_entries.append(
+                _build_closure_context_entry(
+                    state.stops, idx, proposed=match, outcome="auto_swapped"
+                )
+            )
+        # Phase 2: one bounded retime + re-check.
+        retimed = await _bounded_retime_after_swap(working_stops)
+        # Re-check on the retimed plan to catch a swap that's open at the
+        # OLD projected arrival but not the NEW one after re-routing.
+        re_closed = _per_stop_closure_status(retimed)
+        # Pull DB enrichment in once on the retimed set so cards stay fresh.
+        enrich_stops_with_booking(retimed, state)
+        working_stops = retimed
+        for idx, is_closed in enumerate(re_closed):
+            if is_closed and idx not in pending_indices:
+                pending_indices.append(idx)
+
+    # Phase 3: escalate unresolved closures.
+    pending_indices.sort()
+    for n, idx in enumerate(pending_indices):
+        closed_stop = working_stops[idx]
+        family = _resolve_family_for_stop(closed_stop)
+        outcome = "pending_user_decision" if n == 0 else "queued_user_decision"
+
+        proposal: CandidateMatch | None = None
+        if family:
+            anchor = _resolve_anchor(state, closed_stop)
+            if anchor:
+                probe_ctx = ClosureContext(
+                    place_id=closed_stop.place_id,
+                    place_name=closed_stop.name,
+                    family=family,
+                    attempted_arrival=closed_stop.arrival_time or datetime.now(),
+                    outcome="pending_user_decision",
+                    insert_after_place_id=None,
+                    insert_before_place_id=None,
+                    stop_index_hint=idx,
+                )
+                proposal = _try_any_distance_search(state, probe_ctx, anchor_place_id=anchor)
+        new_closure_entries.append(
+            _build_closure_context_entry(state.stops, idx, proposed=proposal, outcome=outcome)
+        )
+
+    # Drop the closed (unswapped) stops from working_stops so the summary
+    # doesn't show a place we're asking about.
+    pending_set = set(pending_indices)
+    final_stops = [s for i, s in enumerate(working_stops) if i not in pending_set]
+
+    merged_context = _cap_closure_context([*state.closure_context, *new_closure_entries])
+
+    pending_entry = next(
+        (c for c in new_closure_entries if c.outcome == "pending_user_decision"),
+        None,
+    )
+    if pending_entry is not None:
+        final_reply = _formulate_closure_question(pending_entry)
+    else:
+        probe_state = state.model_copy(update={"stops": final_stops})
+        final_reply = summarize_stops(probe_state)
+
+    return {
+        "stops": final_stops,
+        "closure_context": merged_context,
+        "final_reply": final_reply,
+    }
+
+
 __all__ = [
     "CandidateMatch",
     "_apply_swap",
     "_bounded_retime_after_swap",
+    "_build_closure_context_entry",
     "_execute_closure_query",
     "_formulate_closure_question",
     "_per_stop_closure_status",
     "_promote_pending",
     "_resolve_anchor",
+    "_resolve_family_for_stop",
     "_resolve_insert_position",
     "_score_candidate",
     "_try_any_distance_search",
     "_try_walking_distance_swap",
+    "swap_closed_stops",
 ]
