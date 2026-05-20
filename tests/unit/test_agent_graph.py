@@ -1100,6 +1100,117 @@ async def test_graph_does_not_import_final_with_caveats_in_retime() -> None:
     )
 
 
+async def test_act_does_not_mutate_aimessage_tool_call_args_across_steps(
+    mocker,
+) -> None:
+    """Regression for "TypeError: Object of type SearchFilters is not JSON
+    serializable" surfaced live on turn 3 of the omakase flow.
+
+    Failure path: `act()` used to do `tc["args"] = _inject_closure_exclusions(...)`,
+    stuffing a Pydantic SearchFilters into the tool_call args dict that
+    LangChain stores inside AIMessage.tool_calls. On the NEXT plan() pass,
+    langchain serializes the AIMessage for OpenAI's API and `json.dumps`
+    blows up.
+
+    Verify that across a multi-step graph turn — where the same AIMessage
+    survives into a follow-up plan() — its tool_call args stay JSON-safe.
+    """
+    import json as _json
+    from datetime import datetime
+
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage, HumanMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.agent.graph import build_agent_graph
+    from app.agent.state import ClosureContext, ItineraryState
+
+    captured: dict = {"step_2_args": None, "step_2_dumps_ok": False}
+
+    class _MultiStepLLM(BaseChatModel):
+        @property
+        def _llm_type(self) -> str:
+            return "multistep"
+
+        def bind_tools(self, tools, **kwargs):  # type: ignore[no-untyped-def]
+            return self
+
+        def _generate(
+            self,
+            messages: list[BaseMessage],
+            stop=None,
+            run_manager=None,
+            **kwargs,
+        ) -> ChatResult:
+            # First call: issue a semantic_search tool call that will get
+            # closure exclusions injected. Subsequent calls: capture the
+            # AIMessage's tool_call args and finalize.
+            issued_tool_calls = sum(
+                1 for m in messages if isinstance(m, AIMessage) and m.tool_calls
+            )
+            if issued_tool_calls == 0:
+                msg = AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "semantic_search",
+                            "args": {"query": "ramen", "filters": {"min_rating": 4.0}},
+                            "id": "call_1",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            else:
+                # Second plan() — find the prior issuing AIMessage and inspect
+                # its tool_call args. This is the exact serialization path
+                # langchain.openai takes when re-sending the conversation.
+                for m in messages:
+                    if isinstance(m, AIMessage) and m.tool_calls:
+                        captured["step_2_args"] = m.tool_calls[0]["args"]
+                        try:
+                            _json.dumps(m.tool_calls[0]["args"])
+                            captured["step_2_dumps_ok"] = True
+                        except TypeError:
+                            captured["step_2_dumps_ok"] = False
+                        break
+                msg = AIMessage(content="done", tool_calls=[])
+            return ChatResult(generations=[ChatGeneration(message=msg)])
+
+    mocker.patch("app.tools.retrieval.semantic_search", return_value=[])
+
+    state = ItineraryState(
+        messages=[HumanMessage(content="start")],
+        closure_context=[
+            ClosureContext(
+                place_id="ChIJ_closed",
+                place_name="Closed",
+                family="bar",
+                attempted_arrival=datetime(2026, 5, 19, 20, 0),
+                outcome="auto_swapped",
+                insert_after_place_id=None,
+                insert_before_place_id=None,
+                stop_index_hint=0,
+            )
+        ],
+    )
+
+    graph = build_agent_graph(_MultiStepLLM(), max_steps=4)
+    await graph.ainvoke(state)
+
+    assert captured["step_2_args"] is not None, "second plan() never ran"
+    # `filters` MUST be a plain dict — Pydantic SearchFilters would break the
+    # OpenAI API re-serialization.
+    filters = captured["step_2_args"].get("filters")
+    assert isinstance(filters, dict), (
+        f"AIMessage.tool_calls[0]['args']['filters'] must be a dict for "
+        f"langchain JSON serialization, got {type(filters).__name__}"
+    )
+    assert captured["step_2_dumps_ok"], (
+        "AIMessage.tool_calls[0]['args'] must be json.dumps-safe — langchain "
+        "re-serializes the message on the next OpenAI call."
+    )
+
+
 async def test_retime_noop_when_first_stop_has_no_arrival(monkeypatch, mocker) -> None:
     """chain_arrival_times raises if stops[0].arrival_time is None (possible
     on a max-steps short-circuit with committed-but-untimed stops). retime

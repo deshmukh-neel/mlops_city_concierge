@@ -246,14 +246,25 @@ def build_agent_graph(
             # Belt-and-suspenders: merge closure-context exclusions into the
             # tool args at the SQL layer. The prompt guidance in
             # _constraints_context is an optimization; this is enforcement.
+            #
+            # CRITICAL: never reassign `tc["args"]`. `tc` references a dict
+            # INSIDE the AIMessage stored on state.messages — the next plan()
+            # step re-serializes that AIMessage for OpenAI's API via
+            # `json.dumps`, and a Pydantic SearchFilters instance there
+            # crashes with "Object of type SearchFilters is not JSON
+            # serializable". Compute `effective_args` locally instead so the
+            # injected args drive `tool.invoke` and the scratch record while
+            # the AIMessage stays untouched.
             if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
-                tc["args"] = _inject_closure_exclusions(
+                effective_args = _inject_closure_exclusions(
                     tc["name"], tc["args"], state.closure_context
                 )
+            else:
+                effective_args = tc["args"]
             try:
                 # psycopg2 + OpenAI are sync; offload to a worker thread so the
                 # event loop stays responsive while the tool blocks on I/O.
-                result: Any = await asyncio.to_thread(tool.invoke, tc["args"])
+                result: Any = await asyncio.to_thread(tool.invoke, effective_args)
             except Exception as e:  # noqa: BLE001
                 result = {"error": str(e)}
             new_messages.append(
@@ -261,7 +272,7 @@ def build_agent_graph(
             )
             scratch_updates.setdefault(tc["name"], []).append(
                 {
-                    "args": tc["args"],
+                    "args": effective_args,
                     "result": result,
                     "step": state.step_count,
                     "id": tc["id"],

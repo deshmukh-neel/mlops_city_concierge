@@ -464,12 +464,16 @@ def _inject_closure_exclusions(
     optimization, not the only line of defense. Routes by tool name because
     the exclusion argument lives in different places per tool:
 
-      - semantic_search / nearby -> args["filters"].excluded_place_ids
+      - semantic_search / nearby -> args["filters"]["excluded_place_ids"]
       - kg_traverse              -> args["excluded_place_ids"]  (top-level)
       - anything else            -> no-op
 
-    Returns a NEW args dict; never mutates the input (the graph.act node
-    records the original args verbatim in scratch for tracing).
+    Returns a NEW args dict with `filters` as a plain dict — NOT a Pydantic
+    `SearchFilters` instance. The result must be `json.dumps`-safe because
+    the caller stores it (or a copy) inside `AIMessage.tool_calls`, which
+    langchain serializes on every subsequent OpenAI API call. A Pydantic
+    instance there causes `TypeError: Object of type SearchFilters is not
+    JSON serializable` on the next plan() step.
 
     Every closure_context outcome contributes — auto_swapped through
     pending_user_decision all exclude the source closed place_id. The
@@ -483,19 +487,21 @@ def _inject_closure_exclusions(
     if tool_name in ("semantic_search", "nearby"):
         existing_filters = new_args.get("filters")
         if existing_filters is None:
-            filters = SearchFilters(excluded_place_ids=sorted(excluded))
+            llm_excluded: set[str] = set()
+            base: dict[str, Any] = {}
         elif isinstance(existing_filters, SearchFilters):
-            llm_excluded = set(existing_filters.excluded_place_ids or [])
-            filters = existing_filters.model_copy(
-                update={"excluded_place_ids": sorted(llm_excluded | excluded)}
-            )
+            base = existing_filters.model_dump(exclude_none=True)
+            llm_excluded = set(base.get("excluded_place_ids") or [])
         else:
-            # LangChain may deliver `filters` as a plain dict; validate it
-            # through SearchFilters so the merged value is type-correct.
+            # LangChain delivers `filters` as a plain dict in tool_call args.
+            # Validate it through SearchFilters once (defensive — rejects
+            # unknown fields) then re-emit as a dict so the result stays
+            # JSON-serializable.
             llm = SearchFilters.model_validate(existing_filters)
-            llm_excluded = set(llm.excluded_place_ids or [])
-            filters = llm.model_copy(update={"excluded_place_ids": sorted(llm_excluded | excluded)})
-        new_args["filters"] = filters
+            base = llm.model_dump(exclude_none=True)
+            llm_excluded = set(base.get("excluded_place_ids") or [])
+        base["excluded_place_ids"] = sorted(llm_excluded | excluded)
+        new_args["filters"] = base
         return new_args
     if tool_name == "kg_traverse":
         llm_excluded = set(new_args.get("excluded_place_ids") or [])
