@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from typing import Protocol
+from typing import Literal, Protocol
 
 _MAX_EXPLICIT_STOPS = 10
 _STOP_NOUN = r"(?:stop|stops|spot|spots|place|places)"
@@ -80,3 +80,33 @@ def explicit_num_stops_from_text(text: str) -> int | None:
         return _WORD_TO_INT[word_match.group(1).lower()]
 
     return None
+
+
+# First-token sets for `parse_closure_decision`. The rule is intentionally
+# conservative: only act when the user's first word reads as a yes/no token,
+# so "yes, make it 4 stops" routes to accept (the count update is handled
+# separately by `explicit_num_stops_from_conversation`) while
+# "find something cheaper" — a question disguised as a hint — routes to
+# alternative for the LLM to interpret in context.
+_ACCEPT_TOKENS: frozenset[str] = frozenset({"yes", "yeah", "yep", "sure", "ok", "okay", "y", "👍"})
+_DECLINE_TOKENS: frozenset[str] = frozenset({"no", "nope", "n", "nah"})
+
+
+def parse_closure_decision(text: str) -> Literal["accept", "decline", "alternative"]:
+    """Conservative parser for a user's reply to a closure question.
+
+    First-token rule resolves "yes + revision" (e.g. "yes! make it 4 stops")
+    unambiguously as accept; the existing `explicit_num_stops_from_conversation`
+    separately handles the count update. Empty / whitespace / questions / free
+    text all bucket to "alternative" (no auto-accept on silence).
+    """
+    if not text or not text.strip():
+        return "alternative"
+    first = text.strip().split()[0].lower()
+    # Strip surrounding punctuation so "Yes!" / "yes," / "ok." also match.
+    stripped = first.strip(".,!?;:\"'()[]{}")
+    if stripped in _ACCEPT_TOKENS or first in _ACCEPT_TOKENS:
+        return "accept"
+    if stripped in _DECLINE_TOKENS or first in _DECLINE_TOKENS:
+        return "decline"
+    return "alternative"

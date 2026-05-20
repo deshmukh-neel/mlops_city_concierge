@@ -7,6 +7,7 @@ import pytest
 from app.agent.input_parsing import (
     explicit_num_stops_from_conversation,
     explicit_num_stops_from_text,
+    parse_closure_decision,
 )
 
 
@@ -59,3 +60,36 @@ def test_conversation_latest_user_count_wins_when_user_revises_twice() -> None:
 def test_conversation_returns_none_when_neither_history_nor_message_has_count() -> None:
     history = [_Msg("user", "plan a date"), _Msg("assistant", "How many?")]
     assert explicit_num_stops_from_conversation(history, "you decide") is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # accept — first-token rule, anything starting with a yes-ish token
+        ("yes", "accept"),
+        ("Yes", "accept"),
+        ("yes!", "accept"),
+        ("yes, make it 4 stops", "accept"),
+        ("yeah do it", "accept"),
+        ("yep", "accept"),
+        ("sure thing", "accept"),
+        ("ok let's go", "accept"),
+        ("okay", "accept"),
+        ("y", "accept"),
+        ("👍", "accept"),
+        # decline
+        ("no", "decline"),
+        ("No thanks", "decline"),
+        ("nope", "decline"),
+        ("nah", "decline"),
+        ("n", "decline"),
+        # alternative — anything else
+        ("find something cheaper instead", "alternative"),
+        ("what about ramen?", "alternative"),
+        ("pick a different one", "alternative"),
+        ("", "alternative"),
+        ("   ", "alternative"),
+    ],
+)
+def test_parse_closure_decision(text: str, expected: str) -> None:
+    assert parse_closure_decision(text) == expected
