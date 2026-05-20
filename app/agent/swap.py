@@ -18,9 +18,11 @@ from typing import Any
 from psycopg2.extras import RealDictCursor
 from pydantic import BaseModel
 
-from app.agent.planning import haversine_m
+from app.agent.commit import enrich_stops_with_booking
+from app.agent.planning import chain_arrival_times, haversine_m
 from app.agent.state import ClosureContext, ItineraryState, Stop
 from app.db import get_conn
+from app.tools.directions import route_legs
 from app.tools.filters import SearchFilters, family_of
 from app.tools.retrieval import PlaceHit
 from app.tools.retrieval import nearby as _nearby_search  # aliased for test patching
@@ -349,10 +351,108 @@ def _try_any_distance_search(
     return matches[0]
 
 
+async def _bounded_retime_after_swap(stops: list[Stop]) -> list[Stop]:
+    """One extra `route_legs` call after a swap -> re-chain arrival_times.
+
+    Strictly bounded: no recursion, no loop. Called at most once per swap
+    node invocation. Falls back to the input stops on any failure (mirrors
+    `retime()` in graph.py:319-323).
+    """
+    coords = [
+        (s.latitude, s.longitude)
+        for s in stops
+        if s.latitude is not None and s.longitude is not None
+    ]
+    if len(coords) < 2 or len(coords) != len(stops):
+        return stops
+    try:
+        result = await route_legs(coords, mode="walk")
+        leg_min = [leg.duration_s / 60 for leg in result.legs]
+        retimed = chain_arrival_times(stops, leg_min)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("closure_swap.retime_failure: %s", e)
+        return stops
+    return retimed
+
+
+def _apply_swap(
+    state: ItineraryState,
+    stop_index: int,
+    replacement: Stop,
+    leg_durations_min: list[float],
+) -> list[Stop]:
+    """Replace stops[stop_index] with `replacement` and re-chain arrivals.
+
+    Returns the new stops list. Caller is responsible for substituting it
+    into state. Booking enrichment is re-run on the new list so the swapped
+    stop's card fields (booking URL, refreshed address) stay accurate.
+    """
+    new_stops = list(state.stops)
+    new_stops[stop_index] = replacement
+    if leg_durations_min and new_stops and new_stops[0].arrival_time is not None:
+        new_stops = chain_arrival_times(new_stops, leg_durations_min)
+    enrich_stops_with_booking(new_stops, state)
+    return new_stops
+
+
+def _promote_pending(
+    closure_context: list[ClosureContext],
+) -> list[ClosureContext]:
+    """If there is no pending entry, promote the first queued one (if any).
+
+    Returns a new list. Caller substitutes it into state.closure_context.
+    No-op when a pending entry is already present (v1 surfaces one at a
+    time, in arrival order).
+    """
+    if any(c.outcome == "pending_user_decision" for c in closure_context):
+        return list(closure_context)
+    promoted = list(closure_context)
+    for i, c in enumerate(promoted):
+        if c.outcome == "queued_user_decision":
+            promoted[i] = c.model_copy(update={"outcome": "pending_user_decision"})
+            break
+    return promoted
+
+
+def _miles_from_meters(m: float) -> int:
+    """Round to nearest mile for user-facing text. 1609m -> 1mi, 4800m -> 3mi."""
+    return round(m / 1609.34)
+
+
+def _formulate_closure_question(pending: ClosureContext) -> str:
+    """User-facing question text for a pending closure decision.
+
+    Two shapes:
+      - With proposed_alternative: 'The closest open <family> is <name>,
+        about <N> mi (drive/transit). Want it, or pick something else?'
+      - Without: 'I couldn't find an open <family> alternative for <name>.
+        Want me to skip that stop, or pick a different category?'
+    """
+    if pending.proposed_alternative is not None:
+        distance = pending.proposed_distance_m or 0.0
+        miles = _miles_from_meters(distance)
+        mode = "drive" if distance > 1500 else "walk/transit"
+        return (
+            f"{pending.place_name} is closed at the planned arrival time. "
+            f"The closest open {pending.family} place is "
+            f"{pending.proposed_alternative.name}, about {miles} mi ({mode}). "
+            f"Want me to add it, or pick something else?"
+        )
+    return (
+        f"{pending.place_name} is closed at the planned arrival time and I "
+        f"couldn't find an open {pending.family} alternative. Want me to "
+        f"skip that stop, or pick a different category?"
+    )
+
+
 __all__ = [
     "CandidateMatch",
+    "_apply_swap",
+    "_bounded_retime_after_swap",
     "_execute_closure_query",
+    "_formulate_closure_question",
     "_per_stop_closure_status",
+    "_promote_pending",
     "_resolve_anchor",
     "_resolve_insert_position",
     "_score_candidate",

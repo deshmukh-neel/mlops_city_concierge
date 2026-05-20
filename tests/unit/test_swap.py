@@ -315,3 +315,163 @@ def test_try_any_distance_search_uses_citywide_radius(mocker) -> None:
     assert match is not None
     assert match.distance_m == 4800.0
     assert captured[0] == 30_000
+
+
+# ─── apply_swap + bounded_retime + promote_pending + question (Task 10) ─
+
+
+def test_apply_swap_replaces_stop_at_position(mocker) -> None:
+    from app.agent.state import ItineraryState
+    from app.agent.swap import _apply_swap
+
+    s1 = _stop(place_id="s1", name="S1")
+    s2_closed = _stop(place_id="s2_closed", name="S2 closed")
+    s3 = _stop(place_id="s3", name="S3")
+    state = ItineraryState(stops=[s1, s2_closed, s3])
+    replacement = _stop(place_id="s2_new", name="S2 new")
+    leg_durations_min = [10.0, 5.0]
+
+    # Avoid touching the real DB during enrich
+    mocker.patch("app.agent.swap.enrich_stops_with_booking", return_value=None)
+
+    new_stops = _apply_swap(
+        state,
+        stop_index=1,
+        replacement=replacement,
+        leg_durations_min=leg_durations_min,
+    )
+
+    assert [s.place_id for s in new_stops] == ["s1", "s2_new", "s3"]
+
+
+def test_bounded_retime_after_swap_calls_route_legs_once(mocker) -> None:
+    """The bounded retime helper makes at most ONE extra route_legs call per
+    swap-node invocation. Mock route_legs and confirm call_count == 1."""
+    import asyncio
+
+    from app.agent.swap import _bounded_retime_after_swap
+    from app.tools.directions import DirectionsLeg, DirectionsResult
+
+    call_count = {"n": 0}
+
+    async def _fake_route(stops, mode="walk"):
+        call_count["n"] += 1
+        legs = [DirectionsLeg(duration_s=600, distance_m=400.0)] * max(len(stops) - 1, 1)
+        return DirectionsResult(
+            legs=legs,
+            total_duration_s=600 * len(legs),
+            mode=mode,
+            source="haversine_fallback",
+        )
+
+    mocker.patch("app.agent.swap.route_legs", side_effect=_fake_route)
+    stops = [_stop(place_id="a"), _stop(place_id="b"), _stop(place_id="c")]
+    retimed = asyncio.run(_bounded_retime_after_swap(stops))
+    assert call_count["n"] == 1
+    assert len(retimed) == 3
+
+
+def test_promote_pending_flips_first_queued_to_pending() -> None:
+    from app.agent.state import ClosureContext
+    from app.agent.swap import _promote_pending
+
+    queued1 = ClosureContext(
+        place_id="q1",
+        place_name="Q1",
+        family="dessert",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="queued_user_decision",
+        insert_after_place_id=None,
+        insert_before_place_id=None,
+        stop_index_hint=0,
+    )
+    queued2 = queued1.model_copy(update={"place_id": "q2"})
+    auto = queued1.model_copy(update={"place_id": "a", "outcome": "auto_swapped"})
+
+    promoted = _promote_pending([auto, queued1, queued2])
+    outcomes = [c.outcome for c in promoted]
+    assert outcomes == ["auto_swapped", "pending_user_decision", "queued_user_decision"]
+
+
+def test_promote_pending_is_noop_when_no_queued() -> None:
+    from app.agent.state import ClosureContext
+    from app.agent.swap import _promote_pending
+
+    auto = ClosureContext(
+        place_id="a",
+        place_name="A",
+        family="bar",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="auto_swapped",
+        insert_after_place_id=None,
+        insert_before_place_id=None,
+        stop_index_hint=0,
+    )
+    assert [c.outcome for c in _promote_pending([auto])] == ["auto_swapped"]
+
+
+def test_promote_pending_is_noop_when_pending_already_present() -> None:
+    """If pending already exists, don't promote a queued one too."""
+    from app.agent.state import ClosureContext
+    from app.agent.swap import _promote_pending
+
+    pending = ClosureContext(
+        place_id="p",
+        place_name="P",
+        family="bar",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="pending_user_decision",
+        insert_after_place_id=None,
+        insert_before_place_id=None,
+        stop_index_hint=0,
+    )
+    queued = pending.model_copy(update={"place_id": "q", "outcome": "queued_user_decision"})
+    promoted = _promote_pending([pending, queued])
+    outcomes = [c.outcome for c in promoted]
+    assert outcomes == ["pending_user_decision", "queued_user_decision"]
+
+
+def test_formulate_closure_question_with_proposal() -> None:
+    from app.agent.state import ClosureContext
+    from app.agent.swap import _formulate_closure_question
+
+    proposal = _stop(place_id="alt", name="Sophie's Crepes")
+    ctx = ClosureContext(
+        place_id="closed",
+        place_name="Mochill Mochidonut",
+        family="dessert",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="pending_user_decision",
+        insert_after_place_id=None,
+        insert_before_place_id=None,
+        stop_index_hint=2,
+        proposed_alternative=proposal,
+        proposed_distance_m=4800.0,
+    )
+    q = _formulate_closure_question(ctx)
+    assert "Sophie's Crepes" in q
+    assert "Mochill Mochidonut" in q
+    # ~3 mi rounding from 4800m is expected
+    assert "3" in q
+
+
+def test_formulate_closure_question_without_proposal() -> None:
+    from app.agent.state import ClosureContext
+    from app.agent.swap import _formulate_closure_question
+
+    ctx = ClosureContext(
+        place_id="closed",
+        place_name="Mochill Mochidonut",
+        family="dessert",
+        attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
+        outcome="pending_user_decision",
+        insert_after_place_id=None,
+        insert_before_place_id=None,
+        stop_index_hint=2,
+        proposed_alternative=None,
+        proposed_distance_m=None,
+    )
+    q = _formulate_closure_question(ctx)
+    assert "Mochill Mochidonut" in q
+    # No proposal -> message should ask user to pick / change category
+    assert "pick" in q.lower() or "different" in q.lower() or "skip" in q.lower()
