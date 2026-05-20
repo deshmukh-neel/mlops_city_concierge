@@ -121,3 +121,29 @@ def test_view_name_resolved(patch_get_conn, monkeypatch) -> None:
     kg_traverse("p1", "NEAR", k=5)
     assert "place_documents_v2" in cursor.executed_sql
     assert "JOIN place_documents pd" not in cursor.executed_sql
+
+
+# --- excluded_place_ids (closure-aware swap) -----------------------------
+
+
+def test_kg_traverse_excluded_place_ids_filters_at_sql_layer(patch_get_conn) -> None:
+    """Closure-swap exclusion: kg_traverse must drop excluded place_ids in
+    the WHERE clause at the SQL layer, not in Python."""
+    cursor = patch_get_conn([])
+    kg_traverse("anchor", excluded_place_ids=["ChIJ_a", "ChIJ_b"])
+
+    # The SQL must include the exclusion guarded by a NULL check so the
+    # no-exclusion call site stays backward-compatible.
+    assert "pd.place_id != ALL(%s::text[])" in cursor.executed_sql
+    assert ["ChIJ_a", "ChIJ_b"] in cursor.executed_params
+
+
+def test_kg_traverse_no_exclusions_is_no_op(patch_get_conn) -> None:
+    """Without excluded_place_ids the SQL must still emit the NULL-guarded
+    clause; the parameter is None so the guard short-circuits and rows
+    aren't filtered."""
+    cursor = patch_get_conn([])
+    kg_traverse("anchor")
+    assert "IS NULL OR pd.place_id != ALL" in cursor.executed_sql
+    # Excluded slot appears twice in params (NULL-guard + comparison); both None.
+    assert cursor.executed_params.count(None) == 2

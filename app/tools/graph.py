@@ -30,12 +30,17 @@ def kg_traverse(
     place_id: str,
     relation_type: str = "SIMILAR_VECTOR",
     k: int = 5,
+    excluded_place_ids: list[str] | None = None,
 ) -> list[RelatedPlace]:
     """Return up to ``k`` places related to ``place_id`` by ``relation_type``.
 
     NEAR is ordered ascending by weight (closest first); SIMILAR_VECTOR is
     ordered descending by weight (most similar first); other relations use a
     stable LIMIT. Unknown relation_type raises ValueError.
+
+    ``excluded_place_ids`` lets callers (the closure-swap node) suppress
+    place_ids known to be closed in the current conversation. Filtered at the
+    SQL layer so behavior matches ``nearby`` and ``semantic_search`` exclusion.
     """
     if relation_type not in VALID_RELATIONS:
         raise ValueError(f"Unknown relation_type: {relation_type}")
@@ -50,7 +55,9 @@ def kg_traverse(
                r.metadata AS relation_metadata
         FROM place_relations r
         JOIN {view} pd ON pd.place_id = r.dst_place_id
-        WHERE r.src_place_id = %s AND r.relation_type = %s
+        WHERE r.src_place_id = %s
+          AND r.relation_type = %s
+          AND (%s::text[] IS NULL OR pd.place_id != ALL(%s::text[]))
         ORDER BY
           CASE r.relation_type
             WHEN 'NEAR'           THEN  r.weight
@@ -59,7 +66,10 @@ def kg_traverse(
           END
         LIMIT %s
     """  # noqa: S608
-    rows = _execute(sql, [place_id, relation_type, k])
+    # Pass excluded twice: once for the NULL guard, once for the comparison
+    # — keeps the no-exclusion call site backward-compatible.
+    exclude = excluded_place_ids or None
+    rows = _execute(sql, [place_id, relation_type, exclude, exclude, k])
     return [RelatedPlace(**row) for row in rows]
 
 
