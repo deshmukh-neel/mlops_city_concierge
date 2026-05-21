@@ -1,10 +1,11 @@
+
 A RAG-powered SF restaurant concierge built for USF MSDS 603 (MLOps).
 
 FastAPI backend, PostgreSQL + pgvector retrieval, LangChain orchestration, MLflow-driven model selection, deployed to Cloud Run.
 
 ## App Demo 
 
-![Animated Demo](https://github.com/user-attachments/assets/d77b2651-15ef-4b35-b566-828f30ae6c38)
+<img width="700" height="394" alt="My Movie (1)" src="https://github.com/user-attachments/assets/76c7fa3d-e01a-4c6b-8ded-75d023b1ce57" />
 
 ## Architecture
 
