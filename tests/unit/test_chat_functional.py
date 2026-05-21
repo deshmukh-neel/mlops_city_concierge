@@ -283,7 +283,12 @@ def test_chat_retimes_arrival_with_real_directions(monkeypatch, mocker) -> None:
         )
 
     mocker.patch("app.agent.graph.route_legs", _slow_directions)
-    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 1.0)
+    # Closure detection moved to the swap node; stub it "all open" so retime's
+    # arrival-time projection is the only thing under test.
+    mocker.patch(
+        "app.agent.swap._per_stop_closure_status",
+        side_effect=lambda stops: [False] * len(stops),
+    )
     mocker.patch("app.agent.revision.itinerary_violations", lambda _s: [])
 
     real_graph = build_agent_graph(_ScriptedLLM(scripted=_two_stop_script()), max_steps=6)
@@ -303,42 +308,6 @@ def test_chat_retimes_arrival_with_real_directions(monkeypatch, mocker) -> None:
     assert delta_min == 100  # 60 cocktail_bar dwell + 40 real travel (NOT ~2min haversine)
 
 
-def test_chat_retiming_flips_temporal_pass_to_fail(monkeypatch, mocker) -> None:
-    """Slower real travel pushes stop 2 past its closing time: the re-run
-    temporal check fails and the reply gains the caveat."""
-    _two_hits(monkeypatch)
-
-    async def _slow_directions(stops, mode="walk"):
-        return DirectionsResult(
-            legs=[DirectionsLeg(duration_s=3600, distance_m=4000.0)],
-            total_duration_s=3600,
-            mode=mode,
-            source="google",
-        )
-
-    mocker.patch("app.agent.graph.route_legs", _slow_directions)
-    # temporal_coherence is only called in retime (critique loop uses itinerary_violations,
-    # which is stubbed to []). One call: retime re-check -> fail.
-    scores = iter([0.0])
-    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: next(scores))
-    mocker.patch("app.agent.revision.itinerary_violations", lambda _s: [])
-
-    real_graph = build_agent_graph(_ScriptedLLM(scripted=_two_stop_script()), max_steps=6)
-    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
-    mocker.patch("app.main.build_agent_graph", return_value=real_graph)
-
-    with TestClient(app) as client:
-        body = client.post("/chat", json={"message": "two bars, arrive 6pm"}).json()
-
-    assert "Caveats" in body["reply"]
-    assert "temporal_coherence" in body["reply"]
-    # Finalize-on-commit: base reply is synthesized from the stops, then the
-    # retime caveat is appended once.
-    assert body["reply"].startswith("Here's your itinerary:")
-    assert "Bar One" in body["reply"] and "Bar Two" in body["reply"]
-    assert body["reply"].count("Caveats:") == 1
-
-
 def test_chat_directions_failure_keeps_haversine_reply(monkeypatch, mocker) -> None:
     """route_legs internally degrades to fallback -> /chat still 200, no
     spurious caveat, arrival_times come from the haversine fallback."""
@@ -353,7 +322,12 @@ def test_chat_directions_failure_keeps_haversine_reply(monkeypatch, mocker) -> N
         )
 
     mocker.patch("app.agent.graph.route_legs", _fallback_directions)
-    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 1.0)
+    # Closure detection moved to the swap node; "all open" -> no rewrite,
+    # reply is the synthesized summary.
+    mocker.patch(
+        "app.agent.swap._per_stop_closure_status",
+        side_effect=lambda stops: [False] * len(stops),
+    )
     mocker.patch("app.agent.revision.itinerary_violations", lambda _s: [])
 
     real_graph = build_agent_graph(_ScriptedLLM(scripted=_two_stop_script()), max_steps=6)

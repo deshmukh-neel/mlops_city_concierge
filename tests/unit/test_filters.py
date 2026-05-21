@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from app.tools.filters import SearchFilters, compile_filters
+import pytest
+from pydantic import ValidationError
+
+from app.tools.filters import (
+    _PRIMARY_TYPE_FAMILIES,
+    SearchFilters,
+    compile_filters,
+    family_of,
+    family_of_types,
+)
 
 
 def test_empty_filters_no_clauses() -> None:
@@ -27,10 +36,18 @@ def test_price_and_rating() -> None:
             min_user_rating_count=0,
         )
     )
-    assert "price_level_rank(price_level) <= %s" in where
+    assert "(price_level_rank(price_level) IS NULL OR price_level_rank(price_level) <= %s)" in where
     assert "rating >= %s" in where
     assert 2 in params
     assert 4.3 in params
+
+
+def test_price_filter_keeps_unknown_price_levels() -> None:
+    where, params = compile_filters(
+        SearchFilters(price_level_max=3, business_status=None, min_user_rating_count=0)
+    )
+    assert "price_level_rank(price_level) IS NULL OR" in where
+    assert 3 in params
 
 
 def test_neighborhood_uses_structured_column_with_fallback() -> None:
@@ -57,6 +74,21 @@ def test_types_uses_array_overlap() -> None:
     )
     assert "types && %s" in where
     assert ["bar", "wine_bar"] in params
+
+
+def test_serves_dessert_maps_to_dessert_place_types() -> None:
+    where, params = compile_filters(
+        SearchFilters(serves_dessert=True, business_status=None, min_user_rating_count=0)
+    )
+    assert "types && %s" in where
+    assert "primary_type = ANY(%s)" in where
+    assert "dessert_shop" in params[1]
+    assert "Ice Cream Shop" in params[2]
+
+
+def test_unknown_filter_fields_are_rejected() -> None:
+    with pytest.raises(ValidationError):
+        SearchFilters.model_validate({"serves_desserts": True})
 
 
 def test_open_at_calls_helper() -> None:
@@ -133,3 +165,84 @@ def test_open_at_accepts_tz_aware_datetime() -> None:
     f_utc = SearchFilters(open_at=datetime(2026, 4, 26, 19, 30, tzinfo=timezone.utc))
     assert f_utc.open_at is not None
     assert f_utc.open_at.tzinfo is timezone.utc
+
+
+# ─── _PRIMARY_TYPE_FAMILIES + family_of (closure-aware swap) ─────────────
+
+
+def test_primary_type_families_all_have_types_and_primary_types() -> None:
+    for family, members in _PRIMARY_TYPE_FAMILIES.items():
+        assert set(members.keys()) == {"types", "primary_types"}, family
+        assert members["types"], f"{family} types must not be empty"
+        assert members["primary_types"], f"{family} primary_types must not be empty"
+
+
+def test_dessert_family_preserves_existing_dessert_members() -> None:
+    dessert = _PRIMARY_TYPE_FAMILIES["dessert"]
+    assert "dessert_shop" in dessert["types"]
+    assert "Dessert Shop" in dessert["primary_types"]
+    assert "Ice Cream Shop" in dessert["primary_types"]
+
+
+def test_family_of_resolves_primary_type() -> None:
+    assert family_of("Dessert Shop") == "dessert"
+    assert family_of("Bar") == "bar"
+    assert family_of("Cafe") == "cafe"
+    assert family_of("Italian Restaurant") == "restaurant"
+
+
+def test_family_of_returns_none_for_unknown_primary_type() -> None:
+    assert family_of("Spaceship") is None
+    assert family_of(None) is None
+    assert family_of("") is None
+
+
+def test_family_of_types_resolves_via_types_array() -> None:
+    assert family_of_types(["italian_restaurant", "restaurant"]) == "restaurant"
+    assert family_of_types(["dessert_shop"]) == "dessert"
+    assert family_of_types([]) is None
+
+
+def test_primary_type_family_filter_compiles_both_columns() -> None:
+    where, params = compile_filters(
+        SearchFilters(
+            primary_type_family="dessert",
+            business_status=None,
+            min_user_rating_count=None,
+        )
+    )
+    assert "(types && %s OR primary_type = ANY(%s))" in where
+    # types list (snake_case) and primary_types list (Title Case) both as params.
+    # Find the two list params (any in the list — column-conventions are
+    # specific enough to assert membership).
+    list_params = [p for p in params if isinstance(p, list)]
+    assert any("dessert_shop" in p for p in list_params)
+    assert any("Dessert Shop" in p for p in list_params)
+
+
+def test_primary_type_family_unknown_family_raises() -> None:
+    with pytest.raises(ValidationError):
+        SearchFilters.model_validate({"primary_type_family": "spaceship"})
+
+
+def test_excluded_place_ids_filter_compiles_to_not_all() -> None:
+    where, params = compile_filters(
+        SearchFilters(
+            excluded_place_ids=["ChIJ_a", "ChIJ_b"],
+            business_status=None,
+            min_user_rating_count=0,
+        )
+    )
+    assert "place_id != ALL(%s)" in where
+    assert ["ChIJ_a", "ChIJ_b"] in params
+
+
+def test_excluded_place_ids_empty_list_emits_no_clause() -> None:
+    where, _ = compile_filters(
+        SearchFilters(
+            excluded_place_ids=[],
+            business_status=None,
+            min_user_rating_count=0,
+        )
+    )
+    assert "place_id != ALL" not in where

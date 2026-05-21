@@ -47,6 +47,30 @@ def test_semantic_search_tool_invokes_underlying(monkeypatch) -> None:
     assert captured == {"query": "italian", "filters": None, "k": 3}
 
 
+def test_semantic_search_tool_accepts_serves_dessert_filter(monkeypatch) -> None:
+    captured: dict = {}
+
+    def _fake(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr("app.agent.tools._semantic_search", _fake)
+    tools = {t.name: t for t in all_tools()}
+    tools["semantic_search"].invoke(
+        {"query": "dessert in Japantown", "filters": {"serves_dessert": True}}
+    )
+
+    assert captured["filters"].serves_dessert is True
+
+
+def test_semantic_search_tool_rejects_unknown_filter_field() -> None:
+    tools = {t.name: t for t in all_tools()}
+    with pytest.raises(Exception, match="serves_desserts"):
+        tools["semantic_search"].invoke(
+            {"query": "dessert in Japantown", "filters": {"serves_desserts": True}}
+        )
+
+
 def test_nearby_tool_invokes_underlying(monkeypatch) -> None:
     captured: dict = {}
 
@@ -78,15 +102,30 @@ def test_kg_traverse_tool_delegates_to_graph(monkeypatch) -> None:
     (lazy-imported inside the wrapper body)."""
     captured: dict = {}
 
-    def _fake(place_id: str, relation_type: str = "SIMILAR_VECTOR", k: int = 5):
-        captured.update(place_id=place_id, relation_type=relation_type, k=k)
+    def _fake(
+        place_id: str,
+        relation_type: str = "SIMILAR_VECTOR",
+        k: int = 5,
+        excluded_place_ids: list[str] | None = None,
+    ):
+        captured.update(
+            place_id=place_id,
+            relation_type=relation_type,
+            k=k,
+            excluded_place_ids=excluded_place_ids,
+        )
         return []
 
     monkeypatch.setattr("app.tools.graph.kg_traverse", _fake)
     tools = {t.name: t for t in all_tools()}
     result = tools["kg_traverse"].invoke({"place_id": "p1", "relation_type": "NEAR", "k": 3})
     assert result == []
-    assert captured == {"place_id": "p1", "relation_type": "NEAR", "k": 3}
+    assert captured == {
+        "place_id": "p1",
+        "relation_type": "NEAR",
+        "k": 3,
+        "excluded_place_ids": None,
+    }
     assert "NOT YET AVAILABLE" not in (tools["kg_traverse"].description or "")
 
 

@@ -22,23 +22,22 @@ import logging
 from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
 from app.agent.commit import commit_stops
 from app.agent.critique import vibe
-from app.agent.critique.checks import CRITIQUE_THRESHOLDS, temporal_coherence
 from app.agent.planning import chain_arrival_times
 from app.agent.prompts import SYSTEM_PROMPT, current_datetime_str
 from app.agent.revision import (
-    _final_with_caveats,
     critique_final_with_stops,
     critique_step,
     finalize_as_is,
     short_circuit_max_steps,
 )
 from app.agent.state import ItineraryState, Stop
+from app.agent.swap import _inject_closure_exclusions, swap_closed_stops
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
 from app.tools.directions import route_legs
 
@@ -46,6 +45,68 @@ logger = logging.getLogger(__name__)
 
 
 _RECENT_TOOL_EXCHANGES_KEPT = 2
+_EXPLICIT_STOP_COUNT_RETRY_KEY = "explicit_num_stops_clarification"
+
+
+def _constraints_context(state: ItineraryState) -> str:
+    """Human-readable deterministic constraints appended to the system prompt.
+
+    Two sources contribute:
+    1. An explicit user-stated stop count (preserved across multi-turn /chat).
+    2. closure_context — every outcome contributes, so refinement turns never
+       re-suggest a place we've already learned is closed. Even after the
+       user accepts a drive alternative, the original closed source must
+       stay excluded.
+    """
+    parts: list[str] = []
+    if state.constraints.num_stops is not None:
+        parts.append(
+            f"- The user explicitly requested {state.constraints.num_stops} stops. "
+            "Do not ask how many stops they want; plan exactly that many stops."
+        )
+    if state.closure_context:
+        names = ", ".join(c.place_name for c in state.closure_context)
+        parts.append(
+            f"- Earlier in this conversation, these places were closed at the planned "
+            f"arrival time and should NOT be re-suggested: {names}. "
+            f"Their place_ids are also excluded from your search-result candidates."
+        )
+    if not parts:
+        return ""
+    return "\n\nDETERMINISTIC REQUEST CONTEXT:\n" + "\n".join(parts)
+
+
+def _retry_unnecessary_stop_count_clarification(
+    state: ItineraryState,
+) -> dict[str, Any] | None:
+    """One-shot nudge when the user gave an explicit count but the model
+    finalized without any stops. The trigger is structural — no stops
+    committed plus no tool calls (the call site is the `finalizing` branch
+    of critique) — not lexical. An earlier string-match version missed
+    non-stereotyped clarifying phrasings like "what vibe are you going for?"
+    while still gating retries to one per turn via revision_counts."""
+    num_stops = state.constraints.num_stops
+    if num_stops is None:
+        return None
+    if state.stops:
+        return None
+    if state.revision_counts.get(_EXPLICIT_STOP_COUNT_RETRY_KEY, 0) > 0:
+        return None
+    counts = dict(state.revision_counts)
+    counts[_EXPLICIT_STOP_COUNT_RETRY_KEY] = 1
+    return {
+        "revision_counts": counts,
+        "messages": [
+            HumanMessage(
+                content=(
+                    f"The user already specified {num_stops} stops. "
+                    "Do not ask how many stops; use retrieval tools and plan exactly "
+                    f"{num_stops} stops now."
+                )
+            )
+        ],
+        "done": False,
+    }
 
 
 def _prune_for_llm(messages: list[BaseMessage]) -> list[BaseMessage]:
@@ -132,6 +193,7 @@ def build_agent_graph(
                         max_steps=max_steps,
                         current_datetime=current_datetime_str(),
                     )
+                    + _constraints_context(state)
                 ),
                 *messages_in,
             ]
@@ -181,10 +243,28 @@ def build_agent_graph(
                     )
                 )
                 continue
+            # Belt-and-suspenders: merge closure-context exclusions into the
+            # tool args at the SQL layer. The prompt guidance in
+            # _constraints_context is an optimization; this is enforcement.
+            #
+            # CRITICAL: never reassign `tc["args"]`. `tc` references a dict
+            # INSIDE the AIMessage stored on state.messages — the next plan()
+            # step re-serializes that AIMessage for OpenAI's API via
+            # `json.dumps`, and a Pydantic SearchFilters instance there
+            # crashes with "Object of type SearchFilters is not JSON
+            # serializable". Compute `effective_args` locally instead so the
+            # injected args drive `tool.invoke` and the scratch record while
+            # the AIMessage stays untouched.
+            if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
+                effective_args = _inject_closure_exclusions(
+                    tc["name"], tc["args"], state.closure_context
+                )
+            else:
+                effective_args = tc["args"]
             try:
                 # psycopg2 + OpenAI are sync; offload to a worker thread so the
                 # event loop stays responsive while the tool blocks on I/O.
-                result: Any = await asyncio.to_thread(tool.invoke, tc["args"])
+                result: Any = await asyncio.to_thread(tool.invoke, effective_args)
             except Exception as e:  # noqa: BLE001
                 result = {"error": str(e)}
             new_messages.append(
@@ -192,7 +272,7 @@ def build_agent_graph(
             )
             scratch_updates.setdefault(tc["name"], []).append(
                 {
-                    "args": tc["args"],
+                    "args": effective_args,
                     "result": result,
                     "step": state.step_count,
                     "id": tc["id"],
@@ -241,6 +321,9 @@ def build_agent_graph(
         if (finalizing or committed_this_step) and state.stops:
             return critique_final_with_stops(state, last, judge_llm)
         if finalizing:
+            retry = _retry_unnecessary_stop_count_clarification(state)
+            if retry is not None:
+                return retry
             return finalize_as_is(state, last)
         return critique_step(state)
 
@@ -273,30 +356,11 @@ def build_agent_graph(
             # Can't retime — leave the existing stops/reply untouched.
             return {}
 
-        update: dict[str, Any] = {"stops": retimed}
-
-        # Re-run ONLY the open-at-arrival check on the real times. Other
-        # checks (geographic/walking/hallucination) are coord/id-based and
-        # unaffected by re-timing, so re-running them would be wasted work.
-        # temporal_coherence is sync psycopg2 I/O — offload to a thread so
-        # the event loop stays responsive (same pattern as act()).
-        probe = state.model_copy(update={"stops": retimed})
-        try:
-            score = await asyncio.to_thread(temporal_coherence, probe)
-        except Exception:  # noqa: BLE001
-            # Fails open exactly like itinerary_violations(): a DB blip must
-            # not block /chat. Ship the re-timed plan without the re-check.
-            return update
-
-        # Only append a caveat if the revision loop hasn't already shipped
-        # one (the END->retime rewire routes the caveats-exhausted path
-        # through here too; _final_with_caveats is not idempotent, so a
-        # second call would duplicate the identical "Caveats:" paragraph).
-        if score < CRITIQUE_THRESHOLDS["temporal_coherence"]:
-            existing = state.final_reply or ""
-            if "Caveats:" not in existing:
-                update["final_reply"] = _final_with_caveats(existing, ["temporal_coherence"])
-        return update
+        # Closure detection on the real-time arrivals is now the responsibility
+        # of the swap_closed_stops node (next in the graph), which silently
+        # swaps walking-distance alternatives and asks the user about anything
+        # else. retime just supplies the retimed stops.
+        return {"stops": retimed}
 
     def route_after_plan(state: ItineraryState) -> Literal["act", "critique"]:
         last = state.messages[-1]
@@ -312,9 +376,11 @@ def build_agent_graph(
     g.add_node("act", act)
     g.add_node("critique", critique)
     g.add_node("retime", retime)
+    g.add_node("swap_closed_stops", swap_closed_stops)
     g.set_entry_point("plan")
     g.add_conditional_edges("plan", route_after_plan, {"act": "act", "critique": "critique"})
     g.add_edge("act", "critique")
     g.add_conditional_edges("critique", route_after_critique, {"plan": "plan", "retime": "retime"})
-    g.add_edge("retime", END)
+    g.add_edge("retime", "swap_closed_stops")
+    g.add_edge("swap_closed_stops", END)
     return g.compile()

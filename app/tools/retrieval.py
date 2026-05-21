@@ -42,6 +42,9 @@ class PlaceHit(BaseModel):
     source: str
     similarity: float
     snippet: str | None = None
+    # `nearby()` projects this; semantic_search and get_details do not. Default
+    # None keeps both call paths compatible without forcing a separate model.
+    dist_m: float | None = None
 
 
 class PlaceDetails(PlaceHit):
@@ -147,7 +150,8 @@ def nearby(
             latitude, longitude, rating, price_level, business_status,
             source,
             0.0 AS similarity,
-            snippet
+            snippet,
+            dist_m
         FROM candidates
         WHERE dist_m <= %s
         ORDER BY dist_m ASC

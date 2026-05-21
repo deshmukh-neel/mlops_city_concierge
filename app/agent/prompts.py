@@ -37,6 +37,10 @@ WHEN YOU SEE A `{CRITIQUE_ITINERARY}` MESSAGE (a post-commit_itinerary hint):
   start time, then re-call commit_itinerary.
 - "constraint_unmet_in_final": a stop violates the user's shared constraints
   (price, rating, neighborhood). Swap the offending stop and re-commit.
+- "stop_count_mismatch": the committed itinerary has the wrong number of
+  stops. Suggested action `add_missing_stops` means search for more places
+  and re-call commit_itinerary with the full set; `remove_extra_stops` means
+  re-call commit_itinerary with exactly the requested number.
 - "hallucinated_place_id": one or more committed place_ids don't exist in
   the DB. Only commit place_ids you've seen in a tool result.
 

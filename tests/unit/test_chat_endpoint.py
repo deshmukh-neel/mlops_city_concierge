@@ -69,7 +69,7 @@ def test_chat_endpoint_returns_reply_places_raglabel(mocker) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body.keys()) == {"reply", "places", "ragLabel"}
+    assert set(body.keys()) == {"reply", "places", "ragLabel", "conversation_state"}
     assert body["reply"] == "Trick Dog at 7pm, ~60 min."
     assert body["ragLabel"] == "openai:gpt-4o-mini"
     assert len(body["places"]) == 1
@@ -141,6 +141,103 @@ def test_chat_endpoint_passes_history_to_graph(mocker) -> None:
     assert state.messages[1].type == "ai"
     assert state.messages[2].type == "human"
     assert state.messages[2].content == "actually make it 4 stops"
+    assert state.constraints.num_stops == 4
+
+
+def test_chat_endpoint_parses_explicit_stop_count(mocker) -> None:
+    fake_graph = mocker.Mock()
+    captured: dict[str, Any] = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": (
+                    "plan a 3-stop omakase date night near Japantown SF: drinks, dinner, dessert"
+                )
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured["state"].constraints.num_stops == 3
+
+
+def test_chat_endpoint_preserves_explicit_stop_count_across_turns(mocker) -> None:
+    """Multi-turn guardrail: turn 1 says "3 stops", turn 2 refines without
+    naming a count. /chat is stateless — every POST rebuilds ItineraryState
+    from scratch — so num_stops must be parsed across req.history + req.message,
+    not only the current message, or the deterministic count guardrail is lost
+    on every follow-up turn."""
+    fake_graph = mocker.Mock()
+    captured: dict[str, Any] = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "make the second one cheaper",
+                "history": [
+                    {"role": "user", "content": "plan a 3-stop omakase date night"},
+                    {"role": "assistant", "content": "Here's your itinerary: ..."},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    # The current message has no stop count; the count must come from history.
+    assert captured["state"].constraints.num_stops == 3
+
+
+def test_chat_endpoint_current_message_count_wins_over_history(mocker) -> None:
+    """If the user revises the count mid-conversation, the latest explicit
+    count wins (e.g. "actually make it 4")."""
+    fake_graph = mocker.Mock()
+    captured: dict[str, Any] = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "actually make it 4 stops",
+                "history": [
+                    {"role": "user", "content": "plan a 3-stop omakase date night"},
+                    {"role": "assistant", "content": "Here's your itinerary: ..."},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured["state"].constraints.num_stops == 4
 
 
 def test_chat_endpoint_accepts_empty_history(mocker) -> None:
@@ -159,3 +256,370 @@ def test_chat_endpoint_accepts_empty_history(mocker) -> None:
         response = client.post("/chat", json={"message": "hi"})
 
     assert response.status_code == 200
+
+
+# ─── conversation_state round-trip (Task 14) ─────────────────────────────
+
+
+def test_chat_endpoint_accepts_conversation_state(mocker) -> None:
+    """An inbound conversation_state must hydrate into ItineraryState.closure_context."""
+    fake_graph = mocker.Mock()
+    captured: dict = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "make stop 2 cheaper",
+                "history": [
+                    {"role": "user", "content": "plan a 3-stop date"},
+                    {"role": "assistant", "content": "Here's your itinerary..."},
+                ],
+                "conversation_state": {
+                    "schema_version": 1,
+                    "closure_context": [
+                        {
+                            "schema_version": 1,
+                            "place_id": "ChIJ_closed",
+                            "place_name": "Mochill",
+                            "family": "dessert",
+                            "attempted_arrival": "2026-05-19T20:02:00-07:00",
+                            "outcome": "auto_swapped",
+                            "insert_after_place_id": "ChIJ_prev",
+                            "insert_before_place_id": None,
+                            "stop_index_hint": 2,
+                            "proposed_alternative": None,
+                            "proposed_distance_m": None,
+                        }
+                    ],
+                    "prior_stops": [],
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    state = captured["state"]
+    assert len(state.closure_context) == 1
+    assert state.closure_context[0].place_id == "ChIJ_closed"
+    assert state.closure_context[0].outcome == "auto_swapped"
+
+
+def test_chat_endpoint_returns_conversation_state(mocker) -> None:
+    """Final state's closure_context must be echoed in the response."""
+    fake_graph = mocker.Mock()
+
+    async def _ainvoke(state, config=None):
+        d = _final_state_dict(reply="ok")
+        d["closure_context"] = [
+            {
+                "schema_version": 1,
+                "place_id": "ChIJ_closed",
+                "place_name": "Mochill",
+                "family": "dessert",
+                "attempted_arrival": "2026-05-19T20:02:00-07:00",
+                "outcome": "auto_swapped",
+                "insert_after_place_id": None,
+                "insert_before_place_id": None,
+                "stop_index_hint": 2,
+                "proposed_alternative": None,
+                "proposed_distance_m": None,
+            }
+        ]
+        return d
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={"message": "plan a date", "history": []},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "conversation_state" in body
+    cs = body["conversation_state"]
+    assert cs["schema_version"] == 1
+    assert len(cs["closure_context"]) == 1
+    assert cs["closure_context"][0]["place_id"] == "ChIJ_closed"
+
+
+def test_chat_endpoint_degrades_on_malformed_conversation_state(mocker) -> None:
+    """A malformed conversation_state must not 422 — the handler logs and
+    falls back to empty state."""
+    fake_graph = mocker.Mock()
+    captured: dict = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "anything",
+                "conversation_state": {"schema_version": 1, "closure_context": "not-a-list"},
+            },
+        )
+    # Degrades silently -> 200, no closure_context hydrated.
+    assert response.status_code == 200
+    assert captured["state"].closure_context == []
+
+
+def test_chat_endpoint_first_turn_omits_conversation_state(mocker) -> None:
+    fake_graph = mocker.Mock()
+
+    async def _ainvoke(state, config=None):
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"message": "hi"})
+
+    assert response.status_code == 200
+    body = response.json()
+    # Backend always emits a typed conversation_state, never null
+    assert "conversation_state" in body
+    assert body["conversation_state"]["schema_version"] == 1
+    assert body["conversation_state"]["closure_context"] == []
+
+
+# ─── Accept / decline / alternative early-return (Task 15) ───────────────
+
+
+def _pending_state(
+    place_id: str = "ChIJ_closed",
+    family: str = "dessert",
+    proposed_id: str = "ChIJ_sophies",
+    prior_stop_id: str = "ChIJ_stop1",
+) -> dict:
+    return {
+        "schema_version": 1,
+        "closure_context": [
+            {
+                "schema_version": 1,
+                "place_id": place_id,
+                "place_name": "Mochill",
+                "family": family,
+                "attempted_arrival": "2026-05-19T20:02:00-07:00",
+                "outcome": "pending_user_decision",
+                "insert_after_place_id": prior_stop_id,
+                "insert_before_place_id": None,
+                "stop_index_hint": 2,
+                "proposed_alternative": {
+                    "place_id": proposed_id,
+                    "name": "Sophie's Crepes",
+                    "rationale": "closest open dessert",
+                    "source": "google_places",
+                    "latitude": 37.7849,
+                    "longitude": -122.4093,
+                    "primary_type": "Dessert Shop",
+                    "arrival_time": "2026-05-19T20:02:00-07:00",
+                    "planned_duration_min": 30,
+                },
+                "proposed_distance_m": 4800.0,
+            }
+        ],
+        "prior_stops": [
+            {
+                "place_id": prior_stop_id,
+                "name": "Stop 1",
+                "rationale": "anchor",
+                "source": "google_places",
+                "latitude": 37.78,
+                "longitude": -122.41,
+                "primary_type": "Bar",
+                "arrival_time": "2026-05-19T18:00:00-07:00",
+                "planned_duration_min": 60,
+            },
+            {
+                "place_id": "ChIJ_stop2",
+                "name": "Stop 2",
+                "rationale": "anchor",
+                "source": "google_places",
+                "latitude": 37.785,
+                "longitude": -122.41,
+                "primary_type": "Restaurant",
+                "arrival_time": "2026-05-19T19:00:00-07:00",
+                "planned_duration_min": 90,
+            },
+        ],
+    }
+
+
+def test_chat_endpoint_accept_path_inserts_proposed_alternative(mocker) -> None:
+    """User replies "yes" → proposed_alternative inserted, graph NOT
+    invoked, response carries 3 stops + user_accepted_drive outcome."""
+    fake_graph = mocker.Mock()
+    fake_graph.ainvoke = mocker.AsyncMock(
+        side_effect=AssertionError("graph should not run on accept path")
+    )
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+    # Re-validation of proposed_alternative: re-fetch details + re-check open
+    from app.tools.retrieval import PlaceDetails
+
+    mocker.patch(
+        "app.main.get_details",
+        return_value=PlaceDetails(
+            place_id="ChIJ_sophies",
+            name="Sophie's Crepes",
+            source="google_places",
+            similarity=0.0,
+            latitude=37.7849,
+            longitude=-122.4093,
+            primary_type="Dessert Shop",
+            formatted_address="123 Fillmore",
+            regular_opening_hours={
+                "periods": [{"open": {"day": 2, "hour": 10}, "close": {"day": 2, "hour": 22}}]
+            },
+        ),
+    )
+    mocker.patch("app.main._place_is_open_now", return_value=True)
+    mocker.patch("app.main._per_stop_closure_status", return_value=[False, False, False])
+    mocker.patch("app.main._bounded_retime_after_swap", side_effect=lambda stops: stops)
+    mocker.patch("app.main.enrich_stops_with_booking", return_value=None)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "yes",
+                "history": [
+                    {"role": "user", "content": "plan a date"},
+                    {"role": "assistant", "content": "The closest open dessert..."},
+                ],
+                "conversation_state": _pending_state(),
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    place_ids = [p["place_id"] for p in body["places"]]
+    assert "ChIJ_sophies" in place_ids
+    cs = body["conversation_state"]
+    outcomes = [c["outcome"] for c in cs["closure_context"]]
+    assert "user_accepted_drive" in outcomes
+
+
+def test_chat_endpoint_decline_path_drops_closed_stop(mocker) -> None:
+    """User replies "no" → closed stop marked declined, no graph invocation."""
+    fake_graph = mocker.Mock()
+    fake_graph.ainvoke = mocker.AsyncMock(
+        side_effect=AssertionError("graph should not run on decline path")
+    )
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "no thanks",
+                "conversation_state": _pending_state(),
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    cs = body["conversation_state"]
+    outcomes = [c["outcome"] for c in cs["closure_context"]]
+    assert "user_declined_dropped" in outcomes
+
+
+def test_chat_endpoint_alternative_path_falls_through_to_graph(mocker) -> None:
+    """User replies "find something cheaper" → graph IS invoked with a
+    HumanMessage hint about the declined drive option."""
+    fake_graph = mocker.Mock()
+    captured: dict = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "find something cheaper instead",
+                "conversation_state": _pending_state(),
+            },
+        )
+
+    assert response.status_code == 200
+    state = captured["state"]
+    # The last human message should reference the closed place name OR the
+    # user's free-text guidance.
+    last_human = next((m for m in reversed(state.messages) if m.type == "human"), None)
+    assert last_human is not None
+    combined_humans = " ".join(
+        m.content for m in state.messages if m.type == "human" and isinstance(m.content, str)
+    )
+    assert "Mochill" in combined_humans or "find something cheaper" in combined_humans
+
+
+def test_chat_endpoint_accept_escalates_when_proposed_alternative_missing(mocker) -> None:
+    """Accept path with proposed_alternative no longer in DB → graph runs
+    (not early-return) with the closure_context preserved."""
+    fake_graph = mocker.Mock()
+    captured: dict = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+    mocker.patch("app.main.get_details", return_value=None)  # gone from DB
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "yes",
+                "conversation_state": _pending_state(),
+            },
+        )
+
+    assert response.status_code == 200
+    # Graph WAS invoked -> not an early return
+    assert "state" in captured

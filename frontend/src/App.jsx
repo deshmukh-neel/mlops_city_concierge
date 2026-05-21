@@ -1,4 +1,4 @@
-import React, { useCallback, useReducer, useState } from 'react'
+import React, { useCallback, useReducer, useRef, useState } from 'react'
 import TopNav from './components/TopNav'
 import ChatPanel from './components/ChatPanel'
 import RightPanel from './components/RightPanel'
@@ -39,6 +39,11 @@ export default function App() {
   const [placesState, dispatch] = useReducer(placesReducer, emptyPlacesState)
   const [isLoading, setIsLoading] = useState(false)
   const [focusId, setFocusId] = useState(null)
+  // Opaque conversation_state round-tripped to /chat. Stored in a ref so the
+  // empty-deps `handleSend` reads the current value at call time — a useState
+  // would be captured stale in the callback closure and every request after
+  // the first would send the initial-render value.
+  const conversationStateRef = useRef(null)
 
   const places = selectOrderedPlaces(placesState)
 
@@ -78,7 +83,9 @@ export default function App() {
           },
         ])
       } else {
-        const data = await sendMessage(text, history)
+        const data = await sendMessage(text, history, conversationStateRef.current)
+        // Store opaque state for the next request. Ref so the closure stays current.
+        conversationStateRef.current = data.conversation_state ?? null
 
         setMessages((prev) => [
           ...prev,
@@ -118,6 +125,7 @@ export default function App() {
     setMessages(INITIAL_MESSAGES)
     dispatch({ type: 'clear' })
     setFocusId(null)
+    conversationStateRef.current = null
   }, [])
 
   // ── Select a place (chat pill or map pin): focus it on the map ───────────

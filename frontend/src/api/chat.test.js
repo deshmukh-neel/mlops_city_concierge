@@ -89,4 +89,47 @@ describe('sendMessage — /chat adapter', () => {
     mockFetchOnce({ detail: 'agent unavailable' }, false, 503)
     await expect(sendMessage('q')).rejects.toThrow(/503.*agent unavailable/)
   })
+
+  // ─── conversation_state round-trip (closure-aware swap) ────────────────
+
+  it('sends conversation_state when provided', async () => {
+    const stub = {
+      reply: 'ok',
+      places: [],
+      ragLabel: 'openai:gpt-4o-mini',
+      conversation_state: { schema_version: 1, closure_context: [], prior_stops: [] },
+    }
+    mockFetchOnce(stub)
+
+    const cs = {
+      schema_version: 1,
+      closure_context: [{ place_id: 'p', outcome: 'auto_swapped' }],
+      prior_stops: [],
+    }
+    await sendMessage('hi', [], cs)
+
+    const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body)
+    expect(body.conversation_state).toEqual(cs)
+  })
+
+  it('passes null when no conversation_state given', async () => {
+    mockFetchOnce({ reply: 'ok', places: [], ragLabel: '', conversation_state: null })
+
+    await sendMessage('hi', [])
+
+    const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body)
+    expect(body.conversation_state).toBeNull()
+  })
+
+  it('returns conversation_state from response opaquely', async () => {
+    mockFetchOnce({
+      reply: 'ok',
+      places: [],
+      ragLabel: '',
+      conversation_state: { schema_version: 1, opaque: true },
+    })
+
+    const result = await sendMessage('hi', [])
+    expect(result.conversation_state).toEqual({ schema_version: 1, opaque: true })
+  })
 })

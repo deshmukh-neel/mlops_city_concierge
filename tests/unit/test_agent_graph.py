@@ -11,7 +11,7 @@ import psycopg2
 import pytest
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from app.agent.commit import commit_stops, enrich_stops_with_booking
@@ -39,6 +39,7 @@ def _rich_details_for(place_id: str) -> PlaceDetails:
     return PlaceDetails(
         place_id=place_id,
         name=f"Place {place_id}",
+        primary_type="restaurant",
         source="google_places",
         similarity=0.0,
         formatted_address=f"{place_id} Main St, San Francisco",
@@ -93,6 +94,144 @@ async def test_graph_terminates_on_no_tool_call() -> None:
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
     assert out["done"] is True
     assert out["final_reply"] == "here is your plan"
+
+
+async def test_graph_retries_unneeded_stop_count_clarification(monkeypatch) -> None:
+    """If the caller has already parsed an explicit stop count, the model
+    should not be allowed to end the request by asking for that same count."""
+    monkeypatch.setattr(
+        "app.agent.tools._semantic_search",
+        lambda **_kw: [
+            PlaceHit(place_id="p1", name="Place p1", source="google_places", similarity=0.9)
+        ],
+    )
+    fake = _make_fake(
+        [
+            AIMessage(content="How many stops would you like?", tool_calls=[]),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "search-1",
+                        "args": {"query": "romantic dinner in Japantown"},
+                    }
+                ],
+            ),
+            AIMessage(content="planning from results", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+
+    out = await graph.ainvoke(
+        ItineraryState(
+            messages=[HumanMessage(content="plan a 3-stop date night")],
+            constraints=UserConstraints(num_stops=3),
+        )
+    )
+
+    assert out["done"] is True
+    assert out["final_reply"] == "planning from results"
+    assert "semantic_search" in out["scratch"]
+
+
+async def test_graph_retries_finalize_without_stops_regardless_of_wording(monkeypatch) -> None:
+    """#3C: the retry trigger is structural, not lexical. When num_stops is set
+    and the model finalizes with no stops committed, nudge it — regardless of
+    what the AI's text message says. The old string-match heuristic missed
+    phrasings like "I'd love to know the number of places..." Drop the
+    heuristic; the structural condition is sufficient and unambiguous."""
+    monkeypatch.setattr(
+        "app.agent.tools._semantic_search",
+        lambda **_kw: [
+            PlaceHit(place_id="p1", name="Place p1", source="google_places", similarity=0.9)
+        ],
+    )
+    fake = _make_fake(
+        [
+            # Non-stereotyped phrasing — old heuristic would miss this.
+            AIMessage(content="To narrow it down, what vibe are you going for?", tool_calls=[]),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "search-1",
+                        "args": {"query": "romantic dinner in Japantown"},
+                    }
+                ],
+            ),
+            AIMessage(content="planning from results", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(
+        ItineraryState(
+            messages=[HumanMessage(content="plan a 3-stop date night")],
+            constraints=UserConstraints(num_stops=3),
+        )
+    )
+    # Retry fired, model produced a tool call on its second turn, graph ended cleanly.
+    assert out["done"] is True
+    assert "semantic_search" in out["scratch"]
+
+
+async def test_graph_does_not_retry_when_num_stops_unset(monkeypatch) -> None:
+    """No nudge when there's no explicit count — the model is allowed to
+    clarify ambiguous requests."""
+    fake = _make_fake([AIMessage(content="How many stops?", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="plan something")]),
+    )
+    # Without num_stops, the clarifying question is the legitimate final reply.
+    assert out["done"] is True
+    assert out["final_reply"] == "How many stops?"
+
+
+async def test_graph_retry_is_one_shot(monkeypatch) -> None:
+    """If after the nudge the model STILL finalizes empty, the retry doesn't
+    fire a second time — the conversation ends with whatever the model said."""
+    fake = _make_fake(
+        [
+            AIMessage(content="What's your budget?", tool_calls=[]),
+            AIMessage(content="Could you confirm your neighborhood?", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(
+        ItineraryState(
+            messages=[HumanMessage(content="plan a 3-stop date night")],
+            constraints=UserConstraints(num_stops=3),
+        )
+    )
+    assert out["done"] is True
+    # The second clarifying turn becomes the final reply — retry did not loop.
+    assert out["final_reply"] == "Could you confirm your neighborhood?"
+
+
+async def test_graph_injects_explicit_stop_count_context() -> None:
+    # Two messages: the first is the model's empty-finalize, which under #3C
+    # triggers the structural retry nudge (num_stops set + no stops yet); the
+    # second is the model's response to that nudge. We only care that the
+    # system prompt contained the deterministic stop-count context.
+    fake = _make_fake(
+        [
+            AIMessage(content="ok", tool_calls=[]),
+            AIMessage(content="planning", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(
+        ItineraryState(
+            messages=[HumanMessage(content="plan a 3-stop date night")],
+            constraints=UserConstraints(num_stops=3),
+        )
+    )
+
+    system_messages = [m for m in out["messages"] if isinstance(m, SystemMessage)]
+    assert len(system_messages) == 1
+    assert "explicitly requested 3 stops" in system_messages[0].content
 
 
 async def test_graph_executes_tool_and_continues(monkeypatch) -> None:
@@ -599,7 +738,7 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
 
 
 def test_enrich_populates_card_fields_from_details() -> None:
-    """address/rating/price_level flow from PlaceDetails onto Stop."""
+    """Authoritative display fields flow from PlaceDetails onto Stop."""
     stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
     state = ItineraryState(
         constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
@@ -617,6 +756,8 @@ def test_enrich_populates_card_fields_from_details() -> None:
     ):
         enrich_stops_with_booking(stops, state)
 
+    assert stops[0].name == "Place p1"
+    assert stops[0].primary_type == "restaurant"
     assert stops[0].address == "p1 Main St, San Francisco"
     assert stops[0].rating == 4.4
     assert stops[0].price_level == 2
@@ -897,9 +1038,12 @@ async def test_retime_at_most_one_directions_call(monkeypatch, mocker) -> None:
         )
 
     mocker.patch("app.agent.graph.route_legs", _counting_route_legs)
-    # The node calls temporal_coherence (imported into graph.py in Step 3),
-    # NOT itinerary_violations. Patch the symbol the node actually uses.
-    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 1.0)
+    # The swap_closed_stops node (after retime) runs its own closure check;
+    # stub it to "all open" so we measure retime's route_legs call only.
+    mocker.patch(
+        "app.agent.swap._per_stop_closure_status",
+        side_effect=lambda stops: [False] * len(stops),
+    )
     # Prevent critique from hitting the DB (place_ids p0-p2 don't exist in
     # places_raw in the test environment, which would trigger a revision loop
     # and exhaust the scripted LLM when the full suite runs after any test
@@ -930,58 +1074,141 @@ async def test_retime_passthrough_when_coordless(monkeypatch, mocker) -> None:
     route.assert_not_called()
 
 
-async def test_retime_does_not_double_caveat_when_reply_already_has_one(
-    monkeypatch, mocker
-) -> None:
-    """The END->retime rewire sends the caveats-exhausted revision path
-    through retime too. If final_reply already has 'Caveats:', retime must
-    NOT append a second identical paragraph."""
+async def test_graph_includes_swap_closed_stops_node(monkeypatch) -> None:
+    """The compiled graph routes retime -> swap_closed_stops -> END so the
+    closure-aware swap pass runs after real-time arrival_times land. Replaces
+    the deleted retime+caveat tests — temporal_coherence handling is now the
+    swap node's job, not retime's."""
+    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)
+    assert "swap_closed_stops" in graph.get_graph().nodes
 
-    async def _slow(stops, mode="walk"):
-        return DirectionsResult(
-            legs=[DirectionsLeg(duration_s=600, distance_m=800.0)] * (len(stops) - 1),
-            total_duration_s=600 * (len(stops) - 1),
-            mode=mode,
-            source="google",
-        )
 
-    mocker.patch("app.agent.graph.route_legs", _slow)
-    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 0.0)  # fails
-    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    st = _committed_state(2, with_coords=True)
-    st = st.model_copy(
-        update={
-            "final_reply": "Plan.\n\nCaveats: I couldn't fully satisfy "
-            "temporal_coherence after revisions. You may want to adjust the plan."
-        }
+async def test_graph_does_not_import_final_with_caveats_in_retime() -> None:
+    """Regression: closure handling lives in app/agent/swap.py now. The
+    retime node must not call _final_with_caveats on temporal_coherence —
+    the caveat text users saw on closure was the worst-of-both-worlds path
+    (broken plan + ugly warning). The swap node replaces it."""
+    import inspect
+
+    from app.agent import graph as graph_mod
+
+    src = inspect.getsource(graph_mod)
+    assert "_final_with_caveats" not in src, (
+        "retime() must not call _final_with_caveats on temporal_coherence; "
+        "closure handling lives in app/agent/swap.py now."
     )
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
-    graph = build_agent_graph(fake, max_steps=4)
-    out = await graph.ainvoke(st)
-    assert out["final_reply"].count("Caveats:") == 1
 
 
-async def test_retime_appends_caveat_when_reply_has_none(monkeypatch, mocker) -> None:
-    """Conversely, when no caveat exists yet and the real-time check fails,
-    retime DOES append exactly one."""
+async def test_act_does_not_mutate_aimessage_tool_call_args_across_steps(
+    mocker,
+) -> None:
+    """Regression for "TypeError: Object of type SearchFilters is not JSON
+    serializable" surfaced live on turn 3 of the omakase flow.
 
-    async def _slow(stops, mode="walk"):
-        return DirectionsResult(
-            legs=[DirectionsLeg(duration_s=600, distance_m=800.0)] * (len(stops) - 1),
-            total_duration_s=600 * (len(stops) - 1),
-            mode=mode,
-            source="google",
-        )
+    Failure path: `act()` used to do `tc["args"] = _inject_closure_exclusions(...)`,
+    stuffing a Pydantic SearchFilters into the tool_call args dict that
+    LangChain stores inside AIMessage.tool_calls. On the NEXT plan() pass,
+    langchain serializes the AIMessage for OpenAI's API and `json.dumps`
+    blows up.
 
-    mocker.patch("app.agent.graph.route_legs", _slow)
-    mocker.patch("app.agent.graph.temporal_coherence", lambda _s: 0.0)
-    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    st = _committed_state(2, with_coords=True)  # final_reply has no "Caveats:"
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
-    graph = build_agent_graph(fake, max_steps=4)
-    out = await graph.ainvoke(st)
-    assert out["final_reply"].count("Caveats:") == 1
-    assert "temporal_coherence" in out["final_reply"]
+    Verify that across a multi-step graph turn — where the same AIMessage
+    survives into a follow-up plan() — its tool_call args stay JSON-safe.
+    """
+    import json as _json
+    from datetime import datetime
+
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage, HumanMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.agent.graph import build_agent_graph
+    from app.agent.state import ClosureContext, ItineraryState
+
+    captured: dict = {"step_2_args": None, "step_2_dumps_ok": False}
+
+    class _MultiStepLLM(BaseChatModel):
+        @property
+        def _llm_type(self) -> str:
+            return "multistep"
+
+        def bind_tools(self, tools, **kwargs):  # type: ignore[no-untyped-def]
+            return self
+
+        def _generate(
+            self,
+            messages: list[BaseMessage],
+            stop=None,
+            run_manager=None,
+            **kwargs,
+        ) -> ChatResult:
+            # First call: issue a semantic_search tool call that will get
+            # closure exclusions injected. Subsequent calls: capture the
+            # AIMessage's tool_call args and finalize.
+            issued_tool_calls = sum(
+                1 for m in messages if isinstance(m, AIMessage) and m.tool_calls
+            )
+            if issued_tool_calls == 0:
+                msg = AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "semantic_search",
+                            "args": {"query": "ramen", "filters": {"min_rating": 4.0}},
+                            "id": "call_1",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            else:
+                # Second plan() — find the prior issuing AIMessage and inspect
+                # its tool_call args. This is the exact serialization path
+                # langchain.openai takes when re-sending the conversation.
+                for m in messages:
+                    if isinstance(m, AIMessage) and m.tool_calls:
+                        captured["step_2_args"] = m.tool_calls[0]["args"]
+                        try:
+                            _json.dumps(m.tool_calls[0]["args"])
+                            captured["step_2_dumps_ok"] = True
+                        except TypeError:
+                            captured["step_2_dumps_ok"] = False
+                        break
+                msg = AIMessage(content="done", tool_calls=[])
+            return ChatResult(generations=[ChatGeneration(message=msg)])
+
+    mocker.patch("app.tools.retrieval.semantic_search", return_value=[])
+
+    state = ItineraryState(
+        messages=[HumanMessage(content="start")],
+        closure_context=[
+            ClosureContext(
+                place_id="ChIJ_closed",
+                place_name="Closed",
+                family="bar",
+                attempted_arrival=datetime(2026, 5, 19, 20, 0),
+                outcome="auto_swapped",
+                insert_after_place_id=None,
+                insert_before_place_id=None,
+                stop_index_hint=0,
+            )
+        ],
+    )
+
+    graph = build_agent_graph(_MultiStepLLM(), max_steps=4)
+    await graph.ainvoke(state)
+
+    assert captured["step_2_args"] is not None, "second plan() never ran"
+    # `filters` MUST be a plain dict — Pydantic SearchFilters would break the
+    # OpenAI API re-serialization.
+    filters = captured["step_2_args"].get("filters")
+    assert isinstance(filters, dict), (
+        f"AIMessage.tool_calls[0]['args']['filters'] must be a dict for "
+        f"langchain JSON serialization, got {type(filters).__name__}"
+    )
+    assert captured["step_2_dumps_ok"], (
+        "AIMessage.tool_calls[0]['args'] must be json.dumps-safe — langchain "
+        "re-serializes the message on the next OpenAI call."
+    )
 
 
 async def test_retime_noop_when_first_stop_has_no_arrival(monkeypatch, mocker) -> None:

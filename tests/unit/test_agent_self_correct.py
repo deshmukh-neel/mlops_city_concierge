@@ -632,6 +632,10 @@ def test_final_with_caveats_handles_empty_body() -> None:
             "walking_budget_exceeded",
             "rebalance_walking_budget",
         ),
+        # Stop count mismatches get their own reason+action so debugging and
+        # post-hoc inspection don't confuse them with real constraint violations.
+        # With num_stops=3 and 2 stops committed, the deficit drives "add".
+        ("stop_count_satisfied", "stop_count_mismatch", "add_missing_stops"),
         ("no_hallucinated_place_ids", "hallucinated_place_id", "swap_stop"),
         ("unknown_check_name", "constraint_unmet_in_final", "swap_stop"),
     ],
@@ -644,10 +648,28 @@ def test_hint_for_violation_maps_each_check(
     a `constraint_unmet_in_final` hint rather than crash."""
     from app.agent.revision import _hint_for_violation
 
-    state = ItineraryState(stops=[make_stop("p1", name="A"), make_stop("p2", name="B")])
+    state = ItineraryState(
+        stops=[make_stop("p1", name="A"), make_stop("p2", name="B")],
+        constraints=UserConstraints(num_stops=3),
+    )
     hint = _hint_for_violation(check, state)
     assert hint.reason == expected_reason
     assert hint.suggested_action == expected_action
+
+
+def test_stop_count_mismatch_action_is_directional() -> None:
+    """When the LLM commits MORE stops than the user requested, the suggested
+    action must tell it to remove — not add — so the hint isn't actively
+    misleading. The deficit case is covered above; this is the surplus case."""
+    from app.agent.revision import _hint_for_violation
+
+    state = ItineraryState(
+        stops=[make_stop(f"p{i}", name=f"P{i}") for i in range(4)],
+        constraints=UserConstraints(num_stops=3),
+    )
+    hint = _hint_for_violation("stop_count_satisfied", state)
+    assert hint.reason == "stop_count_mismatch"
+    assert hint.suggested_action == "remove_extra_stops"
 
 
 async def test_diagnose_pairs_by_tool_call_id() -> None:

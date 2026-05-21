@@ -78,6 +78,7 @@ def kg_traverse(
     place_id: str,
     relation_type: str = "SIMILAR_VECTOR",
     k: int = 5,
+    excluded_place_ids: list[str] | None = None,
 ) -> list[RelatedPlace]:
     """Traverse the knowledge graph from `place_id` along a relation_type.
 
@@ -93,7 +94,12 @@ def kg_traverse(
     """
     from app.tools.graph import kg_traverse as _kg_traverse
 
-    return _kg_traverse(place_id=place_id, relation_type=relation_type, k=k)
+    return _kg_traverse(
+        place_id=place_id,
+        relation_type=relation_type,
+        k=k,
+        excluded_place_ids=excluded_place_ids,
+    )
 
 
 def _args_schema_for(fn: Any):

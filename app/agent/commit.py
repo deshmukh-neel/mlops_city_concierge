@@ -116,6 +116,8 @@ def enrich_stops_with_booking(stops: list[Stop], state: ItineraryState) -> None:
 
         # Card fields do NOT depend on a booking time — stamp them before the
         # `when is None` skip so a timeless stop still renders a full card.
+        stop.name = details.name
+        stop.primary_type = details.primary_type
         stop.address = details.formatted_address
         stop.rating = details.rating
         stop.price_level = price_level_to_rank(details.price_level)
