@@ -5,7 +5,7 @@ FastAPI backend, PostgreSQL + pgvector retrieval, LangChain orchestration, MLflo
 
 ## App Demo 
 
-<video src="./assets/My Movie.mp4" width="100%" controls></video>
+<video src="My Movie.mp4" width="100%" controls></video>
 
 ## Architecture
 
