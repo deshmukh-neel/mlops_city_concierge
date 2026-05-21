@@ -5,7 +5,9 @@ FastAPI backend, PostgreSQL + pgvector retrieval, LangChain orchestration, MLflo
 
 ## App Demo 
 
-<video src="My Movie1.mp4" width="100%" controls></video>
+<video src="My%20Movie1.mp4" width="100%" controls></video>
+
+> If the video doesn't render inline, [download or view `My Movie1.mp4`](./My%20Movie1.mp4).
 
 ## Architecture
 
