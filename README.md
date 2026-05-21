@@ -1,3 +1,4 @@
+# City Concierge
 
 A RAG-powered SF restaurant concierge built for USF MSDS 603 (MLOps).
 
@@ -5,9 +6,7 @@ FastAPI backend, PostgreSQL + pgvector retrieval, LangChain orchestration, MLflo
 
 ## App Demo 
 
-[![App Demo](docs/demo_poster.jpg)](./My%20Movie1.mp4)
-
-> Click the image above to play the demo (`My Movie1.mp4`).
+https://github.com/user-attachments/assets/54017606-785d-4eb3-b9b9-de76dbc112e7
 
 ## Architecture
 
