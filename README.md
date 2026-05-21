@@ -6,7 +6,7 @@ FastAPI backend, PostgreSQL + pgvector retrieval, LangChain orchestration, MLflo
 
 ## App Demo 
 
-<video src="https://github.com/deshmukh-neel/mlops_city_concierge/raw/refs/heads/main/app_demo.mp4" autoplay loop muted playsinline></video>
+https://github.com/user-attachments/assets/54017606-785d-4eb3-b9b9-de76dbc112e7
 
 ## Architecture
 
