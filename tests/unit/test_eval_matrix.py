@@ -403,6 +403,35 @@ def test_scorer_means_rejects_bool_values_disguised_as_numeric(tmp_path: Path) -
     )
 
 
+def test_aggregate_warns_on_unparseable_cell_filename(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """WR-01: when `_parse_cell_filename` returns None inside the aggregator
+    loop, the silent `continue` makes the dropped cell invisible. Emit a
+    WARNING log so operators can see when a stray file slipped past the
+    glob (typically a `--` collision in a model name). The well-formed cell
+    in the same dir must still be aggregated normally."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    # One well-formed cell so we can assert the loop still produces output.
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    # An unparseable filename — 2 split-parts, not 4 — must trigger the warning.
+    (tmp_path / "nope--stray.json").write_text("{}", encoding="utf-8")
+
+    with caplog.at_level("WARNING", logger="scripts.eval_matrix"):
+        summary = aggregate_cell_jsons(tmp_path)
+
+    # Warning must mention the offending filename.
+    matching = [rec for rec in caplog.records if "nope--stray.json" in rec.getMessage()]
+    assert matching, (
+        "expected a WARNING log mentioning 'nope--stray.json'; "
+        f"got records: {[r.getMessage() for r in caplog.records]}"
+    )
+    # Well-formed cell still aggregated — the warning is observability,
+    # not a kill switch.
+    assert "scenario_a" in summary["scenarios"]
+
+
 # ─── resolve_run_dir naming (D-10 output shape) ──────────────────────────────
 
 

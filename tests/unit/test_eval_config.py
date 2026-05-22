@@ -259,6 +259,49 @@ def test_matrix_entry_rejects_extra_keys() -> None:
         MatrixEntry.model_validate({"provider": "openai", "model": "gpt-4o-mini", "extra": "nope"})
 
 
+# ─── MatrixEntry '--' rejection (plan 03-08 / WR-01) ───
+
+
+def test_matrix_entry_rejects_double_dash_in_model() -> None:
+    """WR-01: scripts/eval_matrix.py uses '--' as the cell-filename separator
+    (`{provider}--{model}--{scenario_id}--run-{n}.json`). A model named
+    `gpt-4--turbo` would silently produce 5 split-parts, the parser would
+    return None, and the cell would be dropped from summary.json with no
+    diagnostic. Reject '--' in `model` at validation time."""
+    with pytest.raises(ValidationError) as exc_info:
+        MatrixEntry.model_validate({"provider": "openai", "model": "gpt-4--turbo"})
+    errors = exc_info.value.errors()
+    # At least one error must name the `model` field AND mention the '--' contract.
+    assert any("model" in err["loc"] for err in errors), (
+        f"expected an error on `model`; got loc list: {[err['loc'] for err in errors]}"
+    )
+    assert "'--' is reserved" in str(exc_info.value), (
+        f"expected '--' reservation message in error; got: {exc_info.value}"
+    )
+
+
+def test_matrix_entry_rejects_double_dash_in_provider() -> None:
+    """WR-01 (mirror): '--' in provider is equally fatal to the filename
+    parser. Reject `open--ai` for the same reason as gpt-4--turbo."""
+    with pytest.raises(ValidationError) as exc_info:
+        MatrixEntry.model_validate({"provider": "open--ai", "model": "gpt-4o-mini"})
+    errors = exc_info.value.errors()
+    assert any("provider" in err["loc"] for err in errors), (
+        f"expected an error on `provider`; got loc list: {[err['loc'] for err in errors]}"
+    )
+
+
+def test_matrix_entry_accepts_single_dash_anywhere() -> None:
+    """A single dash is fine — only the literal `--` separator is reserved.
+    `gpt-4o-mini`, `open-ai`, `gpt-3.5-turbo` etc. must all still validate."""
+    # Sanity-check the canonical D-06 anchor first (would have caught a
+    # regression in the existing entries had we shipped one).
+    MatrixEntry.model_validate({"provider": "openai", "model": "gpt-4o-mini"})
+    # Single-dash in either field passes:
+    MatrixEntry.model_validate({"provider": "open-ai", "model": "gpt-4o-mini"})
+    MatrixEntry.model_validate({"provider": "openai", "model": "gpt-3.5-turbo"})
+
+
 # ─── EvalMatrixConfig top-level loader (EVAL-04) ───
 
 
