@@ -18,11 +18,7 @@ from typing import Any, Literal
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from app.agent.critique.checks import (  # noqa: E402
+from app.agent.critique.checks import (
     CRITIQUE_THRESHOLDS,
     category_compliance,
     constraints_satisfied,
@@ -32,10 +28,10 @@ from app.agent.critique.checks import (  # noqa: E402
     temporal_coherence,
     walking_budget_respected,
 )
-from app.agent.graph import build_agent_graph  # noqa: E402
-from app.agent.state import ItineraryState  # noqa: E402
-from app.config import get_settings  # noqa: E402
-from app.eval.config import (  # noqa: E402
+from app.agent.graph import build_agent_graph
+from app.agent.state import ItineraryState
+from app.config import get_settings
+from app.eval.config import (
     DEFAULT_EVAL_QUERIES_PATH,
     EvalQuery,
     ExpectedResults,
