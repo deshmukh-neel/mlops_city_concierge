@@ -270,17 +270,6 @@ def aggregate_cell_jsons(
     return result
 
 
-def write_summary_json(output_dir: Path) -> Path:
-    """Write summary.json into `output_dir` and return its path."""
-    summary = aggregate_cell_jsons(output_dir)
-    summary_path = output_dir / "summary.json"
-    summary_path.write_text(
-        json.dumps(summary, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    return summary_path
-
-
 def _build_subprocess_cmd(
     cell: MatrixCell,
     cell_path: Path,
