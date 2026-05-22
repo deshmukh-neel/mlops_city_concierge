@@ -593,7 +593,16 @@ async def evaluate_multi_turn_case(graph: Any, case: EvalQuery) -> QueryEvalResu
             # against the prior turn's state (or a fresh one if turn 0
             # raised — first-turn failures still get a JSON row, not a
             # bubbled exception).
-            partial_state = state if state is not None else ItineraryState(messages=messages_in)
+            # WR-05: deep-copy the prior turn's state before mutating its
+            # scratch dict, so a future debug hook that keeps per-turn state
+            # snapshots does not see the synthetic error injected backwards
+            # into turn N-1's diagnostics. The error logically belongs to
+            # turn N's partial state; the copy makes that explicit.
+            partial_state = (
+                state.model_copy(deep=True)
+                if state is not None
+                else ItineraryState(messages=messages_in)
+            )
             partial_state.scratch.setdefault("multi_turn_runner", []).append(
                 {
                     "args": {"turn_index": index, "turn": turn_text},
