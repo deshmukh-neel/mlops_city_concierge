@@ -40,6 +40,7 @@ Exit code conventions (Plan 03-10 / WR-02 hardening):
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess  # noqa: S404 - this is the script; subprocess is the whole point
 import sys
 from collections.abc import Sequence
@@ -48,6 +49,12 @@ AGENT_PREFIX = "app/agent/"
 BASELINES_PREFIX = "configs/eval_baselines/"
 BASELINE_SUFFIX = ".json"
 SKIP_BASELINE_TOKEN = "[skip-baseline]"  # noqa: S105 - bypass marker, not a credential
+# IN-04: tighten the bypass match so a documentation PR that quotes the token
+# mid-sentence (e.g. "docs: explain the [skip-baseline] bypass token") cannot
+# accidentally trip the gate. The token must appear at a line boundary (start
+# of message or after a newline), optionally preceded by whitespace, and must
+# be followed by whitespace or end-of-string — i.e. trailer-style placement.
+_SKIP_BASELINE_RE = re.compile(r"(^|\n)\s*\[skip-baseline\](\s|$)")
 DEFAULT_BASE = "origin/main"
 
 
@@ -228,7 +235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     agent_paths = _agent_changed(paths)
     baseline_paths = _baselines_changed(paths)
-    bypass_used = SKIP_BASELINE_TOKEN in commit_msg
+    bypass_used = bool(_SKIP_BASELINE_RE.search(commit_msg))
 
     # Branch 3: no agent change at all → trivially pass.
     if not agent_paths:

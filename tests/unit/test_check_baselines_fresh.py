@@ -146,22 +146,69 @@ def test_no_agent_change_passes(monkeypatch: pytest.MonkeyPatch, script: ModuleT
 def test_skip_baseline_bypass_passes(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], script: ModuleType
 ) -> None:
-    """RULE 4: agent/ touched, baseline NOT touched, BUT [skip-baseline] → exit 0."""
+    """RULE 4: agent/ touched, baseline NOT touched, BUT [skip-baseline] → exit 0.
+
+    The bypass token must appear at a line boundary (start of message or
+    after a newline), optionally preceded by whitespace — trailer-style.
+    Mid-sentence mentions in commit prose are NOT a bypass (see
+    test_incidental_skip_baseline_mention_does_not_bypass).
+    """
     _stub_git(
         monkeypatch,
         script,
         changed_paths=["app/agent/graph.py"],
         last_commit_message=(
-            "refactor(agent): rename internal helper [skip-baseline]\n\n"
+            "refactor(agent): rename internal helper\n\n"
+            "[skip-baseline]\n"
             "No behavior change; baseline refresh not warranted."
         ),
     )
     rc = script.main(["origin/main"])
-    assert rc == 0, "[skip-baseline] in commit message must bypass the gate"
+    assert rc == 0, "[skip-baseline] at a line boundary must bypass the gate"
     captured = capsys.readouterr()
     combined = captured.out + captured.err
     # The bypass path must announce itself so reviewers see it in CI logs.
     assert "skip-baseline" in combined.lower()
+
+
+def test_skip_baseline_at_subject_line_start_bypasses(
+    monkeypatch: pytest.MonkeyPatch, script: ModuleType
+) -> None:
+    """IN-04: trailer-style token at the very start of the message bypasses."""
+    _stub_git(
+        monkeypatch,
+        script,
+        changed_paths=["app/agent/graph.py"],
+        last_commit_message="[skip-baseline] refactor(agent): cosmetic rename",
+    )
+    rc = script.main(["origin/main"])
+    assert rc == 0, "[skip-baseline] at message start must bypass the gate"
+
+
+def test_incidental_skip_baseline_mention_does_not_bypass(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], script: ModuleType
+) -> None:
+    """IN-04: a documentation PR that quotes the token mid-sentence (e.g.
+    docs explaining how the bypass works) must NOT trip the gate. The
+    previous substring match would silently let such a PR through.
+    """
+    _stub_git(
+        monkeypatch,
+        script,
+        changed_paths=["app/agent/graph.py"],
+        last_commit_message=(
+            "docs(agent): explain the [skip-baseline] bypass token used by "
+            "scripts/check_baselines_fresh.py"
+        ),
+    )
+    rc = script.main(["origin/main"])
+    assert rc == 1, (
+        "incidental [skip-baseline] mid-sentence mention must NOT bypass the stale-baseline gate"
+    )
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    # The stale-baseline error path fired, so the gate emitted its remediation.
+    assert "make eval-matrix" in combined
 
 
 # ---------------------------------------------------------------------------
