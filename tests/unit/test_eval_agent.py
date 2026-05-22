@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 from argparse import Namespace
+from dataclasses import asdict
 
 import pytest
 
 from app.agent.state import ItineraryState
 from app.eval.config import EvalQuery
 from scripts.eval_agent import (
+    DETERMINISTIC_CHECKS,
     ActualEvalResult,
     CheckResult,
     DeterministicEvalResult,
@@ -53,13 +56,20 @@ def eval_case(**overrides: object) -> EvalQuery:
 
 
 def query_result(**overrides: object) -> QueryEvalResult:
-    """Build a QueryEvalResult with passing deterministic checks."""
+    """Build a QueryEvalResult with passing deterministic checks.
+
+    Mirrors the shape of DETERMINISTIC_CHECKS in scripts/eval_agent.py — any
+    scorer added to that dict must also appear here, otherwise
+    aggregate_results raises KeyError when iterating per-scorer means.
+    """
     checks = {
+        "category_compliance": CheckResult(score=1.0, threshold=1.0, passed=True),
         "constraints_satisfied": CheckResult(score=1.0, threshold=0.8, passed=True),
         "geographic_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
+        "no_hallucinated_place_ids": CheckResult(score=1.0, threshold=1.0, passed=True),
+        "rationale_stop_alignment": CheckResult(score=1.0, threshold=1.0, passed=True),
         "temporal_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
         "walking_budget_respected": CheckResult(score=1.0, threshold=1.0, passed=True),
-        "no_hallucinated_place_ids": CheckResult(score=1.0, threshold=1.0, passed=True),
     }
     payload = {
         "id": "case_one",
@@ -438,3 +448,40 @@ def test_report_has_violations_reads_aggregate_violation_count() -> None:
 def test_resolve_chat_model_uses_cli_value_when_present() -> None:
     """Prefer explicit CLI model names over provider defaults."""
     assert resolve_chat_model("openai", " custom-model ") == "custom-model"
+
+
+# --- Plan 03-03 wiring: both new scorers must surface in eval reports -------
+
+
+def test_deterministic_checks_registers_category_and_rationale_scorers() -> None:
+    """Plan 03-03: category_compliance + rationale_stop_alignment ship in
+    DETERMINISTIC_CHECKS so aggregate_results emits per-scorer mean metrics."""
+    assert "category_compliance" in DETERMINISTIC_CHECKS
+    assert "rationale_stop_alignment" in DETERMINISTIC_CHECKS
+
+
+def test_aggregate_results_emits_new_scorer_mean_keys() -> None:
+    """The aggregate dict must carry {scorer}_mean for both new scorers so
+    baseline JSON has a stable field for Phase 4-6 merge-gate diffing."""
+    aggregate = aggregate_results([query_result()])
+    assert "category_compliance_mean" in aggregate
+    assert "rationale_stop_alignment_mean" in aggregate
+    # Passing-fixture builder uses score=1.0 for both -> mean is 1.0.
+    assert aggregate["category_compliance_mean"] == 1.0
+    assert aggregate["rationale_stop_alignment_mean"] == 1.0
+
+
+def test_query_result_serializes_to_json_via_asdict() -> None:
+    """EVAL-08 / P1 regression guard: the eval report is dataclass-based and
+    its wire format is json.dumps(asdict(result)). Any new field on
+    QueryEvalResult (or any sub-dataclass) that smuggles a non-json-safe
+    object — e.g. a Pydantic model, a datetime, a set — will crash this
+    serialization at report-write time. PR #94 fixed an AIMessage.tool_calls
+    args[...] Pydantic regression at the agent layer; this test pins the
+    same contract at the eval-report layer for the new scorer surface."""
+    payload = asdict(query_result())
+    # If this raises, the dataclass surface picked up a non-json-safe value.
+    encoded = json.dumps(payload)
+    decoded = json.loads(encoded)
+    assert decoded["deterministic"]["checks"]["category_compliance"]["score"] == 1.0
+    assert decoded["deterministic"]["checks"]["rationale_stop_alignment"]["score"] == 1.0
