@@ -298,6 +298,111 @@ def test_aggregate_records_generated_at_timestamp(tmp_path: Path) -> None:
     assert isinstance(summary["generated_at"], str)
 
 
+# ─── CR-01 + IN-04: scorer-whitelist + bool exclusion (plan 03-08) ──────────
+
+
+def _write_cell_with_aggregate(
+    directory: Path,
+    provider: str,
+    model: str,
+    scenario_id: str,
+    run_n: int,
+    aggregate: dict,
+) -> Path:
+    """Variant of `_write_cell` that injects an arbitrary `aggregate` dict.
+
+    The CR-01 / IN-04 tests need to plant non-scorer `_mean` keys and bool
+    values that the standard 2-scorer `_write_cell` payload can't express.
+    """
+    fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
+    path = directory / fname
+    payload = {
+        "llm_provider": provider,
+        "chat_model": model,
+        "query_count": 1,
+        "aggregate": aggregate,
+        "queries": [{"id": scenario_id}],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def test_scorer_means_excludes_non_scorer_keys(tmp_path: Path) -> None:
+    """CR-01 (BLOCKER): `_scorer_means_from_cell` must only emit scorer names
+    registered in `app.agent.critique.checks.CRITIQUE_THRESHOLDS`. The six
+    non-scorer `_mean` aggregate keys observed empirically in VERIFICATION.md
+    (results_mean, tool_calls_mean, contexts_mean, revision_hints_mean,
+    committed_stops_mean, answer_retrieved_place_coverage_mean) are cell-level
+    diagnostics — they MUST be excluded so summary.json contains scorers and
+    nothing else."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell_with_aggregate(
+        tmp_path,
+        "openai",
+        "gpt-4o-mini",
+        "scenario_a",
+        0,
+        aggregate={
+            # 6 non-scorer diagnostic _mean keys from the empirical 8-key live
+            # payload (see VERIFICATION.md CR-01 section) — all must be filtered.
+            "tool_calls_mean": 3.0,
+            "results_mean": 5.0,
+            "contexts_mean": 2.0,
+            "revision_hints_mean": 1.0,
+            "committed_stops_mean": 3.0,
+            "answer_retrieved_place_coverage_mean": 0.8,
+            # 2 real scorer-mean keys (registered in CRITIQUE_THRESHOLDS) —
+            # both must survive into the summary.
+            "category_compliance_mean": 0.5,
+            "rationale_stop_alignment_mean": 0.7,
+        },
+    )
+    summary = aggregate_cell_jsons(tmp_path)
+    scorer_block = summary["scenarios"]["scenario_a"]["providers"]["openai/gpt-4o-mini"]["scorers"]
+    assert set(scorer_block.keys()) == {"category_compliance", "rationale_stop_alignment"}
+    # Spot-check the six non-scorer names CR-01 specifically calls out:
+    for forbidden in (
+        "tool_calls",
+        "results",
+        "contexts",
+        "revision_hints",
+        "committed_stops",
+        "answer_retrieved_place_coverage",
+    ):
+        assert forbidden not in scorer_block, (
+            f"{forbidden!r} leaked into scorer block — CR-01 whitelist failed"
+        )
+
+
+def test_scorer_means_rejects_bool_values_disguised_as_numeric(tmp_path: Path) -> None:
+    """IN-04: `isinstance(value, int | float)` matches `True`/`False` because
+    `bool` is a subclass of `int`. The numeric check must explicitly exclude
+    bool so a stray bool in the cell aggregate does not become a scorer
+    score of 1.0 or 0.0."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell_with_aggregate(
+        tmp_path,
+        "openai",
+        "gpt-4o-mini",
+        "scenario_a",
+        0,
+        aggregate={
+            "category_compliance_mean": True,  # bool — must be rejected.
+            "rationale_stop_alignment_mean": 0.5,  # real float — must survive.
+        },
+    )
+    summary = aggregate_cell_jsons(tmp_path)
+    scorer_block = summary["scenarios"]["scenario_a"]["providers"]["openai/gpt-4o-mini"]["scorers"]
+    assert "category_compliance" not in scorer_block, (
+        "bool-disguised-as-numeric leaked into scorer block — IN-04 fix failed"
+    )
+    assert "rationale_stop_alignment" in scorer_block, (
+        "real float scorer dropped — IN-04 fix overshot"
+    )
+
+
 # ─── resolve_run_dir naming (D-10 output shape) ──────────────────────────────
 
 
