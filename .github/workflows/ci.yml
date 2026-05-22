@@ -104,6 +104,54 @@ jobs:
           path: coverage.xml
           if-no-files-found: ignore
 
+  eval-matrix:
+    name: Eval matrix (scripted mode — no real APIs)
+    # Runs scripts/eval_matrix.py in scripted mode (EVAL-09 / P4): no LLM
+    # API keys, no network calls, just the deterministic ScriptedChatModel
+    # fan-out. Independent of test/lint/typecheck/migrations — parallel-safe.
+    # The runtime gate in scripts/eval_matrix.py is intentionally bypassed
+    # via --llm-provider-override scripted (threaded through LLM_OVERRIDE
+    # in the Makefile target), so CI never accidentally runs real-provider
+    # matrices even when API key env vars are configured at the runner level.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Poetry
+        run: pipx install "poetry==${{ env.POETRY_VERSION }}"
+
+      - name: Cache Poetry venv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dev dependencies
+        run: poetry install --with dev --no-interaction --no-root
+
+      - name: Run eval matrix (scripted, RUNS=1)
+        # Phase 3 soft-gate: the matrix runner exits non-zero when scripted
+        # cells fail scorer thresholds (expected — the ScriptedChatModel
+        # fallback path doesn't commit stops). Plan 03-07 commits the
+        # baselines that flip this to a hard gate; until then we let the
+        # job stay green so PR merge isn't blocked. The summary.json
+        # artifact below preserves the matrix output for PR review.
+        continue-on-error: true
+        run: make eval-matrix LLM_OVERRIDE=scripted RUNS=1
+
+      - name: Upload eval matrix report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-matrix-report
+          path: eval_reports/**/*.json
+          if-no-files-found: ignore
+
   migrations:
     name: Alembic migrations apply cleanly
     runs-on: ubuntu-latest
