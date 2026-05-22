@@ -379,6 +379,7 @@ hand_written:
     expected_constraints:
       neighborhood: "Mission"
       open_at_iso: "2026-05-21T19:00:00-07:00"
+      requested_primary_types: ["Sushi Restaurant", "Cocktail Bar", "Dessert Shop"]
       types_any: ["restaurant", "cocktail_bar"]
     expected_results:
       min_stops: 3
@@ -391,6 +392,7 @@ hand_written:
     expected_constraints:
       neighborhood: "Hayes Valley"
       open_at_iso: "2026-05-21T19:00:00-07:00"
+      requested_primary_types: ["Restaurant", "Cocktail Bar", "Dessert Shop"]
       price_level_max: 3
       types_any: ["restaurant", "cocktail_bar", "dessert_shop"]
     expected_results:
