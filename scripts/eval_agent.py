@@ -230,6 +230,10 @@ def validate_args(args: argparse.Namespace) -> None:
     """Validate argument relationships that argparse cannot express cleanly."""
     if args.max_steps < 1:
         raise ValueError("--max-steps must be greater than zero")
+    if args.max_queries is not None and args.max_queries < 1:
+        raise ValueError("--max-queries must be greater than zero when provided")
+    if not 0.0 <= args.temperature <= 2.0:
+        raise ValueError(f"--temperature must be in [0.0, 2.0]; got {args.temperature}")
 
 
 def build_eval_llm(provider: LlmProvider, chat_model: str, temperature: float) -> BaseChatModel:

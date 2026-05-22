@@ -126,10 +126,46 @@ def test_selected_cases_rejects_non_positive_limit() -> None:
 
 def test_validate_args_rejects_non_positive_max_steps() -> None:
     """Reject max-step values that would prevent the graph from planning."""
-    args = Namespace(max_steps=0)
+    args = Namespace(max_steps=0, max_queries=None, temperature=0.0)
 
     with pytest.raises(ValueError, match="max-steps"):
         validate_args(args)
+
+
+def test_validate_args_rejects_non_positive_max_queries() -> None:
+    """IN-01: surface --max-queries violations at validate_args rather than
+    letting them bubble up through selected_cases as a generic ValueError
+    traceback in main()."""
+    args = Namespace(max_steps=8, max_queries=0, temperature=0.0)
+
+    with pytest.raises(ValueError, match="max-queries"):
+        validate_args(args)
+
+
+def test_validate_args_accepts_omitted_max_queries() -> None:
+    """IN-01: max_queries=None means 'run all cases' and must not trip the
+    positive-int check (argparse default for --max-queries is None)."""
+    args = Namespace(max_steps=8, max_queries=None, temperature=0.0)
+
+    validate_args(args)  # must not raise
+
+
+@pytest.mark.parametrize("bad_temp", [-0.1, 2.1, 5.0])
+def test_validate_args_rejects_out_of_range_temperature(bad_temp: float) -> None:
+    """IN-01: argparse accepts any float for --temperature; reject anything
+    outside [0.0, 2.0] (the LLM provider's accepted range) at validate_args
+    so an operator sees an actionable CLI error not a vendor-API 400."""
+    args = Namespace(max_steps=8, max_queries=None, temperature=bad_temp)
+
+    with pytest.raises(ValueError, match="temperature"):
+        validate_args(args)
+
+
+def test_validate_args_accepts_temperature_at_boundaries() -> None:
+    """IN-01: 0.0 and 2.0 are inclusive endpoints of the accepted range."""
+    for ok_temp in (0.0, 1.0, 2.0):
+        args = Namespace(max_steps=8, max_queries=None, temperature=ok_temp)
+        validate_args(args)  # must not raise
 
 
 def test_state_from_graph_output_accepts_model_and_dict() -> None:
