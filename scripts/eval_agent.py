@@ -24,9 +24,11 @@ if str(REPO_ROOT) not in sys.path:
 
 from app.agent.critique.checks import (  # noqa: E402
     CRITIQUE_THRESHOLDS,
+    category_compliance,
     constraints_satisfied,
     geographic_coherence,
     no_hallucinated_place_ids,
+    rationale_stop_alignment,
     temporal_coherence,
     walking_budget_respected,
 )
@@ -44,11 +46,13 @@ LlmProvider = Literal["openai", "gemini", "deepseek", "kimi"]
 CheckFunction = Callable[[ItineraryState], float]
 
 DETERMINISTIC_CHECKS: dict[str, CheckFunction] = {
+    "category_compliance": category_compliance,
     "constraints_satisfied": constraints_satisfied,
     "geographic_coherence": geographic_coherence,
+    "no_hallucinated_place_ids": no_hallucinated_place_ids,
+    "rationale_stop_alignment": rationale_stop_alignment,
     "temporal_coherence": temporal_coherence,
     "walking_budget_respected": walking_budget_respected,
-    "no_hallucinated_place_ids": no_hallucinated_place_ids,
 }
 
 EVAL_CONTEXT_TEMPLATE = """Offline eval context:

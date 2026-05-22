@@ -56,13 +56,20 @@ def eval_case(**overrides: object) -> EvalQuery:
 
 
 def query_result(**overrides: object) -> QueryEvalResult:
-    """Build a QueryEvalResult with passing deterministic checks."""
+    """Build a QueryEvalResult with passing deterministic checks.
+
+    Mirrors the shape of DETERMINISTIC_CHECKS in scripts/eval_agent.py — any
+    scorer added to that dict must also appear here, otherwise
+    aggregate_results raises KeyError when iterating per-scorer means.
+    """
     checks = {
+        "category_compliance": CheckResult(score=1.0, threshold=1.0, passed=True),
         "constraints_satisfied": CheckResult(score=1.0, threshold=0.8, passed=True),
         "geographic_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
+        "no_hallucinated_place_ids": CheckResult(score=1.0, threshold=1.0, passed=True),
+        "rationale_stop_alignment": CheckResult(score=1.0, threshold=1.0, passed=True),
         "temporal_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
         "walking_budget_respected": CheckResult(score=1.0, threshold=1.0, passed=True),
-        "no_hallucinated_place_ids": CheckResult(score=1.0, threshold=1.0, passed=True),
     }
     payload = {
         "id": "case_one",
