@@ -453,13 +453,28 @@ def query_result_from_state(
     )
 
 
-async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
-    """Run the agent graph for one eval case and score the final state."""
+def _eval_context_for(case: EvalQuery) -> str:
+    """Render the offline-eval SystemMessage body for one case."""
     open_at = case.expected_constraints.open_at_iso
-    eval_context = EVAL_CONTEXT_TEMPLATE.format(
+    return EVAL_CONTEXT_TEMPLATE.format(
         open_at=open_at.isoformat() if open_at is not None else "not specified",
         expected_results=expected_results_label(case.expected_results),
     )
+
+
+async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
+    """Run the agent graph for one eval case and score the final state.
+
+    Branches on ``case.turns`` (added in plan 03-02 / EVAL-03): ``None`` or
+    ``[]`` runs the case as a single turn exactly as before plan 03-04
+    (byte-equivalent JSON for the 29 existing single-turn cases); a
+    non-empty list delegates to :func:`evaluate_multi_turn_case` which
+    threads ``conversation_state`` across ``len(turns) + 1`` invocations
+    (EVAL-06 / P2).
+    """
+    if case.turns:
+        return await evaluate_multi_turn_case(graph, case)
+    eval_context = _eval_context_for(case)
     start_time = time.monotonic()
     try:
         raw = await graph.ainvoke(
@@ -474,6 +489,70 @@ async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
         latency_seconds = time.monotonic() - start_time
     state = state_from_graph_output(raw)
     return query_result_from_state(case, state, latency_seconds=latency_seconds)
+
+
+async def evaluate_multi_turn_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
+    """Drive a multi-turn eval case against a shared agent graph (EVAL-06).
+
+    Turn 1 = ``case.query``; each entry in ``case.turns`` is fed back to the
+    same graph instance with the prior turn's message history threaded in,
+    mirroring how the frontend round-trips ``conversation_state`` via the
+    opaque ``/chat`` payload. The final reported QueryEvalResult is built
+    from the LAST turn's state (where every confirmed v2.0 refinement bug
+    surfaces — turn 2+, not turn 1) and ``latency_seconds`` is the SUM of
+    per-turn latencies.
+
+    Fail-open semantics mirror ``evaluate_cases``: if any turn raises, the
+    helper records a synthetic ``multi_turn_runner`` entry in
+    ``state.scratch`` (surfaced via :func:`tool_errors_from_state`) and
+    returns the partial QueryEvalResult instead of crashing the whole run.
+    The first failing turn's prior state is what gets reported.
+    """
+    eval_context = _eval_context_for(case)
+    all_turns: list[str] = [case.query, *(case.turns or [])]
+    state: ItineraryState | None = None
+    total_latency = 0.0
+    for index, turn_text in enumerate(all_turns):
+        if index == 0:
+            messages_in: list[Any] = [
+                SystemMessage(content=eval_context),
+                HumanMessage(content=turn_text),
+            ]
+        else:
+            # ItineraryState.messages uses the add_messages reducer, so
+            # passing the prior state's full message list plus a new
+            # HumanMessage matches the frontend's stateless /chat shape
+            # exactly. We build a fresh ItineraryState below so step_count,
+            # scratch, and revision_counts reset per turn — only `messages`
+            # threads through, as documented in the plan.
+            assert state is not None
+            messages_in = [*state.messages, HumanMessage(content=turn_text)]
+        start_time = time.monotonic()
+        try:
+            raw = await graph.ainvoke(ItineraryState(messages=messages_in))
+        except Exception as exc:  # noqa: BLE001
+            total_latency += time.monotonic() - start_time
+            # Surface the failure as a synthetic tool error on whichever
+            # state we last have a handle on; do NOT short-circuit the
+            # whole eval run (mirror the existing fail-open pattern in
+            # evaluate_cases). raw is unbound on this branch, so we report
+            # against the prior turn's state (or a fresh one if turn 0
+            # raised — first-turn failures still get a JSON row, not a
+            # bubbled exception).
+            partial_state = state if state is not None else ItineraryState(messages=messages_in)
+            partial_state.scratch.setdefault("multi_turn_runner", []).append(
+                {
+                    "args": {"turn_index": index, "turn": turn_text},
+                    "result": {"error": f"turn {index} raised: {exc}"},
+                    "step": index,
+                    "id": f"multi_turn_runner_{index}",
+                }
+            )
+            return query_result_from_state(case, partial_state, latency_seconds=total_latency)
+        total_latency += time.monotonic() - start_time
+        state = state_from_graph_output(raw)
+    assert state is not None
+    return query_result_from_state(case, state, latency_seconds=total_latency)
 
 
 async def evaluate_cases(
