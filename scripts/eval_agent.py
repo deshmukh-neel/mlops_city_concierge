@@ -29,7 +29,7 @@ from app.agent.critique.checks import (
     walking_budget_respected,
 )
 from app.agent.graph import build_agent_graph
-from app.agent.state import ItineraryState
+from app.agent.state import ItineraryState, UserConstraints
 from app.config import get_settings
 from app.eval.config import (
     DEFAULT_EVAL_QUERIES_PATH,
@@ -516,6 +516,12 @@ def _eval_context_for(case: EvalQuery) -> str:
     )
 
 
+def _constraints_for_case(case: EvalQuery) -> UserConstraints:
+    """Build deterministic eval constraints from checked-in YAML metadata."""
+    requested_primary_types = list(case.expected_constraints.requested_primary_types)
+    return UserConstraints(requested_primary_types=requested_primary_types)
+
+
 async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
     """Run the agent graph for one eval case and score the final state.
 
@@ -536,7 +542,8 @@ async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
                 messages=[
                     SystemMessage(content=eval_context),
                     HumanMessage(content=case.query),
-                ]
+                ],
+                constraints=_constraints_for_case(case),
             )
         )
     finally:
@@ -590,7 +597,12 @@ async def evaluate_multi_turn_case(graph: Any, case: EvalQuery) -> QueryEvalResu
             ]
         start_time = time.monotonic()
         try:
-            raw = await graph.ainvoke(ItineraryState(messages=messages_in))
+            raw = await graph.ainvoke(
+                ItineraryState(
+                    messages=messages_in,
+                    constraints=_constraints_for_case(case),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             total_latency += time.monotonic() - start_time
             # Surface the failure as a synthetic tool error on whichever
@@ -608,7 +620,10 @@ async def evaluate_multi_turn_case(graph: Any, case: EvalQuery) -> QueryEvalResu
             partial_state = (
                 state.model_copy(deep=True)
                 if state is not None
-                else ItineraryState(messages=messages_in)
+                else ItineraryState(
+                    messages=messages_in,
+                    constraints=_constraints_for_case(case),
+                )
             )
             partial_state.scratch.setdefault("multi_turn_runner", []).append(
                 {
