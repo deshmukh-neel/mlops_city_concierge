@@ -14,7 +14,7 @@ import logging
 from psycopg2.extras import RealDictCursor
 
 from app.agent.planning import haversine_m
-from app.agent.state import ItineraryState
+from app.agent.state import ItineraryState, Stop
 from app.db import get_conn
 from app.tools.filters import _PRIMARY_TYPE_FAMILIES, family_of
 
@@ -295,13 +295,39 @@ def category_compliance_strict(state: ItineraryState) -> float:
     return matches / denom
 
 
+def is_rationale_aligned(stop: Stop) -> bool:
+    """Per-stop rationale-alignment rule. Public helper (plan 04-05).
+
+    Both `rationale_stop_alignment` (scorer) and `_first_misaligned_stop_index`
+    (revision dispatcher in `app/agent/revision.py`) call this so the per-stop
+    rule is single-sourced — no duplicated interpretation of "aligned" across
+    the scorer and the dispatcher (DRY).
+
+    Returns True iff the stop's rationale contains either (a) the stop's name
+    (case-insensitive substring) or (b) at least one keyword from the family
+    derived from `family_of(stop.primary_type)` via `_FAMILY_KEYWORDS`. Returns
+    False for empty / None rationale, for None primary_type with no name match,
+    or when neither path fires.
+    """
+    rationale_lower = stop.rationale.lower() if stop.rationale else ""
+    if not rationale_lower:
+        return False
+    if stop.name and stop.name.lower() in rationale_lower:
+        return True
+    family = family_of(stop.primary_type)
+    if family is None:
+        return False
+    keywords = _FAMILY_KEYWORDS.get(family, frozenset())
+    return any(kw in rationale_lower for kw in keywords)
+
+
 def rationale_stop_alignment(state: ItineraryState) -> float:
     """Per-stop rationale-to-stop alignment (EVAL-02).
 
-    For each stop, a "match" requires either (a) the stop's name appears in
-    its rationale (case-insensitive substring) or (b) at least one keyword
-    from the stop's family (derived from filters._PRIMARY_TYPE_FAMILIES at
-    import time) appears in the rationale (also case-insensitive substring).
+    For each stop, a "match" is the boolean returned by `is_rationale_aligned`:
+    either (a) the stop's name appears in its rationale (case-insensitive
+    substring) or (b) at least one keyword from the stop's family appears in
+    the rationale (also case-insensitive substring).
 
     Score = matches / len(stops). Empty stops returns 1.0 (fail-open).
 
@@ -315,21 +341,13 @@ def rationale_stop_alignment(state: ItineraryState) -> float:
       carries the placeholder when committed.
 
     Pure function of state: no DB access. Cannot be broken by DB outages.
+
+    Per-stop logic lives in `is_rationale_aligned` so the revision dispatcher
+    can identify the offending stop using the SAME rule (plan 04-05 ADVISORY 3).
     """
     if not state.stops:
         return 1.0
-    matches = 0
-    for stop in state.stops:
-        rationale_lower = stop.rationale.lower() if stop.rationale else ""
-        if stop.name and stop.name.lower() in rationale_lower:
-            matches += 1
-            continue
-        family = family_of(stop.primary_type)
-        if family is None:
-            continue
-        keywords = _FAMILY_KEYWORDS.get(family, frozenset())
-        if any(kw in rationale_lower for kw in keywords):
-            matches += 1
+    matches = sum(1 for stop in state.stops if is_rationale_aligned(stop))
     return matches / len(state.stops)
 
 
