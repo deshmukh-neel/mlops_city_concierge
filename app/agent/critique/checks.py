@@ -16,7 +16,7 @@ from psycopg2.extras import RealDictCursor
 from app.agent.planning import haversine_m
 from app.agent.state import ItineraryState
 from app.db import get_conn
-from app.tools.filters import family_of
+from app.tools.filters import _PRIMARY_TYPE_FAMILIES, family_of
 
 _log = logging.getLogger(__name__)
 
@@ -28,7 +28,31 @@ CRITIQUE_THRESHOLDS: dict[str, float] = {
     "walking_budget_respected": 1.0,
     "no_hallucinated_place_ids": 1.0,
     "category_compliance": 1.0,
+    "rationale_stop_alignment": 1.0,
 }
+
+
+def _build_family_keywords() -> dict[str, frozenset[str]]:
+    """Derive per-family keyword sets from filters._PRIMARY_TYPE_FAMILIES.
+
+    Combines `types` (snake_case array column values) and `primary_types`
+    (Title Case scalar values), splits multi-word entries on underscores and
+    whitespace, lowercases, and dedupes. Generic stop-words like 'restaurant',
+    'bar', 'cafe' are kept — they are still informative signal that the
+    rationale describes the right family of place.
+    """
+    keywords: dict[str, frozenset[str]] = {}
+    for family, columns in _PRIMARY_TYPE_FAMILIES.items():
+        words: set[str] = set()
+        for value in (*columns["types"], *columns["primary_types"]):
+            for token in value.replace("_", " ").lower().split():
+                if token:
+                    words.add(token)
+        keywords[family] = frozenset(words)
+    return keywords
+
+
+_FAMILY_KEYWORDS: dict[str, frozenset[str]] = _build_family_keywords()
 
 
 def no_hallucinated_place_ids(state: ItineraryState) -> float:
@@ -229,6 +253,44 @@ def category_compliance(state: ItineraryState) -> float:
     return matches / denom
 
 
+def rationale_stop_alignment(state: ItineraryState) -> float:
+    """Per-stop rationale-to-stop alignment (EVAL-02).
+
+    For each stop, a "match" requires either (a) the stop's name appears in
+    its rationale (case-insensitive substring) or (b) at least one keyword
+    from the stop's family (derived from filters._PRIMARY_TYPE_FAMILIES at
+    import time) appears in the rationale (also case-insensitive substring).
+
+    Score = matches / len(stops). Empty stops returns 1.0 (fail-open).
+
+    Catches two failure modes:
+    - Refinement-turn rationale drift (a rewritten rationale that talks about
+      a different stop or no specific place).
+    - Closure-swap placeholder bleed: app/agent/swap.py:238 sets a stub
+      rationale "Walking-distance alternative for {closed_stop.name}". That
+      string names the CLOSED stop, not the swap candidate, and contains no
+      family keyword — so this scorer returns 0.0 for any stop that still
+      carries the placeholder when committed.
+
+    Pure function of state: no DB access. Cannot be broken by DB outages.
+    """
+    if not state.stops:
+        return 1.0
+    matches = 0
+    for stop in state.stops:
+        rationale_lower = stop.rationale.lower() if stop.rationale else ""
+        if stop.name and stop.name.lower() in rationale_lower:
+            matches += 1
+            continue
+        family = family_of(stop.primary_type)
+        if family is None:
+            continue
+        keywords = _FAMILY_KEYWORDS.get(family, frozenset())
+        if any(kw in rationale_lower for kw in keywords):
+            matches += 1
+    return matches / len(state.stops)
+
+
 def itinerary_violations(state: ItineraryState) -> list[str]:
     """Return the list of check names that fell below their threshold.
 
@@ -257,4 +319,5 @@ def itinerary_violations(state: ItineraryState) -> list[str]:
     _try("geographic_coherence", geographic_coherence)
     _try("walking_budget_respected", walking_budget_respected)
     _try("constraints_satisfied", constraints_satisfied)
+    _try("rationale_stop_alignment", rationale_stop_alignment)
     return failed
