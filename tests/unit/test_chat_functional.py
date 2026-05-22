@@ -356,12 +356,14 @@ def test_chat_graph_injects_primary_type_family_for_slot(monkeypatch, mocker) ->
     )
 
     # Inject requested_primary_types into UserConstraints via a thin shim so
-    # the production /chat handler's ItineraryState build picks them up
-    # without needing Plan 04-06's intake pipeline.
+    # this graph-layer contract test stays isolated from Plan 04-06's intake
+    # pipeline. After 04-06 lands the handler writes `requested_primary_types=
+    # extracted_types` unconditionally, so we override (not setdefault) the
+    # empty list the intake fallback produces for the dummy `loaded.llm` here.
     from app.agent.state import UserConstraints as _RealUserConstraints
 
     def _make_constraints(**kwargs):
-        kwargs.setdefault("requested_primary_types", ["Sushi Restaurant"])
+        kwargs["requested_primary_types"] = ["Sushi Restaurant"]
         return _RealUserConstraints(**kwargs)
 
     monkeypatch.setattr("app.main.UserConstraints", _make_constraints)
