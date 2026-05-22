@@ -80,7 +80,7 @@ def test_expected_constraints_keeps_single_shared_list_validator() -> None:
     """ADVISORY 6: do not duplicate the ExpectedConstraints list validator."""
     source = inspect.getsource(ExpectedConstraints)
 
-    assert source.count("def types_any_non_empty") == 1
+    assert source.count("def _strip_non_empty_list") == 1
 
 
 def query_result(**overrides: object) -> QueryEvalResult:
