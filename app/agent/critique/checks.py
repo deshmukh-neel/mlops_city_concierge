@@ -16,6 +16,7 @@ from psycopg2.extras import RealDictCursor
 from app.agent.planning import haversine_m
 from app.agent.state import ItineraryState
 from app.db import get_conn
+from app.tools.filters import family_of
 
 _log = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ CRITIQUE_THRESHOLDS: dict[str, float] = {
     "temporal_coherence": 1.0,
     "walking_budget_respected": 1.0,
     "no_hallucinated_place_ids": 1.0,
+    "category_compliance": 1.0,
 }
 
 
@@ -189,6 +191,44 @@ def constraints_satisfied(state: ItineraryState) -> float:
     return satisfied / total
 
 
+def category_compliance(state: ItineraryState) -> float:
+    """Per-slot category match between requested slots and committed stops (EVAL-01).
+
+    D-03 abstain contract: returns 1.0 when the user did not name category
+    slots (state.constraints.requested_primary_types is empty). The scorer
+    only fires when the user gave structured slot info.
+
+    Otherwise: for each index i in range(min(len(requested), len(stops))), a
+    "match" requires both family_of(requested[i]) and family_of(stop[i].
+    primary_type) to be non-None and equal. primary_type=None on a stop is
+    a strict mismatch (we can't measure but we can't pass — mirrors the
+    geographic_coherence "score what we can measure" precedent toward the
+    strict end).
+
+    Score = matches / max(len(requested), len(stops)). Length mismatches
+    dilute the score so an agent can't game it by over- or under-committing
+    stops. (Considered alternative: abstain on length mismatch — rejected
+    because it would let an agent commit zero stops or extra stops and still
+    score 1.0, defeating the scorer's purpose.)
+
+    Pure function of state: no DB access. Cannot be broken by DB outages.
+    """
+    requested = state.constraints.requested_primary_types
+    if not requested:
+        return 1.0
+    if not state.stops:
+        return 1.0
+    overlap = min(len(requested), len(state.stops))
+    denom = max(len(requested), len(state.stops))
+    matches = 0
+    for i in range(overlap):
+        want = family_of(requested[i])
+        got = family_of(state.stops[i].primary_type)
+        if want is not None and got is not None and want == got:
+            matches += 1
+    return matches / denom
+
+
 def itinerary_violations(state: ItineraryState) -> list[str]:
     """Return the list of check names that fell below their threshold.
 
@@ -212,6 +252,7 @@ def itinerary_violations(state: ItineraryState) -> list[str]:
     # committed place is individually valid.
     _try("no_hallucinated_place_ids", no_hallucinated_place_ids)
     _try("stop_count_satisfied", stop_count_satisfied)
+    _try("category_compliance", category_compliance)
     _try("temporal_coherence", temporal_coherence)
     _try("geographic_coherence", geographic_coherence)
     _try("walking_budget_respected", walking_budget_respected)
