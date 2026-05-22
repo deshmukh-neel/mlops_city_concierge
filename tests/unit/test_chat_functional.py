@@ -438,3 +438,129 @@ def test_chat_graph_injects_primary_type_family_for_slot(monkeypatch, mocker) ->
     assert recorded_args["filters"]["primary_type_family"] == "restaurant"
     # The slot_index marker was stripped before reaching the recorded args.
     assert "slot_index" not in recorded_args
+
+
+def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mocker) -> None:
+    """Plan 04-06 end-to-end: a slot-structured /chat message flows through
+    the hybrid intake pipeline (pre-check + structured-output intake LLM)
+    and reaches the real graph with state.constraints.requested_primary_types
+    populated before graph.ainvoke fires.
+
+    This is the production-/chat-layer proof that the intake pipeline
+    plumbs through the FastAPI request stack. The scripted intake LLM
+    returns the per-slot Title-Case primary_types so we can assert exactly
+    what the validation layer accepted.
+    """
+    from typing import Any as _Any
+
+    from app.agent.input_parsing import SlotExtractionResult
+
+    monkeypatch.setattr(
+        "app.agent.tools._semantic_search",
+        lambda **_kw: [
+            PlaceHit(
+                place_id="p1",
+                name="Sushi Spot",
+                source="google_places",
+                similarity=0.9,
+                latitude=37.77,
+                longitude=-122.41,
+                rating=4.6,
+                price_level="PRICE_LEVEL_MODERATE",
+                business_status="OPERATIONAL",
+                primary_type="Sushi Restaurant",
+                formatted_address="123 Mission St, San Francisco",
+                snippet=None,
+            )
+        ],
+    )
+
+    # Build a fake intake LLM that quacks for the production hybrid
+    # pipeline: .bind(...).with_structured_output(...).ainvoke(...).
+    class _Structured:
+        async def ainvoke(self, prompt: str, *args: _Any, **kwargs: _Any):
+            return SlotExtractionResult(
+                requested_primary_types=[
+                    "Sushi Restaurant",
+                    "Cocktail Bar",
+                    "Dessert Shop",
+                ]
+            )
+
+    class _Bound:
+        def with_structured_output(self, *args: _Any, **kwargs: _Any) -> _Structured:
+            return _Structured()
+
+    class _IntakeLLM:
+        def bind(self, **kwargs: _Any) -> _Bound:
+            return _Bound()
+
+    # Pass a graph script that does a single semantic_search + commit_itinerary.
+    scripted = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "semantic_search",
+                    "id": "s1",
+                    "args": {"query": "omakase", "slot_index": 0},
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "commit_itinerary",
+                    "id": "c1",
+                    "args": {
+                        "stops": [
+                            {
+                                "place_id": "p1",
+                                "name": "Sushi Spot",
+                                "rationale": "Sushi Restaurant in Mission",
+                                "source": "google_places",
+                                "primary_type": "Sushi Restaurant",
+                            }
+                        ]
+                    },
+                }
+            ],
+        ),
+        AIMessage(content="Try Sushi Spot.", tool_calls=[]),
+    ]
+    graph_llm = ScriptedLLM(scripted=list(scripted))
+    real_graph = build_agent_graph(graph_llm, max_steps=4)
+
+    captured: dict[str, _Any] = {}
+    real_ainvoke = real_graph.ainvoke
+
+    async def _capturing_ainvoke(state, **kw):
+        captured["state_in"] = state
+        return await real_ainvoke(state, **kw)
+
+    real_graph.ainvoke = _capturing_ainvoke  # type: ignore[assignment]
+
+    # The intake pipeline reads app.state.agent_llm (set in lifespan from
+    # loaded.llm). Override the loaded config so loaded.llm is the intake
+    # fake.
+    cfg = _stub_loaded_config()
+    cfg.llm = type("ChatOpenAI", (_IntakeLLM,), {})()
+    mocker.patch("app.main.load_registered_rag_chain", return_value=cfg)
+    mocker.patch("app.main.build_agent_graph", return_value=real_graph)
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={"message": "omakase, drinks, dessert in Mission"},
+        )
+
+    assert response.status_code == 200
+    # The state the graph received carries the populated Title-Case list.
+    state_in = captured["state_in"]
+    assert state_in.constraints.requested_primary_types == [
+        "Sushi Restaurant",
+        "Cocktail Bar",
+        "Dessert Shop",
+    ]
