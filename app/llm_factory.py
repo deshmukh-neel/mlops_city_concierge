@@ -83,6 +83,11 @@ _GEMINI_THINKING_ONLY: frozenset[str] = frozenset({"gemini-3.1-pro-preview"})
 # terminates cleanly in a single plan() step (plan -> critique ->
 # finalize_as_is -> END).
 #
+# The fallback content begins with the `[SCRIPTED CI MODE]` marker and cites
+# `scripts/eval_matrix.py` (IN-05) so PR reviewers reading CI `summary.json`
+# files immediately recognize it as deterministic placeholder output, not a
+# real LLM failure.
+#
 # SCRIPTED_SCENARIOS is the per-scenario script registry. For Phase 3 we keep
 # it empty (the matrix runner subprocess-fans-out with --scenario-ids and the
 # scripted LLM emits the generic finalize on each cell); a future plan may
@@ -98,11 +103,6 @@ _GEMINI_THINKING_ONLY: frozenset[str] = frozenset({"gemini-3.1-pro-preview"})
 #   - project_full_suite_db_pool_contamination: a finalize-only trajectory
 #     keeps stops=[] so no DB-touching scorer fires during the cell run.
 
-_DEFAULT_SCRIPTED_FALLBACK = AIMessage(
-    content=("Sorry, I don't have specific information for that scenario in scripted mode."),
-    tool_calls=[],
-)
-
 
 class ScriptedChatModel(BaseChatModel):
     """Deterministic, no-network BaseChatModel for CI / matrix scripted runs.
@@ -111,6 +111,11 @@ class ScriptedChatModel(BaseChatModel):
     exhausted (or empty), returns a fallback finalize-only AIMessage so the
     agent graph always reaches a clean termination — the matrix runner can
     never deadlock on this LLM.
+
+    When the scripted list is empty, a freshly-constructed `AIMessage` is
+    returned on each call (CR-02 fix — the previous module-level singleton
+    was identity-deduplicated by LangGraph's `add_messages` reducer, which
+    caused multi-turn revision loops to spin until `max_steps`).
 
     See SCRIPTED_SCENARIOS for the per-scenario script registry. The matrix
     runner subprocess-fans-out one cell per (provider, model, scenario_id, n)
@@ -132,7 +137,20 @@ class ScriptedChatModel(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        msg = self.scripted.pop(0) if self.scripted else _DEFAULT_SCRIPTED_FALLBACK
+        if self.scripted:
+            msg = self.scripted.pop(0)
+        else:
+            # CR-02: construct a fresh AIMessage on every call so LangGraph's
+            # `add_messages` reducer does not dedupe consecutive fallbacks by
+            # identity. IN-05: self-documenting marker makes the output
+            # unambiguous in CI summary.json diffs.
+            msg = AIMessage(
+                content=(
+                    "[SCRIPTED CI MODE] Deterministic no-network finalize; "
+                    "see scripts/eval_matrix.py."
+                ),
+                tool_calls=[],
+            )
         return ChatResult(generations=[ChatGeneration(message=msg)])
 
     def bind_tools(self, tools: Any, **kwargs: Any) -> ScriptedChatModel:

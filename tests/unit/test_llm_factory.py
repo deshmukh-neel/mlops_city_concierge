@@ -275,3 +275,56 @@ def test_supported_providers_includes_scripted() -> None:
     from app.llm_factory import SUPPORTED_PROVIDERS
 
     assert SUPPORTED_PROVIDERS == ("openai", "gemini", "deepseek", "kimi", "scripted")
+
+
+# ─── Plan 03-09 Task 1: CR-02 (fresh AIMessage) + IN-05 (self-documenting) ──
+
+
+def test_scripted_chat_model_returns_fresh_aimessage_each_call() -> None:
+    """CR-02 (BLOCKER) regression guard. Two `_generate` calls on an
+    empty-scripted ScriptedChatModel must return AIMessages that are NOT the
+    same Python object — otherwise LangGraph's `add_messages` reducer
+    deduplicates them by identity and the agent's revision loop spins until
+    `max_steps`. The previous module-level `_DEFAULT_SCRIPTED_FALLBACK`
+    singleton failed this test; the fix constructs a fresh AIMessage per call.
+    """
+    from app.llm_factory import ScriptedChatModel
+
+    m = ScriptedChatModel()
+    first = m._generate(messages=[]).generations[0].message
+    second = m._generate(messages=[]).generations[0].message
+    assert first is not second, (
+        "ScriptedChatModel._generate returned the same AIMessage instance twice "
+        "— LangGraph add_messages will dedupe these by identity and the agent "
+        "revision loop will spin to max_steps. Construct a fresh AIMessage per call."
+    )
+
+
+def test_scripted_chat_model_fallback_content_documents_ci_mode() -> None:
+    """IN-05 regression guard. The fallback content must self-document as
+    deterministic CI output so PR reviewers reading `summary.json` don't
+    misread it as a real model failure. The string cites both the marker
+    `[SCRIPTED CI MODE]` and the originating script `scripts/eval_matrix.py`.
+    """
+    from app.llm_factory import ScriptedChatModel
+
+    m = ScriptedChatModel()
+    msg = m._generate(messages=[]).generations[0].message
+    assert "[SCRIPTED CI MODE]" in msg.content
+    assert "scripts/eval_matrix.py" in msg.content
+
+
+def test_scripted_chat_model_consumes_scripted_list_when_nonempty() -> None:
+    """Existing pop-from-list-then-fallback semantics — unchanged behavior.
+    When `scripted` is non-empty the first call pops it; subsequent calls fall
+    back to the self-documenting `[SCRIPTED CI MODE]` placeholder.
+    """
+    from langchain_core.messages import AIMessage
+
+    from app.llm_factory import ScriptedChatModel
+
+    m = ScriptedChatModel(scripted=[AIMessage(content="hello")])
+    first = m._generate(messages=[]).generations[0].message
+    second = m._generate(messages=[]).generations[0].message
+    assert first.content == "hello"
+    assert "[SCRIPTED CI MODE]" in second.content
