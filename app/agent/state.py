@@ -29,6 +29,7 @@ RevisionReason = Literal[
     "stop_count_mismatch",
     "hallucinated_place_id",
     "vibe_mismatch",
+    "rationale_misaligned",
 ]
 
 RevisionAction = Literal[
