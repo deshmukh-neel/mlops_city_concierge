@@ -94,6 +94,53 @@ def test_system_prompt_has_decisive_commit_contract() -> None:
     assert "do not keep" in s or "don't keep" in s or "stop optimizing" in s
 
 
+def test_system_prompt_has_step6_primary_type_directive() -> None:
+    """SYSTEM_PROMPT step 6 ("JUSTIFY every stop") must tell the model that
+    the rationale describes the committed place's actual `primary_type` from
+    the tool result, NOT the user's requested category (D-04-07 / CAT-02).
+
+    Root cause: rationale-stop alignment failures shipped to users with copy
+    like "great spot for omakase" applied to a non-sushi venue. The model
+    drifted toward describing the user's original ask rather than the actual
+    committed place. The fix is an explicit prompt directive that the
+    rationale follows the tool result, not the user's intent.
+    """
+    s = SYSTEM_PROMPT
+    # Substring must appear at least once (case-preserving — the prompt names
+    # the field exactly as it appears in tool results).
+    assert "primary_type" in s, (
+        "SYSTEM_PROMPT step 6 must reference the `primary_type` field that the "
+        "rationale should describe."
+    )
+    low = s.lower()
+    # The directive must clearly contrast the committed place vs. the user's ask.
+    assert "actual" in low
+    assert "not the category" in low or "not the category the user" in low
+
+
+def test_system_prompt_has_slot_index_directive() -> None:
+    """SYSTEM_PROMPT must teach the model to pass `slot_index = i` (0-based)
+    on each retrieval tool call when the user named per-slot categories
+    (D-04-05 / CAT-01).
+
+    Without this directive the model won't emit `slot_index`, the graph-layer
+    `primary_type_family` injection (plan 04-03) won't fire, and per-slot
+    category compliance silently degrades. The prompt is the model's contract
+    surface; the slot_index arg on `semantic_search`/`nearby` (plan 04-01)
+    is dormant until the model knows to emit it.
+    """
+    s = SYSTEM_PROMPT
+    # The literal kwarg name MUST appear so the model emits it in tool_calls.
+    assert "slot_index" in s, (
+        "SYSTEM_PROMPT must teach the model to pass the `slot_index` kwarg "
+        "on retrieval tool calls when the user named per-slot categories."
+    )
+    low = s.lower()
+    # The directive must connect slot_index to per-slot categories so the
+    # model knows WHEN to emit it (not always — only on slot-structured queries).
+    assert "per-slot" in low or "0-based" in low or "per slot" in low
+
+
 def test_system_prompt_injects_current_datetime() -> None:
     """Root cause (temporal_coherence caveat): the model was never told the
     current date, so gpt-4o-mini hallucinated a training-era date
