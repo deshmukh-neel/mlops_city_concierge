@@ -328,3 +328,27 @@ def test_scripted_chat_model_consumes_scripted_list_when_nonempty() -> None:
     second = m._generate(messages=[]).generations[0].message
     assert first.content == "hello"
     assert "[SCRIPTED CI MODE]" in second.content
+
+
+# ─── Plan 03-13 / IN-03: scripted default uses default_factory ───────────────
+
+
+def test_scripted_chat_model_default_scripted_list_is_per_instance() -> None:
+    """IN-03 consistency guard. `scripted` defaults to an empty list, but two
+    fresh ScriptedChatModel instances must NOT share the same underlying list
+    object — otherwise pop()s on one instance leak into the other and break
+    the matrix runner's one-cell-per-subprocess isolation contract.
+
+    Pydantic v2 deep-copies a `list[AIMessage] = []` class-level default per
+    instance today, so this test currently passes either way; the test exists
+    to lock the contract against a future refactor (Pydantic version bump or
+    base-class swap) that flips that semantic.
+    """
+    from app.llm_factory import ScriptedChatModel
+
+    a = ScriptedChatModel()
+    b = ScriptedChatModel()
+    assert a.scripted is not b.scripted, (
+        "ScriptedChatModel.scripted must be per-instance; a shared default "
+        "would leak pop()s across the matrix runner's parallel cells."
+    )

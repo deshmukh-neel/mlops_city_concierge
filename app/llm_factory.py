@@ -28,7 +28,7 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_moonshot import ChatMoonshot
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 
 from app.config import resolve_llm_api_key
 
@@ -123,7 +123,7 @@ class ScriptedChatModel(BaseChatModel):
     no shared state across cells.
     """
 
-    scripted: list[AIMessage] = []
+    scripted: list[AIMessage] = Field(default_factory=list)
     scenario_id: str | None = None
 
     @property
