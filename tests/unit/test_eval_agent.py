@@ -503,7 +503,7 @@ def test_evaluate_multi_turn_case_is_async_helper() -> None:
 
 # --- Plan 03-04 Task 2: multi-turn behavior tests (EVAL-06 + EVAL-08) ------
 # The five tests below are the canonical behavior contract for the multi-turn
-# runner. They use a _RecordingScriptedLLM that doubles as a sniffer for the
+# runner. They use a RecordingScriptedLLM (shared helper) that doubles as a sniffer for the
 # messages each plan() step actually saw, so threading + json-safety can be
 # asserted without subclassing langgraph internals.
 #
@@ -520,46 +520,15 @@ def test_evaluate_multi_turn_case_is_async_helper() -> None:
 #     (turn N's AIMessages are re-injected into turn N+1's input state).
 
 
-from langchain_core.callbacks import CallbackManagerForLLMRun  # noqa: E402
-from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E402
 from langchain_core.messages import (  # noqa: E402
     AIMessage,
-    BaseMessage,
     HumanMessage,
     SystemMessage,
 )
-from langchain_core.outputs import ChatGeneration, ChatResult  # noqa: E402
 
 from app.agent.graph import build_agent_graph  # noqa: E402
 from scripts.eval_agent import evaluate_case  # noqa: E402
-
-
-class _RecordingScriptedLLM(BaseChatModel):
-    """Variant of the _ScriptedLLM in test_chat_functional.py that also
-    captures the messages it saw on each invocation, so threading can be
-    asserted directly. Pattern duplication is acceptable here — the helper
-    is small and the same shape already lives in test_chat_functional.py."""
-
-    scripted: list[AIMessage]
-    seen: list[list[BaseMessage]]
-
-    @property
-    def _llm_type(self) -> str:
-        return "scripted"
-
-    def _generate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
-        **kwargs: object,
-    ) -> ChatResult:
-        self.seen.append(list(messages))
-        msg = self.scripted.pop(0)
-        return ChatResult(generations=[ChatGeneration(message=msg)])
-
-    def bind_tools(self, tools: object, **kwargs: object) -> _RecordingScriptedLLM:
-        return self
+from tests._helpers.scripted_llm import RecordingScriptedLLM  # noqa: E402
 
 
 def _finalize_msg(content: str) -> AIMessage:
@@ -581,8 +550,7 @@ async def test_evaluate_case_single_turn_unchanged(mocker) -> None:
     AIMessage's content — rather than byte-comparing JSON, which is the
     same guarantee surfaced differently."""
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    seen: list[list[BaseMessage]] = []
-    llm = _RecordingScriptedLLM(scripted=[_finalize_msg("turn1 reply")], seen=seen)
+    llm = RecordingScriptedLLM(scripted=[_finalize_msg("turn1 reply")])
     graph = build_agent_graph(llm, max_steps=4)
 
     case = eval_case(turns=None)
@@ -599,14 +567,12 @@ async def test_evaluate_case_single_turn_unchanged(mocker) -> None:
 async def test_evaluate_multi_turn_threads_messages(mocker) -> None:
     """EVAL-06: turn N+1's input state must contain turn N's HumanMessage so
     the agent sees prior conversation. Asserts on what the LLM ACTUALLY SAW
-    on turn 2 (via _RecordingScriptedLLM.seen[1]) — the strongest threading
+    on turn 2 (via RecordingScriptedLLM.seen[1]) — the strongest threading
     proof. If we only checked result.final_reply we'd miss a regression that
     nukes the prior turn's messages."""
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    seen: list[list[BaseMessage]] = []
-    llm = _RecordingScriptedLLM(
+    llm = RecordingScriptedLLM(
         scripted=[_finalize_msg("turn1 reply"), _finalize_msg("turn2 reply")],
-        seen=seen,
     )
     graph = build_agent_graph(llm, max_steps=4)
 
@@ -645,10 +611,8 @@ async def test_multi_turn_latency_sums(mocker) -> None:
     ticks = iter([0.0, 1.0, 1.0, 3.0])
     fake_time = types.SimpleNamespace(monotonic=lambda: next(ticks))
     mocker.patch("scripts.eval_agent.time", fake_time)
-    seen: list[list[BaseMessage]] = []
-    llm = _RecordingScriptedLLM(
+    llm = RecordingScriptedLLM(
         scripted=[_finalize_msg("turn1"), _finalize_msg("turn2")],
-        seen=seen,
     )
     graph = build_agent_graph(llm, max_steps=4)
 
@@ -669,8 +633,7 @@ async def test_multi_turn_intermediate_failure_captured(mocker) -> None:
     invocation pops from an empty list and raises IndexError. The plan()
     coroutine propagates it; our helper's try/except catches it."""
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    seen: list[list[BaseMessage]] = []
-    llm = _RecordingScriptedLLM(scripted=[_finalize_msg("turn1 reply")], seen=seen)
+    llm = RecordingScriptedLLM(scripted=[_finalize_msg("turn1 reply")])
     graph = build_agent_graph(llm, max_steps=4)
 
     case = eval_case(turns=["this turn will explode"])
@@ -705,10 +668,8 @@ async def test_multi_turn_tool_calls_are_json_safe(mocker) -> None:
     non-json-safe object into args, this test fails at the asdict-level
     json.dumps OR at the per-tool-call args walk."""
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    seen: list[list[BaseMessage]] = []
-    llm = _RecordingScriptedLLM(
+    llm = RecordingScriptedLLM(
         scripted=[_finalize_msg("turn1 reply"), _finalize_msg("turn2 reply")],
-        seen=seen,
     )
     graph = build_agent_graph(llm, max_steps=4)
 
