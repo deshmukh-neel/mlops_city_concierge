@@ -33,6 +33,36 @@ def test_itinerary_state_defaults() -> None:
     assert state.constraints.walking_budget_m == 2400
 
 
+# ─── UserConstraints.requested_primary_types (Phase 3 D-01) ───
+
+
+def test_user_constraints_requested_primary_types_defaults_to_empty_list() -> None:
+    """D-01: free-text queries leave requested_primary_types == [] for full
+    backward compat. The category_compliance scorer (EVAL-01) abstains in
+    that case (D-03)."""
+    constraints = UserConstraints()
+    assert constraints.requested_primary_types == []
+
+
+def test_user_constraints_requested_primary_types_preserves_explicit_list() -> None:
+    """D-01: when the intake LLM names category slots ('omakase, then drinks,
+    then dessert'), the field carries one Google primary_type per slot,
+    verbatim and ordered."""
+    constraints = UserConstraints(
+        requested_primary_types=["italian_restaurant", "bar"],
+    )
+    assert constraints.requested_primary_types == ["italian_restaurant", "bar"]
+
+
+def test_user_constraints_requested_primary_types_is_per_instance() -> None:
+    """Field uses default_factory so the empty list isn't shared across
+    instances — appending on one instance must not mutate another's default."""
+    a = UserConstraints()
+    b = UserConstraints()
+    a.requested_primary_types.append("cafe")
+    assert b.requested_primary_types == []
+
+
 def test_stop_round_trips_via_model_dump() -> None:
     stop = Stop(
         place_id="p1",
