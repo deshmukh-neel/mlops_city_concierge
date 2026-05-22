@@ -27,6 +27,14 @@ Truth table (per plan 03-07 task 1 <behavior>):
     |     T         |        T          |       F         |  0   |  ← updated
     |     F         |        *          |       *         |  0   |  ← no agent change
     |     T         |        F          |       T         |  0   |  ← explicit bypass
+
+Exit code conventions (Plan 03-10 / WR-02 hardening):
+
+    | rc | meaning                                                          |
+    |  0 | gate passed (one of the four truth-table pass branches above)    |
+    |  1 | gate failed: stale baselines (rule-1 violation)                  |
+    |  2 | infrastructure failure (RuntimeError from _run_git: rc != 0,     |
+    |    | missing git binary, or explicit empty-string BASE_SHA)           |
 """
 
 from __future__ import annotations
@@ -44,23 +52,41 @@ DEFAULT_BASE = "origin/main"
 
 
 def _run_git(args: list[str]) -> str:
-    """Run ``git`` with ``args`` and return stdout. Tests monkeypatch this.
+    """Run ``git`` with ``args`` and return stdout.
 
-    The single seam every test patches — keeping it tiny means we don't need
-    to mock ``subprocess.run`` directly (which would also intercept the
-    test runner's own subprocess calls). Returns an empty string on failure
-    so a missing/shallow ``origin/main`` ref doesn't crash the gate; a
-    follow-on dev-ergonomics improvement could surface git errors loudly.
+    Raises ``RuntimeError`` on non-zero git exit or a missing ``git`` binary
+    (Plan 03-10 / WR-02). The truth-table tests monkeypatch this function
+    wholesale (see ``tests/unit/test_check_baselines_fresh.py``) so the new
+    raise paths only affect production callers; the WR-02 regression tests
+    patch ``subprocess.run`` one level deeper to exercise the raise paths
+    themselves.
     """
     # cmd is a closed allowlist (literal "git" + caller-supplied diff/log
     # argv we construct ourselves below) — no shell, no untrusted input.
     cmd = ["git", *args]
-    result = subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(  # noqa: S603
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        # WR-02: missing git binary used to bubble a confusing FileNotFoundError
+        # traceback. Convert to an actionable RuntimeError so an operator sees
+        # "install git" rather than a Python-internal trace.
+        raise RuntimeError(
+            f"git binary not found on PATH; install git or fix the CI image (original error: {exc})"
+        ) from exc
+
+    if result.returncode != 0:
+        # WR-02: rc != 0 used to be swallowed (we'd return empty stdout and
+        # silently pass the gate when origin/main was missing or BASE_SHA was
+        # bogus). Loud-fail with rc + argv + stderr so the operator can diagnose.
+        argv_str = " ".join(["git", *args])
+        stderr_clean = result.stderr.strip()
+        raise RuntimeError(f"{argv_str} failed (rc={result.returncode}): {stderr_clean}")
+
     return result.stdout
 
 
@@ -153,23 +179,55 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 
 def _resolve_base(args: argparse.Namespace) -> str:
-    """Pick the effective diff base from positional/flag/default precedence."""
-    if args.merge_base:
+    """Pick the effective diff base from positional/flag/default precedence.
+
+    WR-02: empty-string positional BASE_SHA used to be falsy and silently
+    fell back to ``origin/main``. That accidental robustness hid CI workflow
+    misconfiguration (e.g. ``${{ github.event.pull_request.base.sha }}``
+    emitting "" on a ``workflow_dispatch`` event where pull_request context
+    is absent). Now an explicit empty string raises so the workflow is
+    surfaced as broken instead of trivially passing.
+    """
+    if args.merge_base is not None:
+        if args.merge_base == "":
+            raise RuntimeError(
+                "--merge-base was the empty string; pass a real ref or omit "
+                "the flag to use origin/main"
+            )
         return str(args.merge_base)
-    if args.base_sha:
+    if args.base_sha is not None:
+        if args.base_sha == "":
+            raise RuntimeError(
+                "BASE_SHA positional argument was the empty string; pass a real "
+                "SHA or omit the argument to use origin/main"
+            )
         return str(args.base_sha)
     return DEFAULT_BASE
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point. Returns the script's exit code (0 = pass, 1 = stale)."""
-    args = _parse_args(argv if argv is not None else sys.argv[1:])
-    base = _resolve_base(args)
+    """Entry point. Returns the script's exit code.
 
-    paths = _changed_paths(base)
+    Exit codes:
+        0 = gate passed (one of the four truth-table pass branches)
+        1 = gate failed: stale baselines (rule-1 violation)
+        2 = infrastructure failure (RuntimeError from _run_git / _resolve_base)
+    """
+    args = _parse_args(argv if argv is not None else sys.argv[1:])
+
+    # WR-02: surface infrastructure failures (missing git, rc != 0 from git,
+    # empty BASE_SHA) as rc=2 with an actionable stderr message — distinct
+    # from rc=1 stale-baseline failures so CI signal is unambiguous.
+    try:
+        base = _resolve_base(args)
+        paths = _changed_paths(base)
+        commit_msg = _last_commit_message()
+    except RuntimeError as exc:
+        sys.stderr.write(f"check_baselines_fresh: {exc}\n")
+        return 2
+
     agent_paths = _agent_changed(paths)
     baseline_paths = _baselines_changed(paths)
-    commit_msg = _last_commit_message()
     bypass_used = SKIP_BASELINE_TOKEN in commit_msg
 
     # Branch 3: no agent change at all → trivially pass.
