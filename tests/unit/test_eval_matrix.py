@@ -74,9 +74,8 @@ def test_iter_cells_produces_provider_model_scenario_run_combinations() -> None:
     """Plan 03-05 task 3 behavior: for each (entry, scenario_id, run_n) the
     matrix produces one cell. Test the underlying generator independently
     of subprocess.run (which is the next test's territory)."""
-    from scripts.eval_matrix import iter_cells
-
     from app.eval.config import EvalMatrixConfig, MatrixEntry
+    from scripts.eval_matrix import iter_cells
 
     matrix = EvalMatrixConfig(
         entries=[
@@ -106,9 +105,8 @@ def test_iter_cells_produces_provider_model_scenario_run_combinations() -> None:
 def test_iter_cells_zero_runs_yields_empty() -> None:
     """Defensive: runs=0 produces no cells (the CLI validates >= 1, but the
     generator itself should be safe)."""
-    from scripts.eval_matrix import iter_cells
-
     from app.eval.config import EvalMatrixConfig, MatrixEntry
+    from scripts.eval_matrix import iter_cells
 
     matrix = EvalMatrixConfig(
         entries=[MatrixEntry(provider="openai", model="gpt-4o-mini")],
@@ -458,3 +456,100 @@ def test_run_matrix_uses_provider_override_in_subprocess_cmd(mocker, monkeypatch
     assert "scripted" in cmd
     # The original provider name must NOT appear in the cmd.
     assert "openai" not in cmd
+
+
+# ─── CI-workflow drift guards (Plan 03-06 / EVAL-09) ─────────────────────────
+# These tests pin the shape of .github/workflows/ci.yml's eval-matrix job so
+# that a future PR cannot silently drop the scripted-mode flag (exposing CI
+# to real LLM API costs + rate limits), accidentally set APP_ENV=eval
+# (defeating the runtime gate), or remove the artifact upload (losing the
+# summary.json that PR reviewers need to inspect matrix output).
+#
+# These are smoke-level tests (per project memory feedback_test_layering):
+# they verify a static file's shape, not runtime CI behavior. They run with
+# the unit suite because the YAML parse is fast (<10ms) and self-contained.
+
+
+@pytest.fixture(scope="module")
+def ci_workflow() -> dict:
+    """Module-scoped parse of .github/workflows/ci.yml so the three CI-drift
+    tests share one yaml.safe_load. Path resolved via the existing REPO_ROOT
+    constant from app.eval.config (the resolve_eval_queries_path pattern),
+    not a hardcoded absolute path or a sys.path bootstrap."""
+    import yaml
+
+    ci_path = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+    return yaml.safe_load(ci_path.read_text(encoding="utf-8"))
+
+
+def test_ci_workflow_uses_scripted_provider(ci_workflow: dict) -> None:
+    """EVAL-09 / P4: the eval-matrix CI job MUST invoke the matrix runner
+    with `scripted` mode. Without this guard a future PR could remove
+    --llm-provider-override (or the LLM_OVERRIDE=scripted make var) and
+    expose CI to real LLM API calls, rate limits, and cost.
+
+    We accept any step whose `run` command mentions both `eval-matrix` (the
+    make target or the script name) AND `scripted` — this gives Phase 4-6
+    flexibility to refactor the invocation (e.g. drop the make wrapper)
+    without breaking this guard, as long as scripted mode stays in force.
+    """
+    job = ci_workflow["jobs"].get("eval-matrix")
+    assert job is not None, "eval-matrix job missing from .github/workflows/ci.yml"
+    step_runs = [s.get("run", "") for s in job["steps"] if isinstance(s, dict)]
+    matrix_steps = [
+        r for r in step_runs if ("eval-matrix" in r or "eval_matrix.py" in r) and "scripted" in r
+    ]
+    assert matrix_steps, (
+        "no eval-matrix step invokes scripted mode — silent CI drift risk; "
+        "expected a `run:` containing both 'eval-matrix' (or 'eval_matrix.py') "
+        "and 'scripted' (P4 / EVAL-09 gate)"
+    )
+
+
+def test_ci_workflow_does_not_set_app_env_eval(ci_workflow: dict) -> None:
+    """P4 / EVAL-09: the eval-matrix CI job MUST NOT set APP_ENV=eval. The
+    runtime gate in scripts/eval_matrix.py exists exactly so CI never
+    accidentally runs real-provider matrices; setting APP_ENV=eval would
+    bypass that gate. The scripted-mode override (asserted by the test
+    above) is the ONLY sanctioned bypass."""
+    job = ci_workflow["jobs"].get("eval-matrix")
+    assert job is not None, "eval-matrix job missing from .github/workflows/ci.yml"
+
+    def _walk_for_app_env_eval(node: object) -> bool:
+        """Recursive walk: trip on (a) any `env:` mapping with APP_ENV: eval,
+        or (b) any string value containing `APP_ENV=eval` (shell-style env
+        assignment in a `run:` block)."""
+        if isinstance(node, dict):
+            env_block = node.get("env")
+            if isinstance(env_block, dict) and env_block.get("APP_ENV") == "eval":
+                return True
+            return any(_walk_for_app_env_eval(v) for v in node.values())
+        if isinstance(node, list):
+            return any(_walk_for_app_env_eval(x) for x in node)
+        if isinstance(node, str):
+            return "APP_ENV=eval" in node or "APP_ENV: eval" in node
+        return False
+
+    assert not _walk_for_app_env_eval(job), (
+        "eval-matrix job sets APP_ENV=eval somewhere — this defeats the P4 / "
+        "EVAL-09 gate. Use --llm-provider-override scripted instead "
+        "(LLM_OVERRIDE=scripted in the make target)."
+    )
+
+
+def test_ci_workflow_eval_matrix_uploads_artifact(ci_workflow: dict) -> None:
+    """The eval-matrix CI job MUST upload its eval_reports/ output as an
+    artifact (via actions/upload-artifact@v4) so PR reviewers can recover
+    summary.json. Without this, scripted-cell failures are invisible to
+    reviewers and the soft-gate stance (Phase 3) becomes useless. The
+    `if: always()` shape is recommended so failed-cell debug data
+    survives, but this test pins only the artifact-upload requirement —
+    Phase 4-6 may refine the `if:` clause without breaking the guard."""
+    job = ci_workflow["jobs"].get("eval-matrix")
+    assert job is not None, "eval-matrix job missing from .github/workflows/ci.yml"
+    step_uses = [s.get("uses", "") for s in job["steps"] if isinstance(s, dict)]
+    upload_steps = [u for u in step_uses if "upload-artifact" in u]
+    assert upload_steps, (
+        "eval-matrix job has no actions/upload-artifact step — "
+        "summary.json output cannot be recovered for PR review"
+    )
