@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from argparse import Namespace
 from dataclasses import asdict
@@ -21,6 +22,7 @@ from scripts.eval_agent import (
     answer_retrieved_place_coverage,
     contexts_from_state,
     count_tool_calls,
+    evaluate_multi_turn_case,
     expected_results_label,
     percentile,
     rate,
@@ -485,3 +487,15 @@ def test_query_result_serializes_to_json_via_asdict() -> None:
     decoded = json.loads(encoded)
     assert decoded["deterministic"]["checks"]["category_compliance"]["score"] == 1.0
     assert decoded["deterministic"]["checks"]["rationale_stop_alignment"]["score"] == 1.0
+
+
+# --- Plan 03-04: multi-turn runner (EVAL-06) -------------------------------
+
+
+def test_evaluate_multi_turn_case_is_async_helper() -> None:
+    """Plan 03-04 / EVAL-06: scripts/eval_agent.py exposes an async helper
+    `evaluate_multi_turn_case(graph, case)` that runs len(case.turns)+1
+    invocations against a shared graph. This test fails at import time on
+    the pre-03-04 codebase (the symbol does not exist) — the strongest form
+    of RED — and turns green once the helper lands."""
+    assert inspect.iscoroutinefunction(evaluate_multi_turn_case)
