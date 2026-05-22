@@ -353,3 +353,72 @@ def test_default_eval_matrix_path_is_in_configs() -> None:
     """The default points at configs/eval_matrix.yaml (the matrix-runner
     plan 03-05 ships the actual file)."""
     assert Path("configs/eval_matrix.yaml") == DEFAULT_EVAL_MATRIX_PATH
+
+
+# ─── Plan 03-05 Task 2: three baseline scenarios for plan 03-07 ──────────────
+
+
+def test_repo_yaml_includes_omakase_mission_open_ended_case() -> None:
+    """EVAL-06: the open-ended omakase case is required for plan 03-07's
+    category_compliance baseline (the original failure scenario per the
+    5 post-merge runs). Single-turn case (turns=None)."""
+    config = load_eval_queries(REPO_ROOT / DEFAULT_EVAL_QUERIES_PATH)
+    case = next((c for c in config.hand_written if c.id == "omakase_mission_open_ended"), None)
+    assert case is not None, "omakase_mission_open_ended case missing"
+    assert case.turns is None, "omakase open-ended is a single-turn case"
+    assert case.query  # non-blank
+
+
+def test_repo_yaml_includes_refinement_cheaper_case() -> None:
+    """EVAL-06: refinement-turn cheaper is a multi-turn scenario that
+    exercises rationale_stop_alignment (turn-2 rationale bleed) AND the
+    EvalQuery.turns wiring landed in plan 03-02."""
+    config = load_eval_queries(REPO_ROOT / DEFAULT_EVAL_QUERIES_PATH)
+    case = next((c for c in config.hand_written if c.id == "refinement_cheaper"), None)
+    assert case is not None, "refinement_cheaper case missing"
+    assert case.turns is not None, "refinement_cheaper is multi-turn"
+    assert len(case.turns) >= 1, "at least one follow-up turn required"
+
+
+def test_repo_yaml_includes_late_night_closure_cascade_case() -> None:
+    """EVAL-06 (gated on D-07 closure pre-check): late-night closure-cascade
+    is a multi-turn scenario for Phase 6 closure-aware swap baseline."""
+    config = load_eval_queries(REPO_ROOT / DEFAULT_EVAL_QUERIES_PATH)
+    case = next((c for c in config.hand_written if c.id == "late_night_closure_cascade"), None)
+    assert case is not None, "late_night_closure_cascade case missing"
+    assert case.turns is not None, "late_night_closure_cascade is multi-turn"
+    assert len(case.turns) >= 1
+    # The closure scenario must have an open_at_iso set so the closure path
+    # fires (per the plan's behavior bullets).
+    assert case.expected_constraints.open_at_iso is not None, (
+        "late_night_closure_cascade needs open_at_iso to trigger closure swap"
+    )
+
+
+def test_repo_yaml_new_baseline_cases_are_appended() -> None:
+    """All three new IDs are present and unique; existing 30 cases unchanged.
+    Asserts the YAML file is append-only (D-05 / plan 03-07 compatibility)."""
+    config = load_eval_queries(REPO_ROOT / DEFAULT_EVAL_QUERIES_PATH)
+    ids = {c.id for c in config.hand_written}
+    assert {
+        "omakase_mission_open_ended",
+        "refinement_cheaper",
+        "late_night_closure_cascade",
+    }.issubset(ids), "all three baseline scenarios must ship"
+    # The first 5 ids are the original 5 — append-only invariant.
+    assert [c.id for c in config.hand_written[:5]] == [
+        "north_beach_italian_dinner",
+        "date_night_dinner_drinks_walkable",
+        "mission_vegan_brunch",
+        "soma_quiet_late_cafe",
+        "impossible_four_am_five_star",
+    ]
+
+
+def test_omakase_case_tags_include_category_compliance() -> None:
+    """Plan 03-07's baseline run uses tags to filter the eval set; the
+    omakase case must self-identify so the category-compliance scorer
+    surfaces in the per-tag aggregate."""
+    config = load_eval_queries(REPO_ROOT / DEFAULT_EVAL_QUERIES_PATH)
+    case = next(c for c in config.hand_written if c.id == "omakase_mission_open_ended")
+    assert "category_compliance" in case.tags
