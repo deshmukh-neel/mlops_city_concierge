@@ -147,8 +147,13 @@ jobs:
       - name: Check baselines fresh vs PR base
         # The script exits 1 with an actionable error when app/agent/ is
         # touched but no configs/eval_baselines/*.json was updated, unless
-        # the latest commit message contains [skip-baseline].
-        run: poetry run python scripts/check_baselines_fresh.py ${{ github.event.pull_request.base.sha }}
+        # the latest commit message contains [skip-baseline]. It exits 2 on
+        # infrastructure failure (missing git binary, empty BASE_SHA, git
+        # rc != 0) per Plan 03-10 / WR-02.
+        # IN-01 mitigation: BASE_SHA threaded via env block, not run-string interpolation.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: poetry run python scripts/check_baselines_fresh.py "$BASE_SHA"
 
   eval-matrix:
     name: Eval matrix (scripted mode — no real APIs)
