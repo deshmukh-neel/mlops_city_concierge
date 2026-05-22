@@ -623,9 +623,16 @@ async def test_evaluate_multi_turn_threads_messages(mocker) -> None:
     turn_two_human_contents = [m.content for m in llm.seen[1] if isinstance(m, HumanMessage)]
     assert "coffee in soma" in turn_two_human_contents
     assert "make stop 2 cheaper" in turn_two_human_contents
-    # The original SystemMessage(eval_context) must also be threaded through
-    # so the eval-only context (open_at, expected results) survives turn 2.
-    assert any(isinstance(m, SystemMessage) for m in llm.seen[1])
+    # WR-06: the eval_context SystemMessage must survive into turn 2 with its
+    # substring intact ("Expected open time:" is part of the EVAL_CONTEXT_TEMPLATE).
+    # Asserting "any SystemMessage present" is too weak — a future refactor of
+    # add_messages that strips system messages, or a `state.model_copy(update=...)`
+    # rewrite that drops the eval context, would silently regress multi-turn cases.
+    turn_two_systems = [m.content for m in llm.seen[1] if isinstance(m, SystemMessage)]
+    assert any("Expected open time:" in c for c in turn_two_systems), (
+        "eval_context SystemMessage substring must survive into turn 2 — "
+        "this pins the WR-06 invariant against future add_messages refactors."
+    )
 
 
 @pytest.mark.asyncio

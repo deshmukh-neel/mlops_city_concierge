@@ -573,14 +573,21 @@ async def evaluate_multi_turn_case(graph: Any, case: EvalQuery) -> QueryEvalResu
                 HumanMessage(content=turn_text),
             ]
         else:
-            # ItineraryState.messages uses the add_messages reducer, so
-            # passing the prior state's full message list plus a new
-            # HumanMessage matches the frontend's stateless /chat shape
-            # exactly. We build a fresh ItineraryState below so step_count,
-            # scratch, and revision_counts reset per turn — only `messages`
-            # threads through, as documented in the plan.
+            # WR-06: explicitly strip any prior SystemMessage from
+            # state.messages and re-inject a fresh eval_context per turn so
+            # a future refactor of add_messages (or a state.model_copy(update=...)
+            # rewrite) cannot silently drop the eval-only context mid-
+            # conversation. The remaining message list still threads through
+            # so the frontend's stateless /chat shape is preserved. We build
+            # a fresh ItineraryState below so step_count, scratch, and
+            # revision_counts reset per turn — only `messages` threads
+            # through, as documented in the plan.
             assert state is not None
-            messages_in = [*state.messages, HumanMessage(content=turn_text)]
+            messages_in = [
+                SystemMessage(content=eval_context),
+                *[m for m in state.messages if not isinstance(m, SystemMessage)],
+                HumanMessage(content=turn_text),
+            ]
         start_time = time.monotonic()
         try:
             raw = await graph.ainvoke(ItineraryState(messages=messages_in))
