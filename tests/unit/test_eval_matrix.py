@@ -1,0 +1,460 @@
+"""Unit tests for scripts/eval_matrix.py (Plan 03-05 / EVAL-05).
+
+The matrix runner uses subprocess fan-out per D-08 (one fresh
+`python scripts/eval_agent.py ...` per cell) to isolate DB pool / LLM SDK
+client state / `@lru_cache` settings across providers (cf. project memory
+project_full_suite_db_pool_contamination and agent_loses_reasoning_state).
+
+These tests cover:
+  - configs/eval_matrix.yaml loads via load_eval_matrix (D-06 anchors)
+  - --dry-run flag prints the expected (provider, model, scenario, run_n)
+    cell list without invoking subprocess
+  - APP_ENV=eval gate enforcement (EVAL-09): real-provider runs require
+    APP_ENV=eval; --llm-provider-override scripted bypasses the gate
+  - summary.json aggregator: given a fixture directory of cell JSONs, the
+    aggregator computes correct median/min/max/stdev/n
+  - scripts/eval_matrix.py is importable in any CI environment (no API key
+    requirements at top-level import time)
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+from app.eval.config import REPO_ROOT, load_eval_matrix
+
+# ─── configs/eval_matrix.yaml exists and loads via D-06 anchors ──────────────
+
+
+def test_repo_eval_matrix_yaml_loads_via_load_eval_matrix() -> None:
+    """configs/eval_matrix.yaml ships with the D-06 anchors locked:
+    providers=[openai/gpt-4o-mini, deepseek/deepseek-chat]; scenarios=
+    [omakase_mission_open_ended, refinement_cheaper,
+    late_night_closure_cascade]."""
+    matrix = load_eval_matrix(REPO_ROOT / "configs/eval_matrix.yaml")
+    assert len(matrix.entries) == 2
+    assert len(matrix.scenarios) == 3
+    providers = {(e.provider, e.model) for e in matrix.entries}
+    assert ("openai", "gpt-4o-mini") in providers
+    assert ("deepseek", "deepseek-chat") in providers
+    assert "omakase_mission_open_ended" in matrix.scenarios
+    assert "refinement_cheaper" in matrix.scenarios
+    assert "late_night_closure_cascade" in matrix.scenarios
+
+
+# ─── scripts/eval_matrix.py imports without env vars ─────────────────────────
+
+
+def test_eval_matrix_module_imports_in_ci_environment(monkeypatch) -> None:
+    """The matrix-runner module MUST be importable in any CI environment
+    (no API key requirements at top-level import time). If a future change
+    adds `from openai import ...` at module load, this test catches it."""
+    for key in (
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "MOONSHOT_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    import importlib
+
+    import scripts.eval_matrix  # noqa: F401
+
+    importlib.reload(scripts.eval_matrix)
+
+
+# ─── cells generator: 2 providers * 3 scenarios * N runs = 6N cells ──────────
+
+
+def test_iter_cells_produces_provider_model_scenario_run_combinations() -> None:
+    """Plan 03-05 task 3 behavior: for each (entry, scenario_id, run_n) the
+    matrix produces one cell. Test the underlying generator independently
+    of subprocess.run (which is the next test's territory)."""
+    from scripts.eval_matrix import iter_cells
+
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[
+            MatrixEntry(provider="openai", model="gpt-4o-mini"),
+            MatrixEntry(provider="deepseek", model="deepseek-chat"),
+        ],
+        scenarios=[
+            "omakase_mission_open_ended",
+            "refinement_cheaper",
+            "late_night_closure_cascade",
+        ],
+    )
+    cells = list(iter_cells(matrix, runs=3))
+    assert len(cells) == 18  # 2 * 3 * 3
+    # Deterministic order: entry-outer, scenario-middle, run-inner.
+    assert cells[0].provider == "openai"
+    assert cells[0].model == "gpt-4o-mini"
+    assert cells[0].scenario_id == "omakase_mission_open_ended"
+    assert cells[0].run_n == 0
+    assert cells[1].run_n == 1
+    assert cells[2].run_n == 2
+    assert cells[3].scenario_id == "refinement_cheaper"
+    # Second provider starts after all (3 * 3 = 9) cells of the first.
+    assert cells[9].provider == "deepseek"
+
+
+def test_iter_cells_zero_runs_yields_empty() -> None:
+    """Defensive: runs=0 produces no cells (the CLI validates >= 1, but the
+    generator itself should be safe)."""
+    from scripts.eval_matrix import iter_cells
+
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="openai", model="gpt-4o-mini")],
+        scenarios=["a"],
+    )
+    assert list(iter_cells(matrix, runs=0)) == []
+
+
+# ─── --dry-run prints the cell list without running subprocess ───────────────
+
+
+def test_dry_run_prints_18_cells(capsys, monkeypatch) -> None:
+    """`python scripts/eval_matrix.py --dry-run --matrix-config
+    configs/eval_matrix.yaml --runs 3` exits 0 and prints exactly 18 cells.
+    Acceptance criterion from the plan."""
+    monkeypatch.setenv("APP_ENV", "eval")  # gate doesn't apply to dry-run
+    from scripts.eval_matrix import main
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--runs",
+            "3",
+            "--dry-run",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    # Each cell prints one descriptive line — count is exactly 18.
+    cell_lines = [line for line in out.splitlines() if "--run-" in line]
+    assert len(cell_lines) == 18
+
+
+# ─── APP_ENV=eval gate enforcement (EVAL-09) ─────────────────────────────────
+
+
+def test_gate_blocks_real_provider_runs_without_app_env_eval(monkeypatch) -> None:
+    """EVAL-09 / P4: real-provider matrix runs require APP_ENV=eval. Without
+    it, exit non-zero with an actionable error."""
+    monkeypatch.setenv("APP_ENV", "dev")
+    from scripts.eval_matrix import main
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--runs",
+            "1",
+        ]
+    )
+    assert rc == 2
+
+
+def test_gate_allows_scripted_override_without_app_env_eval(monkeypatch, tmp_path) -> None:
+    """The --llm-provider-override scripted bypasses the APP_ENV gate so CI
+    can run the matrix without setting APP_ENV=eval."""
+    monkeypatch.setenv("APP_ENV", "dev")
+    from scripts.eval_matrix import main
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--runs",
+            "1",
+            "--llm-provider-override",
+            "scripted",
+            "--dry-run",
+        ]
+    )
+    assert rc == 0
+
+
+def test_gate_allows_real_provider_with_app_env_eval(monkeypatch) -> None:
+    """When APP_ENV=eval IS set, the gate lets real-provider invocations
+    through (we use --dry-run so no subprocess actually fires)."""
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import main
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--runs",
+            "1",
+            "--dry-run",
+        ]
+    )
+    assert rc == 0
+
+
+# ─── summary.json aggregator: cross-provider median/min/max/stdev ────────────
+
+
+def _write_cell(
+    directory: Path,
+    provider: str,
+    model: str,
+    scenario_id: str,
+    run_n: int,
+    score_value: float,
+) -> Path:
+    """Write a minimal cell JSON mirroring scripts/eval_agent.py's report
+    shape. The aggregator only needs scenario_id (we encode it in the
+    filename) plus aggregate.{scorer}_mean values."""
+    fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
+    path = directory / fname
+    payload = {
+        "llm_provider": provider,
+        "chat_model": model,
+        "query_count": 1,
+        "aggregate": {
+            "category_compliance_mean": score_value,
+            "rationale_stop_alignment_mean": score_value,
+        },
+        "queries": [{"id": scenario_id}],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def test_aggregate_cell_jsons_computes_median_min_max_stdev(tmp_path: Path) -> None:
+    """Given a fixture directory with 3 cell JSONs for one (provider,
+    scenario), the aggregator emits the cross-run median/min/max/stdev/n."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.4)
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 1, 0.5)
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 2, 0.6)
+
+    summary = aggregate_cell_jsons(tmp_path)
+    assert "scenarios" in summary
+    scenario_block = summary["scenarios"]["scenario_a"]
+    provider_block = scenario_block["providers"]["openai/gpt-4o-mini"]
+    scorer = provider_block["scorers"]["category_compliance"]
+    assert scorer["n"] == 3
+    assert scorer["min"] == pytest.approx(0.4)
+    assert scorer["max"] == pytest.approx(0.6)
+    assert scorer["median"] == pytest.approx(0.5)
+    # stdev sample of [0.4, 0.5, 0.6] = 0.1
+    assert scorer["stdev"] == pytest.approx(0.1)
+
+
+def test_aggregate_handles_multiple_providers_per_scenario(tmp_path: Path) -> None:
+    """Cross-provider median table per scenario is the user-facing surface
+    of summary.json (plan 03-07 commits the per-scenario baseline JSON)."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.4)
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 1, 0.5)
+    _write_cell(tmp_path, "deepseek", "deepseek-chat", "scenario_a", 0, 0.8)
+    _write_cell(tmp_path, "deepseek", "deepseek-chat", "scenario_a", 1, 0.9)
+
+    summary = aggregate_cell_jsons(tmp_path)
+    providers = summary["scenarios"]["scenario_a"]["providers"]
+    assert set(providers.keys()) == {"openai/gpt-4o-mini", "deepseek/deepseek-chat"}
+    assert providers["openai/gpt-4o-mini"]["scorers"]["category_compliance"]["n"] == 2
+    assert providers["deepseek/deepseek-chat"]["scorers"]["category_compliance"][
+        "median"
+    ] == pytest.approx(0.85)
+
+
+def test_aggregate_skips_summary_json_itself(tmp_path: Path) -> None:
+    """The aggregator walks `*.json` excluding summary.json — re-running the
+    aggregator over an output dir that already has summary.json must not
+    double-count it."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    # Pre-existing summary.json with the same shape; must be skipped.
+    (tmp_path / "summary.json").write_text(
+        json.dumps({"scenarios": {"old": {"providers": {}}}}), encoding="utf-8"
+    )
+    summary = aggregate_cell_jsons(tmp_path)
+    assert set(summary["scenarios"].keys()) == {"scenario_a"}
+
+
+def test_aggregate_records_generated_at_timestamp(tmp_path: Path) -> None:
+    """summary.json carries a top-level `generated_at` ISO8601 timestamp for
+    plan 03-07 baseline diffing."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    summary = aggregate_cell_jsons(tmp_path)
+    assert "generated_at" in summary
+    # Bare-minimum shape: ISO-like string (precise format tested by
+    # write_summary integration).
+    assert isinstance(summary["generated_at"], str)
+
+
+# ─── resolve_run_dir naming (D-10 output shape) ──────────────────────────────
+
+
+def test_resolve_run_dir_under_eval_reports_with_iso_timestamp(tmp_path: Path) -> None:
+    """eval_reports/{ISO8601-Z-with-colons-replaced} is the per-run output
+    directory shape. resolve_run_dir creates the directory under the
+    requested base path and returns the absolute Path."""
+    from scripts.eval_matrix import resolve_run_dir
+
+    run_dir = resolve_run_dir(base=tmp_path / "eval_reports")
+    assert run_dir.exists()
+    assert run_dir.is_dir()
+    assert run_dir.parent == tmp_path / "eval_reports"
+    # Name must not contain raw colons (windows-hostile + URL-hostile).
+    assert ":" not in run_dir.name
+    # It should at least look like a timestamp.
+    assert any(ch.isdigit() for ch in run_dir.name)
+
+
+# ─── CLI argument parsing ────────────────────────────────────────────────────
+
+
+def test_main_rejects_zero_runs(monkeypatch) -> None:
+    """--runs must be >= 1; zero or negative makes no sense."""
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import main
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--runs",
+            "0",
+            "--dry-run",
+        ]
+    )
+    assert rc != 0
+
+
+# ─── No top-level LLM SDK imports ────────────────────────────────────────────
+
+
+def test_eval_matrix_module_does_not_import_llm_sdks() -> None:
+    """`scripts/eval_matrix.py` must not pull in openai/anthropic/etc. at
+    import — those are subprocess-only concerns. The matrix runner is the
+    orchestrator, NOT the LLM caller."""
+    import scripts.eval_matrix as mod
+
+    src = Path(mod.__file__).read_text(encoding="utf-8")
+    assert "from openai" not in src
+    assert "from anthropic" not in src
+    assert "import openai" not in src
+    assert "from langchain_openai" not in src
+
+
+# ─── subprocess fan-out shape ────────────────────────────────────────────────
+
+
+def test_run_matrix_invokes_eval_agent_subprocess(mocker, monkeypatch, tmp_path) -> None:
+    """When --dry-run is NOT passed, run_matrix shells out to scripts/eval_agent.py
+    once per cell. We mock subprocess.run so this test stays hermetic
+    (no real network, no real eval_agent.py invocation)."""
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    fake_run = mocker.patch(
+        "scripts.eval_matrix.subprocess.run",
+        return_value=mocker.Mock(returncode=0, stdout="{}", stderr=""),
+    )
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["scenario_a"],
+    )
+    rc, failures = run_matrix(
+        matrix=matrix,
+        runs=2,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    assert fake_run.call_count == 2  # 1 entry * 1 scenario * 2 runs
+    # Each call must shell out to scripts/eval_agent.py with the expected flags
+    call_args_list = [call.args[0] for call in fake_run.call_args_list]
+    first_cmd = call_args_list[0]
+    assert sys.executable == first_cmd[0]
+    assert any("scripts/eval_agent.py" in arg for arg in first_cmd)
+    assert "--llm-provider" in first_cmd
+    assert "scripted" in first_cmd
+    assert "--scenario-ids" in first_cmd
+    assert "scenario_a" in first_cmd
+    # No cell failures expected when subprocess.run returns 0.
+    assert failures == []
+    # Return code: 0 because no cells failed.
+    assert rc == 0
+
+
+def test_run_matrix_collects_failures_without_short_circuit(mocker, monkeypatch, tmp_path) -> None:
+    """Subprocess failures do not stop the matrix — they're recorded in the
+    returned `failures` list and the runner still exits non-zero (D-08
+    + plan task 3 behavior bullets)."""
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    fake_results = [
+        mocker.Mock(returncode=0, stdout="{}", stderr=""),
+        mocker.Mock(returncode=2, stdout="", stderr="boom"),
+        mocker.Mock(returncode=0, stdout="{}", stderr=""),
+    ]
+    mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_results)
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["a", "b", "c"],
+    )
+    rc, failures = run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    assert len(failures) == 1
+    assert failures[0]["returncode"] == 2
+    assert failures[0]["stderr"] == "boom"
+    assert rc != 0  # the runner exits non-zero when any cell failed
+
+
+def test_run_matrix_uses_provider_override_in_subprocess_cmd(mocker, monkeypatch, tmp_path) -> None:
+    """--llm-provider-override scripted maps ALL entries to scripted in the
+    subprocess invocations (single source of truth for the CI gate)."""
+    monkeypatch.setenv("APP_ENV", "dev")
+    from scripts.eval_matrix import run_matrix
+
+    fake_run = mocker.patch(
+        "scripts.eval_matrix.subprocess.run",
+        return_value=mocker.Mock(returncode=0, stdout="{}", stderr=""),
+    )
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="openai", model="gpt-4o-mini")],
+        scenarios=["scenario_a"],
+    )
+    run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override="scripted",
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    cmd = fake_run.call_args_list[0].args[0]
+    # The override replaces the real-provider entry with scripted.
+    assert "scripted" in cmd
+    # The original provider name must NOT appear in the cmd.
+    assert "openai" not in cmd
