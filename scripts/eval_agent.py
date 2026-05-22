@@ -21,6 +21,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.agent.critique.checks import (
     CRITIQUE_THRESHOLDS,
     category_compliance,
+    category_compliance_strict,
     constraints_satisfied,
     geographic_coherence,
     no_hallucinated_place_ids,
@@ -43,6 +44,7 @@ CheckFunction = Callable[[ItineraryState], float]
 
 DETERMINISTIC_CHECKS: dict[str, CheckFunction] = {
     "category_compliance": category_compliance,
+    "category_compliance_strict": category_compliance_strict,
     "constraints_satisfied": constraints_satisfied,
     "geographic_coherence": geographic_coherence,
     "no_hallucinated_place_ids": no_hallucinated_place_ids,
