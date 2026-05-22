@@ -1,0 +1,28 @@
+# Cross-provider eval matrix config (Plan 03-05 / EVAL-05 / D-06)
+#
+# Anchored providers for v2.0 Phases 3-6 (D-06):
+#   - openai/gpt-4o-mini (decisive tool-caller; project memory:
+#     convergence_premise_inverted shows it converges 1/6 vs DeepSeek 4/6,
+#     so it surfaces the regression class plan 03-07 baselines target)
+#   - deepseek/deepseek-chat (different model family; P7 mitigation
+#     against single-model overfit; reasoning disabled per llm_factory.py)
+#
+# Gemini and Kimi are EXCLUDED for v2.0 — project memory flags both as
+# unstable (thought-signatures / reasoning_content round-trip). Re-add per-
+# provider when the underlying issues are mitigated.
+#
+# Three locked baseline scenarios (D-07 / plan 03-05 task 2):
+#   - omakase_mission_open_ended    (category_compliance baseline)
+#   - refinement_cheaper            (multi-turn rationale_stop_alignment)
+#   - late_night_closure_cascade    (multi-turn closure-aware swap)
+
+entries:
+  - provider: openai
+    model: gpt-4o-mini
+  - provider: deepseek
+    model: deepseek-chat
+
+scenarios:
+  - omakase_mission_open_ended
+  - refinement_cheaper
+  - late_night_closure_cascade

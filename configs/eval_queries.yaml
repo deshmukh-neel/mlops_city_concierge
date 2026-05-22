@@ -368,6 +368,50 @@ hand_written:
       max_stops: 3
     tags: ["ambiguous", "visitor", "food_neighborhood"]
 
+  # ─── Phase 3 baseline scenarios (plan 03-05 / EVAL-06) ──────────────────
+  # These three scenarios are the locked targets for plan 03-07's baseline
+  # commits. They exercise the new D-01 / EVAL-01 / EVAL-02 surfaces and
+  # the multi-turn EVAL-03 wiring.
+
+  - id: omakase_mission_open_ended
+    query: "Plan an omakase night in the Mission, May 21 2026 around 7pm, 3 stops"
+    reference: "A good answer commits a 3-stop omakase-then-drinks-then-dessert (or analogous category-slot) plan in the Mission, each stop honoring the user's category slots and the requested 7pm open time."
+    expected_constraints:
+      neighborhood: "Mission"
+      open_at_iso: "2026-05-21T19:00:00-07:00"
+      types_any: ["restaurant", "cocktail_bar"]
+    expected_results:
+      min_stops: 3
+      max_stops: 3
+    tags: ["category_compliance", "omakase", "mission", "open_ended"]
+
+  - id: refinement_cheaper
+    query: "Plan a date night dinner-then-drinks-then-dessert in Hayes Valley, May 21 2026 at 7pm, 3 stops"
+    reference: "Turn 1 commits a 3-stop date-night itinerary in Hayes Valley. Turn 2 (\"make stop 2 cheaper\") preserves the 3-stop shape and swaps only stop 2 for a cheaper alternative — stop count must stay at 3 (Phase 6 refinement contract)."
+    expected_constraints:
+      neighborhood: "Hayes Valley"
+      open_at_iso: "2026-05-21T19:00:00-07:00"
+      price_level_max: 3
+      types_any: ["restaurant", "cocktail_bar", "dessert_shop"]
+    expected_results:
+      min_stops: 3
+      max_stops: 3
+    turns: ["make stop 2 cheaper"]
+    tags: ["refinement", "rationale_alignment", "multi_turn", "hayes_valley"]
+
+  - id: late_night_closure_cascade
+    query: "Plan a late-night plan in the Mission, May 21 2026 at 9pm, 3 stops"
+    reference: "Turn 1 plans a 3-stop late-night itinerary in the Mission. At 9pm some stops may be at risk of closure; if the agent flags a closure-swap candidate, turn 2 (\"yes accept the alternative\") accepts it. The closure-aware swap path must produce a final 3-stop itinerary with no closed stops."
+    expected_constraints:
+      neighborhood: "Mission"
+      open_at_iso: "2026-05-21T21:00:00-07:00"
+      types_any: ["restaurant", "cocktail_bar"]
+    expected_results:
+      min_stops: 3
+      max_stops: 3
+    turns: ["yes accept the alternative"]
+    tags: ["closure", "rationale_alignment", "multi_turn", "mission", "late_night"]
+
 generated:
   source_table: place_embeddings_v2
   count: 50

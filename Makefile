@@ -97,6 +97,33 @@ set-production-alias: ## Promote a registered model version to production (usage
 train-simple-model: ## Train a simple baseline model from places data
 	$(POETRY_RUN) python scripts/train_simple_model.py
 
+# ─── Eval (Plan 03-05 / EVAL-10) ──────────────────────────────────────────────
+# Parameter variables — override on the command line.
+#   make eval-agent PROVIDER=openai MODEL=gpt-4o-mini QUERIES=1 SCENARIOS=omakase_mission_open_ended
+#   make eval-matrix RUNS=3
+#   make eval-matrix LLM_OVERRIDE=scripted   (CI mode — no APP_ENV gate needed)
+PROVIDER ?= scripted
+MODEL ?= placeholder
+RUNS ?= 1
+QUERIES ?= 1
+SCENARIOS ?=
+LLM_OVERRIDE ?=
+
+.PHONY: eval-agent
+eval-agent: ## Run scripts/eval_agent.py once (PROVIDER/MODEL/QUERIES/SCENARIOS params)
+	$(POETRY_RUN) python scripts/eval_agent.py \
+	  --llm-provider $(PROVIDER) \
+	  --chat-model $(MODEL) \
+	  $(if $(SCENARIOS),--scenario-ids $(SCENARIOS),) \
+	  --max-queries $(QUERIES)
+
+.PHONY: eval-matrix
+eval-matrix: ## Run cross-provider matrix (LLM_OVERRIDE=scripted for CI; RUNS=3 default)
+	$(POETRY_RUN) python scripts/eval_matrix.py \
+	  --matrix-config configs/eval_matrix.yaml \
+	  --runs $(RUNS) \
+	  $(if $(LLM_OVERRIDE),--llm-provider-override $(LLM_OVERRIDE),)
+
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
 test: ## Run the full test suite

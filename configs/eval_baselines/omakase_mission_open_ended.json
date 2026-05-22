@@ -1,0 +1,116 @@
+{
+  "scenario_id": "omakase_mission_open_ended",
+  "generated_at": "2026-05-22T19-21-22Z",
+  "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
+  "closure_check_confirmed": "2026-05-21",
+  "providers": {
+    "openai/gpt-4o-mini": {
+      "scorers": {
+        "category_compliance": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "constraints_satisfied": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "geographic_coherence": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.5,
+          "stdev": 0.28867513459481287,
+          "n": 3
+        },
+        "no_hallucinated_place_ids": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "rationale_stop_alignment": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "temporal_coherence": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "walking_budget_respected": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "stdev": 0.0,
+          "n": 3
+        }
+      },
+      "_observations": "All 3 runs committed 3 stops; every run violated geographic_coherence AND walking_budget_respected \u2014 model committed an itinerary spread across SoMa/Bernal Heights/Outer Mission. category_compliance_mean=1.0 and rationale_stop_alignment_mean=1.0 reflect what the scorers measure on the committed shape, NOT proof of category-correct behavior (cf. Phase 4 D-01: requested_primary_types is not yet populated in production, so category_compliance abstains-at-1.0 by D-03 contract). Treat as a floor for geo/walking improvements; category_compliance improvement is measurable only after Phase 4 wires the intake."
+    },
+    "deepseek/deepseek-chat": {
+      "scorers": {
+        "category_compliance": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "constraints_satisfied": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "geographic_coherence": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "no_hallucinated_place_ids": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "rationale_stop_alignment": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "temporal_coherence": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "walking_budget_respected": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        }
+      },
+      "_observations": "All 3 runs hit the planning step limit without ever calling commit_itinerary (final_reply = 'I hit the planning step limit. Here is the best plan I had so far.'). committed_stop_count=0 across all runs (16/12/11 tool calls each, only semantic_search + get_details, never commit_itinerary). Every scorer reads 1.0 because all per-state scorers fail-open on empty stops by design. Treat as non-converged floor \u2014 any Phase 4-6 PR that fixes DeepSeek convergence will START committing real itineraries, which may DECREASE these scores against this baseline as real failure modes become visible. Pre-merge gates that consume this baseline MUST carve out the 'baseline-on-non-convergence' case for DeepSeek (suggest: compare on committed runs only, or skip DeepSeek delta gate until convergence is restored)."
+    }
+  }
+}

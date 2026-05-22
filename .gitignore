@@ -10,6 +10,19 @@ __pycache__/
 # Data
 *.json
 
+# Auto-generated per-run eval reports (Plan 03-05 / EVAL-05). Each
+# `make eval-matrix` invocation writes eval_reports/{ISO8601-Z}/... with
+# one JSON per (provider, model, scenario, run) cell + a summary.json.
+# These are local-only — committed baselines live elsewhere (see below).
+eval_reports/
+
+# Committed eval baselines (Plan 03-07 / EVAL-07). The blanket `*.json`
+# rule above would catch these too, so explicitly re-include them. Plan
+# 03-07 commits the per-scenario baseline JSONs that Phase 4-6 merge gates
+# diff against.
+!configs/eval_baselines/
+!configs/eval_baselines/*.json
+
 # Distribution / packaging
 .Python
 build/

@@ -18,37 +18,37 @@ from typing import Any, Literal
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from app.agent.critique.checks import (  # noqa: E402
+from app.agent.critique.checks import (
     CRITIQUE_THRESHOLDS,
+    category_compliance,
     constraints_satisfied,
     geographic_coherence,
     no_hallucinated_place_ids,
+    rationale_stop_alignment,
     temporal_coherence,
     walking_budget_respected,
 )
-from app.agent.graph import build_agent_graph  # noqa: E402
-from app.agent.state import ItineraryState  # noqa: E402
-from app.config import get_settings  # noqa: E402
-from app.eval.config import (  # noqa: E402
+from app.agent.graph import build_agent_graph
+from app.agent.state import ItineraryState
+from app.config import get_settings
+from app.eval.config import (
     DEFAULT_EVAL_QUERIES_PATH,
     EvalQuery,
     ExpectedResults,
     load_eval_queries,
 )
 
-LlmProvider = Literal["openai", "gemini", "deepseek", "kimi"]
+LlmProvider = Literal["openai", "gemini", "deepseek", "kimi", "scripted"]
 CheckFunction = Callable[[ItineraryState], float]
 
 DETERMINISTIC_CHECKS: dict[str, CheckFunction] = {
+    "category_compliance": category_compliance,
     "constraints_satisfied": constraints_satisfied,
     "geographic_coherence": geographic_coherence,
+    "no_hallucinated_place_ids": no_hallucinated_place_ids,
+    "rationale_stop_alignment": rationale_stop_alignment,
     "temporal_coherence": temporal_coherence,
     "walking_budget_respected": walking_budget_respected,
-    "no_hallucinated_place_ids": no_hallucinated_place_ids,
 }
 
 EVAL_CONTEXT_TEMPLATE = """Offline eval context:
@@ -151,9 +151,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--llm-provider",
-        choices=["openai", "gemini"],
+        choices=["openai", "gemini", "deepseek", "kimi", "scripted"],
         default="openai",
-        help="Candidate LLM provider to evaluate.",
+        help=(
+            "Candidate LLM provider to evaluate. 'scripted' is the CI-safe "
+            "deterministic no-network branch (EVAL-09 / P4); it needs no "
+            "API key and emits canned messages."
+        ),
     )
     parser.add_argument(
         "--chat-model",
@@ -169,6 +173,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Limit the number of hand-written eval cases for a quick smoke run.",
     )
     parser.add_argument(
+        "--scenario-ids",
+        type=_parse_scenario_ids,
+        default=None,
+        help=(
+            "Comma-separated EvalQuery.id list to filter cases (default: run "
+            "all hand_written cases). The matrix runner (scripts/eval_matrix.py) "
+            "shells out one cell per scenario_id via this flag."
+        ),
+    )
+    parser.add_argument(
         "--output",
         default=None,
         help="Optional path for the JSON report. The report is always printed to stdout.",
@@ -176,10 +190,30 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _parse_scenario_ids(value: str) -> list[str]:
+    """Parse the --scenario-ids comma-separated flag into a list of IDs.
+
+    Empty entries and whitespace-only entries are dropped so callers can
+    pass ' a , , b ' without surprises. An empty string yields an empty
+    list (rather than None); the CLI default of None is honored by argparse
+    only when the flag is omitted entirely.
+    """
+    return [token.strip() for token in value.split(",") if token.strip()]
+
+
 def resolve_chat_model(provider: LlmProvider, chat_model: str | None) -> str:
-    """Resolve the candidate chat model from CLI input or environment settings."""
+    """Resolve the candidate chat model from CLI input or environment settings.
+
+    'scripted' is the no-network deterministic provider (EVAL-09 / P4): it
+    never reads env vars or calls get_settings (which can crash without
+    OPENAI_API_KEY etc.). The chat_model is purely an informational label
+    in the eval report — when omitted, we use a stable sentinel.
+    """
     if chat_model and chat_model.strip():
         return chat_model.strip()
+    if provider == "scripted":
+        # No env-var lookups; chat_model is a label, not a real model name.
+        return "scripted-default"
     settings = get_settings()
     if provider == "openai":
         return settings.openai_chat_model
@@ -196,6 +230,10 @@ def validate_args(args: argparse.Namespace) -> None:
     """Validate argument relationships that argparse cannot express cleanly."""
     if args.max_steps < 1:
         raise ValueError("--max-steps must be greater than zero")
+    if args.max_queries is not None and args.max_queries < 1:
+        raise ValueError("--max-queries must be greater than zero when provided")
+    if not 0.0 <= args.temperature <= 2.0:
+        raise ValueError(f"--temperature must be in [0.0, 2.0]; got {args.temperature}")
 
 
 def build_eval_llm(provider: LlmProvider, chat_model: str, temperature: float) -> BaseChatModel:
@@ -205,13 +243,33 @@ def build_eval_llm(provider: LlmProvider, chat_model: str, temperature: float) -
     return build_chat_model(provider, chat_model, temperature=temperature)
 
 
-def selected_cases(cases: list[EvalQuery], max_queries: int | None) -> list[EvalQuery]:
-    """Return the hand-written eval cases selected for this run."""
+def selected_cases(
+    cases: list[EvalQuery],
+    max_queries: int | None,
+    scenario_ids: list[str] | None = None,
+) -> list[EvalQuery]:
+    """Return the hand-written eval cases selected for this run.
+
+    Filter precedence (Plan 03-05 / EVAL-09):
+      1. If `scenario_ids` is provided, drop every case whose `id` is not in
+         the list. YAML order is preserved; unknown IDs are silently
+         dropped (so the matrix runner sees an empty list and writes a
+         clean empty report rather than crashing).
+      2. After scenario filtering, `max_queries` slices the head of the
+         remaining list.
+
+    Backward compat: omitting `scenario_ids` (the default) leaves the
+    pre-03-05 max_queries-only behavior unchanged.
+    """
+    selected = cases
+    if scenario_ids is not None:
+        wanted = set(scenario_ids)
+        selected = [case for case in selected if case.id in wanted]
     if max_queries is None:
-        return cases
+        return selected
     if max_queries < 1:
         raise ValueError("--max-queries must be greater than zero when provided")
-    return cases[:max_queries]
+    return selected[:max_queries]
 
 
 def state_from_graph_output(raw: Any) -> ItineraryState:
@@ -449,13 +507,28 @@ def query_result_from_state(
     )
 
 
-async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
-    """Run the agent graph for one eval case and score the final state."""
+def _eval_context_for(case: EvalQuery) -> str:
+    """Render the offline-eval SystemMessage body for one case."""
     open_at = case.expected_constraints.open_at_iso
-    eval_context = EVAL_CONTEXT_TEMPLATE.format(
+    return EVAL_CONTEXT_TEMPLATE.format(
         open_at=open_at.isoformat() if open_at is not None else "not specified",
         expected_results=expected_results_label(case.expected_results),
     )
+
+
+async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
+    """Run the agent graph for one eval case and score the final state.
+
+    Branches on ``case.turns`` (added in plan 03-02 / EVAL-03): ``None`` or
+    ``[]`` runs the case as a single turn exactly as before plan 03-04
+    (byte-equivalent JSON for the 29 existing single-turn cases); a
+    non-empty list delegates to :func:`evaluate_multi_turn_case` which
+    threads ``conversation_state`` across ``len(turns) + 1`` invocations
+    (EVAL-06 / P2).
+    """
+    if case.turns:
+        return await evaluate_multi_turn_case(graph, case)
+    eval_context = _eval_context_for(case)
     start_time = time.monotonic()
     try:
         raw = await graph.ainvoke(
@@ -470,6 +543,86 @@ async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
         latency_seconds = time.monotonic() - start_time
     state = state_from_graph_output(raw)
     return query_result_from_state(case, state, latency_seconds=latency_seconds)
+
+
+async def evaluate_multi_turn_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
+    """Drive a multi-turn eval case against a shared agent graph (EVAL-06).
+
+    Turn 1 = ``case.query``; each entry in ``case.turns`` is fed back to the
+    same graph instance with the prior turn's message history threaded in,
+    mirroring how the frontend round-trips ``conversation_state`` via the
+    opaque ``/chat`` payload. The final reported QueryEvalResult is built
+    from the LAST turn's state (where every confirmed v2.0 refinement bug
+    surfaces — turn 2+, not turn 1) and ``latency_seconds`` is the SUM of
+    per-turn latencies.
+
+    Fail-open semantics mirror ``evaluate_cases``: if any turn raises, the
+    helper records a synthetic ``multi_turn_runner`` entry in
+    ``state.scratch`` (surfaced via :func:`tool_errors_from_state`) and
+    returns the partial QueryEvalResult instead of crashing the whole run.
+    The first failing turn's prior state is what gets reported.
+    """
+    eval_context = _eval_context_for(case)
+    all_turns: list[str] = [case.query, *(case.turns or [])]
+    state: ItineraryState | None = None
+    total_latency = 0.0
+    for index, turn_text in enumerate(all_turns):
+        if index == 0:
+            messages_in: list[Any] = [
+                SystemMessage(content=eval_context),
+                HumanMessage(content=turn_text),
+            ]
+        else:
+            # WR-06: explicitly strip any prior SystemMessage from
+            # state.messages and re-inject a fresh eval_context per turn so
+            # a future refactor of add_messages (or a state.model_copy(update=...)
+            # rewrite) cannot silently drop the eval-only context mid-
+            # conversation. The remaining message list still threads through
+            # so the frontend's stateless /chat shape is preserved. We build
+            # a fresh ItineraryState below so step_count, scratch, and
+            # revision_counts reset per turn — only `messages` threads
+            # through, as documented in the plan.
+            assert state is not None
+            messages_in = [
+                SystemMessage(content=eval_context),
+                *[m for m in state.messages if not isinstance(m, SystemMessage)],
+                HumanMessage(content=turn_text),
+            ]
+        start_time = time.monotonic()
+        try:
+            raw = await graph.ainvoke(ItineraryState(messages=messages_in))
+        except Exception as exc:  # noqa: BLE001
+            total_latency += time.monotonic() - start_time
+            # Surface the failure as a synthetic tool error on whichever
+            # state we last have a handle on; do NOT short-circuit the
+            # whole eval run (mirror the existing fail-open pattern in
+            # evaluate_cases). raw is unbound on this branch, so we report
+            # against the prior turn's state (or a fresh one if turn 0
+            # raised — first-turn failures still get a JSON row, not a
+            # bubbled exception).
+            # WR-05: deep-copy the prior turn's state before mutating its
+            # scratch dict, so a future debug hook that keeps per-turn state
+            # snapshots does not see the synthetic error injected backwards
+            # into turn N-1's diagnostics. The error logically belongs to
+            # turn N's partial state; the copy makes that explicit.
+            partial_state = (
+                state.model_copy(deep=True)
+                if state is not None
+                else ItineraryState(messages=messages_in)
+            )
+            partial_state.scratch.setdefault("multi_turn_runner", []).append(
+                {
+                    "args": {"turn_index": index, "turn": turn_text},
+                    "result": {"error": f"turn {index} raised: {exc}"},
+                    "step": index,
+                    "id": f"multi_turn_runner_{index}",
+                }
+            )
+            return query_result_from_state(case, partial_state, latency_seconds=total_latency)
+        total_latency += time.monotonic() - start_time
+        state = state_from_graph_output(raw)
+    assert state is not None
+    return query_result_from_state(case, state, latency_seconds=total_latency)
 
 
 async def evaluate_cases(
@@ -609,7 +762,11 @@ async def build_report(args: argparse.Namespace) -> EvalRunReport:
     provider = args.llm_provider
     chat_model = resolve_chat_model(provider, args.chat_model)
     eval_config = load_eval_queries(args.eval_queries)
-    cases = selected_cases(eval_config.hand_written, args.max_queries)
+    cases = selected_cases(
+        eval_config.hand_written,
+        args.max_queries,
+        scenario_ids=getattr(args, "scenario_ids", None),
+    )
     llm = build_eval_llm(provider, chat_model, args.temperature)
     start_time = time.monotonic()
     results = await evaluate_cases(cases, llm, max_steps=args.max_steps)

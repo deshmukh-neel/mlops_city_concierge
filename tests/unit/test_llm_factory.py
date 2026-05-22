@@ -52,7 +52,11 @@ def test_build_chat_model_rejects_unknown_provider(mocker, monkeypatch) -> None:
 
 
 def test_supported_providers_is_the_contract() -> None:
-    assert SUPPORTED_PROVIDERS == ("openai", "gemini", "deepseek", "kimi")
+    # Plan 03-05 extends the contract with 'scripted' (EVAL-09 / P4) — the
+    # CI-safe deterministic branch that needs no API key and makes no network
+    # calls. See test_supported_providers_includes_scripted for the explicit
+    # named guard.
+    assert SUPPORTED_PROVIDERS == ("openai", "gemini", "deepseek", "kimi", "scripted")
 
 
 def test_deepseek_disables_thinking_for_tool_calls(mocker, monkeypatch) -> None:
@@ -181,3 +185,170 @@ def test_kimi_empty_content_only_assistant_gets_placeholder(monkeypatch) -> None
     assistant = [m for m in payload["messages"] if m.get("role") == "assistant"]
     assert assistant, "expected an assistant message in the payload"
     assert assistant[0]["content"], "empty content-only assistant must be replaced"
+
+
+# ─── Plan 03-05 Task 1: scripted provider (EVAL-09 / P4) ─────────────────────
+
+
+def test_scripted_provider_is_in_supported_providers() -> None:
+    """SUPPORTED_PROVIDERS now includes 'scripted' — the CI-safe deterministic
+    branch that needs no API key and makes no network calls."""
+    from app.llm_factory import SUPPORTED_PROVIDERS
+
+    assert "scripted" in SUPPORTED_PROVIDERS
+
+
+def test_build_chat_model_scripted_needs_no_env_vars(monkeypatch) -> None:
+    """EVAL-09 / P4: `build_chat_model('scripted', ...)` MUST succeed without
+    any provider API key set. The CI matrix run sets no keys; if scripted
+    leaked into resolve_llm_api_key, this test would crash."""
+    for key in (
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "MOONSHOT_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    from app.llm_factory import build_chat_model
+
+    llm = build_chat_model("scripted", "placeholder", temperature=0.0)
+    assert llm is not None
+    # Must satisfy the BaseChatModel contract so the agent graph can bind tools.
+    from langchain_core.language_models import BaseChatModel
+
+    assert isinstance(llm, BaseChatModel)
+
+
+def test_scripted_chat_model_is_importable_directly() -> None:
+    """`ScriptedChatModel` is importable from app.llm_factory so tests can
+    construct it with custom scripted messages."""
+    from app.llm_factory import ScriptedChatModel
+
+    assert ScriptedChatModel is not None
+
+
+def test_scripted_chat_model_returns_finalize_only_aimessage(monkeypatch) -> None:
+    """Default-fallback script for unknown scenarios: emit one AIMessage with
+    NO tool_calls, so the agent graph reaches a clean termination in one
+    plan() step (plan -> critique -> finalize_as_is -> END)."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from app.llm_factory import build_chat_model
+
+    llm = build_chat_model("scripted", "placeholder", temperature=0.0)
+    response = llm.invoke([HumanMessage(content="anything")])
+    assert isinstance(response, AIMessage)
+    assert not response.tool_calls, "fallback script must NOT emit tool_calls"
+
+
+def test_scripted_chat_model_bind_tools_returns_self() -> None:
+    """The agent graph calls .bind_tools(...) on the LLM before invoking it.
+    Scripted must support this (mirror the _ScriptedLLM pattern in
+    test_chat_functional.py) so the graph wires up without crashing."""
+    from app.llm_factory import build_chat_model
+
+    llm = build_chat_model("scripted", "placeholder", temperature=0.0)
+    bound = llm.bind_tools([])
+    assert bound is llm
+
+
+def test_scripted_scenarios_dict_exposed() -> None:
+    """`SCRIPTED_SCENARIOS` is the per-scenario script registry — the matrix
+    runner can route a specific scenario_id to a richer canned trajectory if
+    needed. For Phase 3 we ship a minimal default; the dict's existence is
+    the API contract."""
+    from app.llm_factory import SCRIPTED_SCENARIOS
+
+    assert isinstance(SCRIPTED_SCENARIOS, dict)
+
+
+def test_supported_providers_includes_scripted() -> None:
+    """SUPPORTED_PROVIDERS contract update."""
+    from app.llm_factory import SUPPORTED_PROVIDERS
+
+    assert SUPPORTED_PROVIDERS == ("openai", "gemini", "deepseek", "kimi", "scripted")
+
+
+# ─── Plan 03-09 Task 1: CR-02 (fresh AIMessage) + IN-05 (self-documenting) ──
+
+
+def test_scripted_chat_model_returns_fresh_aimessage_each_call() -> None:
+    """CR-02 (BLOCKER) regression guard. Two `_generate` calls on an
+    empty-scripted ScriptedChatModel must return AIMessages that are NOT the
+    same Python object — otherwise LangGraph's `add_messages` reducer
+    deduplicates them by identity and the agent's revision loop spins until
+    `max_steps`. The previous module-level `_DEFAULT_SCRIPTED_FALLBACK`
+    singleton failed this test; the fix constructs a fresh AIMessage per call.
+    """
+    from app.llm_factory import ScriptedChatModel
+
+    m = ScriptedChatModel()
+    first = m._generate(messages=[]).generations[0].message
+    second = m._generate(messages=[]).generations[0].message
+    assert first is not second, (
+        "ScriptedChatModel._generate returned the same AIMessage instance twice "
+        "— LangGraph add_messages will dedupe these by identity and the agent "
+        "revision loop will spin to max_steps. Construct a fresh AIMessage per call."
+    )
+
+
+def test_scripted_chat_model_fallback_content_documents_ci_mode() -> None:
+    """IN-05 regression guard. The fallback content must self-document as
+    deterministic CI output so PR reviewers reading `summary.json` don't
+    misread it as a real model failure. The string cites both the marker
+    `[SCRIPTED CI MODE]` and the originating script `scripts/eval_matrix.py`.
+    """
+    from app.llm_factory import ScriptedChatModel
+
+    m = ScriptedChatModel()
+    msg = m._generate(messages=[]).generations[0].message
+    assert "[SCRIPTED CI MODE]" in msg.content
+    assert "scripts/eval_matrix.py" in msg.content
+
+
+def test_scripted_chat_model_consumes_scripted_list_when_nonempty() -> None:
+    """Existing pop-from-list-then-fallback semantics — unchanged behavior.
+    When `scripted` is non-empty the first call pops it; subsequent calls fall
+    back to the self-documenting `[SCRIPTED CI MODE]` placeholder.
+    """
+    from langchain_core.messages import AIMessage
+
+    from app.llm_factory import ScriptedChatModel
+
+    m = ScriptedChatModel(scripted=[AIMessage(content="hello")])
+    first = m._generate(messages=[]).generations[0].message
+    second = m._generate(messages=[]).generations[0].message
+    assert first.content == "hello"
+    assert "[SCRIPTED CI MODE]" in second.content
+
+
+# ─── Plan 03-13 / IN-03: scripted default uses default_factory ───────────────
+
+
+def test_scripted_chat_model_default_scripted_list_is_per_instance() -> None:
+    """IN-03 consistency guard. `scripted` defaults to an empty list, but two
+    fresh ScriptedChatModel instances must NOT share the same underlying list
+    object — otherwise pop()s on one instance leak into the other and break
+    the matrix runner's one-cell-per-subprocess isolation contract.
+
+    Pydantic v2 deep-copies a `list[AIMessage] = []` class-level default per
+    instance today, so this test currently passes either way; the test exists
+    to lock the contract against a future refactor (Pydantic version bump or
+    base-class swap) that flips that semantic.
+    """
+    from app.llm_factory import ScriptedChatModel
+
+    a = ScriptedChatModel()
+    b = ScriptedChatModel()
+    assert a.scripted is not b.scripted, (
+        "ScriptedChatModel.scripted must be per-instance; a shared default "
+        "would leak pop()s across the matrix runner's parallel cells."
+    )

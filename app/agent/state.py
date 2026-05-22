@@ -87,6 +87,17 @@ class UserConstraints(BaseModel):
             "in meters. Default ~30 min total walking at 80 m/min."
         ),
     )
+    requested_primary_types: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Per-slot expected Google primary_type values when the user "
+            "names category slots (e.g., 'omakase, then drinks, then "
+            "dessert'). Default [] preserves free-text behavior (D-01 / "
+            "D-03 contract: category_compliance scorer abstains when this "
+            "is empty). Read by app.agent.critique.checks.category_compliance "
+            "(EVAL-01) and by Phase 4's primary_type_family enforcement."
+        ),
+    )
 
 
 DEFAULT_STOP_DURATION_MIN: dict[str, int] = {
