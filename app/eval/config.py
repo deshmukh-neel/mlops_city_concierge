@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EVAL_QUERIES_PATH = Path("configs/eval_queries.yaml")
@@ -105,7 +105,7 @@ class EvalQuery(BaseModel):
 
     @field_validator("id", "query", "reference", mode="before")
     @classmethod
-    def strip_required_text(cls, value: object, info) -> str:
+    def strip_required_text(cls, value: object, info: ValidationInfo) -> str:
         """Trim required text fields and reject empty values."""
         return strip_non_empty(value, info.field_name)
 
@@ -203,13 +203,13 @@ class MatrixEntry(BaseModel):
 
     @field_validator("provider", "model", mode="before")
     @classmethod
-    def strip_required_text(cls, value: object, info) -> str:
+    def strip_required_text(cls, value: object, info: ValidationInfo) -> str:
         """Trim provider/model names and reject blanks (parity with EvalQuery)."""
         return strip_non_empty(value, info.field_name)
 
     @field_validator("provider", "model", mode="after")
     @classmethod
-    def reject_double_dash(cls, value: str, info) -> str:
+    def reject_double_dash(cls, value: str, info: ValidationInfo) -> str:
         """Reject `--` in provider/model strings (plan 03-08 / WR-01).
 
         `scripts/eval_matrix.py` uses `--` as the cell-filename separator
