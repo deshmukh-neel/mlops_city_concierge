@@ -20,6 +20,7 @@ from app.agent.critique.checks import (
     category_compliance_strict,
     constraints_satisfied,
     geographic_coherence,
+    is_rationale_aligned,
     itinerary_violations,
     no_hallucinated_place_ids,
     rationale_stop_alignment,
@@ -755,6 +756,118 @@ def test_rationale_stop_alignment_pure_function_no_db_access(mocker) -> None:
     )
     assert rationale_stop_alignment(state) == 1.0
     sentinel.assert_not_called()
+
+
+# --- is_rationale_aligned (public helper, plan 04-05) -----------------------
+# The per-stop boolean rule used by rationale_stop_alignment was extracted into
+# a public helper so the revision dispatcher (_first_misaligned_stop_index in
+# app/agent/revision.py) can call it without duplicating the rule. Tests below
+# pin (a) helper behavior on each branch and (b) byte-identical scorer behavior
+# pre/post extraction so the DRY refactor can't regress the existing scorer.
+
+
+def test_is_rationale_aligned_name_substring_match() -> None:
+    """Name appearing in the rationale (case-insensitive) -> True."""
+    stop = _stop(
+        "p1",
+        name="Lazy Bear",
+        rationale="Lazy Bear is excellent",
+        primary_type="American Restaurant",
+    )
+    assert is_rationale_aligned(stop) is True
+
+
+def test_is_rationale_aligned_family_keyword_match() -> None:
+    """No name match but a family keyword in rationale -> True."""
+    stop = _stop(
+        "p1",
+        name="Lazy Bear",
+        rationale="An intimate restaurant experience downtown",
+        primary_type="American Restaurant",
+    )
+    assert is_rationale_aligned(stop) is True
+
+
+def test_is_rationale_aligned_neither_match_returns_false() -> None:
+    """Closure-swap placeholder bleed: no name AND no family keyword -> False."""
+    stop = _stop(
+        "p1",
+        name="Lazy Bear",
+        rationale="Walking-distance alternative for Kaiseki Yuzu",
+        primary_type="American Restaurant",
+    )
+    assert is_rationale_aligned(stop) is False
+
+
+def test_is_rationale_aligned_none_primary_type_no_name_match() -> None:
+    """primary_type=None means we can't derive family keywords; name substring
+    is the only path. No name match -> False."""
+    stop = _stop(
+        "p1",
+        name="Mystery Spot",
+        rationale="A pleasant place with great vibes",
+        primary_type=None,
+    )
+    assert is_rationale_aligned(stop) is False
+
+
+def test_is_rationale_aligned_none_or_empty_rationale_returns_false() -> None:
+    """Defensive: empty rationale -> False (would crash on .lower() pre-extraction
+    if name were also None; the helper coerces None defensively)."""
+    # rationale="" branch
+    stop_empty = _stop(
+        "p1",
+        name="Lazy Bear",
+        rationale="",
+        primary_type="American Restaurant",
+    )
+    assert is_rationale_aligned(stop_empty) is False
+
+
+def test_rationale_stop_alignment_behavior_unchanged_after_extraction() -> None:
+    """REGRESSION (ADVISORY 3): pin rationale_stop_alignment's output on a fixed
+    fixture so the is_rationale_aligned extraction is byte-identical.
+
+    Fixture covers every branch of the per-stop rule:
+      - stop[0]: aligned by name substring (Sushi family)
+      - stop[1]: aligned by family-keyword 'cocktail' (Bar family)
+      - stop[2]: misaligned — closure-swap placeholder bleed (no name, no family kw)
+      - stop[3]: no primary_type and no name match — misaligned
+
+    Expected: 2 of 4 stops align -> 0.5. This is hand-computed against the
+    pre-extraction scorer body so any drift in is_rationale_aligned will trip.
+    """
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="Kaiseki Yuzu",
+                rationale="Kaiseki Yuzu offers a tasting menu",
+                primary_type="Sushi Restaurant",
+            ),
+            _stop(
+                "p2",
+                name="Stookey's",
+                rationale="Excellent cocktails in a vintage setting",
+                primary_type="Cocktail Bar",
+            ),
+            _stop(
+                "p3",
+                name="Lazy Bear",
+                rationale="Walking-distance alternative for Kaiseki Yuzu",
+                primary_type="American Restaurant",
+            ),
+            _stop(
+                "p4",
+                name="Mystery Spot",
+                rationale="A pleasant place with great vibes",
+                primary_type=None,
+            ),
+        ],
+    )
+    # Pin the exact pre-extraction value. matches=2 (p1 by name, p2 by 'cocktail'
+    # in bar family); total=4 -> 0.5.
+    assert rationale_stop_alignment(state) == 0.5
 
 
 # --- itinerary_violations aggregation ---------------------------------------
