@@ -8,39 +8,15 @@ so we catch shape mismatches that pure unit tests miss.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from fastapi.testclient import TestClient
-from langchain_core.callbacks import CallbackManagerForLLMRun
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import AIMessage
 
 from app.agent.graph import build_agent_graph
 from app.main import ActiveModelConfig, LoadedConfig, app
 from app.tools.directions import DirectionsLeg, DirectionsResult
 from app.tools.retrieval import PlaceHit
-
-
-class _ScriptedLLM(BaseChatModel):
-    scripted: list[AIMessage]
-
-    @property
-    def _llm_type(self) -> str:
-        return "scripted"
-
-    def _generate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        msg = self.scripted.pop(0)
-        return ChatResult(generations=[ChatGeneration(message=msg)])
-
-    def bind_tools(self, tools: Any, **kwargs: Any) -> _ScriptedLLM:
-        return self
+from tests._helpers.scripted_llm import ScriptedLLM
 
 
 def _stub_loaded_config() -> LoadedConfig:
@@ -115,7 +91,7 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
         # show the model would have stopped here anyway.
         AIMessage(content="Try Trick Dog.", tool_calls=[]),
     ]
-    fake_llm = _ScriptedLLM(scripted=list(scripted))
+    fake_llm = ScriptedLLM(scripted=list(scripted))
     real_graph = build_agent_graph(fake_llm, max_steps=4)
 
     mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
@@ -179,7 +155,7 @@ def test_commit_itinerary_rejects_ungrounded_place_ids(monkeypatch, mocker) -> N
         ),
         AIMessage(content="No grounded options.", tool_calls=[]),
     ]
-    real_graph = build_agent_graph(_ScriptedLLM(scripted=list(scripted)), max_steps=4)
+    real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=4)
 
     mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
@@ -291,7 +267,7 @@ def test_chat_retimes_arrival_with_real_directions(monkeypatch, mocker) -> None:
     )
     mocker.patch("app.agent.revision.itinerary_violations", lambda _s: [])
 
-    real_graph = build_agent_graph(_ScriptedLLM(scripted=_two_stop_script()), max_steps=6)
+    real_graph = build_agent_graph(ScriptedLLM(scripted=_two_stop_script()), max_steps=6)
     mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
 
@@ -330,7 +306,7 @@ def test_chat_directions_failure_keeps_haversine_reply(monkeypatch, mocker) -> N
     )
     mocker.patch("app.agent.revision.itinerary_violations", lambda _s: [])
 
-    real_graph = build_agent_graph(_ScriptedLLM(scripted=_two_stop_script()), max_steps=6)
+    real_graph = build_agent_graph(ScriptedLLM(scripted=_two_stop_script()), max_steps=6)
     mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
 
