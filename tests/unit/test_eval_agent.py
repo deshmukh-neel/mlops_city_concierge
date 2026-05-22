@@ -8,7 +8,7 @@ from dataclasses import asdict
 import pytest
 
 from app.agent.state import ItineraryState
-from app.eval.config import EvalQuery
+from app.eval.config import EvalQuery, ExpectedConstraints
 from scripts.eval_agent import (
     DETERMINISTIC_CHECKS,
     ActualEvalResult,
@@ -55,6 +55,32 @@ def eval_case(**overrides: object) -> EvalQuery:
     }
     payload.update(overrides)
     return EvalQuery.model_validate(payload)
+
+
+def test_expected_constraints_requested_primary_types_defaults_empty() -> None:
+    """Category-slot expectations are optional for backward-compatible eval cases."""
+    assert ExpectedConstraints().requested_primary_types == []
+
+
+def test_expected_constraints_accepts_requested_primary_types() -> None:
+    """Per-slot Google primary_type expectations parse as a list of strings."""
+    constraints = ExpectedConstraints(requested_primary_types=["Sushi Restaurant"])
+
+    assert constraints.requested_primary_types == ["Sushi Restaurant"]
+
+
+def test_expected_constraints_strips_blank_requested_primary_type_entries() -> None:
+    """The existing list validator should clean requested_primary_types too."""
+    constraints = ExpectedConstraints(requested_primary_types=["", "Sushi Restaurant"])
+
+    assert constraints.requested_primary_types == ["Sushi Restaurant"]
+
+
+def test_expected_constraints_keeps_single_shared_list_validator() -> None:
+    """ADVISORY 6: do not duplicate the ExpectedConstraints list validator."""
+    source = inspect.getsource(ExpectedConstraints)
+
+    assert source.count("def types_any_non_empty") == 1
 
 
 def query_result(**overrides: object) -> QueryEvalResult:
