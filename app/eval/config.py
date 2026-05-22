@@ -107,7 +107,7 @@ class EvalQuery(BaseModel):
     @classmethod
     def strip_required_text(cls, value: object, info: ValidationInfo) -> str:
         """Trim required text fields and reject empty values."""
-        return strip_non_empty(value, info.field_name)
+        return strip_non_empty(value, info.field_name or "field")
 
     @field_validator("tags")
     @classmethod
@@ -205,7 +205,7 @@ class MatrixEntry(BaseModel):
     @classmethod
     def strip_required_text(cls, value: object, info: ValidationInfo) -> str:
         """Trim provider/model names and reject blanks (parity with EvalQuery)."""
-        return strip_non_empty(value, info.field_name)
+        return strip_non_empty(value, info.field_name or "field")
 
     @field_validator("provider", "model", mode="after")
     @classmethod
