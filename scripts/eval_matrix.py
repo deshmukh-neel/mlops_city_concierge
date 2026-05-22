@@ -357,9 +357,8 @@ def run_matrix(
         scenarios=list(matrix.scenarios),
     )
     failures: list[dict[str, Any]] = []
-    # Build a fresh os.environ copy for each subprocess so settings @lru_cache
-    # state is isolated between providers. The matrix runner itself does NOT
-    # mutate os.environ.
+    # subprocess.run snapshots `env` for the child process, so a single
+    # os.environ.copy() shared across cells is safe (no in-loop mutation).
     child_env = os.environ.copy()
     for cell in iter_cells(effective_matrix, runs=runs):
         cell_path = output_dir / cell.cell_filename()
