@@ -56,6 +56,40 @@ def test_all_tools_instantiates() -> None:
     assert len(tools) == 5
 
 
+def test_retrieval_tools_expose_slot_index_schema() -> None:
+    from app.agent.tools import all_tools
+
+    tools = {tool.name: tool for tool in all_tools()}
+
+    for name in ("semantic_search", "nearby"):
+        field = tools[name].args_schema.model_fields["slot_index"]
+        assert field.default is None
+
+
+def test_retrieval_tools_ignore_slot_index_for_underlying_calls(monkeypatch) -> None:
+    from app.agent.tools import all_tools
+
+    captured: dict[str, dict] = {}
+
+    def _fake_semantic_search(**kwargs):
+        captured["semantic_search"] = kwargs
+        return []
+
+    def _fake_nearby(**kwargs):
+        captured["nearby"] = kwargs
+        return []
+
+    monkeypatch.setattr("app.agent.tools._semantic_search", _fake_semantic_search)
+    monkeypatch.setattr("app.agent.tools._nearby", _fake_nearby)
+
+    tools = {tool.name: tool for tool in all_tools()}
+    assert tools["semantic_search"].invoke({"query": "omakase", "slot_index": 0}) == []
+    assert tools["nearby"].invoke({"place_id": "p1", "slot_index": 1}) == []
+
+    assert captured["semantic_search"] == {"query": "omakase", "filters": None, "k": 8}
+    assert captured["nearby"] == {"place_id": "p1", "radius_m": 800, "filters": None, "k": 8}
+
+
 async def test_build_agent_graph_compiles_and_runs_happy_path() -> None:
     from app.agent.graph import build_agent_graph
     from app.agent.state import ItineraryState
