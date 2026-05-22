@@ -86,3 +86,24 @@ def test_resolve_llm_api_key_supports_deepseek_and_kimi(monkeypatch) -> None:
     get_settings.cache_clear()
     assert resolve_llm_api_key("deepseek") == "ds-key"
     assert resolve_llm_api_key("kimi") == "ms-key"
+
+
+def test_rag_model_override_defaults_none(monkeypatch) -> None:
+    """Unset RAG_MODEL_OVERRIDE -> Settings.rag_model_override is None.
+
+    Backward-compat sentinel (OVR-03): every existing test path must see None
+    so load_registered_rag_chain takes the 'production' alias branch.
+    """
+    monkeypatch.delenv("RAG_MODEL_OVERRIDE", raising=False)
+    get_settings.cache_clear()
+    assert get_settings().rag_model_override is None
+
+
+def test_rag_model_override_reads_env_var(monkeypatch) -> None:
+    """RAG_MODEL_OVERRIDE env var flows through pydantic-settings (OVR-01, OVR-05).
+
+    Uses monkeypatch.setenv, never os.environ[...] (OVR-05 contract).
+    """
+    monkeypatch.setenv("RAG_MODEL_OVERRIDE", "version:7")
+    get_settings.cache_clear()
+    assert get_settings().rag_model_override == "version:7"
