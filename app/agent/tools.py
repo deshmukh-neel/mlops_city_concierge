@@ -36,12 +36,16 @@ def semantic_search(
     query: str,
     filters: SearchFilters | None = None,
     k: int = 8,
+    slot_index: int | None = None,
 ) -> list[PlaceHit]:
     """Search for places by meaning + structured filters.
 
     Use this for queries like "romantic italian in north beach under $$$ open
     Sunday at 7pm". Prefer the structured `filters` argument over packing
     constraints into `query`.
+    Pass `slot_index = i` (0-based) when retrieving for stop *i* in a query
+    that named per-slot categories (e.g., 'omakase, then drinks, then dessert').
+    Leave None for free-text queries.
     """
     return _semantic_search(query=query, filters=filters, k=k)
 
@@ -51,9 +55,14 @@ def nearby(
     radius_m: int = 800,
     filters: SearchFilters | None = None,
     k: int = 8,
+    slot_index: int | None = None,
 ) -> list[PlaceHit]:
     """Find places within radius_m meters of an anchor place. Call this AFTER
-    you've picked a first stop and need a second stop within walking distance."""
+    you've picked a first stop and need a second stop within walking distance.
+    Pass `slot_index = i` (0-based) when retrieving for stop *i* in a query
+    that named per-slot categories (e.g., 'omakase, then drinks, then dessert').
+    Leave None for free-text queries.
+    """
     return _nearby(place_id=place_id, radius_m=radius_m, filters=filters, k=k)
 
 
@@ -123,11 +132,13 @@ def _args_schema_for(fn: Any):
 
 
 def _to_lc_tool(name: str, description: str, fn: Any) -> StructuredTool:
+    args_schema = _args_schema_for(fn)
+    fn.args_schema = args_schema
     return StructuredTool.from_function(
         name=name,
         description=description or "",
         func=fn,
-        args_schema=_args_schema_for(fn),
+        args_schema=args_schema,
     )
 
 
