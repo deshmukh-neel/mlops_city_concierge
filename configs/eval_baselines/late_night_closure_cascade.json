@@ -1,31 +1,116 @@
 {
-  "_status": "PENDING_USER_RUN — stub committed by plan 03-07. Run 'APP_ENV=eval make eval-matrix RUNS=3' locally with OPENAI_API_KEY + DEEPSEEK_API_KEY in .env, then post-process eval_reports/{ts}/summary.json into this file. Replace generated_at with the ISO timestamp, set generated_by='make eval-matrix RUNS=3', and fill each scorer with {median, min, max, stdev, n: 3} from summary.scenarios.late_night_closure_cascade.providers.{provider/model}.scorers.{scorer}.",
   "scenario_id": "late_night_closure_cascade",
-  "generated_at": null,
-  "generated_by": "PENDING_USER_RUN",
+  "generated_at": "2026-05-22T19-21-22Z",
+  "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
   "closure_check_confirmed": "2026-05-21",
   "providers": {
     "openai/gpt-4o-mini": {
       "scorers": {
-        "category_compliance": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "rationale_stop_alignment": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "constraints_satisfied": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "geographic_coherence": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "temporal_coherence": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "walking_budget_respected": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "no_hallucinated_place_ids": {"median": null, "min": null, "max": null, "stdev": null, "n": 3}
-      }
+        "category_compliance": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "constraints_satisfied": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "geographic_coherence": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "no_hallucinated_place_ids": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "rationale_stop_alignment": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "temporal_coherence": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "walking_budget_respected": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        }
+      },
+      "_observations": "Run 1 committed 3 stops cleanly (zero violations). Runs 0 and 2 made ZERO tool calls but their final_reply describes a full multi-stop itinerary in prose ('Beauty Bar' / 'Teeth Bar SF' at fabricated addresses) \u2014 confidently-wrong output with no grounding. committed_stop_count=0 catches it via expected_results violation, but the user-visible answer is hallucinated. Worth flagging as a separate bug class beyond Phase 4-6 scope (possibly: agent decides early it has enough info from system_prompt + reply directly without tool calls)."
     },
     "deepseek/deepseek-chat": {
       "scorers": {
-        "category_compliance": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "rationale_stop_alignment": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "constraints_satisfied": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "geographic_coherence": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "temporal_coherence": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "walking_budget_respected": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
-        "no_hallucinated_place_ids": {"median": null, "min": null, "max": null, "stdev": null, "n": 3}
-      }
+        "category_compliance": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "constraints_satisfied": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "geographic_coherence": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "no_hallucinated_place_ids": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "rationale_stop_alignment": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "temporal_coherence": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        },
+        "walking_budget_respected": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "stdev": 0.0,
+          "n": 3
+        }
+      },
+      "_observations": "All 3 runs committed 0 stops, hit step limit (21-24 tool calls). Same non-convergence pattern as the other scenarios."
     }
   }
 }
