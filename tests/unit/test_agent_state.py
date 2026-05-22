@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -12,6 +13,8 @@ from app.agent.state import (
     ClosureContext,
     ItineraryState,
     PlaceCard,
+    RevisionHint,
+    RevisionReason,
     Stop,
     UserConstraints,
     default_duration_for,
@@ -31,6 +34,20 @@ def test_itinerary_state_defaults() -> None:
     assert isinstance(state.constraints, UserConstraints)
     assert state.constraints.min_user_rating_count is None
     assert state.constraints.walking_budget_m == 2400
+
+
+def test_revision_reason_includes_rationale_misaligned() -> None:
+    assert "rationale_misaligned" in typing.get_args(RevisionReason)
+
+
+def test_revision_hint_accepts_rationale_misaligned() -> None:
+    hint = RevisionHint(
+        reason="rationale_misaligned",
+        detail="test",
+        suggested_action="swap_stop",
+        target={},
+    )
+    assert hint.reason == "rationale_misaligned"
 
 
 # ─── UserConstraints.requested_primary_types (Phase 3 D-01) ───
