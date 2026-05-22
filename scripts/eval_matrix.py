@@ -185,7 +185,10 @@ def _stats_for_values(values: Sequence[float]) -> dict[str, float | int]:
     }
 
 
-def aggregate_cell_jsons(output_dir: Path) -> dict[str, Any]:
+def aggregate_cell_jsons(
+    output_dir: Path,
+    llm_provider_override: str | None = None,
+) -> dict[str, Any]:
     """Build the cross-provider summary.json content from a directory of
     per-cell JSON reports (D-10 shape).
 
@@ -210,8 +213,16 @@ def aggregate_cell_jsons(output_dir: Path) -> dict[str, Any]:
                 }
               }
             }
-          }
+          },
+          "overridden_to": "<provider>"   # optional, IN-02
         }
+
+    When `llm_provider_override` is non-None, a top-level `overridden_to`
+    field is recorded so downstream diffs (PR review tooling, plan 03-07
+    baseline comparisons) can detect that per-provider keys reflect the
+    override target instead of the originally configured provider. The
+    per-provider scorer keys are NOT re-mapped by this field — they keep
+    whatever name `_apply_override` wrote into the cell filenames.
     """
     # Group raw scorer scores per (scenario_id, provider_label, scorer).
     grouped: dict[str, dict[str, dict[str, list[float]]]] = {}
@@ -250,10 +261,13 @@ def aggregate_cell_jsons(output_dir: Path) -> dict[str, Any]:
             }
         scenarios_out[scenario_id] = {"providers": providers_out}
 
-    return {
+    result: dict[str, Any] = {
         "generated_at": _iso_timestamp_filename_safe(),
         "scenarios": scenarios_out,
     }
+    if llm_provider_override is not None:
+        result["overridden_to"] = llm_provider_override
+    return result
 
 
 def write_summary_json(output_dir: Path) -> Path:
@@ -342,6 +356,13 @@ def run_matrix(
     3 behavior). The caller checks `failures` to know whether the matrix
     completed cleanly; the returncode is non-zero iff any cell failed.
     """
+    if llm_provider_override:
+        # IN-02: surface the rebind in CI logs so operators reading the run
+        # output can correlate per-provider summary keys to the override target.
+        _log.info(
+            "eval_matrix: --llm-provider-override=%s active; entries rebound",
+            llm_provider_override,
+        )
     effective_matrix = EvalMatrixConfig(
         entries=list(_apply_override(matrix.entries, llm_provider_override)),
         scenarios=list(matrix.scenarios),
@@ -474,8 +495,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     # Write summary.json regardless of failures (partial results are still
-    # informative for debugging).
-    summary = aggregate_cell_jsons(output_dir)
+    # informative for debugging). Thread the override through so summary.json
+    # records `overridden_to` for IN-02 traceability.
+    summary = aggregate_cell_jsons(output_dir, llm_provider_override=args.llm_provider_override)
     summary["failures"] = failures
     summary_path = output_dir / "summary.json"
     summary_path.write_text(
