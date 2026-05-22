@@ -40,8 +40,83 @@ from app.agent.state import ItineraryState, Stop
 from app.agent.swap import _inject_closure_exclusions, swap_closed_stops
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
 from app.tools.directions import route_legs
+from app.tools.filters import SearchFilters, family_of
 
 logger = logging.getLogger(__name__)
+
+
+def _inject_primary_type_family(
+    tool_name: str,
+    args: dict[str, Any],
+    requested_primary_types: list[str],
+) -> dict[str, Any]:
+    """Phase 4 D-04-04: write `filters.primary_type_family` for the slot when
+    the model cooperated by emitting `slot_index`.
+
+    Mirrors `_inject_closure_exclusions` (app/agent/swap.py:456-510) exactly
+    in shape and JSON-safety invariants:
+
+      - Returns a NEW args dict (never mutates the input).
+      - The result's `filters` value is ALWAYS a plain dict, NEVER a Pydantic
+        `SearchFilters` instance — the caller stores effective_args inside
+        AIMessage scratch, and `json.dumps(args)` must not crash on the next
+        plan() step (project memory `aimessage_tool_call_args_json_safe.md`).
+      - Noop on every defensive branch (D-04-06 trust boundary, fail-open on
+        unmappable types) so the model can decline cooperation without the
+        graph silently substituting a guess.
+
+    Routing rules:
+
+      - tool_name NOT in (semantic_search, nearby) -> noop. kg_traverse has no
+        `filters` arg; commit_itinerary takes a stops list; get_details has
+        only place_id. None of these accept primary_type_family.
+      - requested_primary_types empty -> noop (the user didn't structure their
+        request as per-slot categories).
+      - slot_index missing / None / not int -> noop (D-04-06 trust boundary;
+        the model declined to declare which slot this retrieval is for).
+      - slot_index < 0 or >= len(requested_primary_types) -> noop (defensive
+        against bad model output).
+      - family_of(requested_primary_types[slot_index]) is None -> noop
+        (fail-open consistent with the codebase pattern; unmappable keyword).
+
+    Otherwise: build `effective_args` with `filters.primary_type_family` set
+    to the family derived from the slot. When the model already wrote a
+    different `primary_type_family` into filters, the graph OVERWRITES it —
+    explicit enforcement per D-04-04 (T-04-03-05).
+    """
+    if tool_name not in ("semantic_search", "nearby"):
+        return dict(args)
+    if not requested_primary_types:
+        return dict(args)
+    slot_index = args.get("slot_index")
+    # `bool` is a subclass of `int` — reject it explicitly so True/False
+    # don't sneak in as indices.
+    if slot_index is None or not isinstance(slot_index, int) or isinstance(slot_index, bool):
+        return dict(args)
+    if slot_index < 0 or slot_index >= len(requested_primary_types):
+        return dict(args)
+    target_family = family_of(requested_primary_types[slot_index])
+    if target_family is None:
+        return dict(args)
+
+    new_args = dict(args)
+    existing_filters = new_args.get("filters")
+    if existing_filters is None:
+        base: dict[str, Any] = {}
+    elif isinstance(existing_filters, SearchFilters):
+        base = existing_filters.model_dump(exclude_none=True)
+    elif isinstance(existing_filters, dict):
+        # LangChain delivers `filters` as a plain dict in tool_call args.
+        # Round-trip through SearchFilters once for defensive validation
+        # (rejects unknown fields) then re-emit as a dict so the result
+        # stays JSON-serializable.
+        base = SearchFilters.model_validate(existing_filters).model_dump(exclude_none=True)
+    else:
+        # Unknown filters shape — fall back to dict() if possible, else empty.
+        base = dict(existing_filters) if hasattr(existing_filters, "__iter__") else {}
+    base["primary_type_family"] = target_family
+    new_args["filters"] = base
+    return new_args
 
 
 _RECENT_TOOL_EXCHANGES_KEPT = 2
