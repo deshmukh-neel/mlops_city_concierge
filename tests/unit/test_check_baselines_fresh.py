@@ -21,9 +21,10 @@ and keeps the test suite hermetic.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -272,3 +273,114 @@ def test_non_baseline_json_under_eval_baselines_does_not_satisfy_gate(
     )
     rc = script.main(["origin/main"])
     assert rc == 1, "non-.json file under eval_baselines must not satisfy the gate"
+
+
+# ─── WR-02 loud-fail regression tests (Plan 03-10) ────────────────────────
+#
+# Unlike the truth-table tests above (which monkeypatch `_run_git` wholesale
+# to drive the four pass/fail branches), the tests in this section exercise
+# the real `_run_git` itself by patching one level deeper — `subprocess.run`
+# inside the script module's namespace. This pins the loud-fail contract:
+#
+#   - rc != 0 from git           → RuntimeError naming the argv + stderr
+#   - missing git binary         → RuntimeError naming `git`
+#   - explicit empty BASE_SHA    → non-zero exit (no silent origin/main fallback)
+#   - rc == 0 happy path         → stdout returned unchanged (backward compat pin)
+
+
+def test_run_git_raises_on_nonzero_return_code(
+    monkeypatch: pytest.MonkeyPatch, script: ModuleType
+) -> None:
+    """`_run_git` must raise RuntimeError when git exits non-zero.
+
+    Current behaviour silently swallows the rc and returns stdout (which is
+    empty when git failed) — meaning a missing/shallow `origin/main` ref or
+    a bogus BASE_SHA quietly passes the gate. The hard-gate posture is
+    loud-fail: the error message must carry the rc, the argv, and stderr
+    so an operator can diagnose without re-running locally.
+    """
+    fake_stderr = "fatal: bad revision 'origin/main'"
+
+    def fake_subprocess_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(returncode=128, stdout="", stderr=fake_stderr)
+
+    monkeypatch.setattr(script.subprocess, "run", fake_subprocess_run)
+    with pytest.raises(RuntimeError) as excinfo:
+        script._run_git(["diff", "--name-only", "abc...HEAD"])
+
+    msg = str(excinfo.value)
+    assert "128" in msg, f"rc not surfaced in error: {msg!r}"
+    assert "git diff" in msg or "diff" in msg, f"argv not surfaced in error: {msg!r}"
+    assert "fatal: bad revision" in msg, f"stderr not surfaced in error: {msg!r}"
+
+
+def test_run_git_raises_actionable_error_when_git_binary_missing(
+    monkeypatch: pytest.MonkeyPatch, script: ModuleType
+) -> None:
+    """`_run_git` must convert FileNotFoundError into an actionable RuntimeError.
+
+    On a CI image without git installed (or with a $PATH mangled by an env
+    block), `subprocess.run(["git", ...])` raises FileNotFoundError. The
+    current implementation lets that bubble untouched, which is a confusing
+    Python traceback for a missing-tool failure. The contract: re-raise as
+    RuntimeError naming `git` so an operator immediately knows to install it.
+    """
+
+    def fake_subprocess_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        raise FileNotFoundError("[Errno 2] No such file or directory: 'git'")
+
+    monkeypatch.setattr(script.subprocess, "run", fake_subprocess_run)
+    with pytest.raises(RuntimeError) as excinfo:
+        script._run_git(["status"])
+
+    msg = str(excinfo.value)
+    assert "git" in msg.lower(), f"git not named in error: {msg!r}"
+
+
+def test_main_exits_non_zero_when_base_sha_is_empty_string(
+    capsys: pytest.CaptureFixture[str], script: ModuleType
+) -> None:
+    """Explicit empty-string BASE_SHA must NOT silently fall back to origin/main.
+
+    A misconfigured CI workflow could conceivably emit the empty string from
+    `${{ github.event.pull_request.base.sha }}` (e.g. on workflow_dispatch
+    where pull_request context is absent). Current behaviour: the empty
+    string is falsy so `_resolve_base` silently returns `origin/main`. New
+    contract: empty-string positional is rejected loudly with a non-zero
+    exit code (no subprocess invocation needed — should fail before the
+    first git call).
+    """
+    rc = script.main([""])
+    assert rc != 0, "empty-string positional BASE_SHA must NOT silently pass"
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "BASE_SHA" in combined or "base_sha" in combined or "empty" in combined.lower(), (
+        f"empty-BASE_SHA error not surfaced to operator: out={captured.out!r} err={captured.err!r}"
+    )
+
+
+def test_run_git_still_returns_stdout_on_success(
+    monkeypatch: pytest.MonkeyPatch, script: ModuleType
+) -> None:
+    """Backward-compat pin: rc == 0 still returns stdout verbatim.
+
+    The 9 existing tests monkeypatch `_run_git` wholesale (they never reach
+    the real `subprocess.run` path), so without this test the rc == 0 happy
+    path inside `_run_git` itself is untested after the WR-02 refactor.
+    """
+
+    def fake_subprocess_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(returncode=0, stdout="path1.py\npath2.py\n", stderr="")
+
+    monkeypatch.setattr(script.subprocess, "run", fake_subprocess_run)
+    out = script._run_git(["diff", "--name-only", "abc...HEAD"])
+    assert out == "path1.py\npath2.py\n"
+
+
+# Keep `subprocess` import referenced even if a future refactor removes the
+# patch-target indirection above (currently subprocess.run is patched via
+# `script.subprocess.run` which is the script module's own `subprocess`
+# binding — the top-level `subprocess` import here documents intent and
+# stays available for any future test that wants to patch the stdlib module
+# directly).
+_ = subprocess
