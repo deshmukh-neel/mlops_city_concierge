@@ -637,6 +637,11 @@ def test_final_with_caveats_handles_empty_body() -> None:
         # With num_stops=3 and 2 stops committed, the deficit drives "add".
         ("stop_count_satisfied", "stop_count_mismatch", "add_missing_stops"),
         ("no_hallucinated_place_ids", "hallucinated_place_id", "swap_stop"),
+        # rationale_stop_alignment maps to rationale_misaligned (plan 04-05).
+        # The model rewrites the rationale (not the stop), but `swap_stop` is
+        # the existing RevisionAction vocabulary the model already understands.
+        # The differentiator is the reason key.
+        ("rationale_stop_alignment", "rationale_misaligned", "swap_stop"),
         ("unknown_check_name", "constraint_unmet_in_final", "swap_stop"),
     ],
 )
@@ -648,8 +653,26 @@ def test_hint_for_violation_maps_each_check(
     a `constraint_unmet_in_final` hint rather than crash."""
     from app.agent.revision import _hint_for_violation
 
+    # The rationale_stop_alignment branch reads stop.rationale + stop.name to
+    # locate the offending stop. The fixture stops need rationales that fail
+    # is_rationale_aligned (closure-swap placeholder bleed) so the dispatcher
+    # has something to point at — otherwise it would return stop_index=0 as a
+    # defensive fallback, which is also acceptable but less realistic.
     state = ItineraryState(
-        stops=[make_stop("p1", name="A"), make_stop("p2", name="B")],
+        stops=[
+            make_stop(
+                "p1",
+                name="A",
+                rationale="Walking-distance alternative for X",
+                primary_type="American Restaurant",
+            ),
+            make_stop(
+                "p2",
+                name="B",
+                rationale="Walking-distance alternative for Y",
+                primary_type="American Restaurant",
+            ),
+        ],
         constraints=UserConstraints(num_stops=3),
     )
     hint = _hint_for_violation(check, state)
@@ -670,6 +693,168 @@ def test_stop_count_mismatch_action_is_directional() -> None:
     hint = _hint_for_violation("stop_count_satisfied", state)
     assert hint.reason == "stop_count_mismatch"
     assert hint.suggested_action == "remove_extra_stops"
+
+
+# -------- rationale_misaligned dispatch (plan 04-05) --------------------------
+
+
+def test_first_misaligned_stop_index_returns_first_offender() -> None:
+    """Walk state.stops, return the index of the first stop that fails
+    is_rationale_aligned. With stop[0] aligned by name and stop[1] carrying
+    the closure-swap placeholder, the helper returns 1."""
+    from app.agent.revision import _first_misaligned_stop_index
+
+    state = ItineraryState(
+        stops=[
+            make_stop(
+                "p1",
+                name="Kaiseki Yuzu",
+                rationale="Kaiseki Yuzu offers a tasting menu",
+                primary_type="Sushi Restaurant",
+            ),
+            make_stop(
+                "p2",
+                name="Stookey's",
+                rationale="Walking-distance alternative for Kaiseki Yuzu",
+                primary_type="Cocktail Bar",
+            ),
+        ],
+    )
+    assert _first_misaligned_stop_index(state) == 1
+
+
+def test_first_misaligned_stop_index_handles_none_primary_type() -> None:
+    """A stop with primary_type=None and no name substring is misaligned —
+    helper must not crash on None and must return that index."""
+    from app.agent.revision import _first_misaligned_stop_index
+
+    state = ItineraryState(
+        stops=[
+            make_stop(
+                "p1",
+                name="Mystery Spot",
+                rationale="A pleasant place with great vibes",
+                primary_type=None,
+            ),
+        ],
+    )
+    assert _first_misaligned_stop_index(state) == 0
+
+
+def test_first_misaligned_stop_index_empty_stops_returns_zero() -> None:
+    """Defensive fallback: the dispatcher should never reach this branch with
+    empty stops (itinerary_violations doesn't fire on empty), but the helper
+    MUST return a sensible value rather than raise IndexError."""
+    from app.agent.revision import _first_misaligned_stop_index
+
+    assert _first_misaligned_stop_index(ItineraryState(stops=[])) == 0
+
+
+def test_hint_for_violation_rationale_misaligned_targets_stop_index() -> None:
+    """RevisionHint.target carries the 0-based stop_index so downstream
+    observers (and the model itself, via the HumanMessage) can locate the
+    offending stop."""
+    from app.agent.revision import _hint_for_violation
+
+    state = ItineraryState(
+        stops=[
+            make_stop(
+                "p1",
+                name="Kaiseki Yuzu",
+                rationale="Kaiseki Yuzu offers a tasting menu",
+                primary_type="Sushi Restaurant",
+            ),
+            make_stop(
+                "p2",
+                name="Lazy Bear",
+                rationale="Walking-distance alternative for Kaiseki Yuzu",
+                primary_type="American Restaurant",
+            ),
+        ],
+    )
+    hint = _hint_for_violation("rationale_stop_alignment", state)
+    assert hint.reason == "rationale_misaligned"
+    assert hint.target == {"stop_index": 1}
+    # 1-indexed in the user-facing detail string (matches existing hint style).
+    assert "Stop 2" in hint.detail
+
+
+async def test_revision_emits_rationale_misaligned_on_closure_placeholder_bleed(
+    monkeypatch,
+) -> None:
+    """Functional test (plan 04-05 Task 2): when itinerary_violations reports
+    rationale_stop_alignment, critique_final_with_stops must emit a
+    rationale_misaligned RevisionHint, bump the revision_counts key, and emit
+    a HumanMessage carrying the CRITIQUE_ITINERARY prefix so the next plan()
+    step has the cue.
+    """
+    from app.agent.critique import CRITIQUE_ITINERARY
+    from app.agent.revision import critique_final_with_stops
+
+    # Force itinerary_violations to report exactly the rationale check failing.
+    monkeypatch.setattr(
+        "app.agent.revision.itinerary_violations",
+        lambda _state: ["rationale_stop_alignment"],
+    )
+
+    state = ItineraryState(
+        messages=[HumanMessage(content="plan a date")],
+        stops=[
+            make_stop(
+                "p1",
+                name="Lazy Bear",
+                rationale="Walking-distance alternative for Kaiseki Yuzu",
+                primary_type="American Restaurant",
+            ),
+        ],
+    )
+    out = critique_final_with_stops(state, last=None, judge_llm=None)
+
+    assert out["done"] is False
+    hints = out["revision_hints"]
+    assert hints[-1].reason == "rationale_misaligned"
+    assert hints[-1].target == {"stop_index": 0}
+    assert hints[-1].suggested_action == "swap_stop"
+    # Budget key is the check name (rationale_stop_alignment), NOT the hint
+    # reason — keeps the new reason's budget independent of other reasons.
+    assert out["revision_counts"]["rationale_stop_alignment"] == 1
+    # The HumanMessage carries the CRITIQUE_ITINERARY prefix and the check name
+    # so the next plan() turn gets the cue.
+    msg = out["messages"][0]
+    assert CRITIQUE_ITINERARY in msg.content
+    assert "rationale_stop_alignment" in msg.content
+
+
+async def test_revision_rationale_misaligned_respects_retry_budget(
+    monkeypatch,
+) -> None:
+    """Once revision_counts['rationale_stop_alignment'] hits the budget cap,
+    critique_final_with_stops must SHIP the misaligned rationale (with caveats)
+    rather than infinite-loop on the same hint."""
+    from app.agent.revision import critique_final_with_stops
+
+    monkeypatch.setattr(
+        "app.agent.revision.itinerary_violations",
+        lambda _state: ["rationale_stop_alignment"],
+    )
+
+    state = ItineraryState(
+        messages=[HumanMessage(content="plan a date")],
+        stops=[
+            make_stop(
+                "p1",
+                name="Lazy Bear",
+                rationale="Walking-distance alternative for Kaiseki Yuzu",
+                primary_type="American Restaurant",
+            ),
+        ],
+        revision_counts={"rationale_stop_alignment": MAX_REVISIONS_PER_REASON},
+    )
+    out = critique_final_with_stops(state, last=AIMessage(content="best plan"), judge_llm=None)
+
+    assert out["done"] is True
+    # Falls through to caveats path — the existing _final_with_caveats contract.
+    assert "Caveats:" in out["final_reply"]
 
 
 async def test_diagnose_pairs_by_tool_call_id() -> None:
