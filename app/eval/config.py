@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EVAL_QUERIES_PATH = Path("configs/eval_queries.yaml")
+DEFAULT_EVAL_MATRIX_PATH = Path("configs/eval_matrix.yaml")
 
 
 def strip_non_empty(value: object, field_name: str) -> str:
@@ -100,6 +101,7 @@ class EvalQuery(BaseModel):
     expected_walking_budget_m: int | None = Field(default=None, gt=0)
     expects_clarification_or_relaxation: bool = False
     tags: list[str] = Field(default_factory=list)
+    turns: list[str] | None = None
 
     @field_validator("id", "query", "reference", mode="before")
     @classmethod
@@ -112,6 +114,18 @@ class EvalQuery(BaseModel):
     def tags_non_empty(cls, value: list[str]) -> list[str]:
         """Keep tags normalized for filtering and reporting."""
         return strip_non_empty_list(value, "tags")
+
+    @field_validator("turns")
+    @classmethod
+    def turns_non_empty_when_present(cls, value: list[str] | None) -> list[str] | None:
+        """Multi-turn scripted scenarios (EVAL-03): None means single-turn
+        (backward compat for the 29 existing cases). When provided, the list
+        must be non-empty and every turn must be a non-blank trimmed string."""
+        if value is None:
+            return None
+        if len(value) == 0:
+            raise ValueError("turns must be omitted (None) or contain at least one follow-up turn")
+        return strip_non_empty_list(value, "turns")
 
     @model_validator(mode="after")
     def normal_cases_have_expected_stops(self) -> EvalQuery:
@@ -172,3 +186,76 @@ def load_eval_queries(path: str | Path = DEFAULT_EVAL_QUERIES_PATH) -> EvalQueri
     if not isinstance(raw, dict):
         raise ValueError("Eval query config must be a YAML mapping.")
     return EvalQueriesConfig.model_validate(raw)
+
+
+class MatrixEntry(BaseModel):
+    """One (provider, model) pair in the cross-provider eval matrix.
+
+    The matrix is anchored to openai/gpt-4o-mini + deepseek/deepseek-chat
+    for v2.0 (D-06) but this model does not hard-code those — the YAML
+    config carries the concrete pairs.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    model: str
+
+    @field_validator("provider", "model", mode="before")
+    @classmethod
+    def strip_required_text(cls, value: object, info) -> str:
+        """Trim provider/model names and reject blanks (parity with EvalQuery)."""
+        return strip_non_empty(value, info.field_name)
+
+
+class EvalMatrixConfig(BaseModel):
+    """Top-level config for the cross-provider eval matrix runner (EVAL-04).
+
+    Mirrors the EvalQueriesConfig shape (extra='forbid', strip_non_empty
+    validators, uniqueness check) so the two configs stay structurally
+    consistent for callers.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[MatrixEntry] = Field(min_length=1)
+    scenarios: list[str] = Field(min_length=1)
+
+    @field_validator("scenarios")
+    @classmethod
+    def scenarios_non_empty(cls, value: list[str]) -> list[str]:
+        """Scenario ids reference EvalQuery.id — reject blanks at load time."""
+        return strip_non_empty_list(value, "scenarios")
+
+    @model_validator(mode="after")
+    def entries_are_unique(self) -> EvalMatrixConfig:
+        """Same (provider, model) twice would double-bill the same run and
+        skew the cross-provider median. Mirror EvalQueriesConfig.ids_are_unique."""
+        keys = [(entry.provider, entry.model) for entry in self.entries]
+        if len(keys) != len(set(keys)):
+            raise ValueError("entries must be unique by (provider, model)")
+        return self
+
+
+def resolve_eval_matrix_path(path: str | Path) -> Path:
+    """Resolve a matrix config path relative to the repository root when needed."""
+    config_path = Path(path)
+    if config_path.is_absolute():
+        return config_path
+    return REPO_ROOT / config_path
+
+
+def load_eval_matrix(path: str | Path = DEFAULT_EVAL_MATRIX_PATH) -> EvalMatrixConfig:
+    """Load and validate the cross-provider eval matrix YAML.
+
+    Mirrors load_eval_queries exactly so callers can swap loaders without
+    surprise. The matrix YAML file (configs/eval_matrix.yaml) ships in the
+    matrix-runner plan (03-05); this loader lands here so downstream plans
+    can import it now.
+    """
+    config_path = resolve_eval_matrix_path(path)
+    with config_path.open("r", encoding="utf-8") as config_file:
+        raw = yaml.safe_load(config_file)
+    if not isinstance(raw, dict):
+        raise ValueError("Eval matrix config must be a YAML mapping.")
+    return EvalMatrixConfig.model_validate(raw)
