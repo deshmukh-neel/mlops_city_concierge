@@ -8,7 +8,8 @@ from dataclasses import asdict
 import pytest
 
 from app.agent.state import ItineraryState
-from app.eval.config import EvalQuery, ExpectedConstraints
+from app.eval.config import EvalQuery, ExpectedConstraints, load_eval_queries
+from app.tools.filters import family_of
 from scripts.eval_agent import (
     DETERMINISTIC_CHECKS,
     ActualEvalResult,
@@ -81,6 +82,38 @@ def test_expected_constraints_keeps_single_shared_list_validator() -> None:
     source = inspect.getsource(ExpectedConstraints)
 
     assert source.count("def _strip_non_empty_list") == 1
+
+
+@pytest.mark.parametrize(
+    ("case_id", "expected"),
+    [
+        (
+            "omakase_mission_open_ended",
+            ["Sushi Restaurant", "Cocktail Bar", "Dessert Shop"],
+        ),
+        (
+            "refinement_cheaper",
+            ["Restaurant", "Cocktail Bar", "Dessert Shop"],
+        ),
+    ],
+)
+def test_eval_queries_target_cases_declare_requested_primary_types(
+    case_id: str,
+    expected: list[str],
+) -> None:
+    """Live eval YAML should carry authoritative per-slot category expectations."""
+    cases = {case.id: case for case in load_eval_queries("configs/eval_queries.yaml").hand_written}
+    requested = cases[case_id].expected_constraints.requested_primary_types
+
+    assert requested == expected
+    assert all(family_of(value) is not None for value in requested)
+
+
+def test_eval_queries_late_night_closure_cascade_has_no_requested_primary_types() -> None:
+    """D-04-12: late-night closure remains tracked but ungated for Phase 4."""
+    cases = {case.id: case for case in load_eval_queries("configs/eval_queries.yaml").hand_written}
+
+    assert cases["late_night_closure_cascade"].expected_constraints.requested_primary_types == []
 
 
 def query_result(**overrides: object) -> QueryEvalResult:
