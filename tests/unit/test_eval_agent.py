@@ -636,6 +636,17 @@ def _finalize_msg(content: str) -> AIMessage:
     return AIMessage(content=content, tool_calls=[])
 
 
+class CapturingGraph:
+    """Small eval-agent test double that records every invoked state."""
+
+    def __init__(self) -> None:
+        self.states: list[ItineraryState] = []
+
+    async def ainvoke(self, state: ItineraryState) -> ItineraryState:
+        self.states.append(state)
+        return state.model_copy(update={"final_reply": "captured"})
+
+
 @pytest.mark.asyncio
 async def test_evaluate_case_single_turn_unchanged(mocker) -> None:
     """Backward-compat regression guard: EvalQuery.turns=None must run
@@ -656,6 +667,46 @@ async def test_evaluate_case_single_turn_unchanged(mocker) -> None:
     assert len(llm.seen) == 1
     # Single-turn path must NOT inject the multi_turn_runner synthetic error.
     assert all("multi_turn_runner" not in err for err in result.deterministic.tool_errors)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_case_passes_requested_primary_types_to_state() -> None:
+    """Eval bypasses prod intake and copies YAML slot expectations into state."""
+    graph = CapturingGraph()
+    case = eval_case(
+        expected_constraints={"requested_primary_types": ["Sushi Restaurant"]},
+    )
+
+    await evaluate_case(graph, case)
+
+    assert graph.states[0].constraints.requested_primary_types == ["Sushi Restaurant"]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_case_defaults_empty_requested_primary_types() -> None:
+    """Cases without slot expectations keep the UserConstraints default."""
+    graph = CapturingGraph()
+
+    await evaluate_case(graph, eval_case())
+
+    assert graph.states[0].constraints.requested_primary_types == []
+
+
+@pytest.mark.asyncio
+async def test_evaluate_multi_turn_passes_requested_primary_types_to_every_turn() -> None:
+    """Multi-turn eval rebuilds constraints on every graph invocation."""
+    graph = CapturingGraph()
+    case = eval_case(
+        expected_constraints={"requested_primary_types": ["Restaurant", "Cocktail Bar"]},
+        turns=["make stop 2 cheaper"],
+    )
+
+    await evaluate_case(graph, case)
+
+    assert [state.constraints.requested_primary_types for state in graph.states] == [
+        ["Restaurant", "Cocktail Bar"],
+        ["Restaurant", "Cocktail Bar"],
+    ]
 
 
 @pytest.mark.asyncio
