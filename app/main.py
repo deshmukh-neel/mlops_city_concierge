@@ -167,28 +167,21 @@ def parse_active_model_config(
     )
 
 
-_OVERRIDE_FORMAT_HINT = (
-    "RAG_MODEL_OVERRIDE must be 'version:N' or 'alias:NAME'; got {raw!r}. "
-    "version:N is recommended (alias:NAME re-resolves per request and can race "
-    "with alias moves)."
-)
-
-
 def _parse_model_override(raw: str) -> tuple[Literal["version", "alias"], str]:
-    """Parse RAG_MODEL_OVERRIDE into (kind, value).
+    """Parse RAG_MODEL_OVERRIDE into (kind, value); accepts 'version:N' or 'alias:NAME'.
 
-    Accepts 'version:N' or 'alias:NAME'. Whitespace around the value is stripped
-    (env exports from shells sometimes leak stray spaces). Empty input and any
-    other shape raises ValueError with an actionable message naming both valid
-    forms — the caller is responsible for short-circuiting on None / unset
-    before invoking this helper.
+    Whitespace around the value is stripped (shell exports leak stray spaces).
+    Empty input and any other shape raises ValueError. Caller is responsible
+    for short-circuiting on None / unset before invoking this helper.
     """
-    if not raw or ":" not in raw:
-        raise ValueError(_OVERRIDE_FORMAT_HINT.format(raw=raw))
-    prefix, _, value = raw.partition(":")
+    prefix, sep, value = raw.partition(":")
     value = value.strip()
-    if prefix not in ("version", "alias") or not value:
-        raise ValueError(_OVERRIDE_FORMAT_HINT.format(raw=raw))
+    if not sep or prefix not in ("version", "alias") or not value:
+        raise ValueError(
+            f"RAG_MODEL_OVERRIDE must be 'version:N' or 'alias:NAME'; got {raw!r}. "
+            "version:N is recommended (alias:NAME re-resolves per request "
+            "and can race with alias moves)."
+        )
     return prefix, value  # type: ignore[return-value]
 
 
@@ -199,16 +192,39 @@ def load_registered_rag_chain() -> LoadedConfig:
     mlflow.set_tracking_uri(tracking_uri)
     client = mlflow.MlflowClient(tracking_uri=tracking_uri)
 
-    try:
-        model_version = client.get_model_version_by_alias(
-            settings.mlflow_model_name,
-            "production",
+    # RAG_MODEL_OVERRIDE routes /chat through a candidate version/alias without
+    # touching the shared "production" alias. version:N is recommended; alias:NAME
+    # re-resolves on every load and can race if someone moves the alias mid-eval.
+    raw_override = (settings.rag_model_override or "").strip()
+    if raw_override:
+        kind, value = _parse_model_override(raw_override)
+        try:
+            model_version = (
+                client.get_model_version(settings.mlflow_model_name, value)
+                if kind == "version"
+                else client.get_model_version_by_alias(settings.mlflow_model_name, value)
+            )
+        except Exception as exc:  # pragma: no cover - exercised via startup tests
+            raise RuntimeError(
+                f"Unable to load MLflow model for RAG_MODEL_OVERRIDE={raw_override!r}."
+            ) from exc
+        logger.info(
+            "load_registered_rag_chain: using override kind=%s value=%s version=%s",
+            kind,
+            value,
+            model_version.version,
         )
-    except Exception as exc:  # pragma: no cover - exercised via startup tests
-        raise RuntimeError(
-            "Unable to load the MLflow production alias for "
-            f"registered model '{settings.mlflow_model_name}'."
-        ) from exc
+    else:
+        try:
+            model_version = client.get_model_version_by_alias(
+                settings.mlflow_model_name,
+                "production",
+            )
+        except Exception as exc:  # pragma: no cover - exercised via startup tests
+            raise RuntimeError(
+                "Unable to load the MLflow production alias for "
+                f"registered model '{settings.mlflow_model_name}'."
+            ) from exc
 
     run = client.get_run(model_version.run_id)
     config = parse_active_model_config(
