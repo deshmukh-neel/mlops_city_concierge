@@ -5,8 +5,10 @@ from dataclasses import dataclass
 import pytest
 
 from app.agent.input_parsing import (
+    SlotExtractionResult,
     explicit_num_stops_from_conversation,
     explicit_num_stops_from_text,
+    has_slot_structure,
     parse_closure_decision,
 )
 
@@ -151,3 +153,61 @@ def test_conversation_bare_number_after_question_loses_to_history_explicit_count
 )
 def test_parse_closure_decision(text: str, expected: str) -> None:
     assert parse_closure_decision(text) == expected
+
+
+# ─── has_slot_structure (Phase 4 / D-04-01) ──────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # Positives — comma-separated vocab list (2+ distinct vocab words)
+        ("dinner, drinks, dessert", True),
+        ("dinner, drinks, dessert in Hayes Valley around 7pm Saturday", True),
+        # Positives — "X then Y [then Z]" pattern
+        ("omakase then ramen then dessert", True),
+        ("omakase followed by ramen", True),
+        # Positives — numbered structure
+        ("1. dinner spot 2. drinks", True),
+        ("1) dinner spot 2) drinks", True),
+        # Positives — vocab + planning verb (omakase + plan an / 3 stops shape)
+        ("Plan an omakase night in the Mission, 3 stops", True),
+        # Negatives — single-slot free text
+        ("plan me a date", False),
+        ("find good tacos in the mission", False),
+        ("affordable italian", False),
+        # Edge — empty string
+        ("", False),
+        # Edge — repeated SAME vocab word should not count as 2 distinct
+        ("dinner dinner dinner", False),
+        # Negative — non-vocab comma list (e.g. address components)
+        ("San Francisco, CA, USA", False),
+    ],
+)
+def test_has_slot_structure(text: str, expected: bool) -> None:
+    assert has_slot_structure(text) is expected
+
+
+def test_has_slot_structure_regexes_compile_at_module_load() -> None:
+    """The regex constants must be module-level (compiled once) — verifiable
+    by importing the module and checking the attribute is a compiled pattern,
+    not a function call result."""
+    import re as _re
+
+    from app.agent import input_parsing as _ip
+
+    assert isinstance(_ip._THEN_PATTERN_RE, _re.Pattern)
+    assert isinstance(_ip._NUMBERED_SLOT_RE, _re.Pattern)
+    assert isinstance(_ip._SLOT_VOCAB_RE, _re.Pattern)
+
+
+def test_slot_extraction_result_default_constructs_with_empty_list() -> None:
+    s = SlotExtractionResult()
+    assert s.requested_primary_types == []
+
+
+def test_slot_extraction_result_accepts_title_case_primary_types() -> None:
+    s = SlotExtractionResult(
+        requested_primary_types=["Sushi Restaurant", "Cocktail Bar", "Dessert Shop"]
+    )
+    assert s.requested_primary_types == ["Sushi Restaurant", "Cocktail Bar", "Dessert Shop"]
