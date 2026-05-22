@@ -241,6 +241,31 @@ poetry run python scripts/log_model_to_mlflow.py \
    ```
 4. Restart the app — it loads the `production` alias at startup.
 
+### Model Override
+
+`RAG_MODEL_OVERRIDE` lets a developer or eval runner route `/chat` through a
+candidate MLflow model without touching the shared `production` alias.
+
+```bash
+# Recommended: pin to a specific numeric version
+RAG_MODEL_OVERRIDE=version:7 poetry run uvicorn app.main:app --reload
+
+# Also supported: a named alias
+RAG_MODEL_OVERRIDE=alias:my-test-alias poetry run uvicorn app.main:app --reload
+```
+
+`version:N` is the recommended form: `alias:NAME` re-resolves on every load and
+can race if a teammate moves the alias mid-eval. Use named aliases only when you
+need a moving target (e.g. a `staging` alias that auto-tracks the latest registered
+version).
+
+Confirm the override took effect by looking for the `load_registered_rag_chain:
+using override kind=... version=...` INFO log line at startup, or hit `/health`
+and check `chat_model`.
+
+Unsetting the variable (or restarting without it) falls back to the `production`
+alias — full backward compatibility.
+
 ## Common Commands
 
 Run `make help` to see all targets.
