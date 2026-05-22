@@ -16,6 +16,7 @@ import pytest
 
 from app.agent.critique.checks import (
     CRITIQUE_THRESHOLDS,
+    category_compliance,
     constraints_satisfied,
     geographic_coherence,
     itinerary_violations,
@@ -83,15 +84,19 @@ def _stop(
     arrival: datetime | None = None,
     lat: float | None = None,
     lng: float | None = None,
+    name: str | None = None,
+    rationale: str = "",
+    primary_type: str | None = None,
 ) -> Stop:
     return Stop(
         place_id=place_id,
-        name=place_id.upper(),
+        name=name if name is not None else place_id.upper(),
         source="google_places",
-        rationale="",
+        rationale=rationale,
         arrival_time=arrival,
         latitude=lat,
         longitude=lng,
+        primary_type=primary_type,
     )
 
 
@@ -319,6 +324,134 @@ def test_constraints_satisfied_skips_hallucinated_pids(patch_db) -> None:
     assert constraints_satisfied(state) == 1.0
 
 
+# --- category_compliance (EVAL-01) ------------------------------------------
+# Pure-function scorer: no DB access. D-03 abstain contract = return 1.0 when
+# the user didn't name category slots (requested_primary_types == []).
+
+
+def test_category_compliance_abstains_when_no_requested_types() -> None:
+    """D-03 abstain contract: empty requested_primary_types -> 1.0."""
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=[]),
+        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+    )
+    assert category_compliance(state) == 1.0
+
+
+def test_category_compliance_returns_one_for_empty_stops() -> None:
+    """Fail-open: no committed stops -> 1.0 (nothing to score)."""
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[],
+    )
+    assert category_compliance(state) == 1.0
+
+
+def test_category_compliance_single_exact_family_match() -> None:
+    """Same exact primary_type -> family matches -> 1.0."""
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+    )
+    assert category_compliance(state) == 1.0
+
+
+def test_category_compliance_multi_slot_all_match() -> None:
+    """Per-index family match across multiple slots -> 1.0."""
+    state = ItineraryState(
+        constraints=UserConstraints(
+            requested_primary_types=["Sushi Restaurant", "Cocktail Bar"],
+        ),
+        stops=[
+            _stop("p1", primary_type="Sushi Restaurant"),
+            _stop("p2", primary_type="Cocktail Bar"),
+        ],
+    )
+    assert category_compliance(state) == 1.0
+
+
+def test_category_compliance_family_mismatch_single_stop() -> None:
+    """Family mismatch (restaurant vs bar) -> 0.0."""
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[_stop("p1", primary_type="Cocktail Bar")],
+    )
+    assert category_compliance(state) == 0.0
+
+
+def test_category_compliance_partial_match_two_slots() -> None:
+    """One of two slots matches: requested=[restaurant, bar], stops=[restaurant, cafe]."""
+    state = ItineraryState(
+        constraints=UserConstraints(
+            requested_primary_types=["Sushi Restaurant", "Cocktail Bar"],
+        ),
+        stops=[
+            _stop("p1", primary_type="Sushi Restaurant"),
+            _stop("p2", primary_type="Coffee Shop"),  # cafe family, not bar
+        ],
+    )
+    assert category_compliance(state) == 0.5
+
+
+def test_category_compliance_length_mismatch_more_stops_than_requested() -> None:
+    """More committed stops than named slots: extras are mismatches (denom = max).
+
+    requested=[restaurant], stops=[restaurant, bar] -> 1 match / 2 = 0.5.
+    Documented in scorer docstring: scoring the overlap and penalizing the gap
+    prevents an agent from gaming the scorer by committing extra stops.
+    """
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[
+            _stop("p1", primary_type="Sushi Restaurant"),
+            _stop("p2", primary_type="Cocktail Bar"),
+        ],
+    )
+    assert category_compliance(state) == 0.5
+
+
+def test_category_compliance_length_mismatch_fewer_stops_than_requested() -> None:
+    """Fewer committed stops than named slots: missing slots count as mismatches.
+
+    requested=[restaurant, bar], stops=[restaurant] -> 1 match / 2 = 0.5.
+    """
+    state = ItineraryState(
+        constraints=UserConstraints(
+            requested_primary_types=["Sushi Restaurant", "Cocktail Bar"],
+        ),
+        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+    )
+    assert category_compliance(state) == 0.5
+
+
+def test_category_compliance_none_primary_type_is_mismatch() -> None:
+    """primary_type=None can't be scored as a match — score as mismatch (strict)."""
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[_stop("p1", primary_type=None)],
+    )
+    assert category_compliance(state) == 0.0
+
+
+def test_category_compliance_registered_in_thresholds() -> None:
+    """CRITIQUE_THRESHOLDS must include the new key so itinerary_violations
+    knows the cutoff."""
+    assert "category_compliance" in CRITIQUE_THRESHOLDS
+    assert CRITIQUE_THRESHOLDS["category_compliance"] == 1.0
+
+
+def test_category_compliance_pure_function_no_db_access(mocker) -> None:
+    """Smoke test that the scorer does NOT touch the DB — if get_conn is
+    called the test fails. Pure-state scorers must not regress into DB calls."""
+    sentinel = mocker.patch("app.agent.critique.checks.get_conn")
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Cocktail Bar"]),
+        stops=[_stop("p1", primary_type="Cocktail Bar")],
+    )
+    assert category_compliance(state) == 1.0
+    sentinel.assert_not_called()
+
+
 # --- itinerary_violations aggregation ---------------------------------------
 
 
@@ -345,11 +478,12 @@ def test_stop_count_satisfied_checks_explicit_request() -> None:
 
 
 def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
-    """Order matters: hallucination first, then stop count, temporal, geo,
-    walking, then constraints. Mocks each check independently so we can assert
-    the order."""
+    """Order matters: hallucination first, then stop count, category compliance,
+    temporal, geo, walking, then constraints. Mocks each check independently so
+    we can assert the order."""
     mocker.patch("app.agent.critique.checks.no_hallucinated_place_ids", return_value=0.0)
     mocker.patch("app.agent.critique.checks.stop_count_satisfied", return_value=0.0)
+    mocker.patch("app.agent.critique.checks.category_compliance", return_value=0.0)
     mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=0.0)
     mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=0.5)
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=0.0)
@@ -358,6 +492,7 @@ def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
     assert itinerary_violations(state) == [
         "no_hallucinated_place_ids",
         "stop_count_satisfied",
+        "category_compliance",
         "temporal_coherence",
         "geographic_coherence",
         "walking_budget_respected",
@@ -369,6 +504,7 @@ def test_itinerary_violations_empty_when_all_pass(mocker) -> None:
     for fn in (
         "no_hallucinated_place_ids",
         "stop_count_satisfied",
+        "category_compliance",
         "temporal_coherence",
         "geographic_coherence",
         "walking_budget_respected",
@@ -387,6 +523,7 @@ def test_itinerary_violations_fails_open_on_db_error(mocker) -> None:
         side_effect=RuntimeError("db down"),
     )
     mocker.patch("app.agent.critique.checks.stop_count_satisfied", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.category_compliance", return_value=1.0)
     mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=1.0)
     mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=1.0)
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=1.0)
@@ -402,5 +539,6 @@ def test_thresholds_are_strict_enough() -> None:
     assert CRITIQUE_THRESHOLDS["no_hallucinated_place_ids"] == 1.0
     assert CRITIQUE_THRESHOLDS["stop_count_satisfied"] == 1.0
     assert CRITIQUE_THRESHOLDS["walking_budget_respected"] == 1.0
+    assert CRITIQUE_THRESHOLDS["category_compliance"] == 1.0
     # Constraint satisfaction has wiggle room — not every constraint is hard.
     assert CRITIQUE_THRESHOLDS["constraints_satisfied"] == 0.8
