@@ -99,22 +99,23 @@ train-simple-model: ## Train a simple baseline model from places data
 
 # ─── Eval (Plan 03-05 / EVAL-10) ──────────────────────────────────────────────
 # Parameter variables — override on the command line.
-#   make eval-agent PROVIDER=openai MODEL=gpt-4o-mini RUNS=1 SCENARIOS=omakase_mission_open_ended
+#   make eval-agent PROVIDER=openai MODEL=gpt-4o-mini QUERIES=1 SCENARIOS=omakase_mission_open_ended
 #   make eval-matrix RUNS=3
 #   make eval-matrix LLM_OVERRIDE=scripted   (CI mode — no APP_ENV gate needed)
 PROVIDER ?= scripted
 MODEL ?= placeholder
 RUNS ?= 1
+QUERIES ?= 1
 SCENARIOS ?=
 LLM_OVERRIDE ?=
 
 .PHONY: eval-agent
-eval-agent: ## Run scripts/eval_agent.py once (PROVIDER/MODEL/RUNS/SCENARIOS params)
+eval-agent: ## Run scripts/eval_agent.py once (PROVIDER/MODEL/QUERIES/SCENARIOS params)
 	$(POETRY_RUN) python scripts/eval_agent.py \
 	  --llm-provider $(PROVIDER) \
 	  --chat-model $(MODEL) \
 	  $(if $(SCENARIOS),--scenario-ids $(SCENARIOS),) \
-	  --max-queries $(RUNS)
+	  --max-queries $(QUERIES)
 
 .PHONY: eval-matrix
 eval-matrix: ## Run cross-provider matrix (LLM_OVERRIDE=scripted for CI; RUNS=3 default)
