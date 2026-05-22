@@ -733,3 +733,139 @@ async def test_multi_turn_tool_calls_are_json_safe(mocker) -> None:
                     # be541a3: never mutate tc["args"]; the next plan()
                     # step re-serializes the whole AIMessage for the API.
                     json.dumps(tc["args"])
+
+
+# ─── Plan 03-05 Task 1: --llm-provider scripted + --scenario-ids ─────────────
+
+
+def test_parse_args_accepts_scripted_provider() -> None:
+    """EVAL-09 / P4: scripted is a first-class --llm-provider choice."""
+    from scripts.eval_agent import parse_args
+
+    args = parse_args(["--llm-provider", "scripted"])
+    assert args.llm_provider == "scripted"
+
+
+def test_parse_args_accepts_scenario_ids_flag() -> None:
+    """--scenario-ids is comma-separated; default None means 'run all cases'."""
+    from scripts.eval_agent import parse_args
+
+    args = parse_args(["--llm-provider", "openai", "--scenario-ids", "case_one,case_two"])
+    # Either a list or a comma string is acceptable as long as filter_cases
+    # below honors it. The spec says "comma-separated list".
+    assert args.scenario_ids == ["case_one", "case_two"]
+
+
+def test_parse_args_scenario_ids_defaults_to_none() -> None:
+    """Forward-compatible: omitting --scenario-ids must keep existing CLI
+    usage (no filter) working exactly as before."""
+    from scripts.eval_agent import parse_args
+
+    args = parse_args(["--llm-provider", "openai"])
+    assert args.scenario_ids is None
+
+
+def test_parse_args_scenario_ids_strips_blanks() -> None:
+    """Comma-trim semantics: ' a , , b ' -> ['a', 'b']."""
+    from scripts.eval_agent import parse_args
+
+    args = parse_args(["--llm-provider", "scripted", "--scenario-ids", " a , , b "])
+    assert args.scenario_ids == ["a", "b"]
+
+
+def test_resolve_chat_model_scripted_needs_no_env_vars(monkeypatch) -> None:
+    """resolve_chat_model('scripted', None) MUST NOT call get_settings or
+    read env vars — the CI matrix run sets no keys."""
+    for key in (
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "MOONSHOT_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    # If scripted leaked into a real settings lookup, this would crash.
+    model = resolve_chat_model("scripted", None)
+    assert isinstance(model, str)
+    assert model  # non-empty sentinel
+
+
+def test_resolve_chat_model_scripted_passes_through_cli_value() -> None:
+    """A user-supplied --chat-model is still honored for scripted (it's a
+    label in the report; the actual model isn't used)."""
+    assert resolve_chat_model("scripted", "my-label") == "my-label"
+
+
+def test_build_eval_llm_scripted_returns_basechatmodel(monkeypatch) -> None:
+    """build_eval_llm('scripted', ...) returns a usable BaseChatModel with
+    no env-var dependencies."""
+    for key in ("OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "MOONSHOT_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    from langchain_core.language_models import BaseChatModel
+
+    from scripts.eval_agent import build_eval_llm
+
+    llm = build_eval_llm("scripted", "placeholder", 0.0)
+    assert isinstance(llm, BaseChatModel)
+
+
+def test_selected_cases_filters_by_scenario_ids() -> None:
+    """When scenario_ids is provided, selected_cases keeps only matching IDs."""
+    from scripts.eval_agent import selected_cases
+
+    cases = [
+        eval_case(id="case_one"),
+        eval_case(id="case_two"),
+        eval_case(id="case_three"),
+    ]
+    filtered = selected_cases(cases, None, scenario_ids=["case_two"])
+    assert [c.id for c in filtered] == ["case_two"]
+
+
+def test_selected_cases_scenario_ids_preserves_yaml_order() -> None:
+    """Filter preserves YAML order even when --scenario-ids lists them
+    differently — deterministic baselines depend on stable order."""
+    from scripts.eval_agent import selected_cases
+
+    cases = [eval_case(id="a"), eval_case(id="b"), eval_case(id="c")]
+    filtered = selected_cases(cases, None, scenario_ids=["c", "a"])
+    assert [c.id for c in filtered] == ["a", "c"]
+
+
+def test_selected_cases_scenario_ids_returns_empty_when_no_match() -> None:
+    """Unknown scenario id returns an empty list (rather than crashing) so
+    the matrix runner sees zero queries and writes a clean empty report."""
+    from scripts.eval_agent import selected_cases
+
+    cases = [eval_case(id="a"), eval_case(id="b")]
+    filtered = selected_cases(cases, None, scenario_ids=["nonexistent"])
+    assert filtered == []
+
+
+def test_selected_cases_scenario_ids_takes_precedence_with_max_queries() -> None:
+    """When both --max-queries N and --scenario-ids are provided, scenario
+    filter is applied; max_queries N then slices the filtered list."""
+    from scripts.eval_agent import selected_cases
+
+    cases = [
+        eval_case(id="a"),
+        eval_case(id="b"),
+        eval_case(id="c"),
+        eval_case(id="d"),
+    ]
+    filtered = selected_cases(cases, max_queries=2, scenario_ids=["a", "c", "d"])
+    assert [c.id for c in filtered] == ["a", "c"]
+
+
+def test_selected_cases_backward_compat_without_scenario_ids() -> None:
+    """Existing call sites that don't pass scenario_ids continue to work."""
+    from scripts.eval_agent import selected_cases
+
+    cases = [eval_case(id="a"), eval_case(id="b")]
+    # No scenario_ids arg at all — pre-03-05 signature is preserved.
+    assert selected_cases(cases, None) == cases

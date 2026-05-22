@@ -52,7 +52,11 @@ def test_build_chat_model_rejects_unknown_provider(mocker, monkeypatch) -> None:
 
 
 def test_supported_providers_is_the_contract() -> None:
-    assert SUPPORTED_PROVIDERS == ("openai", "gemini", "deepseek", "kimi")
+    # Plan 03-05 extends the contract with 'scripted' (EVAL-09 / P4) — the
+    # CI-safe deterministic branch that needs no API key and makes no network
+    # calls. See test_supported_providers_includes_scripted for the explicit
+    # named guard.
+    assert SUPPORTED_PROVIDERS == ("openai", "gemini", "deepseek", "kimi", "scripted")
 
 
 def test_deepseek_disables_thinking_for_tool_calls(mocker, monkeypatch) -> None:
@@ -181,3 +185,93 @@ def test_kimi_empty_content_only_assistant_gets_placeholder(monkeypatch) -> None
     assistant = [m for m in payload["messages"] if m.get("role") == "assistant"]
     assert assistant, "expected an assistant message in the payload"
     assert assistant[0]["content"], "empty content-only assistant must be replaced"
+
+
+# ─── Plan 03-05 Task 1: scripted provider (EVAL-09 / P4) ─────────────────────
+
+
+def test_scripted_provider_is_in_supported_providers() -> None:
+    """SUPPORTED_PROVIDERS now includes 'scripted' — the CI-safe deterministic
+    branch that needs no API key and makes no network calls."""
+    from app.llm_factory import SUPPORTED_PROVIDERS
+
+    assert "scripted" in SUPPORTED_PROVIDERS
+
+
+def test_build_chat_model_scripted_needs_no_env_vars(monkeypatch) -> None:
+    """EVAL-09 / P4: `build_chat_model('scripted', ...)` MUST succeed without
+    any provider API key set. The CI matrix run sets no keys; if scripted
+    leaked into resolve_llm_api_key, this test would crash."""
+    for key in (
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "MOONSHOT_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    from app.llm_factory import build_chat_model
+
+    llm = build_chat_model("scripted", "placeholder", temperature=0.0)
+    assert llm is not None
+    # Must satisfy the BaseChatModel contract so the agent graph can bind tools.
+    from langchain_core.language_models import BaseChatModel
+
+    assert isinstance(llm, BaseChatModel)
+
+
+def test_scripted_chat_model_is_importable_directly() -> None:
+    """`ScriptedChatModel` is importable from app.llm_factory so tests can
+    construct it with custom scripted messages."""
+    from app.llm_factory import ScriptedChatModel
+
+    assert ScriptedChatModel is not None
+
+
+def test_scripted_chat_model_returns_finalize_only_aimessage(monkeypatch) -> None:
+    """Default-fallback script for unknown scenarios: emit one AIMessage with
+    NO tool_calls, so the agent graph reaches a clean termination in one
+    plan() step (plan -> critique -> finalize_as_is -> END)."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from app.llm_factory import build_chat_model
+
+    llm = build_chat_model("scripted", "placeholder", temperature=0.0)
+    response = llm.invoke([HumanMessage(content="anything")])
+    assert isinstance(response, AIMessage)
+    assert not response.tool_calls, "fallback script must NOT emit tool_calls"
+
+
+def test_scripted_chat_model_bind_tools_returns_self() -> None:
+    """The agent graph calls .bind_tools(...) on the LLM before invoking it.
+    Scripted must support this (mirror the _ScriptedLLM pattern in
+    test_chat_functional.py) so the graph wires up without crashing."""
+    from app.llm_factory import build_chat_model
+
+    llm = build_chat_model("scripted", "placeholder", temperature=0.0)
+    bound = llm.bind_tools([])
+    assert bound is llm
+
+
+def test_scripted_scenarios_dict_exposed() -> None:
+    """`SCRIPTED_SCENARIOS` is the per-scenario script registry — the matrix
+    runner can route a specific scenario_id to a richer canned trajectory if
+    needed. For Phase 3 we ship a minimal default; the dict's existence is
+    the API contract."""
+    from app.llm_factory import SCRIPTED_SCENARIOS
+
+    assert isinstance(SCRIPTED_SCENARIOS, dict)
+
+
+def test_supported_providers_includes_scripted() -> None:
+    """SUPPORTED_PROVIDERS contract update."""
+    from app.llm_factory import SUPPORTED_PROVIDERS
+
+    assert SUPPORTED_PROVIDERS == ("openai", "gemini", "deepseek", "kimi", "scripted")

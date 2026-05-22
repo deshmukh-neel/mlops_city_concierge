@@ -42,7 +42,7 @@ from app.eval.config import (  # noqa: E402
     load_eval_queries,
 )
 
-LlmProvider = Literal["openai", "gemini", "deepseek", "kimi"]
+LlmProvider = Literal["openai", "gemini", "deepseek", "kimi", "scripted"]
 CheckFunction = Callable[[ItineraryState], float]
 
 DETERMINISTIC_CHECKS: dict[str, CheckFunction] = {
@@ -155,9 +155,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--llm-provider",
-        choices=["openai", "gemini"],
+        choices=["openai", "gemini", "deepseek", "kimi", "scripted"],
         default="openai",
-        help="Candidate LLM provider to evaluate.",
+        help=(
+            "Candidate LLM provider to evaluate. 'scripted' is the CI-safe "
+            "deterministic no-network branch (EVAL-09 / P4); it needs no "
+            "API key and emits canned messages."
+        ),
     )
     parser.add_argument(
         "--chat-model",
@@ -173,6 +177,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Limit the number of hand-written eval cases for a quick smoke run.",
     )
     parser.add_argument(
+        "--scenario-ids",
+        type=_parse_scenario_ids,
+        default=None,
+        help=(
+            "Comma-separated EvalQuery.id list to filter cases (default: run "
+            "all hand_written cases). The matrix runner (scripts/eval_matrix.py) "
+            "shells out one cell per scenario_id via this flag."
+        ),
+    )
+    parser.add_argument(
         "--output",
         default=None,
         help="Optional path for the JSON report. The report is always printed to stdout.",
@@ -180,10 +194,30 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _parse_scenario_ids(value: str) -> list[str]:
+    """Parse the --scenario-ids comma-separated flag into a list of IDs.
+
+    Empty entries and whitespace-only entries are dropped so callers can
+    pass ' a , , b ' without surprises. An empty string yields an empty
+    list (rather than None); the CLI default of None is honored by argparse
+    only when the flag is omitted entirely.
+    """
+    return [token.strip() for token in value.split(",") if token.strip()]
+
+
 def resolve_chat_model(provider: LlmProvider, chat_model: str | None) -> str:
-    """Resolve the candidate chat model from CLI input or environment settings."""
+    """Resolve the candidate chat model from CLI input or environment settings.
+
+    'scripted' is the no-network deterministic provider (EVAL-09 / P4): it
+    never reads env vars or calls get_settings (which can crash without
+    OPENAI_API_KEY etc.). The chat_model is purely an informational label
+    in the eval report — when omitted, we use a stable sentinel.
+    """
     if chat_model and chat_model.strip():
         return chat_model.strip()
+    if provider == "scripted":
+        # No env-var lookups; chat_model is a label, not a real model name.
+        return "scripted-default"
     settings = get_settings()
     if provider == "openai":
         return settings.openai_chat_model
@@ -209,13 +243,33 @@ def build_eval_llm(provider: LlmProvider, chat_model: str, temperature: float) -
     return build_chat_model(provider, chat_model, temperature=temperature)
 
 
-def selected_cases(cases: list[EvalQuery], max_queries: int | None) -> list[EvalQuery]:
-    """Return the hand-written eval cases selected for this run."""
+def selected_cases(
+    cases: list[EvalQuery],
+    max_queries: int | None,
+    scenario_ids: list[str] | None = None,
+) -> list[EvalQuery]:
+    """Return the hand-written eval cases selected for this run.
+
+    Filter precedence (Plan 03-05 / EVAL-09):
+      1. If `scenario_ids` is provided, drop every case whose `id` is not in
+         the list. YAML order is preserved; unknown IDs are silently
+         dropped (so the matrix runner sees an empty list and writes a
+         clean empty report rather than crashing).
+      2. After scenario filtering, `max_queries` slices the head of the
+         remaining list.
+
+    Backward compat: omitting `scenario_ids` (the default) leaves the
+    pre-03-05 max_queries-only behavior unchanged.
+    """
+    selected = cases
+    if scenario_ids is not None:
+        wanted = set(scenario_ids)
+        selected = [case for case in selected if case.id in wanted]
     if max_queries is None:
-        return cases
+        return selected
     if max_queries < 1:
         raise ValueError("--max-queries must be greater than zero when provided")
-    return cases[:max_queries]
+    return selected[:max_queries]
 
 
 def state_from_graph_output(raw: Any) -> ItineraryState:
@@ -692,7 +746,11 @@ async def build_report(args: argparse.Namespace) -> EvalRunReport:
     provider = args.llm_provider
     chat_model = resolve_chat_model(provider, args.chat_model)
     eval_config = load_eval_queries(args.eval_queries)
-    cases = selected_cases(eval_config.hand_written, args.max_queries)
+    cases = selected_cases(
+        eval_config.hand_written,
+        args.max_queries,
+        scenario_ids=getattr(args, "scenario_ids", None),
+    )
     llm = build_eval_llm(provider, chat_model, args.temperature)
     start_time = time.monotonic()
     results = await evaluate_cases(cases, llm, max_steps=args.max_steps)
