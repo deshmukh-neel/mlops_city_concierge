@@ -125,6 +125,7 @@ def query_result(**overrides: object) -> QueryEvalResult:
     """
     checks = {
         "category_compliance": CheckResult(score=1.0, threshold=1.0, passed=True),
+        "category_compliance_strict": CheckResult(score=1.0, threshold=1.0, passed=True),
         "constraints_satisfied": CheckResult(score=1.0, threshold=0.8, passed=True),
         "geographic_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
         "no_hallucinated_place_ids": CheckResult(score=1.0, threshold=1.0, passed=True),
