@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.agent.critique.checks import CRITIQUE_THRESHOLDS
 from app.eval.config import (
     DEFAULT_EVAL_MATRIX_PATH,
     EvalMatrixConfig,
@@ -137,16 +138,32 @@ def _scorer_means_from_cell(payload: dict[str, Any]) -> dict[str, float]:
     Plan 03-07 baselines diff on per-scorer median across runs; we only
     aggregate scorer-mean values here. The cell-level mean already collapses
     per-query variance to a single number per scorer.
+
+    Whitelist contract (plan 03-08 / CR-01): only emits scorer names whose
+    key is registered in `app.agent.critique.checks.CRITIQUE_THRESHOLDS`. The
+    existing `results_mean`, `tool_calls_mean`, `contexts_mean`,
+    `revision_hints_mean`, `committed_stops_mean`, and
+    `answer_retrieved_place_coverage_mean` aggregate keys are intentionally
+    excluded — they are cell-level diagnostics, not scorers, and including
+    them would pollute summary.json and the Phase 4-6 baseline-diff target.
+
+    bool exclusion (plan 03-08 / IN-04): `bool` is a subclass of `int`, so
+    `isinstance(value, int | float)` matches `True`/`False`. Exclude bools
+    explicitly so a stray bool in the aggregate dict does not become a
+    scorer score of 1.0 or 0.0.
     """
     aggregate = payload.get("aggregate") or {}
     out: dict[str, float] = {}
     for key, value in aggregate.items():
         if not isinstance(key, str) or not key.endswith("_mean"):
             continue
-        if not isinstance(value, int | float):
+        # bool is a subclass of int — exclude it before the numeric check (IN-04).
+        if not isinstance(value, int | float) or isinstance(value, bool):
             continue
         scorer_name = key[: -len("_mean")]
-        out[scorer_name] = float(value)
+        # Whitelist against CRITIQUE_THRESHOLDS — admit only registered scorers (CR-01).
+        if scorer_name in CRITIQUE_THRESHOLDS:
+            out[scorer_name] = float(value)
     return out
 
 
