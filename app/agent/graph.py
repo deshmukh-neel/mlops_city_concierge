@@ -318,9 +318,10 @@ def build_agent_graph(
                     )
                 )
                 continue
-            # Belt-and-suspenders: merge closure-context exclusions into the
-            # tool args at the SQL layer. The prompt guidance in
-            # _constraints_context is an optimization; this is enforcement.
+            # Belt-and-suspenders: merge closure-context exclusions AND
+            # per-slot primary_type_family into the tool args at the SQL
+            # layer. The prompt guidance in _constraints_context is an
+            # optimization; this is enforcement.
             #
             # CRITICAL: never reassign `tc["args"]`. `tc` references a dict
             # INSIDE the AIMessage stored on state.messages — the next plan()
@@ -330,10 +331,24 @@ def build_agent_graph(
             # serializable". Compute `effective_args` locally instead so the
             # injected args drive `tool.invoke` and the scratch record while
             # the AIMessage stays untouched.
+            #
+            # Phase 4 D-04-04: chain the primary_type_family helper on top of
+            # closure-exclusions. Both helpers emit JSON-safe dicts so the
+            # chain composition stays JSON-safe end-to-end. The slot_index
+            # strip then drops the marker arg before tool.invoke because the
+            # underlying retrieval functions don't take it (and the strip is
+            # a NO-OP for tool calls without a slot_index key, e.g.,
+            # kg_traverse — see ADVISORY 4).
             if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
                 effective_args = _inject_closure_exclusions(
                     tc["name"], tc["args"], state.closure_context
                 )
+                effective_args = _inject_primary_type_family(
+                    tc["name"],
+                    effective_args,
+                    list(state.constraints.requested_primary_types),
+                )
+                effective_args = {k: v for k, v in effective_args.items() if k != "slot_index"}
             else:
                 effective_args = tc["args"]
             try:

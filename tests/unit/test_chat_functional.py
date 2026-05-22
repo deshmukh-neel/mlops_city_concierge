@@ -319,3 +319,122 @@ def test_chat_directions_failure_keeps_haversine_reply(monkeypatch, mocker) -> N
     # Finalize-on-commit: reply synthesized from stops, no caveat (clean pass).
     assert body["reply"].startswith("Here's your itinerary:")
     assert "Bar One" in body["reply"] and "Bar Two" in body["reply"]
+
+
+def test_chat_graph_injects_primary_type_family_for_slot(monkeypatch, mocker) -> None:
+    """Phase 4 D-04-04 end-to-end: when the state carries
+    requested_primary_types and the LLM emits slot_index on a retrieval tool
+    call, the graph injects primary_type_family on the way to the underlying
+    retrieval — observable in state.scratch.
+
+    This is the production-/chat-layer proof that the graph-layer enforcement
+    plumbs through the full FastAPI request stack. Wiring of
+    requested_primary_types from the user message lives in Plan 04-06; for
+    this functional test we monkeypatch app.main.UserConstraints so the
+    constraints arrive pre-populated, isolating the graph-injection contract.
+    """
+    captured_scratch: dict = {}
+
+    monkeypatch.setattr(
+        "app.agent.tools._semantic_search",
+        lambda **_kw: [
+            PlaceHit(
+                place_id="p1",
+                name="Sushi Spot",
+                source="google_places",
+                similarity=0.9,
+                latitude=37.77,
+                longitude=-122.41,
+                rating=4.6,
+                price_level="PRICE_LEVEL_MODERATE",
+                business_status="OPERATIONAL",
+                primary_type="Sushi Restaurant",
+                formatted_address="123 Mission St, San Francisco",
+                snippet=None,
+            )
+        ],
+    )
+
+    # Inject requested_primary_types into UserConstraints via a thin shim so
+    # the production /chat handler's ItineraryState build picks them up
+    # without needing Plan 04-06's intake pipeline.
+    from app.agent.state import UserConstraints as _RealUserConstraints
+
+    def _make_constraints(**kwargs):
+        kwargs.setdefault("requested_primary_types", ["Sushi Restaurant"])
+        return _RealUserConstraints(**kwargs)
+
+    monkeypatch.setattr("app.main.UserConstraints", _make_constraints)
+
+    scripted = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "semantic_search",
+                    "id": "call-slot-0",
+                    "args": {"query": "omakase", "slot_index": 0},
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "commit_itinerary",
+                    "id": "call-commit",
+                    "args": {
+                        "stops": [
+                            {
+                                "place_id": "p1",
+                                "name": "Sushi Spot",
+                                "rationale": "Sushi Restaurant in Mission",
+                                "source": "google_places",
+                                "primary_type": "Sushi Restaurant",
+                            }
+                        ]
+                    },
+                }
+            ],
+        ),
+        AIMessage(content="Try Sushi Spot.", tool_calls=[]),
+    ]
+    real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=4)
+
+    # Capture the final state's scratch to assert injection. We wrap
+    # graph.ainvoke so the captured scratch is the post-graph state.
+    real_ainvoke = real_graph.ainvoke
+
+    async def _capturing_ainvoke(state, **kw):
+        result = await real_ainvoke(state, **kw)
+        captured_scratch["scratch"] = (
+            result.scratch if hasattr(result, "scratch") else result.get("scratch")
+        )
+        return result
+
+    real_graph.ainvoke = _capturing_ainvoke  # type: ignore[assignment]
+
+    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+    mocker.patch("app.main.build_agent_graph", return_value=real_graph)
+    # Per project memory full_suite_db_pool_contamination.md: the
+    # itinerary_violations call activates the live DB pool in full-suite runs.
+    # Stub it out so this functional test is hermetic.
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={"message": "plan an omakase night, slot 0"},
+        )
+
+    assert response.status_code == 200
+    # The graph recorded the post-injection effective_args in scratch.
+    semantic_search_entries = (captured_scratch.get("scratch") or {}).get("semantic_search") or []
+    assert semantic_search_entries, "graph never recorded a semantic_search call"
+    recorded_args = semantic_search_entries[0]["args"]
+    assert isinstance(recorded_args.get("filters"), dict), (
+        f"filters must round-trip as a dict, got {type(recorded_args.get('filters')).__name__}"
+    )
+    assert recorded_args["filters"]["primary_type_family"] == "restaurant"
+    # The slot_index marker was stripped before reaching the recorded args.
+    assert "slot_index" not in recorded_args
