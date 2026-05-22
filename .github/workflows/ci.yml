@@ -104,6 +104,52 @@ jobs:
           path: coverage.xml
           if-no-files-found: ignore
 
+  lint-baselines:
+    name: Stale-baseline lint (hard gate — Plan 03-07 / EVAL-07 / P9)
+    # HARD gate: every PR that touches app/agent/ must also refresh
+    # configs/eval_baselines/*.json, or the latest commit message must
+    # carry the explicit [skip-baseline] bypass token. The lint logic
+    # lives in scripts/check_baselines_fresh.py (stdlib-only, see Plan
+    # 03-07 Task 1) so the dependency surface here is zero — `poetry
+    # install` is only needed because the canonical CI invocation runs
+    # via `poetry run python` for consistency with the other jobs.
+    #
+    # No `continue-on-error: true`: unlike plan 03-06's eval-matrix job
+    # (soft-gated until baselines exist), this gate is hard from day one.
+    # Phase 4-6 PRs CANNOT ship app/agent/ changes without baseline refresh.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # REQUIRED for git diff against the PR's merge base. The default
+          # shallow clone only includes the PR head and would crash the
+          # `git diff BASE_SHA...HEAD` invocation inside the lint script.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Poetry
+        run: pipx install "poetry==${{ env.POETRY_VERSION }}"
+
+      - name: Cache Poetry venv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dev dependencies
+        run: poetry install --with dev --no-interaction --no-root
+
+      - name: Check baselines fresh vs PR base
+        # The script exits 1 with an actionable error when app/agent/ is
+        # touched but no configs/eval_baselines/*.json was updated, unless
+        # the latest commit message contains [skip-baseline].
+        run: poetry run python scripts/check_baselines_fresh.py ${{ github.event.pull_request.base.sha }}
+
   eval-matrix:
     name: Eval matrix (scripted mode — no real APIs)
     # Runs scripts/eval_matrix.py in scripted mode (EVAL-09 / P4): no LLM

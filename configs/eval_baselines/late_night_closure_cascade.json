@@ -1,0 +1,31 @@
+{
+  "_status": "PENDING_USER_RUN — stub committed by plan 03-07. Run 'APP_ENV=eval make eval-matrix RUNS=3' locally with OPENAI_API_KEY + DEEPSEEK_API_KEY in .env, then post-process eval_reports/{ts}/summary.json into this file. Replace generated_at with the ISO timestamp, set generated_by='make eval-matrix RUNS=3', and fill each scorer with {median, min, max, stdev, n: 3} from summary.scenarios.late_night_closure_cascade.providers.{provider/model}.scorers.{scorer}.",
+  "scenario_id": "late_night_closure_cascade",
+  "generated_at": null,
+  "generated_by": "PENDING_USER_RUN",
+  "closure_check_confirmed": "2026-05-21",
+  "providers": {
+    "openai/gpt-4o-mini": {
+      "scorers": {
+        "category_compliance": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "rationale_stop_alignment": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "constraints_satisfied": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "geographic_coherence": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "temporal_coherence": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "walking_budget_respected": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "no_hallucinated_place_ids": {"median": null, "min": null, "max": null, "stdev": null, "n": 3}
+      }
+    },
+    "deepseek/deepseek-chat": {
+      "scorers": {
+        "category_compliance": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "rationale_stop_alignment": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "constraints_satisfied": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "geographic_coherence": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "temporal_coherence": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "walking_budget_respected": {"median": null, "min": null, "max": null, "stdev": null, "n": 3},
+        "no_hallucinated_place_ids": {"median": null, "min": null, "max": null, "stdev": null, "n": 3}
+      }
+    }
+  }
+}
