@@ -715,6 +715,44 @@ def test_ci_workflow_does_not_set_app_env_eval(ci_workflow: dict) -> None:
     )
 
 
+# ─── WR-04: argparse-level '--' guard on --llm-provider-override ─────────────
+
+
+def test_parse_args_rejects_double_dash_in_llm_provider_override() -> None:
+    """WR-04: '--' is reserved as the cell-filename separator. Without an
+    argparse type validator, '--llm-provider-override foo--bar' would
+    propagate to MatrixEntry's after-validator and crash with a
+    pydantic.ValidationError mid-run_matrix() — no actionable CLI error.
+
+    Reject it at parse-time so the operator sees argparse-style 'rc=2 +
+    usage' instead of a pydantic traceback.
+    """
+    from scripts.eval_matrix import parse_args
+
+    with pytest.raises(SystemExit) as excinfo:
+        parse_args(
+            [
+                "--matrix-config",
+                "configs/eval_matrix.yaml",
+                "--llm-provider-override",
+                "foo--bar",
+            ]
+        )
+    # argparse type-error exits with rc=2 by default; anything else means
+    # argparse silently accepted the value.
+    assert excinfo.value.code == 2
+
+
+def test_parse_args_accepts_single_dash_llm_provider_override() -> None:
+    """WR-04 negative-control: single-dash and alphanumeric overrides pass."""
+    from scripts.eval_matrix import parse_args
+
+    args = parse_args(["--llm-provider-override", "scripted"])
+    assert args.llm_provider_override == "scripted"
+    args = parse_args(["--llm-provider-override", "gpt-4o-mini"])
+    assert args.llm_provider_override == "gpt-4o-mini"
+
+
 def test_ci_workflow_eval_matrix_uploads_artifact(ci_workflow: dict) -> None:
     """The eval-matrix CI job MUST upload its eval_reports/ output as an
     artifact (via actions/upload-artifact@v4) so PR reviewers can recover

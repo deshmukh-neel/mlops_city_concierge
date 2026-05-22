@@ -390,6 +390,28 @@ def run_matrix(
     return rc, failures
 
 
+def _validate_override(value: str | None) -> str | None:
+    """argparse type for --llm-provider-override (WR-04).
+
+    `--` is reserved as the cell-filename separator in `scripts/eval_matrix.py`.
+    The `MatrixEntry.reject_double_dash` validator already enforces this at
+    YAML-load time, but without an upfront argparse-level check, a malformed
+    --llm-provider-override value bubbles into `_apply_override` as a
+    `pydantic.ValidationError` mid-`run_matrix()` — no actionable CLI error.
+    Rejecting `--` at parse time keeps the operator-facing error path clean
+    (argparse rc=2 + usage) instead of a pydantic traceback.
+    """
+    if value is None:
+        return None
+    if "--" in value:
+        raise argparse.ArgumentTypeError(
+            f"--llm-provider-override='{value}' contains '--'; '--' is "
+            "reserved as the cell-filename separator. Use a single-dash "
+            "or alphanumeric provider name."
+        )
+    return value
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse CLI args for scripts/eval_matrix.py."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -407,6 +429,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--llm-provider-override",
         default=None,
+        type=_validate_override,
         help=(
             "Force ALL entries to this provider (typical CI: 'scripted'). "
             "Bypasses the APP_ENV=eval gate when set to 'scripted'."
