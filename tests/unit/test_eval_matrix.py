@@ -432,6 +432,50 @@ def test_aggregate_warns_on_unparseable_cell_filename(
     assert "scenario_a" in summary["scenarios"]
 
 
+# ─── IN-02: overridden_to summary field when --llm-provider-override set ────
+
+
+def test_aggregate_records_overridden_to_when_override_set(tmp_path: Path) -> None:
+    """IN-02: when run_matrix has rewritten provider keys via
+    `_apply_override`, the resulting summary.json must carry a top-level
+    `overridden_to` field naming the override target. Without this, PRs
+    that diff summary.json across providers cannot detect the rebind
+    (the per-provider scorer keys reflect the rewritten name, not the
+    original config). Pass `llm_provider_override` to `aggregate_cell_jsons`
+    so the summary records the override explicitly."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    # Simulate the post-_apply_override layout: cells already named with
+    # the override provider (`scripted` in this case).
+    _write_cell(tmp_path, "scripted", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    _write_cell(tmp_path, "scripted", "gpt-4o-mini", "scenario_a", 1, 0.6)
+
+    summary = aggregate_cell_jsons(tmp_path, llm_provider_override="scripted")
+
+    assert summary.get("overridden_to") == "scripted"
+    # The per-provider keys themselves are NOT rebound by this field —
+    # they keep whatever _apply_override wrote (scripted/gpt-4o-mini).
+    assert "scripted/gpt-4o-mini" in summary["scenarios"]["scenario_a"]["providers"]
+
+
+def test_aggregate_omits_overridden_to_when_no_override(tmp_path: Path) -> None:
+    """IN-02 (negative case): when no override is in effect, the summary
+    must NOT carry an `overridden_to` field. Absence is meaningful — the
+    Phase 4-6 diff target reads `overridden_to` to know whether two
+    summary.jsons are comparable."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+
+    # Default call shape — no override kwarg.
+    summary_default = aggregate_cell_jsons(tmp_path)
+    assert "overridden_to" not in summary_default
+
+    # Explicit None must also omit the field (defensive — equivalent contract).
+    summary_explicit_none = aggregate_cell_jsons(tmp_path, llm_provider_override=None)
+    assert "overridden_to" not in summary_explicit_none
+
+
 # ─── resolve_run_dir naming (D-10 output shape) ──────────────────────────────
 
 
