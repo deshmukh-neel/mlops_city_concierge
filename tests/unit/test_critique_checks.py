@@ -21,6 +21,7 @@ from app.agent.critique.checks import (
     geographic_coherence,
     itinerary_violations,
     no_hallucinated_place_ids,
+    rationale_stop_alignment,
     stop_count_satisfied,
     temporal_coherence,
     walking_budget_respected,
@@ -452,6 +453,170 @@ def test_category_compliance_pure_function_no_db_access(mocker) -> None:
     sentinel.assert_not_called()
 
 
+# --- rationale_stop_alignment (EVAL-02) -------------------------------------
+# Catches rationale drift: refinement-turn bleed AND closure-swap placeholder
+# bleed. Pure function. The closure-swap placeholder lives in
+# app/agent/swap.py:238 (f"Walking-distance alternative for {closed_stop.name}");
+# the regression test below pins the live text so renames are caught.
+
+
+def test_rationale_stop_alignment_returns_one_for_empty_stops() -> None:
+    """Fail-open: no committed stops -> 1.0."""
+    assert rationale_stop_alignment(ItineraryState()) == 1.0
+
+
+def test_rationale_stop_alignment_name_substring_match() -> None:
+    """Stop name appearing in the rationale is enough — case-insensitive."""
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="Kaiseki Yuzu",
+                rationale="Kaiseki Yuzu offers a tasting menu",
+                primary_type="Sushi Restaurant",
+            ),
+        ],
+    )
+    assert rationale_stop_alignment(state) == 1.0
+
+
+def test_rationale_stop_alignment_family_keyword_match() -> None:
+    """No name match but family-keyword 'restaurant' present -> match."""
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="Lazy Bear",
+                rationale="An intimate restaurant experience",
+                primary_type="American Restaurant",
+            ),
+        ],
+    )
+    assert rationale_stop_alignment(state) == 1.0
+
+
+def test_rationale_stop_alignment_catches_closure_swap_placeholder_bleed() -> None:
+    """REGRESSION: closure-swap placeholder must score < 1.0.
+
+    The exact placeholder string lives in app/agent/swap.py at line 238 as
+    f"Walking-distance alternative for {closed_stop.name}". For a stop with
+    name='Lazy Bear' / primary_type='American Restaurant', the placeholder
+    rationale 'Walking-distance alternative for Kaiseki Yuzu' contains
+    neither 'lazy bear' (the current stop's name) nor any restaurant-family
+    keyword — so the scorer must return 0.0.
+
+    If you renamed the placeholder template in swap.py and this test broke,
+    update the literal below to match — the regression target is "rationale
+    text that does not describe the current stop must fail the scorer".
+    """
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="Lazy Bear",
+                rationale="Walking-distance alternative for Kaiseki Yuzu",
+                primary_type="American Restaurant",
+            ),
+        ],
+    )
+    assert rationale_stop_alignment(state) == 0.0
+
+
+def test_rationale_stop_alignment_bar_family_keyword() -> None:
+    """No name match but 'cocktail' is a bar-family keyword -> 1.0."""
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="Stookey's",
+                rationale="Excellent cocktails in a vintage setting",
+                primary_type="Cocktail Bar",
+            ),
+        ],
+    )
+    assert rationale_stop_alignment(state) == 1.0
+
+
+def test_rationale_stop_alignment_multi_stop_fractional() -> None:
+    """Score is matches / len(stops) across multiple stops."""
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="Kaiseki Yuzu",
+                rationale="Kaiseki Yuzu offers a tasting menu",
+                primary_type="Sushi Restaurant",
+            ),
+            _stop(
+                "p2",
+                name="Lazy Bear",
+                rationale="Walking-distance alternative for Kaiseki Yuzu",
+                primary_type="American Restaurant",
+            ),
+        ],
+    )
+    # 1 match / 2 stops = 0.5
+    assert rationale_stop_alignment(state) == 0.5
+
+
+def test_rationale_stop_alignment_none_primary_type_no_name_match() -> None:
+    """primary_type=None and no name substring -> 0.0 for that stop.
+
+    Without a family, we can't derive keywords; the only way to save the
+    stop is the name substring path, which here is absent.
+    """
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="Mystery Spot",
+                rationale="A pleasant place with great vibes",
+                primary_type=None,
+            ),
+        ],
+    )
+    assert rationale_stop_alignment(state) == 0.0
+
+
+def test_rationale_stop_alignment_case_insensitive_name_match() -> None:
+    """Name substring match is case-insensitive (lowercased on both sides)."""
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="KAISEKI YUZU",
+                # uppercase name, lowercase rationale
+                rationale="we recommend kaiseki yuzu for the tasting menu",
+                primary_type="Sushi Restaurant",
+            ),
+        ],
+    )
+    assert rationale_stop_alignment(state) == 1.0
+
+
+def test_rationale_stop_alignment_registered_in_thresholds() -> None:
+    """CRITIQUE_THRESHOLDS must include the new key."""
+    assert "rationale_stop_alignment" in CRITIQUE_THRESHOLDS
+    assert CRITIQUE_THRESHOLDS["rationale_stop_alignment"] == 1.0
+
+
+def test_rationale_stop_alignment_pure_function_no_db_access(mocker) -> None:
+    """Smoke test that the scorer does NOT touch the DB."""
+    sentinel = mocker.patch("app.agent.critique.checks.get_conn")
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="Kaiseki Yuzu",
+                rationale="Kaiseki Yuzu omakase",
+                primary_type="Sushi Restaurant",
+            ),
+        ],
+    )
+    assert rationale_stop_alignment(state) == 1.0
+    sentinel.assert_not_called()
+
+
 # --- itinerary_violations aggregation ---------------------------------------
 
 
@@ -479,8 +644,8 @@ def test_stop_count_satisfied_checks_explicit_request() -> None:
 
 def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
     """Order matters: hallucination first, then stop count, category compliance,
-    temporal, geo, walking, then constraints. Mocks each check independently so
-    we can assert the order."""
+    temporal, geo, walking, constraints, rationale. Mocks each check
+    independently so we can assert the order."""
     mocker.patch("app.agent.critique.checks.no_hallucinated_place_ids", return_value=0.0)
     mocker.patch("app.agent.critique.checks.stop_count_satisfied", return_value=0.0)
     mocker.patch("app.agent.critique.checks.category_compliance", return_value=0.0)
@@ -488,6 +653,7 @@ def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
     mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=0.5)
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=0.0)
     mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=0.5)
+    mocker.patch("app.agent.critique.checks.rationale_stop_alignment", return_value=0.0)
     state = ItineraryState(stops=[_stop("p1")])
     assert itinerary_violations(state) == [
         "no_hallucinated_place_ids",
@@ -497,6 +663,7 @@ def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
         "geographic_coherence",
         "walking_budget_respected",
         "constraints_satisfied",
+        "rationale_stop_alignment",
     ]
 
 
@@ -509,6 +676,7 @@ def test_itinerary_violations_empty_when_all_pass(mocker) -> None:
         "geographic_coherence",
         "walking_budget_respected",
         "constraints_satisfied",
+        "rationale_stop_alignment",
     ):
         mocker.patch(f"app.agent.critique.checks.{fn}", return_value=1.0)
     assert itinerary_violations(ItineraryState(stops=[_stop("p1")])) == []
@@ -528,6 +696,7 @@ def test_itinerary_violations_fails_open_on_db_error(mocker) -> None:
     mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=1.0)
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=1.0)
     mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.rationale_stop_alignment", return_value=1.0)
     assert itinerary_violations(ItineraryState(stops=[_stop("p1")])) == []
 
 
@@ -540,5 +709,6 @@ def test_thresholds_are_strict_enough() -> None:
     assert CRITIQUE_THRESHOLDS["stop_count_satisfied"] == 1.0
     assert CRITIQUE_THRESHOLDS["walking_budget_respected"] == 1.0
     assert CRITIQUE_THRESHOLDS["category_compliance"] == 1.0
+    assert CRITIQUE_THRESHOLDS["rationale_stop_alignment"] == 1.0
     # Constraint satisfaction has wiggle room — not every constraint is hard.
     assert CRITIQUE_THRESHOLDS["constraints_satisfied"] == 0.8
