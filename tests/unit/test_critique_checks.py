@@ -488,7 +488,11 @@ def test_category_compliance_strict_within_family_drift_returns_zero() -> None:
         constraints=UserConstraints(requested_primary_types=["omakase"]),
         stops=[_stop("p1", primary_type="Pizza Restaurant")],
     )
-    assert category_compliance(state) == 1.0
+    family_state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[_stop("p1", primary_type="Pizza Restaurant")],
+    )
+    assert category_compliance(family_state) == 1.0
     assert category_compliance_strict(state) == 0.0
 
 
@@ -516,7 +520,7 @@ def test_category_compliance_strict_partial_match() -> None:
 
 def test_category_compliance_strict_falls_back_to_family_on_unmapped_keyword() -> None:
     state = ItineraryState(
-        constraints=UserConstraints(requested_primary_types=["unusual_word"]),
+        constraints=UserConstraints(requested_primary_types=["Italian Restaurant"]),
         stops=[_stop("p1", primary_type="Restaurant")],
     )
     assert category_compliance(state) == 1.0

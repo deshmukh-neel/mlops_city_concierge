@@ -28,6 +28,7 @@ CRITIQUE_THRESHOLDS: dict[str, float] = {
     "walking_budget_respected": 1.0,
     "no_hallucinated_place_ids": 1.0,
     "category_compliance": 1.0,
+    "category_compliance_strict": 1.0,
     "rationale_stop_alignment": 1.0,
 }
 
@@ -53,6 +54,15 @@ def _build_family_keywords() -> dict[str, frozenset[str]]:
 
 
 _FAMILY_KEYWORDS: dict[str, frozenset[str]] = _build_family_keywords()
+
+_STRICT_TYPE_KEYWORDS: dict[str, frozenset[str]] = {
+    "omakase": frozenset({"Sushi Restaurant", "Japanese Restaurant", "Fine Dining Restaurant"}),
+    "sushi": frozenset({"Sushi Restaurant", "Japanese Restaurant"}),
+    "ramen": frozenset({"Ramen Restaurant", "Japanese Restaurant"}),
+    "tacos": frozenset({"Mexican Restaurant", "Restaurant"}),
+    "cocktails": frozenset({"Cocktail Bar", "Bar"}),
+    "dessert": frozenset({"Dessert Shop", "Bakery", "Ice Cream Shop"}),
+}
 
 
 def no_hallucinated_place_ids(state: ItineraryState) -> float:
@@ -253,6 +263,38 @@ def category_compliance(state: ItineraryState) -> float:
     return matches / denom
 
 
+def category_compliance_strict(state: ItineraryState) -> float:
+    """Strict per-slot category match between requested keywords and stops.
+
+    Pure function of state: no DB access. Abstains with 1.0 when the user did
+    not name category slots (D-03) and fail-opens with 1.0 when no stops were
+    committed. Mapped keywords use exact Title Case primary_type membership;
+    unmapped keywords fall back to the same family-level comparison used by
+    category_compliance so strict scoring is never worse than family scoring
+    for requests outside the lookup table.
+    """
+    requested = state.constraints.requested_primary_types
+    if not requested:
+        return 1.0
+    if not state.stops:
+        return 1.0
+    overlap = min(len(requested), len(state.stops))
+    denom = max(len(requested), len(state.stops))
+    matches = 0
+    for i in range(overlap):
+        stop_primary_type = state.stops[i].primary_type
+        expected = _STRICT_TYPE_KEYWORDS.get(requested[i].lower())
+        if expected is not None:
+            if stop_primary_type in expected:
+                matches += 1
+            continue
+        want = family_of(requested[i])
+        got = family_of(stop_primary_type)
+        if want is not None and got is not None and want == got:
+            matches += 1
+    return matches / denom
+
+
 def rationale_stop_alignment(state: ItineraryState) -> float:
     """Per-stop rationale-to-stop alignment (EVAL-02).
 
@@ -315,6 +357,7 @@ def itinerary_violations(state: ItineraryState) -> list[str]:
     _try("no_hallucinated_place_ids", no_hallucinated_place_ids)
     _try("stop_count_satisfied", stop_count_satisfied)
     _try("category_compliance", category_compliance)
+    _try("category_compliance_strict", category_compliance_strict)
     _try("temporal_coherence", temporal_coherence)
     _try("geographic_coherence", geographic_coherence)
     _try("walking_budget_respected", walking_budget_respected)
