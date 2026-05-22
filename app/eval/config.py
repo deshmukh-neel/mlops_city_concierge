@@ -207,6 +207,25 @@ class MatrixEntry(BaseModel):
         """Trim provider/model names and reject blanks (parity with EvalQuery)."""
         return strip_non_empty(value, info.field_name)
 
+    @field_validator("provider", "model", mode="after")
+    @classmethod
+    def reject_double_dash(cls, value: str, info) -> str:
+        """Reject `--` in provider/model strings (plan 03-08 / WR-01).
+
+        `scripts/eval_matrix.py` uses `--` as the cell-filename separator
+        (`{provider}--{model}--{scenario_id}--run-{n}.json`). A model named
+        e.g. `gpt-4--turbo` would silently produce 5 split-parts, the
+        filename parser would return None, and the cell would be dropped
+        from `summary.json` with no diagnostic. Failing fast at config-load
+        time keeps the parser's `--`-as-separator invariant intact.
+        """
+        if "--" in value:
+            raise ValueError(
+                f"{info.field_name} value '{value}' contains '--'; '--' is reserved "
+                "as the cell-filename separator in scripts/eval_matrix.py"
+            )
+        return value
+
 
 class EvalMatrixConfig(BaseModel):
     """Top-level config for the cross-provider eval matrix runner (EVAL-04).

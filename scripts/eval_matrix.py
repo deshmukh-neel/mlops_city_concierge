@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import statistics
 import subprocess
@@ -55,6 +56,8 @@ _DEFAULT_EVAL_QUERIES_REL = "configs/eval_queries.yaml"
 
 # Default output base under the repository root.
 _DEFAULT_OUTPUT_BASE = REPO_ROOT / "eval_reports"
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -217,6 +220,14 @@ def aggregate_cell_jsons(output_dir: Path) -> dict[str, Any]:
             continue
         parsed = _parse_cell_filename(path.name)
         if parsed is None:
+            # WR-01: surface unparseable filenames so a stray '--' in a
+            # provider/model name (or a foreign file dropped into the run dir)
+            # is observable instead of silently zeroing a cell.
+            _log.warning(
+                "eval_matrix: skipping unparseable cell file %s in %s",
+                path.name,
+                output_dir,
+            )
             continue
         provider, model, scenario_id, _run_n = parsed
         try:
