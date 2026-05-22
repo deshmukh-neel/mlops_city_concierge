@@ -101,6 +101,10 @@ class Settings(BaseSettings):
     mlflow_tracking_uri: str = "http://localhost:5000"
     mlflow_artifacts_uri: str = "mlflow-artifacts://localhost:5000"
     mlflow_model_name: str = "city-concierge-rag"
+    # When set (e.g. "version:7" or "alias:my-test-alias"), load_registered_rag_chain
+    # bypasses the shared "production" alias and loads the named version/alias instead.
+    # Unset (None) preserves all existing behavior. See app.main._parse_model_override.
+    rag_model_override: str | None = None
     retriever_k: int = 5
     embedding_table: str = "place_embeddings_v2"
     db_pool_min_connections: int = 0
