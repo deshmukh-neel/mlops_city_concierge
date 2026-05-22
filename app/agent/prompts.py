@@ -43,6 +43,11 @@ WHEN YOU SEE A `{CRITIQUE_ITINERARY}` MESSAGE (a post-commit_itinerary hint):
   re-call commit_itinerary with exactly the requested number.
 - "hallucinated_place_id": one or more committed place_ids don't exist in
   the DB. Only commit place_ids you've seen in a tool result.
+- "rationale_misaligned": the rationale for a specific stop doesn't describe
+  that stop's actual primary_type or name. Rewrite that specific stop's
+  rationale to describe the committed place's category and identity, then
+  re-call commit_itinerary (do NOT swap the stop — the stop is fine; only
+  the rationale text is misaligned).
 
 WHEN YOU SEE A `{CRITIQUE_VIBE}` MESSAGE (cross-stop vibe mismatch):
 
