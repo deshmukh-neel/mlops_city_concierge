@@ -167,10 +167,14 @@ def test_load_eval_queries_rejects_unknown_generated_source_table(tmp_path: Path
 
 
 def test_repo_eval_queries_yaml_is_valid() -> None:
-    """Keep the checked-in eval query set aligned with the typed schema."""
+    """Keep the checked-in eval query set aligned with the typed schema.
+
+    Count was 30 pre-Plan 03-05; now 33 (Plan 03-05 / EVAL-06 appended the
+    three baseline scenarios for Phase 3-7).
+    """
     config = load_eval_queries(REPO_ROOT / DEFAULT_EVAL_QUERIES_PATH)
 
-    assert len(config.hand_written) == 30
+    assert len(config.hand_written) == 33
     assert [case.id for case in config.hand_written[:5]] == [
         "north_beach_italian_dinner",
         "date_night_dinner_drinks_walkable",
