@@ -79,8 +79,20 @@ def _most_restrictive_filter(filters: dict[str, Any] | None) -> str:
     return "none"
 
 
-def _diagnose_one(tool_name: str, entry: dict[str, Any]) -> RevisionHint | None:
-    """Inspect a single tool call+result pair. Returns a hint or None."""
+def _diagnose_one(
+    tool_name: str,
+    entry: dict[str, Any],
+    low_similarity_count: int = 0,
+) -> RevisionHint | None:
+    """Inspect a single tool call+result pair. Returns a hint or None.
+
+    `low_similarity_count` is the current value of `state.revision_counts["low_similarity"]`
+    — used to gate the `neighborhood_no_match` escalation. We only flip from
+    "rephrase your query" to "ask the user" AFTER the model has burned its
+    rephrase budget; that way poor-query attempts in a data-rich neighborhood
+    (e.g. "date night dinner" at sim 0.29 in Hayes Valley, when "dinner Hayes
+    Valley" at sim 0.58 would work fine) get a chance to fix themselves first.
+    """
     result = entry.get("result")
     args = entry.get("args") or {}
 
@@ -116,6 +128,33 @@ def _diagnose_one(tool_name: str, entry: dict[str, Any]) -> RevisionHint | None:
             top = result[0]
             sim = getattr(top, "similarity", 0.0) or 0.0
             if sim < LOW_SIMILARITY_THRESHOLD:
+                # When the user pinned a neighborhood and even the best in-
+                # neighborhood result is weak, looping `broaden_query` won't
+                # help — the dataset literally doesn't have a strong match in
+                # that neighborhood (e.g. only 3 Sushi Restaurants in the
+                # Mission, top sim 0.51 for "omakase" — the real omakase
+                # restaurants are in SoMa/Japantown). Escalate to the user
+                # rather than burning step budget rephrasing the query.
+                filters = args.get("filters") or {}
+                neighborhood = filters.get("neighborhood") if isinstance(filters, dict) else None
+                # Only escalate to "ask the user" AFTER the model has used its
+                # rephrase budget for low_similarity. In data-rich neighborhoods
+                # (e.g. Hayes Valley), a bad query like "date night dinner"
+                # scores 0.29 but "dinner Hayes Valley" scores 0.58 — let the
+                # broaden_query loop catch self-fixable bad queries first.
+                if neighborhood and low_similarity_count >= MAX_REVISIONS_PER_REASON:
+                    return RevisionHint(
+                        reason="neighborhood_no_match",
+                        detail=(
+                            f"After {low_similarity_count} rephrase attempts, "
+                            f"top similarity in {neighborhood} is still "
+                            f"{sim:.2f} — below threshold {LOW_SIMILARITY_THRESHOLD}. "
+                            f"The dataset likely doesn't have strong matches "
+                            f"for this category in {neighborhood}."
+                        ),
+                        suggested_action="clarify_with_user",
+                        target={"neighborhood": neighborhood, "query": args.get("query")},
+                    )
                 return RevisionHint(
                     reason="low_similarity",
                     detail=(
@@ -132,8 +171,9 @@ def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
     return the first hint in tool_call order. Returns None if every call was
     healthy. The agent revises one issue per round; later issues, if any,
     will be diagnosed on the next round."""
+    low_similarity_count = state.revision_counts.get("low_similarity", 0)
     for tool_name, entry in _scratch_entries_for_last_round(state):
-        hint = _diagnose_one(tool_name, entry)
+        hint = _diagnose_one(tool_name, entry, low_similarity_count=low_similarity_count)
         if hint is not None:
             return hint
     return None

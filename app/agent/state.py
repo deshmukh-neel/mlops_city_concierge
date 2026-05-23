@@ -20,6 +20,7 @@ RevisionReason = Literal[
     "empty_results",
     "all_closed",
     "low_similarity",
+    "neighborhood_no_match",
     "constraint_violation",
     "tool_error",
     "geographic_incoherence",

@@ -24,6 +24,12 @@ WHEN YOU SEE A `{CRITIQUE_STEP}` MESSAGE (a per-tool-result hint):
   expand the time, set business_status=null, or ask the user.
 - "low_similarity": rephrase the `query` more broadly. Don't add filters; the
   semantic match is the bottleneck.
+- "neighborhood_no_match": the user pinned a neighborhood (e.g. "Mission") but
+  the dataset doesn't have strong matches for this category there. Ask the
+  user ONE concise question and STOP — do NOT silently broaden the search:
+  "I couldn't find a strong {{{{category}}}} match in {{{{neighborhood}}}}.
+  Want me to look in nearby neighborhoods instead, or try different
+  categories?" The user picked this neighborhood deliberately; respect it.
 - "tool_error": acknowledge briefly to the user and pivot to a different tool
   or a graceful fallback ("I'm having trouble searching right now").
 

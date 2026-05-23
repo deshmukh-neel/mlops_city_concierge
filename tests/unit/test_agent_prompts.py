@@ -30,6 +30,14 @@ def test_system_prompt_only_substitutes_known_placeholders() -> None:
     """If anyone adds a new `{foo}` placeholder without updating the .format()
     call site, this test fails fast: format with the known keys and assert no
     other unfilled `{name}` patterns remain.
+
+    Whitelisted literals: the `neighborhood_no_match` REVISION_GUIDANCE entry
+    quotes an example user-facing sentence ("I couldn't find a strong
+    {category} match in {neighborhood}...") where the curly braces are
+    intended to ship to the model as literals it should fill in at runtime,
+    NOT format() substitution points. Those are quadruple-escaped in the
+    f-string source so they survive both f-string evaluation and the later
+    SYSTEM_PROMPT.format(...) call.
     """
     import re
 
@@ -37,7 +45,9 @@ def test_system_prompt_only_substitutes_known_placeholders() -> None:
     # A bare `{word}` after rendering would be an un-substituted placeholder
     # (legit JSON braces are doubled and render as `{` and `}` separately).
     leftover = re.findall(r"\{[a-zA-Z_]\w*\}", rendered)
-    assert leftover == [], f"unfilled placeholders in prompt: {leftover}"
+    expected_literals = {"{category}", "{neighborhood}"}
+    unexpected = [p for p in leftover if p not in expected_literals]
+    assert unexpected == [], f"unfilled placeholders in prompt: {unexpected}"
 
 
 def test_system_prompt_missing_max_steps_raises() -> None:
