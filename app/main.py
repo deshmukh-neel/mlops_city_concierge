@@ -18,7 +18,12 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .agent.commit import enrich_stops_with_booking
 from .agent.graph import build_agent_graph
-from .agent.input_parsing import explicit_num_stops_from_conversation, parse_closure_decision
+from .agent.input_parsing import (
+    SlotExtractionResult,
+    explicit_num_stops_from_conversation,
+    has_slot_structure,
+    parse_closure_decision,
+)
 from .agent.io import messages_from_history, state_to_cards
 from .agent.revision import summarize_stops
 from .agent.state import ClosureContext, ItineraryState, Stop, UserConstraints
@@ -38,6 +43,7 @@ from .config import get_settings, resolve_llm_api_key
 from .db import get_conn, get_db
 from .db_pool import close_db_pool, init_db_pool
 from .observability import langgraph_callbacks, trace_request
+from .tools.filters import family_of
 from .tools.retrieval import get_details
 
 logger = logging.getLogger(__name__)
@@ -50,6 +56,96 @@ AGENT_UNAVAILABLE_DETAIL = (
     "Agent graph unavailable: MLflow registry could not be reached at startup. "
     "Ensure the MLflow IAP tunnel is open and restart the app."
 )
+
+
+# Phase 4 / D-04-01..D-04-03 — slot-extraction intake prompt template.
+# The user's message is interpolated via .format(user_message=...).
+# The vocabulary uses Title-Case Google primary_type values so the
+# structured-output payload can be validated by family_of() (which is
+# case-preserving against `_PRIMARY_TYPE_FAMILIES`). The schema enforced
+# by Pydantic + the family_of validation layer means even an obeyed
+# prompt injection produces an empty extracted list (T-04-06-01).
+_SLOT_INTAKE_PROMPT_TEMPLATE: str = (
+    "Extract the user's per-slot category structure. The user's message is:\n"
+    '"{user_message}"\n\n'
+    'If the user named distinct slots (e.g., "dinner, drinks, dessert" or '
+    '"omakase then ramen"), return a list of Google primary_type values, '
+    "one per slot in order. If the message is free-text or has no clear "
+    "slot structure, return [].\n\n"
+    'Output shape: {{"requested_primary_types": '
+    '["Restaurant", "Cocktail Bar", "Dessert Shop"]}}\n\n'
+    "Use this vocabulary (Google primary_type values, Title Case):\n"
+    "- Restaurants: Restaurant, Japanese Restaurant, Sushi Restaurant, "
+    "Italian Restaurant, Ramen Restaurant, Mexican Restaurant, "
+    "Pizza Restaurant, Steak House, Fine Dining Restaurant\n"
+    "- Bars: Bar, Cocktail Bar, Wine Bar, Pub, Sports Bar, Night Club\n"
+    "- Dessert: Dessert Shop, Bakery, Ice Cream Shop, Cafe, Coffee Shop, "
+    "Donut Shop, Tea House\n"
+    "- Cafes: Cafe, Coffee Shop, Tea House"
+)
+
+
+def _intake_bind_kwargs(llm: BaseChatModel) -> dict[str, Any]:
+    """Return provider-appropriate `.bind(**kwargs)` arguments for the intake
+    LLM call.
+
+    Always sets `temperature=1.0` (per memory
+    `feedback_temp1_reasoning_off_all_models.md` — always temp=1.0;
+    disable thinking for ALL providers including Gemini). Reasoning-off
+    kwargs are picked per provider class so the bind step mirrors what
+    `app.llm_factory.build_chat_model` set at construction time.
+
+    Branches:
+      ChatOpenAI                  → {"temperature": 1.0}
+      ChatGoogleGenerativeAI      → {"temperature": 1.0, "thinking_budget": 0}
+                                    (or thinking_level="low" for the
+                                    `_GEMINI_THINKING_ONLY` set)
+      ChatDeepSeek                → {"temperature": 1.0,
+                                     "extra_body": {"thinking":
+                                     {"type": "disabled"}}}
+      ChatMoonshot / _ToolLoopChatMoonshot
+                                  → {"temperature": <llm.temperature>,
+                                     "thinking": False}
+                                    Kimi forces temp=0.6 for kimi-k2.6 in
+                                    the factory (per
+                                    `_KIMI_FORCED_TEMPERATURE`), so we do
+                                    NOT override the temperature here.
+      ScriptedChatModel           → {} (no-op; the scripted model ignores
+                                    bind kwargs and the test harness asserts
+                                    on no-bind separately)
+      anything else               → {"temperature": 1.0}
+                                    (safe minimal default — better to set
+                                    temp than silently leave it at the
+                                    construction-time value)
+    """
+    class_name = type(llm).__name__
+    if class_name == "ChatOpenAI":
+        return {"temperature": 1.0}
+    if class_name == "ChatGoogleGenerativeAI":
+        # Avoid an import-cycle / hard dep on llm_factory by inlining the
+        # thinking-only set — same source of truth as the factory.
+        from .llm_factory import _GEMINI_THINKING_ONLY
+
+        model_name = getattr(llm, "model", "") or ""
+        if model_name in _GEMINI_THINKING_ONLY:
+            return {"temperature": 1.0, "thinking_level": "low"}
+        return {"temperature": 1.0, "thinking_budget": 0}
+    if class_name == "ChatDeepSeek":
+        return {
+            "temperature": 1.0,
+            "extra_body": {"thinking": {"type": "disabled"}},
+        }
+    if class_name in {"ChatMoonshot", "_ToolLoopChatMoonshot"}:
+        # Kimi forces a hard temperature for some models — keep whatever
+        # the factory chose.
+        existing_temp = getattr(llm, "temperature", 1.0)
+        return {"temperature": existing_temp, "thinking": False}
+    if class_name == "ScriptedChatModel":
+        return {}
+    # Fallback for unknown / test-stand-in classes — set temp=1.0 so the
+    # cross-provider invariant still holds.
+    return {"temperature": 1.0}
+
 
 db_connection_dependency = Depends(get_db)
 
@@ -296,12 +392,19 @@ async def lifespan(app: FastAPI):
             app.state.rag_chain = None
             app.state.active_model_config = None
             app.state.agent_graph = None
+            # Phase 4: intake pipeline reuses the planning LLM (D-04-02);
+            # no LLM is available in this degraded branch.
+            app.state.agent_llm = None
             app.state.rag_label = _rag_label_for(None)
         else:
             app.state.rag_chain = loaded.chain
             app.state.active_model_config = loaded.params
             try:
                 app.state.agent_graph = build_agent_graph(loaded.llm)
+                # Phase 4: expose the same BaseChatModel the graph was
+                # built on so the /chat intake call can reuse it (D-04-02
+                # — same RAG_MODEL_OVERRIDE resolution, single source).
+                app.state.agent_llm = loaded.llm
             except Exception:
                 logger.warning(
                     "Failed to build agent graph — /chat will return 503; "
@@ -309,6 +412,7 @@ async def lifespan(app: FastAPI):
                     exc_info=True,
                 )
                 app.state.agent_graph = None
+                app.state.agent_llm = None
             app.state.rag_label = _rag_label_for(loaded.params)
         yield
     finally:
@@ -594,6 +698,36 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
                 )
             )
 
+        # Phase 4 hybrid intake pipeline (D-04-01..D-04-03 / T-04-06-01..09).
+        # Deterministic pre-check FIRST so free-text /chat requests pay zero
+        # added latency. When the pre-check fires AND an LLM is available,
+        # explicitly bind temp=1.0 + provider-specific reasoning-off kwargs,
+        # then drive a structured-output extraction. Validate every entry
+        # against family_of() — unmappable strings (including obeyed prompt
+        # injections like 'admin_access') are silently dropped. Any
+        # exception in the intake block is logged and degraded to an empty
+        # list (fail-open per D-04-03). The intake call lives INSIDE
+        # trace_request so MLflow tracking captures intake latency in the
+        # same /chat trace (T-04-06-06).
+        extracted_types: list[str] = []
+        if has_slot_structure(req.message):
+            loaded_llm = getattr(request.app.state, "agent_llm", None)
+            if loaded_llm is not None:
+                try:
+                    bind_kwargs = _intake_bind_kwargs(loaded_llm)
+                    intake_llm = loaded_llm.bind(**bind_kwargs)
+                    structured = intake_llm.with_structured_output(SlotExtractionResult)
+                    intake_prompt = _SLOT_INTAKE_PROMPT_TEMPLATE.format(user_message=req.message)
+                    result = await structured.ainvoke(intake_prompt)
+                    raw_types = list(result.requested_primary_types or [])
+                    extracted_types = [t for t in raw_types if family_of(t) is not None]
+                except Exception:
+                    logger.warning(
+                        "Slot intake LLM call failed; falling back to free-text",
+                        exc_info=True,
+                    )
+                    extracted_types = []
+
         state = ItineraryState(
             messages=[
                 *messages_from_history(req.history),
@@ -602,6 +736,7 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
             ],
             constraints=UserConstraints(
                 num_stops=explicit_num_stops_from_conversation(req.history, req.message),
+                requested_primary_types=extracted_types,
             ),
             closure_context=incoming.closure_context,
         )

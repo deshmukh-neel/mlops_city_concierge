@@ -15,7 +15,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 from app.agent.critique import CRITIQUE_ITINERARY, CRITIQUE_STEP, CRITIQUE_VIBE, vibe
-from app.agent.critique.checks import itinerary_violations
+from app.agent.critique.checks import is_rationale_aligned, itinerary_violations
 from app.agent.state import ItineraryState, RevisionAction, RevisionHint
 
 LOW_SIMILARITY_THRESHOLD = 0.55
@@ -139,6 +139,25 @@ def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
     return None
 
 
+def _first_misaligned_stop_index(state: ItineraryState) -> int:
+    """Return the index of the first stop that fails is_rationale_aligned.
+
+    Used by the rationale_stop_alignment branch of `_hint_for_violation` to
+    identify which stop the model should rewrite. Shares the per-stop boolean
+    rule with `rationale_stop_alignment` in `app/agent/critique/checks.py` via
+    the public `is_rationale_aligned` helper (DRY — plan 04-05 ADVISORY 3).
+
+    Returns 0 as a defensive fallback when either (a) state.stops is empty (the
+    dispatcher should never call this with no violations, but it must not
+    raise) or (b) every stop is aligned (also unreachable in practice — the
+    dispatcher only fires on violations).
+    """
+    for i, stop in enumerate(state.stops):
+        if not is_rationale_aligned(stop):
+            return i
+    return 0
+
+
 def _hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
     """Map a check name from itinerary_violations() to a structured hint."""
     if reason == "geographic_coherence":
@@ -191,6 +210,24 @@ def _hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
             detail="One or more place_ids do not exist in places_raw.",
             suggested_action="swap_stop",
             target={},
+        )
+    if reason == "rationale_stop_alignment":
+        # Locate the offending stop using the SAME per-stop rule that the
+        # scorer uses (is_rationale_aligned). The model rewrites the rationale
+        # to describe the committed place; suggested_action="rewrite_rationale"
+        # matches the REVISION_GUIDANCE text ("do NOT swap the stop — only the
+        # rationale text is misaligned"). Budget gating uses the CHECK name
+        # ("rationale_stop_alignment") so this reason's retry budget is
+        # independent of constraint_unmet_in_final.
+        offending_index = _first_misaligned_stop_index(state)
+        return RevisionHint(
+            reason="rationale_misaligned",
+            detail=(
+                f"Stop {offending_index + 1}'s rationale doesn't describe the "
+                f"committed place's primary_type or name."
+            ),
+            suggested_action="rewrite_rationale",
+            target={"stop_index": offending_index},
         )
     return RevisionHint(
         reason="constraint_unmet_in_final",

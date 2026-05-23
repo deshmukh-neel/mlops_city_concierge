@@ -17,8 +17,10 @@ import pytest
 from app.agent.critique.checks import (
     CRITIQUE_THRESHOLDS,
     category_compliance,
+    category_compliance_strict,
     constraints_satisfied,
     geographic_coherence,
+    is_rationale_aligned,
     itinerary_violations,
     no_hallucinated_place_ids,
     rationale_stop_alignment,
@@ -453,6 +455,145 @@ def test_category_compliance_pure_function_no_db_access(mocker) -> None:
     sentinel.assert_not_called()
 
 
+# --- category_compliance_strict (D-04-10) -----------------------------------
+# Strict scorer catches within-family drift that family-level category_compliance
+# deliberately allows. Pure-function scorer: no DB access.
+
+
+def test_category_compliance_strict_abstains_when_no_requested_types() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=[]),
+        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+    )
+    assert category_compliance_strict(state) == 1.0
+
+
+def test_category_compliance_strict_returns_one_for_empty_stops() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["omakase"]),
+        stops=[],
+    )
+    assert category_compliance_strict(state) == 1.0
+
+
+def test_category_compliance_strict_exact_keyword_match() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["omakase"]),
+        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+    )
+    assert category_compliance_strict(state) == 1.0
+
+
+def test_category_compliance_strict_within_family_drift_returns_zero() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["omakase"]),
+        stops=[_stop("p1", primary_type="Pizza Restaurant")],
+    )
+    family_state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[_stop("p1", primary_type="Pizza Restaurant")],
+    )
+    assert category_compliance(family_state) == 1.0
+    assert category_compliance_strict(state) == 0.0
+
+
+def test_category_compliance_strict_multi_slot_all_match() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["omakase", "cocktails"]),
+        stops=[
+            _stop("p1", primary_type="Sushi Restaurant"),
+            _stop("p2", primary_type="Cocktail Bar"),
+        ],
+    )
+    assert category_compliance_strict(state) == 1.0
+
+
+def test_category_compliance_strict_partial_match() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["omakase", "cocktails"]),
+        stops=[
+            _stop("p1", primary_type="Sushi Restaurant"),
+            _stop("p2", primary_type="Coffee Shop"),
+        ],
+    )
+    assert category_compliance_strict(state) == 0.5
+
+
+def test_category_compliance_strict_falls_back_to_family_on_unmapped_keyword() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Italian Restaurant"]),
+        stops=[_stop("p1", primary_type="Restaurant")],
+    )
+    assert category_compliance(state) == 1.0
+    assert category_compliance_strict(state) == 1.0
+
+
+def test_category_compliance_strict_length_mismatch_dilutes() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["omakase"]),
+        stops=[
+            _stop("p1", primary_type="Sushi Restaurant"),
+            _stop("p2", primary_type="Cocktail Bar"),
+        ],
+    )
+    assert category_compliance_strict(state) == 0.5
+
+
+def test_category_compliance_strict_none_primary_type_is_mismatch() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["omakase"]),
+        stops=[_stop("p1", primary_type=None)],
+    )
+    assert category_compliance_strict(state) == 0.0
+
+
+def test_category_compliance_strict_keyword_lookup_is_case_insensitive() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["OMAKASE"]),
+        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+    )
+    assert category_compliance_strict(state) == 1.0
+
+
+def test_category_compliance_strict_primary_type_match_is_case_preserving() -> None:
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["omakase"]),
+        stops=[_stop("p1", primary_type="sushi restaurant")],
+    )
+    assert category_compliance_strict(state) == 0.0
+
+
+def test_category_compliance_strict_registered_in_thresholds() -> None:
+    assert "category_compliance_strict" in CRITIQUE_THRESHOLDS
+    assert CRITIQUE_THRESHOLDS["category_compliance_strict"] == 1.0
+
+
+def test_category_compliance_strict_itinerary_violations_registration(mocker) -> None:
+    mocker.patch("app.agent.critique.checks.no_hallucinated_place_ids", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.stop_count_satisfied", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.category_compliance", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.category_compliance_strict", return_value=0.0)
+    mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.rationale_stop_alignment", return_value=1.0)
+
+    assert itinerary_violations(ItineraryState(stops=[_stop("p1")])) == [
+        "category_compliance_strict"
+    ]
+
+
+def test_category_compliance_strict_is_pure_function_no_db() -> None:
+    import inspect
+
+    source = inspect.getsource(category_compliance_strict)
+    blocked = ("get_conn", "engine", "session", "execute", "connection")
+    assert not any(token in source for token in blocked), [
+        token for token in blocked if token in source
+    ]
+
+
 # --- rationale_stop_alignment (EVAL-02) -------------------------------------
 # Catches rationale drift: refinement-turn bleed AND closure-swap placeholder
 # bleed. Pure function. The closure-swap placeholder lives in
@@ -617,6 +758,118 @@ def test_rationale_stop_alignment_pure_function_no_db_access(mocker) -> None:
     sentinel.assert_not_called()
 
 
+# --- is_rationale_aligned (public helper, plan 04-05) -----------------------
+# The per-stop boolean rule used by rationale_stop_alignment was extracted into
+# a public helper so the revision dispatcher (_first_misaligned_stop_index in
+# app/agent/revision.py) can call it without duplicating the rule. Tests below
+# pin (a) helper behavior on each branch and (b) byte-identical scorer behavior
+# pre/post extraction so the DRY refactor can't regress the existing scorer.
+
+
+def test_is_rationale_aligned_name_substring_match() -> None:
+    """Name appearing in the rationale (case-insensitive) -> True."""
+    stop = _stop(
+        "p1",
+        name="Lazy Bear",
+        rationale="Lazy Bear is excellent",
+        primary_type="American Restaurant",
+    )
+    assert is_rationale_aligned(stop) is True
+
+
+def test_is_rationale_aligned_family_keyword_match() -> None:
+    """No name match but a family keyword in rationale -> True."""
+    stop = _stop(
+        "p1",
+        name="Lazy Bear",
+        rationale="An intimate restaurant experience downtown",
+        primary_type="American Restaurant",
+    )
+    assert is_rationale_aligned(stop) is True
+
+
+def test_is_rationale_aligned_neither_match_returns_false() -> None:
+    """Closure-swap placeholder bleed: no name AND no family keyword -> False."""
+    stop = _stop(
+        "p1",
+        name="Lazy Bear",
+        rationale="Walking-distance alternative for Kaiseki Yuzu",
+        primary_type="American Restaurant",
+    )
+    assert is_rationale_aligned(stop) is False
+
+
+def test_is_rationale_aligned_none_primary_type_no_name_match() -> None:
+    """primary_type=None means we can't derive family keywords; name substring
+    is the only path. No name match -> False."""
+    stop = _stop(
+        "p1",
+        name="Mystery Spot",
+        rationale="A pleasant place with great vibes",
+        primary_type=None,
+    )
+    assert is_rationale_aligned(stop) is False
+
+
+def test_is_rationale_aligned_none_or_empty_rationale_returns_false() -> None:
+    """Defensive: empty rationale -> False (would crash on .lower() pre-extraction
+    if name were also None; the helper coerces None defensively)."""
+    # rationale="" branch
+    stop_empty = _stop(
+        "p1",
+        name="Lazy Bear",
+        rationale="",
+        primary_type="American Restaurant",
+    )
+    assert is_rationale_aligned(stop_empty) is False
+
+
+def test_rationale_stop_alignment_behavior_unchanged_after_extraction() -> None:
+    """REGRESSION (ADVISORY 3): pin rationale_stop_alignment's output on a fixed
+    fixture so the is_rationale_aligned extraction is byte-identical.
+
+    Fixture covers every branch of the per-stop rule:
+      - stop[0]: aligned by name substring (Sushi family)
+      - stop[1]: aligned by family-keyword 'cocktail' (Bar family)
+      - stop[2]: misaligned — closure-swap placeholder bleed (no name, no family kw)
+      - stop[3]: no primary_type and no name match — misaligned
+
+    Expected: 2 of 4 stops align -> 0.5. This is hand-computed against the
+    pre-extraction scorer body so any drift in is_rationale_aligned will trip.
+    """
+    state = ItineraryState(
+        stops=[
+            _stop(
+                "p1",
+                name="Kaiseki Yuzu",
+                rationale="Kaiseki Yuzu offers a tasting menu",
+                primary_type="Sushi Restaurant",
+            ),
+            _stop(
+                "p2",
+                name="Stookey's",
+                rationale="Excellent cocktails in a vintage setting",
+                primary_type="Cocktail Bar",
+            ),
+            _stop(
+                "p3",
+                name="Lazy Bear",
+                rationale="Walking-distance alternative for Kaiseki Yuzu",
+                primary_type="American Restaurant",
+            ),
+            _stop(
+                "p4",
+                name="Mystery Spot",
+                rationale="A pleasant place with great vibes",
+                primary_type=None,
+            ),
+        ],
+    )
+    # Pin the exact pre-extraction value. matches=2 (p1 by name, p2 by 'cocktail'
+    # in bar family); total=4 -> 0.5.
+    assert rationale_stop_alignment(state) == 0.5
+
+
 # --- itinerary_violations aggregation ---------------------------------------
 
 
@@ -644,11 +897,12 @@ def test_stop_count_satisfied_checks_explicit_request() -> None:
 
 def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
     """Order matters: hallucination first, then stop count, category compliance,
-    temporal, geo, walking, constraints, rationale. Mocks each check
-    independently so we can assert the order."""
+    strict category compliance, temporal, geo, walking, constraints, rationale.
+    Mocks each check independently so we can assert the order."""
     mocker.patch("app.agent.critique.checks.no_hallucinated_place_ids", return_value=0.0)
     mocker.patch("app.agent.critique.checks.stop_count_satisfied", return_value=0.0)
     mocker.patch("app.agent.critique.checks.category_compliance", return_value=0.0)
+    mocker.patch("app.agent.critique.checks.category_compliance_strict", return_value=0.0)
     mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=0.0)
     mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=0.5)
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=0.0)
@@ -659,6 +913,7 @@ def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
         "no_hallucinated_place_ids",
         "stop_count_satisfied",
         "category_compliance",
+        "category_compliance_strict",
         "temporal_coherence",
         "geographic_coherence",
         "walking_budget_respected",
@@ -672,6 +927,7 @@ def test_itinerary_violations_empty_when_all_pass(mocker) -> None:
         "no_hallucinated_place_ids",
         "stop_count_satisfied",
         "category_compliance",
+        "category_compliance_strict",
         "temporal_coherence",
         "geographic_coherence",
         "walking_budget_respected",
@@ -692,6 +948,7 @@ def test_itinerary_violations_fails_open_on_db_error(mocker) -> None:
     )
     mocker.patch("app.agent.critique.checks.stop_count_satisfied", return_value=1.0)
     mocker.patch("app.agent.critique.checks.category_compliance", return_value=1.0)
+    mocker.patch("app.agent.critique.checks.category_compliance_strict", return_value=1.0)
     mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=1.0)
     mocker.patch("app.agent.critique.checks.geographic_coherence", return_value=1.0)
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=1.0)
@@ -709,6 +966,7 @@ def test_thresholds_are_strict_enough() -> None:
     assert CRITIQUE_THRESHOLDS["stop_count_satisfied"] == 1.0
     assert CRITIQUE_THRESHOLDS["walking_budget_respected"] == 1.0
     assert CRITIQUE_THRESHOLDS["category_compliance"] == 1.0
+    assert CRITIQUE_THRESHOLDS["category_compliance_strict"] == 1.0
     assert CRITIQUE_THRESHOLDS["rationale_stop_alignment"] == 1.0
     # Constraint satisfaction has wiggle room — not every constraint is hard.
     assert CRITIQUE_THRESHOLDS["constraints_satisfied"] == 0.8

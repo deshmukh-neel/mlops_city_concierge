@@ -14,7 +14,7 @@ import logging
 from psycopg2.extras import RealDictCursor
 
 from app.agent.planning import haversine_m
-from app.agent.state import ItineraryState
+from app.agent.state import ItineraryState, Stop
 from app.db import get_conn
 from app.tools.filters import _PRIMARY_TYPE_FAMILIES, family_of
 
@@ -28,6 +28,7 @@ CRITIQUE_THRESHOLDS: dict[str, float] = {
     "walking_budget_respected": 1.0,
     "no_hallucinated_place_ids": 1.0,
     "category_compliance": 1.0,
+    "category_compliance_strict": 1.0,
     "rationale_stop_alignment": 1.0,
 }
 
@@ -53,6 +54,15 @@ def _build_family_keywords() -> dict[str, frozenset[str]]:
 
 
 _FAMILY_KEYWORDS: dict[str, frozenset[str]] = _build_family_keywords()
+
+_STRICT_TYPE_KEYWORDS: dict[str, frozenset[str]] = {
+    "omakase": frozenset({"Sushi Restaurant", "Japanese Restaurant", "Fine Dining Restaurant"}),
+    "sushi": frozenset({"Sushi Restaurant", "Japanese Restaurant"}),
+    "ramen": frozenset({"Ramen Restaurant", "Japanese Restaurant"}),
+    "tacos": frozenset({"Mexican Restaurant", "Restaurant"}),
+    "cocktails": frozenset({"Cocktail Bar", "Bar"}),
+    "dessert": frozenset({"Dessert Shop", "Bakery", "Ice Cream Shop"}),
+}
 
 
 def no_hallucinated_place_ids(state: ItineraryState) -> float:
@@ -253,13 +263,71 @@ def category_compliance(state: ItineraryState) -> float:
     return matches / denom
 
 
+def category_compliance_strict(state: ItineraryState) -> float:
+    """Strict per-slot category match between requested keywords and stops.
+
+    Pure function of state: no DB access. Abstains with 1.0 when the user did
+    not name category slots (D-03) and fail-opens with 1.0 when no stops were
+    committed. Mapped keywords use exact Title Case primary_type membership;
+    unmapped keywords fall back to the same family-level comparison used by
+    category_compliance so strict scoring is never worse than family scoring
+    for requests outside the lookup table.
+    """
+    requested = state.constraints.requested_primary_types
+    if not requested:
+        return 1.0
+    if not state.stops:
+        return 1.0
+    overlap = min(len(requested), len(state.stops))
+    denom = max(len(requested), len(state.stops))
+    matches = 0
+    for i in range(overlap):
+        stop_primary_type = state.stops[i].primary_type
+        expected = _STRICT_TYPE_KEYWORDS.get(requested[i].lower())
+        if expected is not None:
+            if stop_primary_type in expected:
+                matches += 1
+            continue
+        want = family_of(requested[i])
+        got = family_of(stop_primary_type)
+        if want is not None and got is not None and want == got:
+            matches += 1
+    return matches / denom
+
+
+def is_rationale_aligned(stop: Stop) -> bool:
+    """Per-stop rationale-alignment rule. Public helper (plan 04-05).
+
+    Both `rationale_stop_alignment` (scorer) and `_first_misaligned_stop_index`
+    (revision dispatcher in `app/agent/revision.py`) call this so the per-stop
+    rule is single-sourced — no duplicated interpretation of "aligned" across
+    the scorer and the dispatcher (DRY).
+
+    Returns True iff the stop's rationale contains either (a) the stop's name
+    (case-insensitive substring) or (b) at least one keyword from the family
+    derived from `family_of(stop.primary_type)` via `_FAMILY_KEYWORDS`. Returns
+    False for empty / None rationale, for None primary_type with no name match,
+    or when neither path fires.
+    """
+    rationale_lower = stop.rationale.lower() if stop.rationale else ""
+    if not rationale_lower:
+        return False
+    if stop.name and stop.name.lower() in rationale_lower:
+        return True
+    family = family_of(stop.primary_type)
+    if family is None:
+        return False
+    keywords = _FAMILY_KEYWORDS.get(family, frozenset())
+    return any(kw in rationale_lower for kw in keywords)
+
+
 def rationale_stop_alignment(state: ItineraryState) -> float:
     """Per-stop rationale-to-stop alignment (EVAL-02).
 
-    For each stop, a "match" requires either (a) the stop's name appears in
-    its rationale (case-insensitive substring) or (b) at least one keyword
-    from the stop's family (derived from filters._PRIMARY_TYPE_FAMILIES at
-    import time) appears in the rationale (also case-insensitive substring).
+    For each stop, a "match" is the boolean returned by `is_rationale_aligned`:
+    either (a) the stop's name appears in its rationale (case-insensitive
+    substring) or (b) at least one keyword from the stop's family appears in
+    the rationale (also case-insensitive substring).
 
     Score = matches / len(stops). Empty stops returns 1.0 (fail-open).
 
@@ -273,21 +341,13 @@ def rationale_stop_alignment(state: ItineraryState) -> float:
       carries the placeholder when committed.
 
     Pure function of state: no DB access. Cannot be broken by DB outages.
+
+    Per-stop logic lives in `is_rationale_aligned` so the revision dispatcher
+    can identify the offending stop using the SAME rule (plan 04-05 ADVISORY 3).
     """
     if not state.stops:
         return 1.0
-    matches = 0
-    for stop in state.stops:
-        rationale_lower = stop.rationale.lower() if stop.rationale else ""
-        if stop.name and stop.name.lower() in rationale_lower:
-            matches += 1
-            continue
-        family = family_of(stop.primary_type)
-        if family is None:
-            continue
-        keywords = _FAMILY_KEYWORDS.get(family, frozenset())
-        if any(kw in rationale_lower for kw in keywords):
-            matches += 1
+    matches = sum(1 for stop in state.stops if is_rationale_aligned(stop))
     return matches / len(state.stops)
 
 
@@ -315,6 +375,7 @@ def itinerary_violations(state: ItineraryState) -> list[str]:
     _try("no_hallucinated_place_ids", no_hallucinated_place_ids)
     _try("stop_count_satisfied", stop_count_satisfied)
     _try("category_compliance", category_compliance)
+    _try("category_compliance_strict", category_compliance_strict)
     _try("temporal_coherence", temporal_coherence)
     _try("geographic_coherence", geographic_coherence)
     _try("walking_budget_respected", walking_budget_respected)

@@ -594,6 +594,136 @@ def test_chat_endpoint_alternative_path_falls_through_to_graph(mocker) -> None:
     assert "Mochill" in combined_humans or "find something cheaper" in combined_humans
 
 
+# ─── Phase 4 hybrid intake pipeline (D-04-01..D-04-03) ─────────────────
+
+
+def _make_intake_llm(extraction_result, observed: dict[str, Any] | None = None) -> Any:
+    """Fake LLM with .bind/.with_structured_output/.ainvoke that returns the
+    provided SlotExtractionResult (or raises if it's an Exception)."""
+    observed = observed if observed is not None else {}
+    observed.setdefault("bind_calls", [])
+    observed.setdefault("wso_call_count", 0)
+    observed.setdefault("ainvoke_call_count", 0)
+
+    class _Structured:
+        async def ainvoke(self, prompt: str, *args: Any, **kwargs: Any):
+            observed["ainvoke_call_count"] += 1
+            if isinstance(extraction_result, Exception):
+                raise extraction_result
+            return extraction_result
+
+    class _Bound:
+        def with_structured_output(self, *args: Any, **kwargs: Any) -> _Structured:
+            observed["wso_call_count"] += 1
+            return _Structured()
+
+    class _LLM:
+        def bind(self, **kwargs: Any) -> _Bound:
+            observed["bind_calls"].append(dict(kwargs))
+            return _Bound()
+
+    return type("ChatOpenAI", (_LLM,), {})()
+
+
+def test_chat_free_text_skips_intake(mocker) -> None:
+    """Free-text /chat → has_slot_structure=False; no bind, no
+    with_structured_output, no LLM ainvoke. Zero-latency-tax invariant."""
+    observed: dict[str, Any] = {}
+    fake_llm = _make_intake_llm(Exception("should never be invoked on free-text"), observed)
+    fake_graph = mocker.Mock()
+
+    async def _ainvoke(state, config=None):
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    cfg = _stub_loaded_config(mocker.Mock())
+    cfg.llm = fake_llm
+    mocker.patch("app.main.load_registered_rag_chain", return_value=cfg)
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={"message": "find me good tacos"},
+        )
+
+    assert response.status_code == 200
+    assert observed.get("bind_calls") == []
+    assert observed.get("wso_call_count") == 0
+    assert observed.get("ainvoke_call_count") == 0
+
+
+def test_chat_slot_structured_triggers_intake(mocker) -> None:
+    """Slot-structured /chat → intake fires once; the validated list reaches
+    state.constraints.requested_primary_types before graph.ainvoke."""
+    observed: dict[str, Any] = {}
+    from app.agent.input_parsing import SlotExtractionResult
+
+    fake_llm = _make_intake_llm(
+        SlotExtractionResult(
+            requested_primary_types=["Sushi Restaurant", "Cocktail Bar", "Dessert Shop"]
+        ),
+        observed,
+    )
+    fake_graph = mocker.Mock()
+    captured: dict[str, Any] = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    cfg = _stub_loaded_config(mocker.Mock())
+    cfg.llm = fake_llm
+    mocker.patch("app.main.load_registered_rag_chain", return_value=cfg)
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={"message": "omakase, drinks, dessert in Mission"},
+        )
+
+    assert response.status_code == 200
+    assert observed["bind_calls"], "intake bind never invoked on slot-structured input"
+    assert observed["ainvoke_call_count"] == 1
+    state = captured["state"]
+    assert state.constraints.requested_primary_types == [
+        "Sushi Restaurant",
+        "Cocktail Bar",
+        "Dessert Shop",
+    ]
+
+
+def test_chat_intake_exception_fails_open(mocker) -> None:
+    """Intake LLM raises → handler logs warning and falls back to
+    requested_primary_types=[]; the request still 200s (D-04-03 fail-open)."""
+    observed: dict[str, Any] = {}
+    fake_llm = _make_intake_llm(RuntimeError("intake provider down"), observed)
+    fake_graph = mocker.Mock()
+    captured: dict[str, Any] = {}
+
+    async def _ainvoke(state, config=None):
+        captured["state"] = state
+        return _final_state_dict(reply="ok")
+
+    fake_graph.ainvoke = _ainvoke
+    cfg = _stub_loaded_config(mocker.Mock())
+    cfg.llm = fake_llm
+    mocker.patch("app.main.load_registered_rag_chain", return_value=cfg)
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={"message": "dinner, drinks, dessert"},
+        )
+
+    assert response.status_code == 200
+    assert observed["ainvoke_call_count"] == 1  # tried once before raising
+    assert captured["state"].constraints.requested_primary_types == []
+
+
 def test_chat_endpoint_accept_escalates_when_proposed_alternative_missing(mocker) -> None:
     """Accept path with proposed_alternative no longer in DB → graph runs
     (not early-return) with the closure_context preserved."""

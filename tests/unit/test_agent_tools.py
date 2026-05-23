@@ -132,7 +132,8 @@ def test_kg_traverse_tool_delegates_to_graph(monkeypatch) -> None:
 def test_args_schema_includes_all_params() -> None:
     schema = _args_schema_for(semantic_search)
     fields = schema.model_fields
-    assert set(fields.keys()) == {"query", "filters", "k"}
+    assert set(fields.keys()) == {"query", "filters", "k", "slot_index"}
+    assert fields["slot_index"].default is None
 
 
 def test_args_schema_raises_on_missing_annotation() -> None:

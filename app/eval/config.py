@@ -43,6 +43,14 @@ class ExpectedConstraints(BaseModel):
     min_user_rating_count: int | None = Field(default=None, ge=0)
     open_at_iso: datetime | None = None
     types_any: list[str] = Field(default_factory=list)
+    requested_primary_types: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Per-slot Google primary_type values (Title Case, e.g. 'Sushi Restaurant') "
+            "the agent should match on each committed stop. Empty list means no slot "
+            "expectations (D-03 abstain)."
+        ),
+    )
     serves_brunch: bool | None = None
     serves_vegetarian: bool | None = None
     serves_coffee: bool | None = None
@@ -55,11 +63,19 @@ class ExpectedConstraints(BaseModel):
             return None
         return strip_non_empty(value, "neighborhood")
 
-    @field_validator("types_any")
+    @field_validator("types_any", "requested_primary_types")
     @classmethod
-    def types_any_non_empty(cls, value: list[str]) -> list[str]:
-        """Ensure expected Google place types are not blank strings."""
-        return strip_non_empty_list(value, "types_any")
+    def _strip_non_empty_list(cls, value: list[str], info: ValidationInfo) -> list[str]:
+        """Trim expected place-type lists and discard blank entries."""
+        field_name = info.field_name or "list"
+        cleaned: list[str] = []
+        for index, item in enumerate(value):
+            if not isinstance(item, str):
+                raise ValueError(f"{field_name}[{index}] must be a string")
+            stripped = item.strip()
+            if stripped:
+                cleaned.append(stripped)
+        return cleaned
 
     @field_validator("open_at_iso")
     @classmethod

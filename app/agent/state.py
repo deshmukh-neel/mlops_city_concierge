@@ -29,6 +29,7 @@ RevisionReason = Literal[
     "stop_count_mismatch",
     "hallucinated_place_id",
     "vibe_mismatch",
+    "rationale_misaligned",
 ]
 
 RevisionAction = Literal[
@@ -43,6 +44,7 @@ RevisionAction = Literal[
     "rebalance_walking_budget",
     "add_missing_stops",
     "remove_extra_stops",
+    "rewrite_rationale",
 ]
 
 

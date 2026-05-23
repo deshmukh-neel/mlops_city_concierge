@@ -8,7 +8,8 @@ from dataclasses import asdict
 import pytest
 
 from app.agent.state import ItineraryState
-from app.eval.config import EvalQuery
+from app.eval.config import EvalQuery, ExpectedConstraints, load_eval_queries
+from app.tools.filters import family_of
 from scripts.eval_agent import (
     DETERMINISTIC_CHECKS,
     ActualEvalResult,
@@ -57,6 +58,64 @@ def eval_case(**overrides: object) -> EvalQuery:
     return EvalQuery.model_validate(payload)
 
 
+def test_expected_constraints_requested_primary_types_defaults_empty() -> None:
+    """Category-slot expectations are optional for backward-compatible eval cases."""
+    assert ExpectedConstraints().requested_primary_types == []
+
+
+def test_expected_constraints_accepts_requested_primary_types() -> None:
+    """Per-slot Google primary_type expectations parse as a list of strings."""
+    constraints = ExpectedConstraints(requested_primary_types=["Sushi Restaurant"])
+
+    assert constraints.requested_primary_types == ["Sushi Restaurant"]
+
+
+def test_expected_constraints_strips_blank_requested_primary_type_entries() -> None:
+    """The existing list validator should clean requested_primary_types too."""
+    constraints = ExpectedConstraints(requested_primary_types=["", "Sushi Restaurant"])
+
+    assert constraints.requested_primary_types == ["Sushi Restaurant"]
+
+
+def test_expected_constraints_keeps_single_shared_list_validator() -> None:
+    """ADVISORY 6: do not duplicate the ExpectedConstraints list validator."""
+    source = inspect.getsource(ExpectedConstraints)
+
+    assert source.count("def _strip_non_empty_list") == 1
+
+
+@pytest.mark.parametrize(
+    ("case_id", "expected"),
+    [
+        (
+            "omakase_mission_open_ended",
+            ["Sushi Restaurant", "Cocktail Bar", "Dessert Shop"],
+        ),
+        (
+            "refinement_cheaper",
+            ["Restaurant", "Cocktail Bar", "Dessert Shop"],
+        ),
+    ],
+)
+def test_eval_queries_target_cases_declare_requested_primary_types(
+    case_id: str,
+    expected: list[str],
+) -> None:
+    """Live eval YAML should carry authoritative per-slot category expectations."""
+    cases = {case.id: case for case in load_eval_queries("configs/eval_queries.yaml").hand_written}
+    requested = cases[case_id].expected_constraints.requested_primary_types
+
+    assert requested == expected
+    assert all(family_of(value) is not None for value in requested)
+
+
+def test_eval_queries_late_night_closure_cascade_has_no_requested_primary_types() -> None:
+    """D-04-12: late-night closure remains tracked but ungated for Phase 4."""
+    cases = {case.id: case for case in load_eval_queries("configs/eval_queries.yaml").hand_written}
+
+    assert cases["late_night_closure_cascade"].expected_constraints.requested_primary_types == []
+
+
 def query_result(**overrides: object) -> QueryEvalResult:
     """Build a QueryEvalResult with passing deterministic checks.
 
@@ -66,6 +125,7 @@ def query_result(**overrides: object) -> QueryEvalResult:
     """
     checks = {
         "category_compliance": CheckResult(score=1.0, threshold=1.0, passed=True),
+        "category_compliance_strict": CheckResult(score=1.0, threshold=1.0, passed=True),
         "constraints_satisfied": CheckResult(score=1.0, threshold=0.8, passed=True),
         "geographic_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
         "no_hallucinated_place_ids": CheckResult(score=1.0, threshold=1.0, passed=True),
@@ -577,6 +637,17 @@ def _finalize_msg(content: str) -> AIMessage:
     return AIMessage(content=content, tool_calls=[])
 
 
+class CapturingGraph:
+    """Small eval-agent test double that records every invoked state."""
+
+    def __init__(self) -> None:
+        self.states: list[ItineraryState] = []
+
+    async def ainvoke(self, state: ItineraryState) -> ItineraryState:
+        self.states.append(state)
+        return state.model_copy(update={"final_reply": "captured"})
+
+
 @pytest.mark.asyncio
 async def test_evaluate_case_single_turn_unchanged(mocker) -> None:
     """Backward-compat regression guard: EvalQuery.turns=None must run
@@ -597,6 +668,46 @@ async def test_evaluate_case_single_turn_unchanged(mocker) -> None:
     assert len(llm.seen) == 1
     # Single-turn path must NOT inject the multi_turn_runner synthetic error.
     assert all("multi_turn_runner" not in err for err in result.deterministic.tool_errors)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_case_passes_requested_primary_types_to_state() -> None:
+    """Eval bypasses prod intake and copies YAML slot expectations into state."""
+    graph = CapturingGraph()
+    case = eval_case(
+        expected_constraints={"requested_primary_types": ["Sushi Restaurant"]},
+    )
+
+    await evaluate_case(graph, case)
+
+    assert graph.states[0].constraints.requested_primary_types == ["Sushi Restaurant"]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_case_defaults_empty_requested_primary_types() -> None:
+    """Cases without slot expectations keep the UserConstraints default."""
+    graph = CapturingGraph()
+
+    await evaluate_case(graph, eval_case())
+
+    assert graph.states[0].constraints.requested_primary_types == []
+
+
+@pytest.mark.asyncio
+async def test_evaluate_multi_turn_passes_requested_primary_types_to_every_turn() -> None:
+    """Multi-turn eval rebuilds constraints on every graph invocation."""
+    graph = CapturingGraph()
+    case = eval_case(
+        expected_constraints={"requested_primary_types": ["Restaurant", "Cocktail Bar"]},
+        turns=["make stop 2 cheaper"],
+    )
+
+    await evaluate_case(graph, case)
+
+    assert [state.constraints.requested_primary_types for state in graph.states] == [
+        ["Restaurant", "Cocktail Bar"],
+        ["Restaurant", "Cocktail Bar"],
+    ]
 
 
 @pytest.mark.asyncio

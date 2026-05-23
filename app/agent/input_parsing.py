@@ -11,6 +11,8 @@ import re
 from collections.abc import Iterable
 from typing import Literal, Protocol
 
+from pydantic import BaseModel, Field
+
 _MAX_EXPLICIT_STOPS = 10
 _STOP_NOUN = r"(?:stop|stops|spot|spots|place|places)"
 _DIGIT_STOP_RE = re.compile(rf"\b([1-9]|10)\s*[- ]?\s*{_STOP_NOUN}\b", re.IGNORECASE)
@@ -47,6 +49,111 @@ _BARE_WORD_NUMBER_RE = re.compile(
     rf"^\s*({'|'.join(_WORD_TO_INT)})\s*[.!]?\s*$",
     re.IGNORECASE,
 )
+
+
+# ─── Slot-indicator pre-check (Phase 4 / D-04-01) ────────────────────────
+#
+# Conservative gate that decides whether the /chat handler should burn one
+# extra LLM call to extract per-slot `requested_primary_types` from the
+# user message. False negatives are fine (free-text path is unchanged);
+# false positives waste one LLM call but never break correctness — the
+# Pydantic structured-output schema + family_of validation drop unmappable
+# entries either way.
+#
+# Patterns mirror `explicit_num_stops_from_text`'s style: compile-once at
+# module load, no per-call regex construction. See CONTEXT.md <specifics>
+# (D-04-01 starting set).
+
+# Single-word slot vocabulary. Two or more DISTINCT matches → slot list.
+_SLOT_VOCABULARY: frozenset[str] = frozenset(
+    {
+        "dinner",
+        "drinks",
+        "dessert",
+        "brunch",
+        "lunch",
+        "breakfast",
+        "cocktails",
+        "coffee",
+        "nightcap",
+        "omakase",
+        "sushi",
+        "ramen",
+        "tacos",
+        "pizza",
+        "bar",
+        "cafe",
+    }
+)
+_SLOT_VOCAB_RE = re.compile(
+    rf"\b(?:{'|'.join(sorted(_SLOT_VOCABULARY))})\b",
+    re.IGNORECASE,
+)
+# "X then Y" / "X followed by Y" / "X -> Y" / "X > Y"
+_THEN_PATTERN_RE = re.compile(
+    r"\b\w+\s+(?:then|followed\s+by|->|>)\s+\w+",
+    re.IGNORECASE,
+)
+# Numbered list "1. ... 2. ..." or "1) ... 2) ...". DOTALL so the gap
+# between markers can contain anything.
+_NUMBERED_SLOT_RE = re.compile(r"\b1[.)]\s.*?\b2[.)]", re.IGNORECASE | re.DOTALL)
+# Planning-verb co-occurrence (catches "Plan an omakase night, 3 stops"
+# where there's only one vocab word but the planning intent is clear).
+_PLANNING_VERB_RE = re.compile(
+    r"\b(?:plan|schedule|book|do)\b",
+    re.IGNORECASE,
+)
+
+
+def has_slot_structure(text: str) -> bool:
+    """Return True when `text` looks like a per-slot category structure.
+
+    Deliberately conservative. Fires on:
+      (a) "X then Y [then Z]" / "X followed by Y" / "X -> Y" patterns
+      (b) Numbered structure ("1. dinner spot 2. drinks")
+      (c) Two or more DISTINCT slot-vocabulary words (e.g.
+          "dinner, drinks, dessert")
+      (d) At least one slot-vocabulary word in proximity to a planning
+          verb ("plan an omakase night ..."), which catches the
+          single-vocab + planning-intent case.
+
+    Empty / whitespace inputs return False. Single-vocab free text
+    ("find good tacos") and non-vocab comma lists ("San Francisco, CA,
+    USA") return False — the LLM intake call has a hard cost so we only
+    pay it when the slot signal is reasonably strong. Repeated SAME
+    vocab word ("dinner dinner dinner") does NOT count as multiple
+    distinct slots.
+    """
+    if not text or not text.strip():
+        return False
+    if _THEN_PATTERN_RE.search(text):
+        return True
+    if _NUMBERED_SLOT_RE.search(text):
+        return True
+    vocab_hits = {m.group(0).lower() for m in _SLOT_VOCAB_RE.finditer(text)}
+    if len(vocab_hits) >= 2:
+        return True
+    return bool(vocab_hits and _PLANNING_VERB_RE.search(text))
+
+
+class SlotExtractionResult(BaseModel):
+    """Pydantic schema for the intake LLM's structured-output call.
+
+    Single field — a list of Google `primary_type` Title-Case strings,
+    one per slot in the order the user named them. Empty list is the
+    fail-open default; the /chat handler treats an empty list as "no
+    slot enforcement" and the agent runs on free-text behavior.
+    """
+
+    requested_primary_types: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Per-slot Google primary_type values, Title Case "
+            "(e.g. 'Sushi Restaurant', 'Cocktail Bar', 'Dessert Shop'); "
+            "validated downstream against family_of() in "
+            "app.tools.filters — unmappable entries are dropped."
+        ),
+    )
 
 
 class _HasRoleContent(Protocol):

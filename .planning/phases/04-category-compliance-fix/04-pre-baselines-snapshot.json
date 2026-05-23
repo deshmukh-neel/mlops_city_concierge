@@ -1,0 +1,355 @@
+{
+  "baselines": {
+    "late_night_closure_cascade": {
+      "closure_check_confirmed": "2026-05-21",
+      "generated_at": "2026-05-22T19-21-22Z",
+      "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
+      "providers": {
+        "deepseek/deepseek-chat": {
+          "_observations": "All 3 runs committed 0 stops, hit step limit (21-24 tool calls). Same non-convergence pattern as the other scenarios.",
+          "scorers": {
+            "category_compliance": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "constraints_satisfied": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "geographic_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "no_hallucinated_place_ids": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "rationale_stop_alignment": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "temporal_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "walking_budget_respected": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            }
+          }
+        },
+        "openai/gpt-4o-mini": {
+          "_observations": "Run 1 committed 3 stops cleanly (zero violations). Runs 0 and 2 made ZERO tool calls but their final_reply describes a full multi-stop itinerary in prose ('Beauty Bar' / 'Teeth Bar SF' at fabricated addresses) \u2014 confidently-wrong output with no grounding. committed_stop_count=0 catches it via expected_results violation, but the user-visible answer is hallucinated. Worth flagging as a separate bug class beyond Phase 4-6 scope (possibly: agent decides early it has enough info from system_prompt + reply directly without tool calls).",
+          "scorers": {
+            "category_compliance": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "constraints_satisfied": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "geographic_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "no_hallucinated_place_ids": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "rationale_stop_alignment": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "temporal_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "walking_budget_respected": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            }
+          }
+        }
+      },
+      "scenario_id": "late_night_closure_cascade"
+    },
+    "omakase_mission_open_ended": {
+      "closure_check_confirmed": "2026-05-21",
+      "generated_at": "2026-05-22T19-21-22Z",
+      "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
+      "providers": {
+        "deepseek/deepseek-chat": {
+          "_observations": "All 3 runs hit the planning step limit without ever calling commit_itinerary (final_reply = 'I hit the planning step limit. Here is the best plan I had so far.'). committed_stop_count=0 across all runs (16/12/11 tool calls each, only semantic_search + get_details, never commit_itinerary). Every scorer reads 1.0 because all per-state scorers fail-open on empty stops by design. Treat as non-converged floor \u2014 any Phase 4-6 PR that fixes DeepSeek convergence will START committing real itineraries, which may DECREASE these scores against this baseline as real failure modes become visible. Pre-merge gates that consume this baseline MUST carve out the 'baseline-on-non-convergence' case for DeepSeek (suggest: compare on committed runs only, or skip DeepSeek delta gate until convergence is restored).",
+          "scorers": {
+            "category_compliance": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "constraints_satisfied": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "geographic_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "no_hallucinated_place_ids": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "rationale_stop_alignment": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "temporal_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "walking_budget_respected": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            }
+          }
+        },
+        "openai/gpt-4o-mini": {
+          "_observations": "All 3 runs committed 3 stops; every run violated geographic_coherence AND walking_budget_respected \u2014 model committed an itinerary spread across SoMa/Bernal Heights/Outer Mission. category_compliance_mean=1.0 and rationale_stop_alignment_mean=1.0 reflect what the scorers measure on the committed shape, NOT proof of category-correct behavior (cf. Phase 4 D-01: requested_primary_types is not yet populated in production, so category_compliance abstains-at-1.0 by D-03 contract). Treat as a floor for geo/walking improvements; category_compliance improvement is measurable only after Phase 4 wires the intake.",
+          "scorers": {
+            "category_compliance": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "constraints_satisfied": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "geographic_coherence": {
+              "max": 0.5,
+              "median": 0.0,
+              "min": 0.0,
+              "n": 3,
+              "stdev": 0.28867513459481287
+            },
+            "no_hallucinated_place_ids": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "rationale_stop_alignment": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "temporal_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "walking_budget_respected": {
+              "max": 0.0,
+              "median": 0.0,
+              "min": 0.0,
+              "n": 3,
+              "stdev": 0.0
+            }
+          }
+        }
+      },
+      "scenario_id": "omakase_mission_open_ended"
+    },
+    "refinement_cheaper": {
+      "closure_check_confirmed": "2026-05-21",
+      "generated_at": "2026-05-22T19-21-22Z",
+      "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
+      "providers": {
+        "deepseek/deepseek-chat": {
+          "_observations": "All 3 runs committed 0 stops (12-15 tool calls each, never commit_itinerary). Same non-convergence pattern as omakase. Same caveat: scorers read 1.0 via fail-open, not as proof of correctness.",
+          "scorers": {
+            "category_compliance": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "constraints_satisfied": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "geographic_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "no_hallucinated_place_ids": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "rationale_stop_alignment": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "temporal_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "walking_budget_respected": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            }
+          }
+        },
+        "openai/gpt-4o-mini": {
+          "_observations": "Unstable convergence across runs: committed_stop_count = [3, 1, 2] (run 0/1/2). Run 0 committed 3 stops and violated rationale_stop_alignment (the bug Phase 5 targets). Run 1 only committed 1 stop on the refinement turn. Run 2 made only 2 tool calls total \u2014 multi-turn threading likely truncated. Scorer medians are mostly 1.0 due to fail-open on partial commits; the real signal is committed_stop_count variance. Phase 6 (minimal-edit refinement) targets exactly this scenario.",
+          "scorers": {
+            "category_compliance": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "constraints_satisfied": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "geographic_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "no_hallucinated_place_ids": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "rationale_stop_alignment": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 0.6666666666666666,
+              "n": 3,
+              "stdev": 0.1924500897298753
+            },
+            "temporal_coherence": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            },
+            "walking_budget_respected": {
+              "max": 1.0,
+              "median": 1.0,
+              "min": 1.0,
+              "n": 3,
+              "stdev": 0.0
+            }
+          }
+        }
+      },
+      "scenario_id": "refinement_cheaper"
+    }
+  },
+  "git_sha": "972e6fe011a5f8122bfc17fc8277f751450a5a95",
+  "note": "Pre-Phase-4 baseline snapshot \u2014 frozen for D-04-13 merge-gate delta comparison. The configs/eval_baselines/ files will be overwritten by task 2 of plan 04-07; this snapshot preserves the OLD floor.",
+  "snapshot_taken_at": "2026-05-22T22:41:18Z"
+}

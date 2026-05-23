@@ -1,116 +1,130 @@
 {
   "scenario_id": "refinement_cheaper",
-  "generated_at": "2026-05-22T19-21-22Z",
+  "generated_at": "2026-05-22T23-07-11Z",
   "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
   "closure_check_confirmed": "2026-05-21",
   "providers": {
-    "openai/gpt-4o-mini": {
-      "scorers": {
-        "category_compliance": {
-          "median": 1.0,
-          "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
-        },
-        "constraints_satisfied": {
-          "median": 1.0,
-          "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
-        },
-        "geographic_coherence": {
-          "median": 1.0,
-          "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
-        },
-        "no_hallucinated_place_ids": {
-          "median": 1.0,
-          "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
-        },
-        "rationale_stop_alignment": {
-          "median": 1.0,
-          "min": 0.6666666666666666,
-          "max": 1.0,
-          "stdev": 0.1924500897298753,
-          "n": 3
-        },
-        "temporal_coherence": {
-          "median": 1.0,
-          "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
-        },
-        "walking_budget_respected": {
-          "median": 1.0,
-          "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
-        }
-      },
-      "_observations": "Unstable convergence across runs: committed_stop_count = [3, 1, 2] (run 0/1/2). Run 0 committed 3 stops and violated rationale_stop_alignment (the bug Phase 5 targets). Run 1 only committed 1 stop on the refinement turn. Run 2 made only 2 tool calls total \u2014 multi-turn threading likely truncated. Scorer medians are mostly 1.0 due to fail-open on partial commits; the real signal is committed_stop_count variance. Phase 6 (minimal-edit refinement) targets exactly this scenario."
-    },
     "deepseek/deepseek-chat": {
       "scorers": {
         "category_compliance": {
+          "max": 1.0,
           "median": 1.0,
           "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "category_compliance_strict": {
           "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
         },
         "constraints_satisfied": {
+          "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
+          "n": 3,
+          "stdev": 0.0
         },
         "geographic_coherence": {
+          "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
+          "n": 3,
+          "stdev": 0.0
         },
         "no_hallucinated_place_ids": {
+          "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
+          "n": 3,
+          "stdev": 0.0
         },
         "rationale_stop_alignment": {
+          "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
+          "n": 3,
+          "stdev": 0.0
         },
         "temporal_coherence": {
+          "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
+          "n": 3,
+          "stdev": 0.0
         },
         "walking_budget_respected": {
+          "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "max": 1.0,
-          "stdev": 0.0,
-          "n": 3
+          "n": 3,
+          "stdev": 0.0
         }
       },
-      "_observations": "All 3 runs committed 0 stops (12-15 tool calls each, never commit_itinerary). Same non-convergence pattern as omakase. Same caveat: scorers read 1.0 via fail-open, not as proof of correctness."
+      "_observations": "Post-Phase-4 baseline (DeepSeek, tracked but not gated per D-04-11). Same decisiveness-gap caveat as omakase_mission_open_ended."
+    },
+    "openai/gpt-4o-mini": {
+      "scorers": {
+        "category_compliance": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "category_compliance_strict": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "constraints_satisfied": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "geographic_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "no_hallucinated_place_ids": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "rationale_stop_alignment": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "temporal_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "walking_budget_respected": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        }
+      },
+      "_observations": "Post-Phase-4 baseline for the refinement scenario. Plan 04-05's rationale_misaligned revision dispatch addresses RAT-01 (refinement-turn rationale integrity, folded into Phase 4 per D-04-09). category_compliance_strict and rationale_stop_alignment are now actually measured rather than abstaining. Phase 4 merge gate per D-04-13 applies (strict floor 0.3 absolute; rationale_stop_alignment delta +0.2 vs pre-Phase-4 baseline)."
     }
   }
 }
