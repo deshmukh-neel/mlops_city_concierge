@@ -44,6 +44,7 @@ RevisionAction = Literal[
     "rebalance_walking_budget",
     "add_missing_stops",
     "remove_extra_stops",
+    "rewrite_rationale",
 ]
 
 

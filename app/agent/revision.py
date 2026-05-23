@@ -214,10 +214,11 @@ def _hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
     if reason == "rationale_stop_alignment":
         # Locate the offending stop using the SAME per-stop rule that the
         # scorer uses (is_rationale_aligned). The model rewrites the rationale
-        # to describe the committed place; suggested_action="swap_stop" reuses
-        # the existing action vocabulary the model already understands.
-        # Budget gating uses the CHECK name ("rationale_stop_alignment") so
-        # this reason's retry budget is independent of constraint_unmet_in_final.
+        # to describe the committed place; suggested_action="rewrite_rationale"
+        # matches the REVISION_GUIDANCE text ("do NOT swap the stop — only the
+        # rationale text is misaligned"). Budget gating uses the CHECK name
+        # ("rationale_stop_alignment") so this reason's retry budget is
+        # independent of constraint_unmet_in_final.
         offending_index = _first_misaligned_stop_index(state)
         return RevisionHint(
             reason="rationale_misaligned",
@@ -225,7 +226,7 @@ def _hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
                 f"Stop {offending_index + 1}'s rationale doesn't describe the "
                 f"committed place's primary_type or name."
             ),
-            suggested_action="swap_stop",
+            suggested_action="rewrite_rationale",
             target={"stop_index": offending_index},
         )
     return RevisionHint(

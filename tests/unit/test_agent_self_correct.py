@@ -637,11 +637,12 @@ def test_final_with_caveats_handles_empty_body() -> None:
         # With num_stops=3 and 2 stops committed, the deficit drives "add".
         ("stop_count_satisfied", "stop_count_mismatch", "add_missing_stops"),
         ("no_hallucinated_place_ids", "hallucinated_place_id", "swap_stop"),
-        # rationale_stop_alignment maps to rationale_misaligned (plan 04-05).
-        # The model rewrites the rationale (not the stop), but `swap_stop` is
-        # the existing RevisionAction vocabulary the model already understands.
-        # The differentiator is the reason key.
-        ("rationale_stop_alignment", "rationale_misaligned", "swap_stop"),
+        # rationale_stop_alignment maps to rationale_misaligned with the
+        # dedicated `rewrite_rationale` action so the structured hint matches
+        # the REVISION_GUIDANCE text ("do NOT swap the stop — only the
+        # rationale text is misaligned"). Fixed in the convergence-regression
+        # follow-up — `swap_stop` here contradicted the prompt guidance.
+        ("rationale_stop_alignment", "rationale_misaligned", "rewrite_rationale"),
         ("unknown_check_name", "constraint_unmet_in_final", "swap_stop"),
     ],
 )
@@ -814,7 +815,7 @@ async def test_revision_emits_rationale_misaligned_on_closure_placeholder_bleed(
     hints = out["revision_hints"]
     assert hints[-1].reason == "rationale_misaligned"
     assert hints[-1].target == {"stop_index": 0}
-    assert hints[-1].suggested_action == "swap_stop"
+    assert hints[-1].suggested_action == "rewrite_rationale"
     # Budget key is the check name (rationale_stop_alignment), NOT the hint
     # reason — keeps the new reason's budget independent of other reasons.
     assert out["revision_counts"]["rationale_stop_alignment"] == 1
