@@ -143,6 +143,150 @@ async def test_low_similarity_emits_broaden_query_hint(monkeypatch) -> None:
     assert any(h.reason == "low_similarity" for h in hints)
 
 
+async def test_low_similarity_in_neighborhood_escalates_to_clarify(monkeypatch) -> None:
+    """When the user pins a neighborhood and even the best in-neighborhood
+    result is STILL weak after the model burned its low_similarity rephrase
+    budget, the dataset literally doesn't have a strong match there (e.g.
+    only 3 Sushi Restaurants in the Mission, top sim ~0.51 for "omakase").
+    Escalate to the user via `neighborhood_no_match` + `clarify_with_user`
+    rather than looping further.
+
+    The gate (low_similarity_count >= MAX_REVISIONS_PER_REASON) is what
+    distinguishes "dataset is thin in this neighborhood" from "model wrote
+    a bad query" — the latter usually gets fixed within the rephrase budget."""
+    from app.agent.revision import MAX_REVISIONS_PER_REASON, _diagnose_one
+
+    # Direct unit test of _diagnose_one: the gate is on the caller-passed
+    # low_similarity_count, which the graph wires from state.revision_counts.
+    weak_hit = _hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)
+    entry = {
+        "args": {
+            "query": "omakase sushi tasting",
+            "filters": {"neighborhood": "Mission"},
+        },
+        "result": [weak_hit],
+    }
+
+    # Below budget: still emits low_similarity (give the model a chance to
+    # fix a bad query first).
+    hint_pre = _diagnose_one("semantic_search", entry, low_similarity_count=0)
+    assert hint_pre is not None
+    assert hint_pre.reason == "low_similarity"
+
+    # At/above budget: escalates to neighborhood_no_match.
+    hint_post = _diagnose_one(
+        "semantic_search", entry, low_similarity_count=MAX_REVISIONS_PER_REASON
+    )
+    assert hint_post is not None
+    assert hint_post.reason == "neighborhood_no_match"
+    assert hint_post.suggested_action == "clarify_with_user"
+    assert hint_post.target.get("neighborhood") == "Mission"
+
+
+async def test_neighborhood_no_match_fires_in_graph_after_budget_exhausted(monkeypatch) -> None:
+    """End-to-end: after the agent has tried `broaden_query` twice (its
+    low_similarity budget) and still hits low similarity in a pinned
+    neighborhood, the next critique fires `neighborhood_no_match` so the
+    model can ask the user instead of spinning indefinitely.
+
+    Mirrors the production failure mode for "omakase in Mission" where the
+    dataset has 3 Sushi Restaurants with max sim 0.51 — no rephrase ever
+    crosses the 0.55 threshold."""
+    monkeypatch.setattr(
+        "app.agent.tools._semantic_search",
+        lambda **_kw: [_hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)],
+    )
+    # Three semantic_search rounds: first two consume the low_similarity
+    # rephrase budget; the third should escalate.
+    fake = _make_fake(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "1",
+                        "args": {
+                            "query": "omakase",
+                            "filters": {"neighborhood": "Mission"},
+                        },
+                    },
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "2",
+                        "args": {
+                            "query": "sushi tasting",
+                            "filters": {"neighborhood": "Mission"},
+                        },
+                    },
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "3",
+                        "args": {
+                            "query": "japanese tasting menu",
+                            "filters": {"neighborhood": "Mission"},
+                        },
+                    },
+                ],
+            ),
+            AIMessage(content="asking user about neighborhood", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=6)
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="x")]))
+
+    hints = out["revision_hints"]
+    reasons = [h.reason for h in hints]
+    # Two low_similarity rephrase attempts, then escalation.
+    assert reasons.count("low_similarity") == 2, f"expected 2 low_similarity, got {reasons}"
+    assert "neighborhood_no_match" in reasons, f"expected escalation, got {reasons}"
+    nm = next(h for h in hints if h.reason == "neighborhood_no_match")
+    assert nm.suggested_action == "clarify_with_user"
+    assert nm.target.get("neighborhood") == "Mission"
+
+
+async def test_low_similarity_no_neighborhood_still_emits_broaden_query(monkeypatch) -> None:
+    """Citywide low-similarity (no neighborhood filter) must still get the
+    classic `low_similarity` + `broaden_query` hint — the new
+    `neighborhood_no_match` branch is gated on filters.neighborhood being
+    set. Otherwise we'd silently lose the existing rephrase-the-query nudge."""
+    monkeypatch.setattr(
+        "app.agent.tools._semantic_search",
+        lambda **_kw: [_hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)],
+    )
+    fake = _make_fake(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "1",
+                        "args": {"query": "obscure", "filters": {}},
+                    },
+                ],
+            ),
+            AIMessage(content="weak match", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="x")]))
+
+    hints = out["revision_hints"]
+    assert any(h.reason == "low_similarity" for h in hints)
+    assert not any(h.reason == "neighborhood_no_match" for h in hints)
+
+
 async def test_tool_error_emits_try_different_tool_hint(monkeypatch) -> None:
     def _boom(**_kw):
         raise RuntimeError("db down")
