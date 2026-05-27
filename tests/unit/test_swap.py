@@ -684,3 +684,48 @@ def test_candidates_to_matches_synthesizes_when_closed_rationale_is_unalignable(
     assert "Walking-distance alternative for" not in rationale
     assert "Distinct Candidate Name" in rationale
     assert is_rationale_aligned(matches[0].stop) is True
+
+
+def test_candidates_to_matches_blocks_legacy_placeholder_carryover() -> None:
+    """REGRESSION (RAT-02, WR-01): a pre-Phase-5 conversation may have
+    already committed a stop whose `rationale` literally contains the
+    legacy placeholder "Walking-distance alternative for {name}". Because
+    that placeholder usually embeds a family keyword (e.g. "pizza" inside
+    a pizzeria name), `is_rationale_aligned` would return True for the
+    inherit probe and the candidate would re-emit the failing substring
+    into `final_reply` on the next turn. The inherit branch must reject
+    any candidate that contains the failing substring and fall back to
+    the deterministic synthesized rationale.
+    """
+    from app.agent.critique.checks import is_rationale_aligned
+    from app.agent.state import ItineraryState
+    from app.agent.swap import _candidates_to_matches
+    from app.tools.retrieval import PlaceHit
+
+    closed_stop = _stop(
+        place_id="closed",
+        name="Pizzeria Delfina",
+        primary_type="Pizza Restaurant",
+    )
+    closed_stop = closed_stop.model_copy(
+        update={"rationale": "Walking-distance alternative for Pizzeria Delfina"}
+    )
+    candidate = PlaceHit(
+        place_id="alt3",
+        name="Tony's Pizza Napoletana",
+        primary_type="Pizza Restaurant",
+        latitude=37.78,
+        longitude=-122.41,
+        source="google_places",
+        similarity=0.0,
+        dist_m=300.0,
+    )
+    state = ItineraryState(stops=[closed_stop], closure_context=[])
+
+    matches = _candidates_to_matches([candidate], closed_stop, state)
+
+    assert len(matches) == 1
+    rationale = matches[0].stop.rationale or ""
+    assert "Walking-distance alternative for" not in rationale
+    assert "Tony's Pizza Napoletana" in rationale
+    assert is_rationale_aligned(matches[0].stop) is True

@@ -236,7 +236,7 @@ def _candidates_to_matches(
         candidate_rationale = (
             f"Walking-distance alternative to {closed_stop.name}, featuring {c.name}."
         )
-        if inherit_candidate:
+        if inherit_candidate and "Walking-distance alternative for" not in inherit_candidate:
             probe = Stop(
                 place_id=c.place_id,
                 name=c.name,
