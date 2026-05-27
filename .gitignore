@@ -237,3 +237,6 @@ frontend/node_modules/
 
 # Planning artifacts (local only)
 .planning/
+
+# Local demo / screen-recording artifacts
+*.mp4
