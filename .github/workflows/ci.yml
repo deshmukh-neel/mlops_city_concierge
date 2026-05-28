@@ -126,6 +126,14 @@ jobs:
           # shallow clone only includes the PR head and would crash the
           # `git diff BASE_SHA...HEAD` invocation inside the lint script.
           fetch-depth: 0
+          # REQUIRED for the [skip-baseline] bypass to work. The default
+          # checkout ref on pull_request is refs/pull/{n}/merge — a synthetic
+          # merge commit whose auto-generated message ("Merge X into Y")
+          # never contains the bypass token. check_baselines_fresh reads
+          # HEAD's commit message via `git log -1 --format=%B`, so without
+          # this override the developer's bypass commit is HEAD~1 and the
+          # gate cannot be bypassed.
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

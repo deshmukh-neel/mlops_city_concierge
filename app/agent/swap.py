@@ -21,6 +21,7 @@ from psycopg2.extras import RealDictCursor
 from pydantic import BaseModel
 
 from app.agent.commit import enrich_stops_with_booking
+from app.agent.critique.checks import is_rationale_aligned
 from app.agent.planning import chain_arrival_times, haversine_m
 from app.agent.revision import summarize_stops
 from app.agent.state import (
@@ -225,6 +226,26 @@ def _candidates_to_matches(
 
     matches: list[CandidateMatch] = []
     for c in candidates:
+        # RAT-02: derive a rationale that satisfies `is_rationale_aligned` for
+        # the CANDIDATE stop (not the closed stop). Inherit the closed stop's
+        # rationale verbatim when it already aligns with the candidate (same
+        # family / shared keyword / candidate name appears in it); otherwise
+        # synthesize a deterministic fallback that contains `c.name` so the
+        # scorer's name-substring branch fires. Pure transform — no LLM call.
+        inherit_candidate = closed_stop.rationale or ""
+        candidate_rationale = (
+            f"Walking-distance alternative to {closed_stop.name}, featuring {c.name}."
+        )
+        if inherit_candidate and "Walking-distance alternative for" not in inherit_candidate:
+            probe = Stop(
+                place_id=c.place_id,
+                name=c.name,
+                rationale=inherit_candidate,
+                primary_type=c.primary_type,
+                source=c.source,
+            )
+            if is_rationale_aligned(probe):
+                candidate_rationale = inherit_candidate
         candidate_stop = Stop(
             place_id=c.place_id,
             name=c.name,
@@ -235,7 +256,7 @@ def _candidates_to_matches(
             longitude=c.longitude,
             arrival_time=closed_stop.arrival_time,
             planned_duration_min=closed_stop.planned_duration_min,
-            rationale=f"Walking-distance alternative for {closed_stop.name}",
+            rationale=candidate_rationale,
             source=c.source,
         )
         candidate_family = family_of(c.primary_type)

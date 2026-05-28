@@ -261,3 +261,96 @@ def test_swap_node_fail_open_on_initial_db_error(mocker) -> None:
     update = asyncio.run(swap_closed_stops(state))
     # No-op (closure-status helper returns [False, False] on DB error)
     assert update == {}
+
+
+def test_swap_node_post_swap_rationale_satisfies_alignment_scorer(mocker) -> None:
+    """Functional regression for RAT-02 / D-05-03 (Phase 5 plan 02).
+
+    Drives the full `swap_closed_stops` graph node end-to-end (not just the
+    inner `_candidates_to_matches` helper that plan 01 unit-tested) on a
+    state with one closed stop + one walking-distance candidate, then asserts
+    BOTH halves of D-05-03:
+
+    1. The user-visible `final_reply` does NOT contain the substring
+       "Walking-distance alternative for" (the placeholder that triggered
+       the bug).
+    2. `rationale_stop_alignment(post_state) == 1.0` where post_state is
+       built from `update["stops"]` — the existing Phase 3 scorer assents
+       to every stop in the post-swap state.
+
+    Mock strategy notes:
+    - Unlike the analog `test_swap_node_auto_swap_silent_when_candidate_found`
+      above, this test does NOT mock `enrich_stops_with_booking` to a no-op.
+      Instead it patches `app.agent.commit.get_details_many` to return `{}`,
+      which makes `enrich_stops_with_booking` run for real but skip each
+      per-stop branch via its `details is None` guard at commit.py:114. This
+      preserves the function call boundary so a future planner extending
+      the fix into the enrichment loop (path (b)-extend variant) is not
+      silently bypassed by this test.
+    - Also patches `app.agent.revision.itinerary_violations` to `[]` per
+      `project_full_suite_db_pool_contamination.md` — the full suite leaks a
+      live DB pool through this function otherwise.
+    """
+    from app.agent.critique.checks import rationale_stop_alignment
+    from app.agent.swap import swap_closed_stops
+
+    # Stop b is closed initially; after the swap, all are open.
+    mocker.patch(
+        "app.agent.swap._execute_closure_query",
+        side_effect=[
+            {"a": True, "b": False, "c": True},  # initial closure check
+            {"a": True, "b_alt": True, "c": True},  # post-swap re-check
+        ],
+    )
+    candidate = PlaceHit(
+        place_id="b_alt",
+        name="B Alt",
+        primary_type="Bar",
+        latitude=37.78,
+        longitude=-122.41,
+        source="google_places",
+        similarity=0.0,
+        dist_m=200.0,
+    )
+    mocker.patch("app.agent.swap._nearby_search", return_value=[candidate])
+    mocker.patch("app.agent.swap.route_legs", side_effect=_fake_route_factory())
+    # Structurally-real no-op for enrich_stops_with_booking: the function runs
+    # but each per-stop branch hits the `details is None` guard at commit.py:114.
+    mocker.patch("app.agent.commit.get_details_many", return_value={})
+    # Full-suite DB-pool contamination defense per project memory.
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+
+    # Stops a and c carry rationales that already satisfy `is_rationale_aligned`
+    # (each contains its own stop's name) so the scorer's assertion below
+    # measures the post-swap stop b_alt's rationale in isolation. The default
+    # `_stop` factory rationale "r" would dilute the scorer to ~0.33 even with
+    # a perfect swap and obscure what this test is actually pinning.
+    state = ItineraryState(
+        stops=[
+            _stop("a", name="Alpha", primary_type="Bar").model_copy(
+                update={"rationale": "Alpha is a lively cocktail bar."}
+            ),
+            _stop("b", name="Beta", primary_type="Bar"),
+            _stop("c", name="Gamma", primary_type="Bar").model_copy(
+                update={"rationale": "Gamma rounds out the night with craft beer."}
+            ),
+        ],
+    )
+    update = asyncio.run(swap_closed_stops(state))
+
+    # Half (1) of D-05-03: no placeholder substring in user-visible reply.
+    final_reply = update.get("final_reply", "")
+    assert final_reply, "swap node returned empty final_reply"
+    assert "Walking-distance alternative for" not in final_reply
+
+    # Half (2) of D-05-03: post-swap state passes the Phase 3 alignment scorer.
+    new_stops = update.get("stops")
+    assert new_stops is not None
+    assert [s.place_id for s in new_stops] == ["a", "b_alt", "c"]
+    post_state = ItineraryState(stops=new_stops)
+    assert rationale_stop_alignment(post_state) == 1.0
+
+    # Sanity: the swap path was actually exercised (not a no-op short-circuit).
+    assert any(c.outcome == "auto_swapped" and c.place_id == "b" for c in update["closure_context"])
+    # Sanity: the candidate's name made it into the rendered summary.
+    assert "B Alt" in final_reply
