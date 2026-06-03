@@ -130,6 +130,7 @@ def query_result(**overrides: object) -> QueryEvalResult:
         "geographic_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
         "no_hallucinated_place_ids": CheckResult(score=1.0, threshold=1.0, passed=True),
         "rationale_stop_alignment": CheckResult(score=1.0, threshold=1.0, passed=True),
+        "refinement_minimal_edit": CheckResult(score=1.0, threshold=1.0, passed=True),
         "temporal_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
         "walking_budget_respected": CheckResult(score=1.0, threshold=1.0, passed=True),
     }
