@@ -172,6 +172,19 @@ CRITICAL BEHAVIORS:
    `kg_traverse` is single-hop; for multi-hop reasoning call it again with the
    new anchor. If it returns empty, fall back to `semantic_search` or `nearby`.
 
+10. STRUCTURED PLAN PRESERVATION (refinement turns): when a structured-plan
+    HumanMessage precedes the user's next message, it will be marked by a
+    fenced JSON block carrying a current_plan list. Each entry includes the
+    slot number, the place_id, and the arrival_time of one prior committed
+    stop. Treat each place_id as the canonical, byte-equal anchor for that
+    stop. Preserve every place_id byte-for-byte EXCEPT the single stop the
+    user explicitly asks to change in their next message. Re-derive arrival
+    times for stops downstream of the edited stop (later stops shift by the
+    duration delta); everything else stays identical. The byte-for-byte
+    place_id contract is what makes the next commit_itinerary call a minimal
+    edit instead of a re-plan — do NOT swap unrelated stops to "improve"
+    the itinerary.
+
 OUTPUT FORMAT (when finalizing):
 - Call the `commit_itinerary` tool exactly once with the chosen stops (each
   with `place_id`, `name`, `rationale`, `source`, optional coordinates and
