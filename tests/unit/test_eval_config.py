@@ -13,6 +13,7 @@ from app.eval.config import (
     EvalMatrixConfig,
     EvalQueriesConfig,
     EvalQuery,
+    ExpectedRefinement,
     MatrixEntry,
     load_eval_matrix,
     load_eval_queries,
@@ -469,3 +470,179 @@ def test_omakase_case_tags_include_category_compliance() -> None:
     config = load_eval_queries(REPO_ROOT / DEFAULT_EVAL_QUERIES_PATH)
     case = next(c for c in config.hand_written if c.id == "omakase_mission_open_ended")
     assert "category_compliance" in case.tags
+
+
+# ─── Phase 6 / Plan 06-04: Eval config schema additions ─────────────────────────
+#
+# Four Pydantic schema additions land in plan 06-04:
+#   - EvalQuery.threading_mode: Literal["legacy", "prod"] = "legacy" (D-06-05)
+#   - ExpectedRefinement nested model with target_slot: int = Field(ge=1) (D-06-08)
+#   - EvalQuery.expected_refinement: ExpectedRefinement | None = None (D-06-08)
+#   - MatrixEntry.env: dict[str, StrictStr] | None = None (D-06-10)
+#
+# Backward-compat invariant: every existing YAML config (eval_queries.yaml +
+# eval_matrix.yaml) MUST validate unchanged. The four additions are all opt-in
+# (default values preserve current behavior).
+
+
+def _phase6_query_payload(**overrides: object) -> dict:
+    """Smallest valid EvalQuery payload for Phase 6 schema tests."""
+    payload: dict = {
+        "id": "x",
+        "query": "q",
+        "reference": "r",
+        "expects_clarification_or_relaxation": True,
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestPhase6EvalConfigAdditions:
+    """Phase 6 / Plan 06-04 schema additions on EvalQuery + MatrixEntry."""
+
+    # --- EvalQuery.threading_mode (D-06-05) ---
+
+    def test_threading_mode_default_is_legacy(self) -> None:
+        """Default is 'legacy' so the 30 existing YAML cases keep their behavior
+        (opt-in flip per D-06-05 / D-06-06)."""
+        case = EvalQuery.model_validate(_phase6_query_payload())
+        assert case.threading_mode == "legacy"
+
+    def test_threading_mode_accepts_prod(self) -> None:
+        """`refinement_cheaper` flips to 'prod' in plan 06-07 — must validate now."""
+        case = EvalQuery.model_validate(_phase6_query_payload(threading_mode="prod"))
+        assert case.threading_mode == "prod"
+
+    def test_threading_mode_rejects_invalid_literal(self) -> None:
+        """Literal enforces membership at validation time — only 'legacy' or 'prod'."""
+        with pytest.raises(ValidationError, match="threading_mode"):
+            EvalQuery.model_validate(_phase6_query_payload(threading_mode="invalid"))
+
+    # --- EvalQuery.expected_refinement + ExpectedRefinement (D-06-08) ---
+
+    def test_expected_refinement_default_is_none(self) -> None:
+        """`None` default = backward compat for non-refinement scenarios."""
+        case = EvalQuery.model_validate(_phase6_query_payload())
+        assert case.expected_refinement is None
+
+    def test_expected_refinement_validates_target_slot_ge_1(self) -> None:
+        """target_slot is 1-indexed (matches user prose + is_refinement_request +
+        refinement_minimal_edit scorer convention). 0 must be rejected."""
+        case = EvalQuery.model_validate(
+            _phase6_query_payload(expected_refinement={"target_slot": 2})
+        )
+        assert case.expected_refinement is not None
+        assert case.expected_refinement.target_slot == 2
+
+        with pytest.raises(ValidationError, match="target_slot"):
+            EvalQuery.model_validate(_phase6_query_payload(expected_refinement={"target_slot": 0}))
+
+    def test_expected_refinement_forbids_extra_fields(self) -> None:
+        """`extra='forbid'` on the nested model — typos must fail loudly."""
+        with pytest.raises(ValidationError):
+            EvalQuery.model_validate(
+                _phase6_query_payload(expected_refinement={"target_slot": 2, "extra_field": "x"})
+            )
+
+    def test_expected_refinement_round_trips_via_expected_refinement_class(self) -> None:
+        """ExpectedRefinement can be instantiated directly (parity with
+        ExpectedConstraints / ExpectedResults)."""
+        ref = ExpectedRefinement(target_slot=3)
+        assert ref.target_slot == 3
+        with pytest.raises(ValidationError, match="target_slot"):
+            ExpectedRefinement(target_slot=0)
+
+    # --- MatrixEntry.env (D-06-10) ---
+
+    def test_matrix_entry_env_default_is_none(self) -> None:
+        """`None` default keeps the existing 2-entry eval_matrix.yaml valid."""
+        entry = MatrixEntry.model_validate({"provider": "openai", "model": "gpt-4o-mini"})
+        assert entry.env is None
+
+    def test_matrix_entry_env_accepts_string_dict(self) -> None:
+        """The plan 06-06 gateway: a single per-cell flag override like
+        REFINEMENT_STRUCTURED_PLAN_ENABLED=true (string value)."""
+        entry = MatrixEntry.model_validate(
+            {
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "env": {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"},
+            }
+        )
+        assert entry.env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}
+
+    def test_matrix_entry_env_rejects_non_string_value_bool(self) -> None:
+        """StrictStr rejects bool — without it, subprocess.run(env=...) would
+        crash on the bool downstream. Catch at config-load time."""
+        with pytest.raises(ValidationError):
+            MatrixEntry.model_validate(
+                {"provider": "openai", "model": "gpt-4o-mini", "env": {"FLAG": True}}
+            )
+
+    def test_matrix_entry_env_rejects_non_string_value_int(self) -> None:
+        """StrictStr also rejects int (no silent coercion to '1')."""
+        with pytest.raises(ValidationError):
+            MatrixEntry.model_validate(
+                {"provider": "openai", "model": "gpt-4o-mini", "env": {"FLAG": 1}}
+            )
+
+    def test_matrix_entry_env_yaml_unquoted_boolean_rejected(self) -> None:
+        """MEDIUM env StrictStr regression guard — without StrictStr a `mode='after'`
+        validator runs AFTER Pydantic coerces YAML bool to str, silently passing.
+        Simulate `yaml.safe_load` of `env: {FLAG: true}` (unquoted) and prove
+        EvalMatrixConfig.model_validate rejects it."""
+        payload = {
+            "entries": [{"provider": "openai", "model": "gpt-4o-mini", "env": {"FLAG": True}}],
+            "scenarios": ["omakase_mission_open_ended"],
+        }
+        with pytest.raises(ValidationError):
+            EvalMatrixConfig.model_validate(payload)
+
+    def test_matrix_entry_env_rejects_non_string_key(self) -> None:
+        """Keys must also be strings (subprocess env). `mode='before'` validator
+        catches non-string keys for symmetry with the StrictStr value guard."""
+        with pytest.raises(ValidationError):
+            MatrixEntry.model_validate(
+                {"provider": "openai", "model": "gpt-4o-mini", "env": {1: "true"}}
+            )
+
+    def test_matrix_entry_env_preserves_extra_forbid(self) -> None:
+        """`extra='forbid'` on MatrixEntry still applies — unknown top-level
+        keys still 422 even after env is added."""
+        with pytest.raises(ValidationError):
+            MatrixEntry.model_validate(
+                {
+                    "provider": "openai",
+                    "model": "gpt-4o-mini",
+                    "env": {"FLAG": "true"},
+                    "extra_key": "nope",
+                }
+            )
+
+    # --- Backward compat: existing production YAML files still load ---
+
+    def test_existing_eval_queries_yaml_still_loads(self) -> None:
+        """Every existing case in configs/eval_queries.yaml must validate
+        unchanged after the schema additions land. Zero impact on Phase 3/4
+        baselines."""
+        config = load_eval_queries()
+        assert len(config.hand_written) >= 30
+
+    def test_existing_eval_matrix_yaml_still_loads(self) -> None:
+        """The two anchored entries in configs/eval_matrix.yaml still validate
+        (env defaults to None for both)."""
+        config = load_eval_matrix()
+        assert len(config.entries) == 2
+        assert all(entry.env is None for entry in config.entries)
+
+    def test_default_threading_mode_legacy_on_all_existing_cases(self) -> None:
+        """Every existing case stays on threading_mode='legacy' until plan 06-07
+        flips refinement_cheaper. Proves the opt-in invariant holds at load time."""
+        config = load_eval_queries()
+        assert all(case.threading_mode == "legacy" for case in config.hand_written)
+
+    def test_default_expected_refinement_none_on_all_existing_cases(self) -> None:
+        """No existing YAML case sets expected_refinement — they all default to
+        None. Plan 06-07 will set it on refinement_cheaper only."""
+        config = load_eval_queries()
+        assert all(case.expected_refinement is None for case in config.hand_written)
