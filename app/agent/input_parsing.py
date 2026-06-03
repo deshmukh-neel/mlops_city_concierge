@@ -105,6 +105,96 @@ _PLANNING_VERB_RE = re.compile(
 )
 
 
+# ─── Refinement-request pre-check (Phase 6 / D-06-03) ────────────────────
+#
+# Deterministic regex helper that decides whether the /chat handler
+# should inject the structured-plan HumanMessage on a given turn
+# (plan 06-05). Conservative on purpose: false negatives are cheaper
+# than false positives. A false positive on turn 1 (no committed_stops
+# yet) would clobber first-turn behavior (REF-04); a false negative
+# just falls back to free-text behavior, which is the v1.0 baseline.
+#
+# Four pattern families cover the common shapes the user types:
+#   1. "make stop N <mod>"        - "make stop 2 cheaper"
+#   2. "stop N <mod|instead>"     - "stop 1 different", "stop 2 instead ..."
+#   3. "swap stop N"              - "swap stop 3"
+#   4. "(instead|different) (for|in) stop N" - "different for stop 1"
+#
+# All patterns require a literal digit slot number; "make it cheaper"
+# (no slot) deliberately returns (False, None) per D-06-03 conservatism.
+# Word boundaries (\b) prevent matching "nonstop" / "stops".
+_REFINE_MAKE_STOP_RE = re.compile(
+    r"\bmake\s+stop\s+([1-9])\s+(?:cheaper|different|fancier|earlier|later)\b",
+    re.IGNORECASE,
+)
+_REFINE_STOP_BARE_RE = re.compile(
+    r"\bstop\s+([1-9])\s+(?:cheaper|different|fancier|earlier|later|instead)\b",
+    re.IGNORECASE,
+)
+_REFINE_SWAP_STOP_RE = re.compile(
+    r"\bswap\s+stop\s+([1-9])\b",
+    re.IGNORECASE,
+)
+_REFINE_INSTEAD_FOR_STOP_RE = re.compile(
+    r"\b(?:instead|different)\s+(?:for|in)\s+stop\s+([1-9])\b",
+    re.IGNORECASE,
+)
+
+_REFINE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    _REFINE_MAKE_STOP_RE,
+    _REFINE_STOP_BARE_RE,
+    _REFINE_SWAP_STOP_RE,
+    _REFINE_INSTEAD_FOR_STOP_RE,
+)
+
+
+def is_refinement_request(text: str) -> tuple[bool, int | None]:
+    """Detect a refinement turn + extract the 1-indexed target slot.
+
+    Conservative-on-purpose deterministic pre-check (D-06-03). False
+    negatives are cheaper than false positives because a false positive
+    on turn 1 (when `committed_stops` is empty) would clobber first-turn
+    behavior (REF-04); a false negative just falls back to free-text
+    behavior. No LLM call, no DB, pure regex.
+
+    Returns ``(True, slot)`` when `text` matches one of the four refinement
+    pattern families and the slot number is extractable; otherwise
+    ``(False, None)``. The slot number is 1-indexed to match the
+    user-facing prose ("make stop 2 cheaper") and the YAML
+    ``expected_refinement.target_slot: 2`` convention from D-06-08.
+
+    Pattern families (one example each):
+      1. ``make stop N (cheaper|different|fancier|earlier|later)``
+         -> ``is_refinement_request("make stop 2 cheaper")`` == ``(True, 2)``
+      2. ``stop N (cheaper|different|fancier|earlier|later|instead)``
+         -> ``is_refinement_request("stop 1 different")`` == ``(True, 1)``
+      3. ``swap stop N``
+         -> ``is_refinement_request("swap stop 3")`` == ``(True, 3)``
+      4. ``(instead|different) (for|in) stop N``
+         -> ``is_refinement_request("different for stop 1")`` == ``(True, 1)``
+
+    Edge cases:
+      - Empty or whitespace input returns ``(False, None)``.
+      - ``"make it cheaper"`` (no slot number) returns ``(False, None)`` -
+        we do NOT assume slot 1; the user must name the slot explicitly.
+      - Word boundaries (``\\b``) prevent matching ``nonstop`` / ``stops``.
+      - Matching is case-insensitive.
+
+    Called from ``app/main.py:chat()`` (plan 06-05) to gate the
+    structured-plan ``HumanMessage`` injection. Downstream injection is
+    additionally gated on ``incoming.committed_stops`` being non-empty,
+    so a hypothetical false positive on turn 1 still cannot inject
+    (defense in depth).
+    """
+    if not text or not text.strip():
+        return False, None
+    for pattern in _REFINE_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return True, int(match.group(1))
+    return False, None
+
+
 def has_slot_structure(text: str) -> bool:
     """Return True when `text` looks like a per-slot category structure.
 
