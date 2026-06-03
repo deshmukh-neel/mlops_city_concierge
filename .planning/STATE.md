@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Production Readiness
 current_phase: 6
-status: gaps_found
-last_updated: "2026-06-03T04:50:00.000Z"
-last_activity: 2026-06-03 -- Phase 06 verifier returned gaps_found (D-06-09 empirical gate FAILED)
+status: gate_passed_partial
+last_updated: "2026-06-03T23:15:00.000Z"
+last_activity: 2026-06-03 -- Phase 06 D-06-09 part-1 gate PASSES after 4 follow-up fixes + 5-run re-baseline
 progress:
   total_phases: 5
   completed_phases: 4
@@ -29,7 +29,7 @@ progress:
 - [x] Re-baseline complete: 5 live runs against merged main confirm 3 real bugs (category compliance, rationale-stop alignment, minimal-edit refinement). Step-budget tuning DROPPED — didn't reproduce. v2.0 = 5 phases, not 6.
 - [x] REQUIREMENTS.md written (v2.0-scoped, grounded in research + re-baseline, 21 requirements across 5 categories)
 - [x] ROADMAP.md written (Phases 2-6; phase numbering continues from v1.0 Phase 1)
-- [ ] Phase 6 verified (7/7 plans shipped mechanically; D-06-09 empirical gate FAILED, see 06-VERIFICATION.md)
+- [~] Phase 6: 7/7 plans shipped + 4 follow-up fixes + 5-run re-baseline. D-06-09 part 1 (`refinement_minimal_edit median == 1.0`) PASSES on openai/gpt-4o-mini. Part 2 (no-regression vs prior baselines) is partial — prior 1.0 baselines were Phase-4 fail-open false positives that are now exposed by an actually-committing agent. Awaiting user decision on whether to re-verify (`/gsd-verify-work 6`) or merge as-is.
 
 ## Notes
 
@@ -41,11 +41,11 @@ progress:
 
 ## Current Position
 
-Phase: 06 (minimal-edit-refinement) — GAPS FOUND
-Plan: 7/7 plans shipped mechanically; verifier returned gaps_found
-Status: D-06-09 empirical merge gate FAILED (refinement_minimal_edit.median = 0.0 on openai/gpt-4o-mini, requires 1.0). CR-01 (descriptive vs imperative preamble in app/agent/io.py) + CR-02 (place_id validator accepts trailing newline in app/agent/state.py) are BLOCKER findings from code review. v2.0 milestone NOT yet complete.
-Last activity: 2026-06-03 -- Phase 06 verifier returned gaps_found (06-VERIFICATION.md committed)
-Resume: `/gsd-plan-phase 6 --gaps` to create gap-closure plans, then `/gsd-execute-phase 6 --gaps-only`.
+Phase: 06 (minimal-edit-refinement) — GATE PARTIALLY PASSES
+Plan: 7/7 plans + 5 follow-up commits (d5005af, 4421910, df7e4ca, 49385a7, 61aee1b)
+Status: D-06-09 part 1 (refinement_minimal_edit.median == 1.0) PASSES on 5-run live re-baseline. Part 2 (no regression on other scorers) is partial — category_compliance dropped on omakase + refinement_cheaper because the pre-Phase-6 1.0 baselines were Phase-4 fail-open false positives (vacuous-truth scoring on 0-stop responses). CR-02 (place_id validator) and CR-01 (preamble wording) both fixed. Real root cause was eval/chat asymmetry on num_stops in _run_prod_threading + Docker DB being down during original 06-07 re-baseline run.
+Last activity: 2026-06-03 -- 4 follow-up code fixes + n=5 live re-baseline committed (61aee1b)
+Resume: `/gsd-verify-work 6` to re-run verifier against the post-fix state, OR open PR and let CI re-verify on merge.
 
 ## Phase 03 closure summary (2026-05-22)
 
