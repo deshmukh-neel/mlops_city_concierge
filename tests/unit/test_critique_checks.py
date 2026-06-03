@@ -24,6 +24,7 @@ from app.agent.critique.checks import (
     itinerary_violations,
     no_hallucinated_place_ids,
     rationale_stop_alignment,
+    refinement_minimal_edit,
     stop_count_satisfied,
     temporal_coherence,
     walking_budget_respected,
@@ -970,3 +971,22 @@ def test_thresholds_are_strict_enough() -> None:
     assert CRITIQUE_THRESHOLDS["rationale_stop_alignment"] == 1.0
     # Constraint satisfaction has wiggle room — not every constraint is hard.
     assert CRITIQUE_THRESHOLDS["constraints_satisfied"] == 0.8
+
+
+# --- refinement_minimal_edit smoke (Task 1 driver; full class in Task 2) -----
+
+
+def test_refinement_minimal_edit_smoke_threshold_registered() -> None:
+    """Task 1 RED: CRITIQUE_THRESHOLDS must include the new strict scorer key."""
+    assert "refinement_minimal_edit" in CRITIQUE_THRESHOLDS
+    assert CRITIQUE_THRESHOLDS["refinement_minimal_edit"] == 1.0
+
+
+def test_refinement_minimal_edit_smoke_callable_returns_float() -> None:
+    """Task 1 RED: the scorer must be importable, callable on an empty state,
+    and return a float in [0.0, 1.0]. Empty state has no refinement_context →
+    Branch 1 abstain → 1.0."""
+    score = refinement_minimal_edit(ItineraryState())
+    assert isinstance(score, float)
+    assert 0.0 <= score <= 1.0
+    assert score == 1.0
