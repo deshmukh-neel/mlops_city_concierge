@@ -984,3 +984,30 @@ def test_selected_cases_backward_compat_without_scenario_ids() -> None:
     cases = [eval_case(id="a"), eval_case(id="b")]
     # No scenario_ids arg at all — pre-03-05 signature is preserved.
     assert selected_cases(cases, None) == cases
+
+
+# --- Plan 06-03 HIGH-1 fix: refinement_minimal_edit dual-registration -------
+
+
+class TestDeterministicChecksRegistration:
+    """HIGH-1 regression guard (06-REVIEWS.md): the merge-gate scorer
+    `refinement_minimal_edit` must be registered in BOTH
+    `app/agent/critique/checks.py:CRITIQUE_THRESHOLDS` (tested in
+    tests/unit/test_critique_checks.py) AND
+    `scripts/eval_agent.py:DETERMINISTIC_CHECKS` (tested here).
+
+    Without dual registration, the scorer auto-runs in the revision-loop
+    critique but is silently absent from every per-cell baseline JSON
+    output — meaning the merge gate cannot diff refinement_minimal_edit
+    pass-rates across PRs. This class asserts both registrations agree
+    on the same callable identity (not just presence)."""
+
+    def test_refinement_minimal_edit_registered_in_deterministic_checks(self) -> None:
+        """HIGH-1 fix: the scorer must appear as a key in DETERMINISTIC_CHECKS
+        AND the registered callable must be identical to the imported one
+        (catches the silent-rename / shadow-by-mock failure mode)."""
+        from app.agent.critique.checks import refinement_minimal_edit
+
+        assert "refinement_minimal_edit" in DETERMINISTIC_CHECKS
+        # Identity, not just equality — same callable, not a wrapper or stub.
+        assert DETERMINISTIC_CHECKS["refinement_minimal_edit"] is refinement_minimal_edit
