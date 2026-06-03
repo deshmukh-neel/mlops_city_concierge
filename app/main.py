@@ -198,12 +198,16 @@ class ConversationState(BaseModel):
     on the next request; the backend is the source of truth for the schema.
     `prior_stops` carries the stops the user just saw so an accept/decline
     early-return path can act on them without /chat round-tripping the full
-    places list.
+    places list. `committed_stops` carries the post-graph stops list so the
+    Phase 6 refinement injection block (in `chat()`, see plan 06-05) has
+    structured ground truth for the prior turn's committed plan; legacy
+    payloads without the key decode to [] via `default_factory=list`.
     """
 
     schema_version: int = 1
     closure_context: list[ClosureContext] = Field(default_factory=list)
     prior_stops: list[Stop] = Field(default_factory=list)
+    committed_stops: list[Stop] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):
@@ -496,6 +500,7 @@ def _build_outbound_state(
         schema_version=1,
         closure_context=closure_context,
         prior_stops=stops,
+        committed_stops=stops,
     )
 
 
