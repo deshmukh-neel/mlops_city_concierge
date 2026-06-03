@@ -43,7 +43,7 @@ def test_chat_endpoint_returns_reply_places_raglabel(mocker) -> None:
         return _final_state_dict(
             stops=[
                 {
-                    "place_id": "p1",
+                    "place_id": "ChIJtest_p1_aaaaaaaa",
                     "name": "Trick Dog",
                     "rationale": "iconic SF cocktail bar",
                     "source": "google_places",
@@ -88,7 +88,7 @@ def test_chat_endpoint_returns_reply_places_raglabel(mocker) -> None:
         "booking_provider",
     }
     assert set(body["places"][0].keys()) == expected_place_keys
-    assert body["places"][0]["place_id"] == "p1"
+    assert body["places"][0]["place_id"] == "ChIJtest_p1_aaaaaaaa"
 
 
 def test_chat_endpoint_returns_503_when_agent_unavailable(mocker) -> None:
@@ -290,12 +290,12 @@ def test_chat_endpoint_accepts_conversation_state(mocker) -> None:
                     "closure_context": [
                         {
                             "schema_version": 1,
-                            "place_id": "ChIJ_closed",
+                            "place_id": "ChIJtest_closed_aaaa",
                             "place_name": "Mochill",
                             "family": "dessert",
                             "attempted_arrival": "2026-05-19T20:02:00-07:00",
                             "outcome": "auto_swapped",
-                            "insert_after_place_id": "ChIJ_prev",
+                            "insert_after_place_id": "ChIJtest_prev_aaaaaa",
                             "insert_before_place_id": None,
                             "stop_index_hint": 2,
                             "proposed_alternative": None,
@@ -310,7 +310,7 @@ def test_chat_endpoint_accepts_conversation_state(mocker) -> None:
     assert response.status_code == 200
     state = captured["state"]
     assert len(state.closure_context) == 1
-    assert state.closure_context[0].place_id == "ChIJ_closed"
+    assert state.closure_context[0].place_id == "ChIJtest_closed_aaaa"
     assert state.closure_context[0].outcome == "auto_swapped"
 
 
@@ -323,7 +323,7 @@ def test_chat_endpoint_returns_conversation_state(mocker) -> None:
         d["closure_context"] = [
             {
                 "schema_version": 1,
-                "place_id": "ChIJ_closed",
+                "place_id": "ChIJtest_closed_aaaa",
                 "place_name": "Mochill",
                 "family": "dessert",
                 "attempted_arrival": "2026-05-19T20:02:00-07:00",
@@ -355,7 +355,7 @@ def test_chat_endpoint_returns_conversation_state(mocker) -> None:
     cs = body["conversation_state"]
     assert cs["schema_version"] == 1
     assert len(cs["closure_context"]) == 1
-    assert cs["closure_context"][0]["place_id"] == "ChIJ_closed"
+    assert cs["closure_context"][0]["place_id"] == "ChIJtest_closed_aaaa"
 
 
 def test_chat_endpoint_degrades_on_malformed_conversation_state(mocker) -> None:
@@ -414,10 +414,10 @@ def test_chat_endpoint_first_turn_omits_conversation_state(mocker) -> None:
 
 
 def _pending_state(
-    place_id: str = "ChIJ_closed",
+    place_id: str = "ChIJtest_closed_aaaa",
     family: str = "dessert",
-    proposed_id: str = "ChIJ_sophies",
-    prior_stop_id: str = "ChIJ_stop1",
+    proposed_id: str = "ChIJtest_sophies_aaa",
+    prior_stop_id: str = "ChIJtest_stop1_aaaaa",
 ) -> dict:
     return {
         "schema_version": 1,
@@ -450,7 +450,7 @@ def _pending_state(
             {
                 "place_id": prior_stop_id,
                 "name": "Stop 1",
-                "rationale": "anchor",
+                "rationale": "ChIJtest_anchor_aaaa",
                 "source": "google_places",
                 "latitude": 37.78,
                 "longitude": -122.41,
@@ -459,9 +459,9 @@ def _pending_state(
                 "planned_duration_min": 60,
             },
             {
-                "place_id": "ChIJ_stop2",
+                "place_id": "ChIJtest_stop2_aaaaa",
                 "name": "Stop 2",
-                "rationale": "anchor",
+                "rationale": "ChIJtest_anchor_aaaa",
                 "source": "google_places",
                 "latitude": 37.785,
                 "longitude": -122.41,
@@ -490,7 +490,7 @@ def test_chat_endpoint_accept_path_inserts_proposed_alternative(mocker) -> None:
     mocker.patch(
         "app.main.get_details",
         return_value=PlaceDetails(
-            place_id="ChIJ_sophies",
+            place_id="ChIJtest_sophies_aaa",
             name="Sophie's Crepes",
             source="google_places",
             similarity=0.0,
@@ -524,7 +524,7 @@ def test_chat_endpoint_accept_path_inserts_proposed_alternative(mocker) -> None:
     assert response.status_code == 200
     body = response.json()
     place_ids = [p["place_id"] for p in body["places"]]
-    assert "ChIJ_sophies" in place_ids
+    assert "ChIJtest_sophies_aaa" in place_ids
     cs = body["conversation_state"]
     outcomes = [c["outcome"] for c in cs["closure_context"]]
     assert "user_accepted_drive" in outcomes

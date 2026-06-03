@@ -274,10 +274,10 @@ def test_trace_request_metadata_threaded_through(monkeypatch: pytest.MonkeyPatch
     with patch("app.observability.Langfuse", return_value=fake_client):
         from app.observability import trace_request
 
-        with trace_request("chat", user_id="u1", session_id="s1"):
+        with trace_request("chat", user_id="u1", session_id="ChIJtest_s1_aaaaaaaa"):
             pass
 
     fake_client.trace.assert_called_once_with(
         name="chat",
-        metadata={"user_id": "u1", "session_id": "s1"},
+        metadata={"user_id": "u1", "session_id": "ChIJtest_s1_aaaaaaaa"},
     )

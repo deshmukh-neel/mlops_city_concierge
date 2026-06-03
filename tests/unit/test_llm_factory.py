@@ -156,7 +156,14 @@ def test_kimi_empty_assistant_content_gets_placeholder(monkeypatch) -> None:
 
     empty_tool_call_ai = AIMessage(
         content="",
-        tool_calls=[{"name": "search", "args": {"q": "x"}, "id": "c1", "type": "tool_call"}],
+        tool_calls=[
+            {
+                "name": "search",
+                "args": {"q": "x"},
+                "id": "ChIJtest_c1_aaaaaaaa",
+                "type": "tool_call",
+            }
+        ],
     )
     payload = llm._get_request_payload([HumanMessage(content="hi"), empty_tool_call_ai], stop=None)
     assistant = [m for m in payload["messages"] if m.get("role") == "assistant"]

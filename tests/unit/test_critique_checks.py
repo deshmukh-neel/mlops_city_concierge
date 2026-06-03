@@ -82,7 +82,7 @@ def patch_db(mocker):
 
 
 def _stop(
-    place_id: str = "p1",
+    place_id: str = "ChIJtest_p1_aaaaaaaa",
     *,
     arrival: datetime | None = None,
     lat: float | None = None,
@@ -107,15 +107,15 @@ def _stop(
 
 
 def test_no_hallucinated_passes_when_all_resolve(patch_db) -> None:
-    patch_db([[("p1",), ("p2",)]])
-    state = ItineraryState(stops=[_stop("p1"), _stop("p2")])
+    patch_db([[("ChIJtest_p1_aaaaaaaa",), ("ChIJtest_p2_aaaaaaaa",)]])
+    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")])
     assert no_hallucinated_place_ids(state) == 1.0
 
 
 def test_no_hallucinated_fails_when_any_missing(patch_db) -> None:
     """One missing place_id is critical — score drops to 0."""
-    patch_db([[("p1",)]])
-    state = ItineraryState(stops=[_stop("p1"), _stop("p2")])
+    patch_db([[("ChIJtest_p1_aaaaaaaa",)]])
+    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")])
     assert no_hallucinated_place_ids(state) == 0.0
 
 
@@ -128,7 +128,7 @@ def test_no_hallucinated_returns_one_for_empty_stops() -> None:
 
 
 def test_temporal_returns_one_when_no_arrival_times() -> None:
-    state = ItineraryState(stops=[_stop("p1"), _stop("p2")])
+    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")])
     # No DB call needed — function short-circuits.
     assert temporal_coherence(state) == 1.0
 
@@ -139,15 +139,15 @@ def test_temporal_fractional_when_some_closed(patch_db) -> None:
     patch_db(
         [
             [
-                {"place_id": "p1", "is_open": True},
-                {"place_id": "p2", "is_open": False},
+                {"place_id": "ChIJtest_p1_aaaaaaaa", "is_open": True},
+                {"place_id": "ChIJtest_p2_aaaaaaaa", "is_open": False},
             ]
         ]
     )
     state = ItineraryState(
         stops=[
-            _stop("p1", arrival=arrival),
-            _stop("p2", arrival=arrival + timedelta(hours=2)),
+            _stop("ChIJtest_p1_aaaaaaaa", arrival=arrival),
+            _stop("ChIJtest_p2_aaaaaaaa", arrival=arrival + timedelta(hours=2)),
         ]
     )
     assert temporal_coherence(state) == 0.5
@@ -158,7 +158,7 @@ def test_temporal_treats_missing_row_as_open(patch_db) -> None:
     result; the function defaults that stop to open."""
     arrival = datetime(2026, 5, 1, 19, 0, tzinfo=timezone.utc)
     patch_db([[]])  # JOIN returned zero rows
-    state = ItineraryState(stops=[_stop("p1", arrival=arrival)])
+    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa", arrival=arrival)])
     assert temporal_coherence(state) == 1.0
 
 
@@ -169,8 +169,8 @@ def test_geographic_perfect_when_close() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            _stop("p1", lat=37.78, lng=-122.41),
-            _stop("p2", lat=37.781, lng=-122.411),
+            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            _stop("ChIJtest_p2_aaaaaaaa", lat=37.781, lng=-122.411),
         ],
     )
     assert geographic_coherence(state) == 1.0
@@ -181,9 +181,9 @@ def test_geographic_fractional_when_one_leg_too_long() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            _stop("p1", lat=37.78, lng=-122.41),
-            _stop("p2", lat=37.781, lng=-122.411),  # tiny hop
-            _stop("p3", lat=37.794, lng=-122.41),  # ~1.5km from p2
+            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            _stop("ChIJtest_p2_aaaaaaaa", lat=37.781, lng=-122.411),  # tiny hop
+            _stop("ChIJtest_p3_aaaaaaaa", lat=37.794, lng=-122.41),  # ~1.5km from p2
         ],
     )
     assert geographic_coherence(state) == 0.5
@@ -194,9 +194,9 @@ def test_geographic_skips_pairs_missing_coords() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            _stop("p1", lat=37.78, lng=-122.41),
-            _stop("p2"),  # no coords
-            _stop("p3", lat=37.781, lng=-122.411),
+            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            _stop("ChIJtest_p2_aaaaaaaa"),  # no coords
+            _stop("ChIJtest_p3_aaaaaaaa", lat=37.781, lng=-122.411),
         ],
     )
     # Neither leg measurable — both endpoints incomplete.
@@ -204,7 +204,7 @@ def test_geographic_skips_pairs_missing_coords() -> None:
 
 
 def test_geographic_returns_one_for_single_stop() -> None:
-    state = ItineraryState(stops=[_stop("p1", lat=37.78, lng=-122.41)])
+    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41)])
     assert geographic_coherence(state) == 1.0
 
 
@@ -215,8 +215,8 @@ def test_walking_budget_respected_when_under() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            _stop("p1", lat=37.78, lng=-122.41),
-            _stop("p2", lat=37.781, lng=-122.411),
+            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            _stop("ChIJtest_p2_aaaaaaaa", lat=37.781, lng=-122.411),
         ],
     )
     assert walking_budget_respected(state) == 1.0
@@ -226,8 +226,8 @@ def test_walking_budget_violated_when_over() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=100),
         stops=[
-            _stop("p1", lat=37.78, lng=-122.41),
-            _stop("p2", lat=37.80, lng=-122.41),  # ~2.2km
+            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            _stop("ChIJtest_p2_aaaaaaaa", lat=37.80, lng=-122.41),  # ~2.2km
         ],
     )
     assert walking_budget_respected(state) == 0.0
@@ -241,7 +241,7 @@ def test_constraints_satisfied_full_pass(patch_db) -> None:
         [
             [
                 {
-                    "place_id": "p1",
+                    "place_id": "ChIJtest_p1_aaaaaaaa",
                     "price_rank": 2,
                     "rating": 4.5,
                     "user_rating_count": 200,
@@ -258,7 +258,7 @@ def test_constraints_satisfied_full_pass(patch_db) -> None:
             min_user_rating_count=50,
             neighborhood="Mission",
         ),
-        stops=[_stop("p1")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa")],
     )
     assert constraints_satisfied(state) == 1.0
 
@@ -269,7 +269,7 @@ def test_constraints_satisfied_partial(patch_db) -> None:
         [
             [
                 {
-                    "place_id": "p1",
+                    "place_id": "ChIJtest_p1_aaaaaaaa",
                     "price_rank": 4,  # over cap of 2
                     "rating": 4.5,
                     "user_rating_count": 200,
@@ -286,7 +286,7 @@ def test_constraints_satisfied_partial(patch_db) -> None:
             min_user_rating_count=50,
             neighborhood="Mission",
         ),
-        stops=[_stop("p1")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa")],
     )
     # 3 of 4 expressed constraints satisfied = 0.75
     assert constraints_satisfied(state) == pytest.approx(0.75)
@@ -298,7 +298,7 @@ def test_constraints_satisfied_neighborhood_falls_back_to_address(patch_db) -> N
         [
             [
                 {
-                    "place_id": "p1",
+                    "place_id": "ChIJtest_p1_aaaaaaaa",
                     "price_rank": None,
                     "rating": None,
                     "user_rating_count": None,
@@ -310,7 +310,7 @@ def test_constraints_satisfied_neighborhood_falls_back_to_address(patch_db) -> N
     )
     state = ItineraryState(
         constraints=UserConstraints(neighborhood="North Beach"),
-        stops=[_stop("p1")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa")],
     )
     assert constraints_satisfied(state) == 1.0
 
@@ -321,7 +321,7 @@ def test_constraints_satisfied_skips_hallucinated_pids(patch_db) -> None:
     patch_db([[]])  # no rows
     state = ItineraryState(
         constraints=UserConstraints(price_level_max=2),
-        stops=[_stop("p1"), _stop("p2")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")],
     )
     # No rows = no scoring possible — return 1.0 vacuously.
     assert constraints_satisfied(state) == 1.0
@@ -336,7 +336,7 @@ def test_category_compliance_abstains_when_no_requested_types() -> None:
     """D-03 abstain contract: empty requested_primary_types -> 1.0."""
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=[]),
-        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance(state) == 1.0
 
@@ -354,7 +354,7 @@ def test_category_compliance_single_exact_family_match() -> None:
     """Same exact primary_type -> family matches -> 1.0."""
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance(state) == 1.0
 
@@ -366,8 +366,8 @@ def test_category_compliance_multi_slot_all_match() -> None:
             requested_primary_types=["Sushi Restaurant", "Cocktail Bar"],
         ),
         stops=[
-            _stop("p1", primary_type="Sushi Restaurant"),
-            _stop("p2", primary_type="Cocktail Bar"),
+            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
         ],
     )
     assert category_compliance(state) == 1.0
@@ -377,7 +377,7 @@ def test_category_compliance_family_mismatch_single_stop() -> None:
     """Family mismatch (restaurant vs bar) -> 0.0."""
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("p1", primary_type="Cocktail Bar")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Cocktail Bar")],
     )
     assert category_compliance(state) == 0.0
 
@@ -389,8 +389,8 @@ def test_category_compliance_partial_match_two_slots() -> None:
             requested_primary_types=["Sushi Restaurant", "Cocktail Bar"],
         ),
         stops=[
-            _stop("p1", primary_type="Sushi Restaurant"),
-            _stop("p2", primary_type="Coffee Shop"),  # cafe family, not bar
+            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Coffee Shop"),  # cafe family, not bar
         ],
     )
     assert category_compliance(state) == 0.5
@@ -406,8 +406,8 @@ def test_category_compliance_length_mismatch_more_stops_than_requested() -> None
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
         stops=[
-            _stop("p1", primary_type="Sushi Restaurant"),
-            _stop("p2", primary_type="Cocktail Bar"),
+            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
         ],
     )
     assert category_compliance(state) == 0.5
@@ -422,7 +422,7 @@ def test_category_compliance_length_mismatch_fewer_stops_than_requested() -> Non
         constraints=UserConstraints(
             requested_primary_types=["Sushi Restaurant", "Cocktail Bar"],
         ),
-        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance(state) == 0.5
 
@@ -431,7 +431,7 @@ def test_category_compliance_none_primary_type_is_mismatch() -> None:
     """primary_type=None can't be scored as a match — score as mismatch (strict)."""
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("p1", primary_type=None)],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type=None)],
     )
     assert category_compliance(state) == 0.0
 
@@ -449,7 +449,7 @@ def test_category_compliance_pure_function_no_db_access(mocker) -> None:
     sentinel = mocker.patch("app.agent.critique.checks.get_conn")
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Cocktail Bar"]),
-        stops=[_stop("p1", primary_type="Cocktail Bar")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Cocktail Bar")],
     )
     assert category_compliance(state) == 1.0
     sentinel.assert_not_called()
@@ -463,7 +463,7 @@ def test_category_compliance_pure_function_no_db_access(mocker) -> None:
 def test_category_compliance_strict_abstains_when_no_requested_types() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=[]),
-        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance_strict(state) == 1.0
 
@@ -479,7 +479,7 @@ def test_category_compliance_strict_returns_one_for_empty_stops() -> None:
 def test_category_compliance_strict_exact_keyword_match() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
-        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance_strict(state) == 1.0
 
@@ -487,11 +487,11 @@ def test_category_compliance_strict_exact_keyword_match() -> None:
 def test_category_compliance_strict_within_family_drift_returns_zero() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
-        stops=[_stop("p1", primary_type="Pizza Restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Pizza Restaurant")],
     )
     family_state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("p1", primary_type="Pizza Restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Pizza Restaurant")],
     )
     assert category_compliance(family_state) == 1.0
     assert category_compliance_strict(state) == 0.0
@@ -501,8 +501,8 @@ def test_category_compliance_strict_multi_slot_all_match() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase", "cocktails"]),
         stops=[
-            _stop("p1", primary_type="Sushi Restaurant"),
-            _stop("p2", primary_type="Cocktail Bar"),
+            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
         ],
     )
     assert category_compliance_strict(state) == 1.0
@@ -512,8 +512,8 @@ def test_category_compliance_strict_partial_match() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase", "cocktails"]),
         stops=[
-            _stop("p1", primary_type="Sushi Restaurant"),
-            _stop("p2", primary_type="Coffee Shop"),
+            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Coffee Shop"),
         ],
     )
     assert category_compliance_strict(state) == 0.5
@@ -522,7 +522,7 @@ def test_category_compliance_strict_partial_match() -> None:
 def test_category_compliance_strict_falls_back_to_family_on_unmapped_keyword() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Italian Restaurant"]),
-        stops=[_stop("p1", primary_type="Restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Restaurant")],
     )
     assert category_compliance(state) == 1.0
     assert category_compliance_strict(state) == 1.0
@@ -532,8 +532,8 @@ def test_category_compliance_strict_length_mismatch_dilutes() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
         stops=[
-            _stop("p1", primary_type="Sushi Restaurant"),
-            _stop("p2", primary_type="Cocktail Bar"),
+            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
         ],
     )
     assert category_compliance_strict(state) == 0.5
@@ -542,7 +542,7 @@ def test_category_compliance_strict_length_mismatch_dilutes() -> None:
 def test_category_compliance_strict_none_primary_type_is_mismatch() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
-        stops=[_stop("p1", primary_type=None)],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type=None)],
     )
     assert category_compliance_strict(state) == 0.0
 
@@ -550,7 +550,7 @@ def test_category_compliance_strict_none_primary_type_is_mismatch() -> None:
 def test_category_compliance_strict_keyword_lookup_is_case_insensitive() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["OMAKASE"]),
-        stops=[_stop("p1", primary_type="Sushi Restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance_strict(state) == 1.0
 
@@ -558,7 +558,7 @@ def test_category_compliance_strict_keyword_lookup_is_case_insensitive() -> None
 def test_category_compliance_strict_primary_type_match_is_case_preserving() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
-        stops=[_stop("p1", primary_type="sushi restaurant")],
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="sushi restaurant")],
     )
     assert category_compliance_strict(state) == 0.0
 
@@ -579,7 +579,7 @@ def test_category_compliance_strict_itinerary_violations_registration(mocker) ->
     mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=1.0)
     mocker.patch("app.agent.critique.checks.rationale_stop_alignment", return_value=1.0)
 
-    assert itinerary_violations(ItineraryState(stops=[_stop("p1")])) == [
+    assert itinerary_violations(ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])) == [
         "category_compliance_strict"
     ]
 
@@ -611,7 +611,7 @@ def test_rationale_stop_alignment_name_substring_match() -> None:
     state = ItineraryState(
         stops=[
             _stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu offers a tasting menu",
                 primary_type="Sushi Restaurant",
@@ -626,7 +626,7 @@ def test_rationale_stop_alignment_family_keyword_match() -> None:
     state = ItineraryState(
         stops=[
             _stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="An intimate restaurant experience",
                 primary_type="American Restaurant",
@@ -653,7 +653,7 @@ def test_rationale_stop_alignment_catches_closure_swap_placeholder_bleed() -> No
     state = ItineraryState(
         stops=[
             _stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
                 primary_type="American Restaurant",
@@ -668,7 +668,7 @@ def test_rationale_stop_alignment_bar_family_keyword() -> None:
     state = ItineraryState(
         stops=[
             _stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Stookey's",
                 rationale="Excellent cocktails in a vintage setting",
                 primary_type="Cocktail Bar",
@@ -683,13 +683,13 @@ def test_rationale_stop_alignment_multi_stop_fractional() -> None:
     state = ItineraryState(
         stops=[
             _stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu offers a tasting menu",
                 primary_type="Sushi Restaurant",
             ),
             _stop(
-                "p2",
+                "ChIJtest_p2_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
                 primary_type="American Restaurant",
@@ -709,7 +709,7 @@ def test_rationale_stop_alignment_none_primary_type_no_name_match() -> None:
     state = ItineraryState(
         stops=[
             _stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Mystery Spot",
                 rationale="A pleasant place with great vibes",
                 primary_type=None,
@@ -724,7 +724,7 @@ def test_rationale_stop_alignment_case_insensitive_name_match() -> None:
     state = ItineraryState(
         stops=[
             _stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="KAISEKI YUZU",
                 # uppercase name, lowercase rationale
                 rationale="we recommend kaiseki yuzu for the tasting menu",
@@ -747,7 +747,7 @@ def test_rationale_stop_alignment_pure_function_no_db_access(mocker) -> None:
     state = ItineraryState(
         stops=[
             _stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu omakase",
                 primary_type="Sushi Restaurant",
@@ -769,7 +769,7 @@ def test_rationale_stop_alignment_pure_function_no_db_access(mocker) -> None:
 def test_is_rationale_aligned_name_substring_match() -> None:
     """Name appearing in the rationale (case-insensitive) -> True."""
     stop = _stop(
-        "p1",
+        "ChIJtest_p1_aaaaaaaa",
         name="Lazy Bear",
         rationale="Lazy Bear is excellent",
         primary_type="American Restaurant",
@@ -780,7 +780,7 @@ def test_is_rationale_aligned_name_substring_match() -> None:
 def test_is_rationale_aligned_family_keyword_match() -> None:
     """No name match but a family keyword in rationale -> True."""
     stop = _stop(
-        "p1",
+        "ChIJtest_p1_aaaaaaaa",
         name="Lazy Bear",
         rationale="An intimate restaurant experience downtown",
         primary_type="American Restaurant",
@@ -791,7 +791,7 @@ def test_is_rationale_aligned_family_keyword_match() -> None:
 def test_is_rationale_aligned_neither_match_returns_false() -> None:
     """Closure-swap placeholder bleed: no name AND no family keyword -> False."""
     stop = _stop(
-        "p1",
+        "ChIJtest_p1_aaaaaaaa",
         name="Lazy Bear",
         rationale="Walking-distance alternative for Kaiseki Yuzu",
         primary_type="American Restaurant",
@@ -803,7 +803,7 @@ def test_is_rationale_aligned_none_primary_type_no_name_match() -> None:
     """primary_type=None means we can't derive family keywords; name substring
     is the only path. No name match -> False."""
     stop = _stop(
-        "p1",
+        "ChIJtest_p1_aaaaaaaa",
         name="Mystery Spot",
         rationale="A pleasant place with great vibes",
         primary_type=None,
@@ -816,7 +816,7 @@ def test_is_rationale_aligned_none_or_empty_rationale_returns_false() -> None:
     if name were also None; the helper coerces None defensively)."""
     # rationale="" branch
     stop_empty = _stop(
-        "p1",
+        "ChIJtest_p1_aaaaaaaa",
         name="Lazy Bear",
         rationale="",
         primary_type="American Restaurant",
@@ -840,25 +840,25 @@ def test_rationale_stop_alignment_behavior_unchanged_after_extraction() -> None:
     state = ItineraryState(
         stops=[
             _stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu offers a tasting menu",
                 primary_type="Sushi Restaurant",
             ),
             _stop(
-                "p2",
+                "ChIJtest_p2_aaaaaaaa",
                 name="Stookey's",
                 rationale="Excellent cocktails in a vintage setting",
                 primary_type="Cocktail Bar",
             ),
             _stop(
-                "p3",
+                "ChIJtest_p3_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
                 primary_type="American Restaurant",
             ),
             _stop(
-                "p4",
+                "ChIJtest_p4_aaaaaaaa",
                 name="Mystery Spot",
                 rationale="A pleasant place with great vibes",
                 primary_type=None,
@@ -874,11 +874,11 @@ def test_rationale_stop_alignment_behavior_unchanged_after_extraction() -> None:
 
 
 def test_stop_count_satisfied_checks_explicit_request() -> None:
-    assert stop_count_satisfied(ItineraryState(stops=[_stop("p1")])) == 1.0
+    assert stop_count_satisfied(ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])) == 1.0
     assert (
         stop_count_satisfied(
             ItineraryState(
-                stops=[_stop("p1"), _stop("p2")],
+                stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")],
                 constraints=UserConstraints(num_stops=3),
             )
         )
@@ -887,7 +887,11 @@ def test_stop_count_satisfied_checks_explicit_request() -> None:
     assert (
         stop_count_satisfied(
             ItineraryState(
-                stops=[_stop("p1"), _stop("p2"), _stop("p3")],
+                stops=[
+                    _stop("ChIJtest_p1_aaaaaaaa"),
+                    _stop("ChIJtest_p2_aaaaaaaa"),
+                    _stop("ChIJtest_p3_aaaaaaaa"),
+                ],
                 constraints=UserConstraints(num_stops=3),
             )
         )
@@ -908,7 +912,7 @@ def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=0.0)
     mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=0.5)
     mocker.patch("app.agent.critique.checks.rationale_stop_alignment", return_value=0.0)
-    state = ItineraryState(stops=[_stop("p1")])
+    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])
     assert itinerary_violations(state) == [
         "no_hallucinated_place_ids",
         "stop_count_satisfied",
@@ -935,7 +939,7 @@ def test_itinerary_violations_empty_when_all_pass(mocker) -> None:
         "rationale_stop_alignment",
     ):
         mocker.patch(f"app.agent.critique.checks.{fn}", return_value=1.0)
-    assert itinerary_violations(ItineraryState(stops=[_stop("p1")])) == []
+    assert itinerary_violations(ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])) == []
 
 
 def test_itinerary_violations_fails_open_on_db_error(mocker) -> None:
@@ -954,7 +958,7 @@ def test_itinerary_violations_fails_open_on_db_error(mocker) -> None:
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=1.0)
     mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=1.0)
     mocker.patch("app.agent.critique.checks.rationale_stop_alignment", return_value=1.0)
-    assert itinerary_violations(ItineraryState(stops=[_stop("p1")])) == []
+    assert itinerary_violations(ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])) == []
 
 
 def test_thresholds_are_strict_enough() -> None:

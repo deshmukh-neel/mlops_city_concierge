@@ -33,7 +33,7 @@ def test_walking_time_min_matches_speed_constant() -> None:
 
 def test_next_arrival_time_chains_correctly() -> None:
     prev = Stop(
-        place_id="p1",
+        place_id="ChIJtest_p1_aaaaaaaa",
         name="X",
         rationale="r",
         source="google_places",
@@ -50,7 +50,7 @@ def test_next_arrival_time_chains_correctly() -> None:
 
 def test_next_arrival_time_requires_arrival_time() -> None:
     prev = Stop(
-        place_id="p1",
+        place_id="ChIJtest_p1_aaaaaaaa",
         name="X",
         rationale="r",
         source="google_places",
@@ -63,7 +63,7 @@ def test_next_arrival_time_requires_arrival_time() -> None:
 
 def test_next_arrival_time_requires_coordinates() -> None:
     prev = Stop(
-        place_id="p1",
+        place_id="ChIJtest_p1_aaaaaaaa",
         name="X",
         rationale="r",
         source="google_places",
@@ -120,7 +120,7 @@ def test_chain_arrival_times_empty_is_noop() -> None:
 
 def test_chain_arrival_times_single_stop_unchanged() -> None:
     start = datetime(2026, 5, 17, 18, 0, tzinfo=timezone.utc)
-    stops = [_stop_at("p1", arrival=start)]
+    stops = [_stop_at("ChIJtest_p1_aaaaaaaa", arrival=start)]
     out = chain_arrival_times(stops, [])
     assert out[0].arrival_time == start
 
@@ -128,9 +128,9 @@ def test_chain_arrival_times_single_stop_unchanged() -> None:
 def test_chain_arrival_times_chains_with_real_legs() -> None:
     start = datetime(2026, 5, 17, 18, 0, tzinfo=timezone.utc)
     stops = [
-        _stop_at("p1", arrival=start, duration=90),
-        _stop_at("p2", duration=60),
-        _stop_at("p3", duration=60),
+        _stop_at("ChIJtest_p1_aaaaaaaa", arrival=start, duration=90),
+        _stop_at("ChIJtest_p2_aaaaaaaa", duration=60),
+        _stop_at("ChIJtest_p3_aaaaaaaa", duration=60),
     ]
     # Two legs: 10 min then 25 min of travel.
     out = chain_arrival_times(stops, [10.0, 25.0])
@@ -140,13 +140,16 @@ def test_chain_arrival_times_chains_with_real_legs() -> None:
 
 
 def test_chain_arrival_times_requires_start_arrival() -> None:
-    stops = [_stop_at("p1", arrival=None), _stop_at("p2")]
+    stops = [_stop_at("ChIJtest_p1_aaaaaaaa", arrival=None), _stop_at("ChIJtest_p2_aaaaaaaa")]
     with pytest.raises(ValueError, match="arrival_time"):
         chain_arrival_times(stops, [10.0])
 
 
 def test_chain_arrival_times_does_not_mutate_input() -> None:
     start = datetime(2026, 5, 17, 18, 0, tzinfo=timezone.utc)
-    stops = [_stop_at("p1", arrival=start, duration=30), _stop_at("p2")]
+    stops = [
+        _stop_at("ChIJtest_p1_aaaaaaaa", arrival=start, duration=30),
+        _stop_at("ChIJtest_p2_aaaaaaaa"),
+    ]
     chain_arrival_times(stops, [5.0])
     assert stops[1].arrival_time is None  # original untouched

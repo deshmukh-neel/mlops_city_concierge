@@ -58,8 +58,11 @@ def _fake_route_factory():
 def test_swap_node_noop_when_nothing_closed(mocker) -> None:
     from app.agent.swap import swap_closed_stops
 
-    mocker.patch("app.agent.swap._execute_closure_query", return_value={"a": True, "b": True})
-    state = ItineraryState(stops=[_stop("a"), _stop("b")])
+    mocker.patch(
+        "app.agent.swap._execute_closure_query",
+        return_value={"ChIJtest_a_aaaaaaaaa": True, "ChIJtest_b_aaaaaaaaa": True},
+    )
+    state = ItineraryState(stops=[_stop("ChIJtest_a_aaaaaaaaa"), _stop("ChIJtest_b_aaaaaaaaa")])
     update = asyncio.run(swap_closed_stops(state))
     # No-op -> empty update (the graph state stays as-is)
     assert update == {}
@@ -75,12 +78,20 @@ def test_swap_node_auto_swap_silent_when_candidate_found(mocker) -> None:
     mocker.patch(
         "app.agent.swap._execute_closure_query",
         side_effect=[
-            {"a": True, "b": False, "c": True},  # initial closure check
-            {"a": True, "b_alt": True, "c": True},  # post-swap re-check
+            {
+                "ChIJtest_a_aaaaaaaaa": True,
+                "ChIJtest_b_aaaaaaaaa": False,
+                "ChIJtest_c_aaaaaaaaa": True,
+            },  # initial closure check
+            {
+                "ChIJtest_a_aaaaaaaaa": True,
+                "ChIJtest_b_alt_aaaaa": True,
+                "ChIJtest_c_aaaaaaaaa": True,
+            },  # post-swap re-check
         ],
     )
     candidate = PlaceHit(
-        place_id="b_alt",
+        place_id="ChIJtest_b_alt_aaaaa",
         name="B Alt",
         primary_type="Bar",
         latitude=37.78,
@@ -95,17 +106,23 @@ def test_swap_node_auto_swap_silent_when_candidate_found(mocker) -> None:
 
     state = ItineraryState(
         stops=[
-            _stop("a", primary_type="Bar"),
-            _stop("b", primary_type="Bar"),
-            _stop("c", primary_type="Bar"),
+            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
+            _stop("ChIJtest_c_aaaaaaaaa", primary_type="Bar"),
         ],
     )
     update = asyncio.run(swap_closed_stops(state))
     new_stops = update.get("stops")
     assert new_stops is not None
-    assert [s.place_id for s in new_stops] == ["a", "b_alt", "c"]
+    assert [s.place_id for s in new_stops] == [
+        "ChIJtest_a_aaaaaaaaa",
+        "ChIJtest_b_alt_aaaaa",
+        "ChIJtest_c_aaaaaaaaa",
+    ]
     new_ctx = update["closure_context"]
-    assert any(c.outcome == "auto_swapped" and c.place_id == "b" for c in new_ctx)
+    assert any(
+        c.outcome == "auto_swapped" and c.place_id == "ChIJtest_b_aaaaaaaaa" for c in new_ctx
+    )
     # Silent swap -> reply is the regenerated summary
     reply = update.get("final_reply", "")
     assert "Caveats" not in reply
@@ -117,7 +134,7 @@ def test_swap_node_escalates_to_pending_when_no_walking_match(mocker) -> None:
 
     mocker.patch(
         "app.agent.swap._execute_closure_query",
-        return_value={"a": True, "b": False},
+        return_value={"ChIJtest_a_aaaaaaaaa": True, "ChIJtest_b_aaaaaaaaa": False},
     )
     # Walking search returns empty; citywide search returns one far candidate.
     mocker.patch(
@@ -126,7 +143,7 @@ def test_swap_node_escalates_to_pending_when_no_walking_match(mocker) -> None:
             [],  # walking-distance result
             [
                 PlaceHit(
-                    place_id="b_far",
+                    place_id="ChIJtest_b_far_aaaaa",
                     name="B Far",
                     primary_type="Bar",
                     latitude=37.80,
@@ -139,15 +156,18 @@ def test_swap_node_escalates_to_pending_when_no_walking_match(mocker) -> None:
         ],
     )
     state = ItineraryState(
-        stops=[_stop("a", primary_type="Bar"), _stop("b", primary_type="Bar")],
+        stops=[
+            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
+        ],
     )
     update = asyncio.run(swap_closed_stops(state))
     new_ctx = update["closure_context"]
     pending = [c for c in new_ctx if c.outcome == "pending_user_decision"]
     assert len(pending) == 1
-    assert pending[0].place_id == "b"
+    assert pending[0].place_id == "ChIJtest_b_aaaaaaaaa"
     assert pending[0].proposed_alternative is not None
-    assert pending[0].proposed_alternative.place_id == "b_far"
+    assert pending[0].proposed_alternative.place_id == "ChIJtest_b_far_aaaaa"
     # Reply is the question text, not a summary
     assert update["final_reply"]
     assert "B" in update["final_reply"]
@@ -160,11 +180,14 @@ def test_swap_node_queues_additional_pending_closures(mocker) -> None:
 
     mocker.patch(
         "app.agent.swap._execute_closure_query",
-        return_value={"a": False, "b": False},
+        return_value={"ChIJtest_a_aaaaaaaaa": False, "ChIJtest_b_aaaaaaaaa": False},
     )
     mocker.patch("app.agent.swap._nearby_search", return_value=[])
     state = ItineraryState(
-        stops=[_stop("a", primary_type="Bar"), _stop("b", primary_type="Bar")],
+        stops=[
+            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
+        ],
     )
     update = asyncio.run(swap_closed_stops(state))
     outcomes = [c.outcome for c in update["closure_context"]]
@@ -179,13 +202,13 @@ def test_swap_node_skips_when_family_unresolved(mocker) -> None:
 
     mocker.patch(
         "app.agent.swap._execute_closure_query",
-        return_value={"a": True, "b": False},
+        return_value={"ChIJtest_a_aaaaaaaaa": True, "ChIJtest_b_aaaaaaaaa": False},
     )
     mocker.patch("app.agent.swap._nearby_search", return_value=[])
     state = ItineraryState(
         stops=[
-            _stop("a", primary_type="Bar"),
-            _stop("b", primary_type="Spaceship"),  # unknown family
+            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Spaceship"),  # unknown family
         ],
     )
     update = asyncio.run(swap_closed_stops(state))
@@ -204,10 +227,10 @@ def test_swap_node_caps_closure_context_at_max(mocker) -> None:
 
     mocker.patch(
         "app.agent.swap._execute_closure_query",
-        side_effect=[{"x": False}, {"y_alt": True}],
+        side_effect=[{"ChIJtest_x_aaaaaaaaa": False}, {"ChIJtest_y_alt_aaaaa": True}],
     )
     candidate = PlaceHit(
-        place_id="y_alt",
+        place_id="ChIJtest_y_alt_aaaaa",
         name="Y Alt",
         primary_type="Bar",
         latitude=37.78,
@@ -220,9 +243,11 @@ def test_swap_node_caps_closure_context_at_max(mocker) -> None:
     mocker.patch("app.agent.swap.route_legs", side_effect=_fake_route_factory())
     mocker.patch("app.agent.swap.enrich_stops_with_booking", return_value=None)
 
+    # Padded place_ids satisfy the 06-01 Task 3 Google-Place-ID-format validator.
+    old_pid = lambda i: f"ChIJtest_old_{i}_aaaaa"  # noqa: E731 — 20+ chars for i in 0..9
     existing = [
         ClosureContext(
-            place_id=f"old_{i}",
+            place_id=old_pid(i),
             place_name=f"Old {i}",
             family="bar",
             attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
@@ -234,16 +259,16 @@ def test_swap_node_caps_closure_context_at_max(mocker) -> None:
         for i in range(MAX_CLOSURE_CONTEXT_ENTRIES)
     ]
     state = ItineraryState(
-        stops=[_stop("x", primary_type="Bar")],
+        stops=[_stop("ChIJtest_x_aaaaaaaaa", primary_type="Bar")],
         closure_context=existing,
     )
     update = asyncio.run(swap_closed_stops(state))
     new_ctx = update["closure_context"]
     assert len(new_ctx) == MAX_CLOSURE_CONTEXT_ENTRIES
-    # The oldest "old_0" should be dropped; the new entry should be present.
+    # The oldest entry (index 0) should be dropped; the new entry should be present.
     place_ids = {c.place_id for c in new_ctx}
-    assert "old_0" not in place_ids
-    assert "x" in place_ids
+    assert old_pid(0) not in place_ids
+    assert "ChIJtest_x_aaaaaaaaa" in place_ids
 
 
 def test_swap_node_fail_open_on_initial_db_error(mocker) -> None:
@@ -256,7 +281,10 @@ def test_swap_node_fail_open_on_initial_db_error(mocker) -> None:
         side_effect=Exception("db down"),
     )
     state = ItineraryState(
-        stops=[_stop("a", primary_type="Bar"), _stop("b", primary_type="Bar")],
+        stops=[
+            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
+        ],
     )
     update = asyncio.run(swap_closed_stops(state))
     # No-op (closure-status helper returns [False, False] on DB error)
@@ -298,12 +326,20 @@ def test_swap_node_post_swap_rationale_satisfies_alignment_scorer(mocker) -> Non
     mocker.patch(
         "app.agent.swap._execute_closure_query",
         side_effect=[
-            {"a": True, "b": False, "c": True},  # initial closure check
-            {"a": True, "b_alt": True, "c": True},  # post-swap re-check
+            {
+                "ChIJtest_a_aaaaaaaaa": True,
+                "ChIJtest_b_aaaaaaaaa": False,
+                "ChIJtest_c_aaaaaaaaa": True,
+            },  # initial closure check
+            {
+                "ChIJtest_a_aaaaaaaaa": True,
+                "ChIJtest_b_alt_aaaaa": True,
+                "ChIJtest_c_aaaaaaaaa": True,
+            },  # post-swap re-check
         ],
     )
     candidate = PlaceHit(
-        place_id="b_alt",
+        place_id="ChIJtest_b_alt_aaaaa",
         name="B Alt",
         primary_type="Bar",
         latitude=37.78,
@@ -327,11 +363,11 @@ def test_swap_node_post_swap_rationale_satisfies_alignment_scorer(mocker) -> Non
     # a perfect swap and obscure what this test is actually pinning.
     state = ItineraryState(
         stops=[
-            _stop("a", name="Alpha", primary_type="Bar").model_copy(
+            _stop("ChIJtest_a_aaaaaaaaa", name="Alpha", primary_type="Bar").model_copy(
                 update={"rationale": "Alpha is a lively cocktail bar."}
             ),
-            _stop("b", name="Beta", primary_type="Bar"),
-            _stop("c", name="Gamma", primary_type="Bar").model_copy(
+            _stop("ChIJtest_b_aaaaaaaaa", name="Beta", primary_type="Bar"),
+            _stop("ChIJtest_c_aaaaaaaaa", name="Gamma", primary_type="Bar").model_copy(
                 update={"rationale": "Gamma rounds out the night with craft beer."}
             ),
         ],
@@ -346,11 +382,18 @@ def test_swap_node_post_swap_rationale_satisfies_alignment_scorer(mocker) -> Non
     # Half (2) of D-05-03: post-swap state passes the Phase 3 alignment scorer.
     new_stops = update.get("stops")
     assert new_stops is not None
-    assert [s.place_id for s in new_stops] == ["a", "b_alt", "c"]
+    assert [s.place_id for s in new_stops] == [
+        "ChIJtest_a_aaaaaaaaa",
+        "ChIJtest_b_alt_aaaaa",
+        "ChIJtest_c_aaaaaaaaa",
+    ]
     post_state = ItineraryState(stops=new_stops)
     assert rationale_stop_alignment(post_state) == 1.0
 
     # Sanity: the swap path was actually exercised (not a no-op short-circuit).
-    assert any(c.outcome == "auto_swapped" and c.place_id == "b" for c in update["closure_context"])
+    assert any(
+        c.outcome == "auto_swapped" and c.place_id == "ChIJtest_b_aaaaaaaaa"
+        for c in update["closure_context"]
+    )
     # Sanity: the candidate's name made it into the rendered summary.
     assert "B Alt" in final_reply

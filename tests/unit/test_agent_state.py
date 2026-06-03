@@ -82,7 +82,7 @@ def test_user_constraints_requested_primary_types_is_per_instance() -> None:
 
 def test_stop_round_trips_via_model_dump() -> None:
     stop = Stop(
-        place_id="p1",
+        place_id="ChIJtest_p1_aaaaaaaa",
         name="Trick Dog",
         rationale="iconic SF cocktail bar",
         source="google_places",
@@ -115,7 +115,7 @@ def test_state_to_cards_with_stops() -> None:
     state = ItineraryState(
         stops=[
             Stop(
-                place_id="p1",
+                place_id="ChIJtest_p1_aaaaaaaa",
                 name="X",
                 rationale="r",
                 source="google_places",
@@ -127,7 +127,7 @@ def test_state_to_cards_with_stops() -> None:
     cards = state_to_cards(state)
     assert len(cards) == 1
     card = cards[0]
-    assert card["place_id"] == "p1"
+    assert card["place_id"] == "ChIJtest_p1_aaaaaaaa"
     assert card["name"] == "X"
     assert card["rationale"] == "r"
     assert card["primary_type"] == "restaurant"
@@ -140,7 +140,7 @@ def test_stop_accepts_every_valid_booking_provider(provider: str | None) -> None
     """The closed BookingProvider literal must accept exactly the five providers
     used by app.tools.booking, plus None."""
     stop = Stop(
-        place_id="p1",
+        place_id="ChIJtest_p1_aaaaaaaa",
         name="X",
         rationale="r",
         source="google_places",
@@ -154,7 +154,7 @@ def test_stop_rejects_unknown_booking_provider() -> None:
     fail on BookingProposal — Stop and BookingProposal share the literal."""
     with pytest.raises(ValueError):
         Stop(
-            place_id="p1",
+            place_id="ChIJtest_p1_aaaaaaaa",
             name="X",
             rationale="r",
             source="google_places",
@@ -167,7 +167,7 @@ def test_place_card_rejects_unknown_booking_provider() -> None:
     value would silently render as 'no label'. Lock the contract here."""
     with pytest.raises(ValueError):
         PlaceCard(
-            place_id="p1",
+            place_id="ChIJtest_p1_aaaaaaaa",
             name="X",
             rationale="r",
             booking_provider="yelp",  # type: ignore[arg-type]
@@ -175,7 +175,7 @@ def test_place_card_rejects_unknown_booking_provider() -> None:
 
 
 def test_place_card_serialization_keys() -> None:
-    card = PlaceCard(place_id="p1", name="X", rationale="r")
+    card = PlaceCard(place_id="ChIJtest_p1_aaaaaaaa", name="X", rationale="r")
     payload = card.model_dump(mode="json")
     expected_keys = {
         "place_id",
@@ -202,12 +202,12 @@ _SF = ZoneInfo("America/Los_Angeles")
 def test_closure_context_minimal_fields_validate() -> None:
     """Pending entry with no proposal — used when nearby() returns no candidate."""
     ctx = ClosureContext(
-        place_id="ChIJ_closed",
+        place_id="ChIJtest_closed_aaaa",
         place_name="Mochill Mochidonut",
         family="dessert",
         attempted_arrival=datetime(2026, 5, 19, 20, 2, tzinfo=_SF),
         outcome="pending_user_decision",
-        insert_after_place_id="ChIJ_stop1",
+        insert_after_place_id="ChIJtest_stop1_aaaaa",
         insert_before_place_id=None,
         stop_index_hint=2,
         proposed_alternative=None,
@@ -220,7 +220,7 @@ def test_closure_context_minimal_fields_validate() -> None:
 
 def test_closure_context_with_proposal_validates() -> None:
     sophies = Stop(
-        place_id="ChIJ_sophies",
+        place_id="ChIJtest_sophies_aaa",
         name="Sophie's Crepes",
         rationale="closest open dessert",
         source="google_places",
@@ -230,19 +230,19 @@ def test_closure_context_with_proposal_validates() -> None:
         planned_duration_min=30,
     )
     ctx = ClosureContext(
-        place_id="ChIJ_closed",
+        place_id="ChIJtest_closed_aaaa",
         place_name="Mochill Mochidonut",
         family="dessert",
         attempted_arrival=datetime(2026, 5, 19, 20, 2, tzinfo=_SF),
         outcome="pending_user_decision",
-        insert_after_place_id="ChIJ_stop1",
+        insert_after_place_id="ChIJtest_stop1_aaaaa",
         insert_before_place_id=None,
         stop_index_hint=2,
         proposed_alternative=sophies,
         proposed_distance_m=4800.0,
     )
     assert ctx.proposed_alternative is not None
-    assert ctx.proposed_alternative.place_id == "ChIJ_sophies"
+    assert ctx.proposed_alternative.place_id == "ChIJtest_sophies_aaa"
     assert ctx.proposed_distance_m == 4800.0
 
 
@@ -255,7 +255,7 @@ def test_itinerary_state_accepts_closure_context_list() -> None:
     state = ItineraryState(
         closure_context=[
             ClosureContext(
-                place_id="p",
+                place_id="ChIJtest_p_aaaaaaaaa",
                 place_name="X",
                 family="bar",
                 attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=_SF),

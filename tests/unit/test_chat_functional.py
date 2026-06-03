@@ -39,7 +39,7 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
         "app.agent.tools._semantic_search",
         lambda **_kw: [
             PlaceHit(
-                place_id="p1",
+                place_id="ChIJtest_p1_aaaaaaaa",
                 name="Trick Dog",
                 source="google_places",
                 similarity=0.9,
@@ -75,7 +75,7 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
                     "args": {
                         "stops": [
                             {
-                                "place_id": "p1",
+                                "place_id": "ChIJtest_p1_aaaaaaaa",
                                 "name": "Trick Dog",
                                 "rationale": "iconic SF cocktail bar",
                                 "source": "google_places",
@@ -96,7 +96,7 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
 
     mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
-    # place_id "p1" doesn't exist in places_raw in the test environment; without
+    # place_id "ChIJtest_p1_aaaaaaaa" doesn't exist in places_raw in the test environment; without
     # this patch, a real DB pool (activated by load_dotenv in ingest_places_sf.py
     # during full-suite collection) causes no_hallucinated_place_ids -> 0.0 ->
     # revision loop -> scripted LLM exhausted.
@@ -113,7 +113,7 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
     assert "Trick Dog" in body["reply"]
     assert body["ragLabel"] == "openai:gpt-4o-mini"
     assert len(body["places"]) == 1
-    assert body["places"][0]["place_id"] == "p1"
+    assert body["places"][0]["place_id"] == "ChIJtest_p1_aaaaaaaa"
     assert body["places"][0]["name"] == "Trick Dog"
     assert body["places"][0]["primary_type"] == "cocktail_bar"
 
@@ -129,7 +129,7 @@ def test_commit_itinerary_rejects_ungrounded_place_ids(monkeypatch, mocker) -> N
             tool_calls=[
                 {
                     "name": "semantic_search",
-                    "id": "s1",
+                    "id": "ChIJtest_s1_aaaaaaaa",
                     "args": {"query": "cocktail bar"},
                 }
             ],
@@ -139,11 +139,11 @@ def test_commit_itinerary_rejects_ungrounded_place_ids(monkeypatch, mocker) -> N
             tool_calls=[
                 {
                     "name": "commit_itinerary",
-                    "id": "c1",
+                    "id": "ChIJtest_c1_aaaaaaaa",
                     "args": {
                         "stops": [
                             {
-                                "place_id": "hallucinated",
+                                "place_id": "ChIJtest_hallucinated_",
                                 "name": "Made Up Bar",
                                 "rationale": "the LLM imagined this",
                                 "source": "google_places",
@@ -175,18 +175,20 @@ def _two_stop_script() -> list[AIMessage]:
     return [
         AIMessage(
             content="",
-            tool_calls=[{"name": "semantic_search", "id": "s1", "args": {"query": "date"}}],
+            tool_calls=[
+                {"name": "semantic_search", "id": "ChIJtest_s1_aaaaaaaa", "args": {"query": "date"}}
+            ],
         ),
         AIMessage(
             content="",
             tool_calls=[
                 {
                     "name": "commit_itinerary",
-                    "id": "c1",
+                    "id": "ChIJtest_c1_aaaaaaaa",
                     "args": {
                         "stops": [
                             {
-                                "place_id": "p1",
+                                "place_id": "ChIJtest_p1_aaaaaaaa",
                                 "name": "Bar One",
                                 "rationale": "start",
                                 "source": "google_places",
@@ -196,9 +198,9 @@ def _two_stop_script() -> list[AIMessage]:
                                 "longitude": -122.410,
                             },
                             {
-                                "place_id": "p2",
+                                "place_id": "ChIJtest_p2_aaaaaaaa",
                                 "name": "Bar Two",
-                                "rationale": "next",
+                                "rationale": "ChIJtest_next_aaaaaa",
                                 "source": "google_places",
                                 "primary_type": "cocktail_bar",
                                 "latitude": 37.780,
@@ -218,7 +220,7 @@ def _two_hits(monkeypatch) -> None:
         "app.agent.tools._semantic_search",
         lambda **_kw: [
             PlaceHit(
-                place_id="p1",
+                place_id="ChIJtest_p1_aaaaaaaa",
                 name="Bar One",
                 source="google_places",
                 similarity=0.9,
@@ -230,7 +232,7 @@ def _two_hits(monkeypatch) -> None:
                 snippet=None,
             ),
             PlaceHit(
-                place_id="p2",
+                place_id="ChIJtest_p2_aaaaaaaa",
                 name="Bar Two",
                 source="google_places",
                 similarity=0.9,
@@ -339,7 +341,7 @@ def test_chat_graph_injects_primary_type_family_for_slot(monkeypatch, mocker) ->
         "app.agent.tools._semantic_search",
         lambda **_kw: [
             PlaceHit(
-                place_id="p1",
+                place_id="ChIJtest_p1_aaaaaaaa",
                 name="Sushi Spot",
                 source="google_places",
                 similarity=0.9,
@@ -388,7 +390,7 @@ def test_chat_graph_injects_primary_type_family_for_slot(monkeypatch, mocker) ->
                     "args": {
                         "stops": [
                             {
-                                "place_id": "p1",
+                                "place_id": "ChIJtest_p1_aaaaaaaa",
                                 "name": "Sushi Spot",
                                 "rationale": "Sushi Restaurant in Mission",
                                 "source": "google_places",
@@ -461,7 +463,7 @@ def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mock
         "app.agent.tools._semantic_search",
         lambda **_kw: [
             PlaceHit(
-                place_id="p1",
+                place_id="ChIJtest_p1_aaaaaaaa",
                 name="Sushi Spot",
                 source="google_places",
                 similarity=0.9,
@@ -504,7 +506,7 @@ def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mock
             tool_calls=[
                 {
                     "name": "semantic_search",
-                    "id": "s1",
+                    "id": "ChIJtest_s1_aaaaaaaa",
                     "args": {"query": "omakase", "slot_index": 0},
                 }
             ],
@@ -514,11 +516,11 @@ def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mock
             tool_calls=[
                 {
                     "name": "commit_itinerary",
-                    "id": "c1",
+                    "id": "ChIJtest_c1_aaaaaaaa",
                     "args": {
                         "stops": [
                             {
-                                "place_id": "p1",
+                                "place_id": "ChIJtest_p1_aaaaaaaa",
                                 "name": "Sushi Spot",
                                 "rationale": "Sushi Restaurant in Mission",
                                 "source": "google_places",
@@ -618,7 +620,7 @@ class TestConversationStateCommittedStopsRoundTrip:
                 tool_calls=[
                     {
                         "name": "semantic_search",
-                        "id": "s1",
+                        "id": "ChIJtest_s1_aaaaaaaa",
                         "args": {"query": "cocktail bar"},
                     }
                 ],
@@ -628,7 +630,7 @@ class TestConversationStateCommittedStopsRoundTrip:
                 tool_calls=[
                     {
                         "name": "commit_itinerary",
-                        "id": "c1",
+                        "id": "ChIJtest_c1_aaaaaaaa",
                         "args": {
                             "stops": [
                                 {
@@ -696,7 +698,7 @@ class TestConversationStateCommittedStopsRoundTrip:
                 tool_calls=[
                     {
                         "name": "semantic_search",
-                        "id": "s1",
+                        "id": "ChIJtest_s1_aaaaaaaa",
                         "args": {"query": "cocktail bar"},
                     }
                 ],
@@ -706,7 +708,7 @@ class TestConversationStateCommittedStopsRoundTrip:
                 tool_calls=[
                     {
                         "name": "commit_itinerary",
-                        "id": "c1",
+                        "id": "ChIJtest_c1_aaaaaaaa",
                         "args": {
                             "stops": [
                                 {

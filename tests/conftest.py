@@ -48,10 +48,31 @@ def _patch_env(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def make_stop(place_id: str = "p1", **kwargs: Any) -> Stop:
-    """Build a Stop with sensible defaults; override any field via kwargs."""
+def _normalize_test_place_id(value: str) -> str:
+    """Pad short descriptive place_ids to satisfy the 06-01 Task 3
+    Google-Place-ID-format validator (>= 20 chars, [A-Za-z0-9_-]).
+    Inputs already matching the format pass through unchanged.
+    """
+    import re as _re
+
+    if _re.fullmatch(r"^[A-Za-z0-9_-]{20,255}$", value):
+        return value
+    descriptor = _re.sub(r"[^A-Za-z0-9_-]", "_", value) or "x"
+    base = f"ChIJtest_{descriptor}_"
+    while len(base) < 20:
+        base += "a"
+    return base[:255]
+
+
+def make_stop(place_id: str = "ChIJtest_p1_aaaaaaaa", **kwargs: Any) -> Stop:
+    """Build a Stop with sensible defaults; override any field via kwargs.
+
+    `place_id` is normalized via `_normalize_test_place_id` so short
+    descriptive ids like "p1" or `f"p{i}"` still work after Plan 06-01
+    added the Google-Place-ID-format validator on Stop.
+    """
     return Stop(
-        place_id=place_id,
+        place_id=_normalize_test_place_id(place_id),
         name=kwargs.pop("name", place_id.upper()),
         source=kwargs.pop("source", "google_places"),
         rationale=kwargs.pop("rationale", ""),
@@ -60,7 +81,7 @@ def make_stop(place_id: str = "p1", **kwargs: Any) -> Stop:
 
 
 def make_hit(
-    place_id: str = "p1",
+    place_id: str = "ChIJtest_p1_aaaaaaaa",
     *,
     similarity: float = 0.9,
     business_status: str = "OPERATIONAL",

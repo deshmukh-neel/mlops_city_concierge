@@ -123,7 +123,7 @@ async def test_step_and_itinerary_critiques_compose(monkeypatch) -> None:
 
     def _search(**kw):
         calls.append(kw)
-        return [] if len(calls) == 1 else [_hit("p1")]
+        return [] if len(calls) == 1 else [_hit("ChIJtest_p1_aaaaaaaa")]
 
     monkeypatch.setattr("app.agent.tools._semantic_search", _search)
 
@@ -161,7 +161,7 @@ async def test_step_and_itinerary_critiques_compose(monkeypatch) -> None:
                         "args": {
                             "stops": [
                                 {
-                                    "place_id": "p1",
+                                    "place_id": "ChIJtest_p1_aaaaaaaa",
                                     "name": "P1",
                                     "source": "google_places",
                                     "rationale": "good fit",
@@ -183,7 +183,7 @@ async def test_step_and_itinerary_critiques_compose(monkeypatch) -> None:
     assert out["revision_counts"].get("empty_results") == 1
     # One stop committed, no itinerary violations triggered (stub returned []).
     assert len(out["stops"]) == 1
-    assert out["stops"][0].place_id == "p1"
+    assert out["stops"][0].place_id == "ChIJtest_p1_aaaaaaaa"
 
 
 async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> None:
@@ -197,7 +197,11 @@ async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> N
 
     def _search(**kw):
         search_calls.append(kw)
-        return [] if len(search_calls) == 1 else [_hit("p1"), _hit("p2")]
+        return (
+            []
+            if len(search_calls) == 1
+            else [_hit("ChIJtest_p1_aaaaaaaa"), _hit("ChIJtest_p2_aaaaaaaa")]
+        )
 
     monkeypatch.setattr("app.agent.tools._semantic_search", _search)
 
@@ -245,13 +249,13 @@ async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> N
                         "args": {
                             "stops": [
                                 {
-                                    "place_id": "p1",
+                                    "place_id": "ChIJtest_p1_aaaaaaaa",
                                     "name": "P1",
                                     "source": "google_places",
                                     "rationale": "first",
                                 },
                                 {
-                                    "place_id": "p2",
+                                    "place_id": "ChIJtest_p2_aaaaaaaa",
                                     "name": "P2",
                                     "source": "google_places",
                                     "rationale": "second",
@@ -275,13 +279,13 @@ async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> N
                         "args": {
                             "stops": [
                                 {
-                                    "place_id": "p1",
+                                    "place_id": "ChIJtest_p1_aaaaaaaa",
                                     "name": "P1",
                                     "source": "google_places",
                                     "rationale": "kept",
                                 },
                                 {
-                                    "place_id": "p2",
+                                    "place_id": "ChIJtest_p2_aaaaaaaa",
                                     "name": "P2",
                                     "source": "google_places",
                                     "rationale": "swapped",

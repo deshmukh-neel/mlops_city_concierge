@@ -273,7 +273,7 @@ def test_tool_errors_from_state_extracts_tool_error_payloads() -> None:
         scratch={
             "semantic_search": [
                 {"result": {"error": "permission denied"}},
-                {"result": [{"place_id": "p1"}]},
+                {"result": [{"place_id": "ChIJtest_p1_aaaaaaaa"}]},
             ],
             "debug": {"ignored": True},
         }
@@ -463,7 +463,7 @@ def test_aggregate_results_flattens_mean_metrics() -> None:
         actual=ActualEvalResult(
             result_count=4,
             committed_stop_count=4,
-            place_ids=["p1", "p2", "p3", "p4"],
+            place_ids=["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa", "p3", "p4"],
             place_names=["P1", "P2", "P3", "P4"],
             sources=["google_places"],
             answer_place_names=[],

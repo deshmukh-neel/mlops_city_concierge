@@ -373,7 +373,7 @@ def test_aggregate_scores_means_only_successful_scores() -> None:
     scores = [
         RagasQueryScore(
             id="one",
-            question="q1",
+            question="ChIJtest_q1_aaaaaaaa",
             tags=[],
             metrics={"faithfulness": 1.0, "context_recall": 0.5},
             errors={},
@@ -381,7 +381,7 @@ def test_aggregate_scores_means_only_successful_scores() -> None:
         ),
         RagasQueryScore(
             id="two",
-            question="q2",
+            question="ChIJtest_q2_aaaaaaaa",
             tags=["known_bad"],
             metrics={"faithfulness": None, "context_recall": 1.0},
             errors={"faithfulness": "contexts are required"},

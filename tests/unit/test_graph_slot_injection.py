@@ -142,7 +142,7 @@ def test_inject_primary_type_family_applies_to_nearby() -> None:
     """Both retrieval tools (semantic_search AND nearby) get the injection."""
     out = _inject_primary_type_family(
         "nearby",
-        {"place_id": "p1", "slot_index": 1},
+        {"place_id": "ChIJtest_p1_aaaaaaaa", "slot_index": 1},
         ["Restaurant", "Cocktail Bar"],
     )
     assert out["filters"]["primary_type_family"] == "bar"
@@ -439,7 +439,7 @@ async def test_act_does_not_alter_kg_traverse_args_when_strip_runs(
             {
                 "name": "kg_traverse",
                 "id": "call_kg",
-                "args": {"place_id": "anchor", "relation_type": "SIMILAR_VECTOR"},
+                "args": {"place_id": "ChIJtest_anchor_aaaa", "relation_type": "SIMILAR_VECTOR"},
                 "type": "tool_call",
             }
         ],
@@ -457,7 +457,7 @@ async def test_act_does_not_alter_kg_traverse_args_when_strip_runs(
     recorded = entries[0]["args"]
     closure_only = _inject_closure_exclusions(
         "kg_traverse",
-        {"place_id": "anchor", "relation_type": "SIMILAR_VECTOR"},
+        {"place_id": "ChIJtest_anchor_aaaa", "relation_type": "SIMILAR_VECTOR"},
         list(state_out.closure_context),
     )
     assert recorded == closure_only, (
