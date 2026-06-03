@@ -266,6 +266,73 @@ and check `chat_model`.
 Unsetting the variable (or restarting without it) falls back to the `production`
 alias — full backward compatibility.
 
+## Refinement turns
+
+Phase 6 (v2.0) adds a structured-plan injection path so refinement turns
+("make stop 2 cheaper", "swap stop 3", "different for stop 1") preserve every
+other committed stop's `place_id` byte-equal between turns.
+
+**What the feature does.** When the user sends a refinement message after the
+agent has already committed an itinerary, the `/chat` handler injects a
+structured `current_plan` payload (JSON block + prose preamble) into the
+prompt chain so the model has the prior commit's `place_id` anchors visible
+during the revision step. The shared `build_refinement_prompt_message` helper
+(`app/agent/io.py`) produces a byte-identical message for both `/chat` and the
+eval runner — verifies that prod and harness agree on the refinement contract.
+
+**Feature flag.** Gated by `REFINEMENT_STRUCTURED_PLAN_ENABLED`, defaults
+**OFF** at ship time. Truthy values: `true`, `1`, `yes`, `on` (case-insensitive).
+The env var is read per-request inside `chat()` (OVR-05 pattern) so flipping the
+value on a Cloud Run revision takes effect on the next request without a
+restart.
+
+```bash
+# Enable in prod on Cloud Run (operator action, not a code PR)
+gcloud run services update city-concierge-api \
+  --set-env-vars REFINEMENT_STRUCTURED_PLAN_ENABLED=true
+```
+
+**Wire-shape changes.** The `/chat` response stamps
+`conversation_state.committed_stops` (a list of `{place_id, name, ...}`) on
+every reply. The frontend treats this field as opaque and echoes it back on the
+next request — no client change required. Legacy `/chat` payloads without
+`committed_stops` decode as `[]` (backwards-compatible per D-06-01).
+
+**Injection guard.** The structured-plan `HumanMessage` is built and injected
+when **all three** of the following are true:
+
+1. The incoming message matches `is_refinement_request(text)` (regex pre-check
+   in `app/agent/input_parsing.py` — "make stop N cheaper", "swap stop N",
+   "stop N instead", "different for stop N"); a 1-indexed slot digit is
+   required (conservative-on-purpose per D-06-03).
+2. `conversation_state.committed_stops` is non-empty.
+3. `REFINEMENT_STRUCTURED_PLAN_ENABLED` is truthy.
+
+When any of the three is false, the request flows through the v1.0 free-text
+path — no behavior change vs. pre-Phase-6.
+
+**Eval and verification.** The Phase 6 deterministic scorer
+`refinement_minimal_edit` checks that every non-target slot's `place_id` is
+byte-equal across turns. The refinement eval matrix lives at
+`configs/eval_matrix_refinement.yaml` (separate from the default matrix so the
+flag-OFF first-turn cells stay clean):
+
+```bash
+# Live run (requires APP_ENV=eval + OPENAI_API_KEY + DEEPSEEK_API_KEY)
+make eval-matrix-refinement RUNS=3
+
+# CI structural smoke (no subprocess, no API calls — HARD-gated)
+make eval-matrix-refinement-structural-check
+```
+
+The merge gate (D-06-09) is strict: `refinement_minimal_edit` median MUST be
+`1.0` on `openai/gpt-4o-mini` × `refinement_cheaper` × flag-on. DeepSeek is
+logged but not gated (D-04-11 / D-06-09 — its cell still runs so the baseline
+captures its medians, but no gate-on-failure is enforced). The structural
+check covers the day-1 CI hard gate (matrix loads, env override propagates,
+scorer registered, shared helper functional); the empirical gate is enforced
+by the human checkpoint in the merge PR.
+
 ## Common Commands
 
 Run `make help` to see all targets.
