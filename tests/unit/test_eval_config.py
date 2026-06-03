@@ -635,14 +635,28 @@ class TestPhase6EvalConfigAdditions:
         assert len(config.entries) == 2
         assert all(entry.env is None for entry in config.entries)
 
-    def test_default_threading_mode_legacy_on_all_existing_cases(self) -> None:
-        """Every existing case stays on threading_mode='legacy' until plan 06-07
-        flips refinement_cheaper. Proves the opt-in invariant holds at load time."""
+    def test_threading_mode_invariant_after_plan_06_07(self) -> None:
+        """After plan 06-07 ships, refinement_cheaper is the ONLY YAML case
+        on threading_mode='prod'. Every other hand_written case stays on
+        the default 'legacy' threading per D-06-06. Proves the opt-in
+        invariant (only refinement_cheaper opts into prod-threading)."""
         config = load_eval_queries()
-        assert all(case.threading_mode == "legacy" for case in config.hand_written)
+        prod_cases = [c.id for c in config.hand_written if c.threading_mode == "prod"]
+        legacy_cases = [c.id for c in config.hand_written if c.threading_mode == "legacy"]
+        assert prod_cases == ["refinement_cheaper"], (
+            f"Phase 6 (D-06-06) expects only refinement_cheaper on "
+            f"threading_mode='prod'; got prod_cases={prod_cases}"
+        )
+        # Every other hand-written case stays on legacy.
+        other_ids = {c.id for c in config.hand_written if c.id != "refinement_cheaper"}
+        assert set(legacy_cases) == other_ids
 
-    def test_default_expected_refinement_none_on_all_existing_cases(self) -> None:
-        """No existing YAML case sets expected_refinement — they all default to
-        None. Plan 06-07 will set it on refinement_cheaper only."""
+    def test_expected_refinement_invariant_after_plan_06_07(self) -> None:
+        """After plan 06-07 ships, refinement_cheaper is the ONLY YAML
+        case carrying expected_refinement (target_slot=2 per D-06-06). All
+        other cases keep expected_refinement=None."""
         config = load_eval_queries()
-        assert all(case.expected_refinement is None for case in config.hand_written)
+        with_refinement = [c for c in config.hand_written if c.expected_refinement is not None]
+        assert len(with_refinement) == 1
+        assert with_refinement[0].id == "refinement_cheaper"
+        assert with_refinement[0].expected_refinement.target_slot == 2

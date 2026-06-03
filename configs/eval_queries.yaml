@@ -399,6 +399,12 @@ hand_written:
       min_stops: 3
       max_stops: 3
     turns: ["make stop 2 cheaper"]
+    # Phase 6 (D-06-06): refinement_cheaper flips to prod threading so the
+    # eval runner mirrors /chat's refinement-injection path. target_slot is
+    # 1-indexed and matches the user-facing "make stop 2 cheaper" prose.
+    threading_mode: prod
+    expected_refinement:
+      target_slot: 2
     tags: ["refinement", "rationale_alignment", "multi_turn", "hayes_valley"]
 
   - id: late_night_closure_cascade

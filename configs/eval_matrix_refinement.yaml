@@ -1,0 +1,27 @@
+# Phase 6 refinement-only matrix (D-06-09 / D-06-10 / plan 06-07).
+#
+# Runs the refinement_cheaper scenario against BOTH provider entries
+# under REFINEMENT_STRUCTURED_PLAN_ENABLED=true. The merge gate is
+# strict 1.0 on openai/gpt-4o-mini only (D-06-09). DeepSeek is
+# logged-but-not-gated per D-04-11 / D-06-09 — its cell still RUNS so
+# its scores are captured in the baseline JSON, but no gate-on-failure
+# is enforced.
+#
+# Per-cell env override (Phase 6 / plan 06-06 / D-06-10):
+#   - REFINEMENT_STRUCTURED_PLAN_ENABLED=true gates the structured-plan
+#     HumanMessage injection in both /chat and the eval prod branch.
+#   - Values MUST be YAML strings ("true" in quotes) — `MatrixEntry.env`
+#     validator rejects non-string scalars (PATTERNS.md § 9).
+
+entries:
+  - provider: openai
+    model: gpt-4o-mini
+    env:
+      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
+  - provider: deepseek
+    model: deepseek-chat
+    env:
+      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
+
+scenarios:
+  - refinement_cheaper

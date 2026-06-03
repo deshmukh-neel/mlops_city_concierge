@@ -1,10 +1,11 @@
 {
+  "_snapshot_note": "Pre-Phase-6 baseline snapshot captured before the Phase 6 re-baseline under threading_mode='prod' + REFINEMENT_STRUCTURED_PLAN_ENABLED=true. Reference-only: NOT consumed by the eval matrix runner and NOT used by the merge gate. Read by plan 06-07 Task 3 for cross-phase no-regression comparison on the 8 pre-existing scorers. The new 'refinement_minimal_edit' scorer is intentionally absent \u2014 it did not exist pre-Phase-6.",
   "closure_check_confirmed": "2026-05-21",
-  "generated_at": "2026-06-03T03-56-25Z",
-  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 3 (Phase 6 re-baseline under threading_mode: prod with REFINEMENT_STRUCTURED_PLAN_ENABLED=true)",
+  "generated_at": "2026-05-22T23-07-11Z",
+  "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
   "providers": {
     "deepseek/deepseek-chat": {
-      "_observations": "Phase 6 re-baseline under threading_mode='prod' + REFINEMENT_STRUCTURED_PLAN_ENABLED=true. DeepSeek is logged-but-not-gated per D-04-11 / D-06-09; values captured for visibility only. The refinement_minimal_edit scorer registered for D-06-09 \u2014 DeepSeek's median is tracked here but does not enforce the merge gate. The 0.0 median on this run reflects the same turn-0-no-commit behavior observed on openai (the model asks a clarifying question on the refinement turn before any commit happens).",
+      "_observations": "Post-Phase-4 baseline (DeepSeek, tracked but not gated per D-04-11). Same decisiveness-gap caveat as omakase_mission_open_ended.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
@@ -45,13 +46,6 @@
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
-          "stdev": 0.0
-        },
-        "refinement_minimal_edit": {
-          "max": 0.0,
-          "median": 0.0,
-          "min": 0.0,
           "n": 3,
           "stdev": 0.0
         },
@@ -72,7 +66,7 @@
       }
     },
     "openai/gpt-4o-mini": {
-      "_observations": "Phase 6 re-baseline under threading_mode='prod' + REFINEMENT_STRUCTURED_PLAN_ENABLED=true. The refinement_minimal_edit scorer carries the strict 1.0 merge gate per D-06-09 (REF-01). The other 8 scorers may show LOWER medians than the pre-Phase-6 file because the pre-Phase-6 floor was saturated via fail-open under legacy threading; the regenerated baseline reflects the actual prod-threaded behavior. EMPIRICAL GATE STATUS: refinement_minimal_edit median == 0.0 on this run (gate FAILS at the 1.0 threshold). The agent asked a clarifying question on the refinement turn rather than committing a byte-equal-stop swap. See SUMMARY.md plan 06-07 for the open-issue trace + remediation path.",
+      "_observations": "Post-Phase-4 baseline for the refinement scenario. Plan 04-05's rationale_misaligned revision dispatch addresses RAT-01 (refinement-turn rationale integrity, folded into Phase 4 per D-04-09). category_compliance_strict and rationale_stop_alignment are now actually measured rather than abstaining. Phase 4 merge gate per D-04-13 applies (strict floor 0.3 absolute; rationale_stop_alignment delta +0.2 vs pre-Phase-4 baseline).",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
@@ -113,13 +107,6 @@
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
-          "stdev": 0.0
-        },
-        "refinement_minimal_edit": {
-          "max": 0.0,
-          "median": 0.0,
-          "min": 0.0,
           "n": 3,
           "stdev": 0.0
         },

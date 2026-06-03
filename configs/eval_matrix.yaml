@@ -11,10 +11,14 @@
 # unstable (thought-signatures / reasoning_content round-trip). Re-add per-
 # provider when the underlying issues are mitigated.
 #
-# Three locked baseline scenarios (D-07 / plan 03-05 task 2):
+# Default baseline scenarios (D-07 / plan 03-05 task 2; updated by Phase 6):
 #   - omakase_mission_open_ended    (category_compliance baseline)
-#   - refinement_cheaper            (multi-turn rationale_stop_alignment)
 #   - late_night_closure_cascade    (multi-turn closure-aware swap)
+#
+# Phase 6 plan 06-07 / D-06-09: the multi-turn refinement scenario was
+# moved to a sibling matrix file (configs/eval_matrix_refinement.yaml)
+# so this default matrix runs first-turn cells with the flag OFF and
+# preserves REF-04 (omakase first-turn no-regression).
 
 entries:
   - provider: openai
@@ -24,5 +28,4 @@ entries:
 
 scenarios:
   - omakase_mission_open_ended
-  - refinement_cheaper
   - late_night_closure_cascade

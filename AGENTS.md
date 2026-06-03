@@ -54,6 +54,7 @@ python scripts/seed.py    # Generate sample JSONL data
 - **MLflow** for experiment tracking and model-registry-backed runtime selection (shared GCP server)
 - **Frontend** (`frontend/`, Vite + React) drives the **agent** via `POST /chat` (not the legacy `/predict` RAG endpoint). It renders the ordered itinerary on a real Google Map with a Directions route; needs a browser Maps key (`docs/google_maps_setup.md`) and degrades gracefully without one. Frontend tests run with `npm test` (Vitest) in `frontend/`. See `implementation_plan/james/w8_live_map_routing.md`.
 - **React and Vite** for the frontend where user inputs prompt and preferences
+- **Refinement turns (Phase 6)** are gated by `REFINEMENT_STRUCTURED_PLAN_ENABLED` (env var, default OFF, read per-request inside `chat()`). When ON, refinement messages ("make stop N cheaper", "swap stop N", "stop N instead", "different for stop N") with non-empty `conversation_state.committed_stops` inject a structured `current_plan` HumanMessage built by the shared `build_refinement_prompt_message` helper (`app/agent/io.py`) — used by both `/chat` and the eval runner so prod and harness agree byte-for-byte. The Phase 6 merge gate `refinement_minimal_edit == 1.0` runs on `openai/gpt-4o-mini` via `configs/eval_matrix_refinement.yaml`; DeepSeek is logged but not gated. CI hard gate is `make eval-matrix-refinement-structural-check` (no-subprocess smoke); the empirical scorer gate is the human checkpoint at PR-merge.
 
 ## Infrastructure
 
