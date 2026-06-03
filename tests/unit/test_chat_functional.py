@@ -10,13 +10,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agent.graph import build_agent_graph
 from app.main import ActiveModelConfig, LoadedConfig, app
 from app.tools.directions import DirectionsLeg, DirectionsResult
 from app.tools.retrieval import PlaceHit
-from tests._helpers.scripted_llm import ScriptedLLM
+from tests._helpers.scripted_llm import RecordingScriptedLLM, ScriptedLLM
 
 
 def _stub_loaded_config() -> LoadedConfig:
@@ -780,3 +780,373 @@ class TestConversationStateCommittedStopsRoundTrip:
         # Pydantic decoded the legacy payload with committed_stops defaulted to [].
         decoded = ConversationState.model_validate(legacy_payload)
         assert decoded.committed_stops == []
+
+
+# ─── Phase 6 / 06-05 — /chat refinement injection truth table ───
+#
+# 3 binary dimensions (REFINEMENT_STRUCTURED_PLAN_ENABLED × refinement-regex
+# match × committed_stops non-empty) = 8 cases. Only the all-True cell
+# (flag ON + regex match + committed_stops non-empty) actually injects the
+# structured-plan HumanMessage built by `app.agent.io.build_refinement_prompt_message`.
+# The other 7 cells must prove the absence of injection.
+#
+# A 9th case (Residual-2 fix) asserts that a malformed conversation_state
+# (e.g. an inbound stop with a `place_id` that fails the plan-06-01 Task-3
+# validator) degrades to empty `committed_stops` and returns 200 — NOT 422 —
+# because `app/main.py` catches `ValidationError` and falls back to an empty
+# ConversationState, which the three-way guard short-circuits on.
+
+
+class TestChatRefinementInjection:
+    """Phase 6 plan 06-05 Task 2b — full 8-cell truth-table for the /chat
+    refinement injection branch.
+
+    Per `project_full_suite_db_pool_contamination.md` every test in this
+    class stubs `app.agent.revision.itinerary_violations` so no live DB
+    pool activates during full-suite collection.
+
+    Every Stop fixture uses a Google-Place-ID-conforming `place_id` per
+    plan 06-01 Task 3 validator (`^[A-Za-z0-9_-]{20,255}$`); the canonical
+    value is `"ChIJtest_fixture_id_aaaaaa"` (26 chars).
+    """
+
+    # Canonical fixture used by every test in this class.
+    _CANON_PLACE_ID = "ChIJtest_fixture_id_aaaaaa"
+    _CANON_PLACE_ID_2 = "ChIJtest_fixture_id_bbbbbb"
+
+    @classmethod
+    def _committed_stops_payload(cls) -> list[dict]:
+        """Build a 3-stop committed_stops payload (matches "stop 2" target_slot
+        bounds: 1 <= 2 <= 3 passes the MEDIUM target_slot-bounds guard)."""
+        return [
+            {
+                "place_id": cls._CANON_PLACE_ID,
+                "name": "Stop One",
+                "rationale": "first",
+                "source": "google_places",
+            },
+            {
+                "place_id": cls._CANON_PLACE_ID_2,
+                "name": "Stop Two",
+                "rationale": "second",
+                "source": "google_places",
+            },
+            {
+                "place_id": "ChIJtest_fixture_id_cccccc",
+                "name": "Stop Three",
+                "rationale": "third",
+                "source": "google_places",
+            },
+        ]
+
+    @staticmethod
+    def _make_recording_llm() -> RecordingScriptedLLM:
+        """A `RecordingScriptedLLM` that ends the graph immediately (no
+        tool calls) so we can inspect its `seen[0]` — what the LLM was
+        prompted with on its first invocation — without running through
+        a full retrieval/commit trajectory."""
+        return RecordingScriptedLLM(
+            scripted=[
+                AIMessage(content="(stub final reply)", tool_calls=[]),
+            ]
+        )
+
+    @classmethod
+    def _post_chat(
+        cls,
+        *,
+        mocker,
+        monkeypatch,
+        message: str,
+        conversation_state: dict | None,
+        recording_llm: RecordingScriptedLLM,
+    ):
+        """Drive a single POST /chat round-trip with the supplied scripted LLM."""
+        monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+        real_graph = build_agent_graph(recording_llm, max_steps=2)
+        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.build_agent_graph", return_value=real_graph)
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        with TestClient(app) as client:
+            body: dict = {"message": message}
+            if conversation_state is not None:
+                body["conversation_state"] = conversation_state
+            return client.post("/chat", json=body)
+
+    # The unique sentinel for an injected refinement message — the helper's
+    # preamble starts with this exact prose, and the prose does NOT appear in
+    # the SYSTEM_PROMPT itself, so it is a clean "is this an injection?"
+    # signal. (The earlier sentinel `"current_plan"` is ambiguous because
+    # the SYSTEM_PROMPT's addendum names the JSON field by name when telling
+    # the model how to read the structured plan.)
+    _INJECTION_SENTINEL = "Below is the current committed itinerary"
+
+    @staticmethod
+    def _human_content_strings_seen(recording_llm) -> list[str]:
+        """Every HumanMessage.content across every invocation the LLM saw.
+
+        Filters to HumanMessage so the SYSTEM_PROMPT's prose addendum (which
+        mentions `current_plan` to teach the model how to read the
+        structured plan) doesn't appear as a false positive."""
+        out: list[str] = []
+        for messages_list in recording_llm.seen:
+            for m in messages_list:
+                if isinstance(m, HumanMessage) and isinstance(m.content, str):
+                    out.append(m.content)
+        return out
+
+    def _assert_no_injection(self, recording_llm) -> None:
+        """No HumanMessage anywhere in the seen sequence contains the
+        helper's preamble sentinel. We assert across the FULL message list
+        (not just position 0) because per HIGH-3 the structured plan is no
+        longer at index 0 — searching the whole HumanMessage list is
+        robust to ordering shifts."""
+        contents = self._human_content_strings_seen(recording_llm)
+        for content in contents:
+            assert self._INJECTION_SENTINEL not in content, (
+                f"unexpected structured-plan injection: {content!r}"
+            )
+
+    # ─── 8 truth-table cells ────────────────────────────────────────────
+
+    def test_flag_off_refinement_message_committed_stops_present_no_injection(
+        self, monkeypatch, mocker
+    ) -> None:
+        """Cell 1: flag OFF, regex MATCH, committed_stops NON-EMPTY → no inject."""
+        monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
+        recording_llm = self._make_recording_llm()
+        response = self._post_chat(
+            mocker=mocker,
+            monkeypatch=monkeypatch,
+            message="make stop 2 cheaper",
+            conversation_state={
+                "schema_version": 1,
+                "closure_context": [],
+                "prior_stops": [],
+                "committed_stops": self._committed_stops_payload(),
+            },
+            recording_llm=recording_llm,
+        )
+        assert response.status_code == 200
+        self._assert_no_injection(recording_llm)
+
+    def test_flag_on_non_refinement_message_committed_stops_present_no_injection(
+        self, monkeypatch, mocker
+    ) -> None:
+        """Cell 2: flag ON, regex NO-MATCH, committed_stops NON-EMPTY → no inject."""
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        recording_llm = self._make_recording_llm()
+        response = self._post_chat(
+            mocker=mocker,
+            monkeypatch=monkeypatch,
+            message="Plan a date night",
+            conversation_state={
+                "schema_version": 1,
+                "closure_context": [],
+                "prior_stops": [],
+                "committed_stops": self._committed_stops_payload(),
+            },
+            recording_llm=recording_llm,
+        )
+        assert response.status_code == 200
+        self._assert_no_injection(recording_llm)
+
+    def test_flag_on_refinement_message_committed_stops_empty_no_injection(
+        self, monkeypatch, mocker
+    ) -> None:
+        """Cell 3: flag ON, regex MATCH, committed_stops EMPTY → no inject."""
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        recording_llm = self._make_recording_llm()
+        response = self._post_chat(
+            mocker=mocker,
+            monkeypatch=monkeypatch,
+            message="make stop 2 cheaper",
+            conversation_state={
+                "schema_version": 1,
+                "closure_context": [],
+                "prior_stops": [],
+                "committed_stops": [],
+            },
+            recording_llm=recording_llm,
+        )
+        assert response.status_code == 200
+        self._assert_no_injection(recording_llm)
+
+    def test_flag_on_refinement_message_committed_stops_present_injects(
+        self, monkeypatch, mocker
+    ) -> None:
+        """Cell 4: flag ON, regex MATCH, committed_stops NON-EMPTY → INJECT.
+
+        Also pins HIGH-3 adjacency (structured plan is the message
+        IMMEDIATELY BEFORE the user's turn-2 HumanMessage in the sequence
+        the LLM sees) AND Caveat #5 byte-identity (the injected message
+        equals a direct call to `build_refinement_prompt_message` with
+        the same committed_stops)."""
+        from app.agent.io import build_refinement_prompt_message
+        from app.agent.state import Stop
+
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        recording_llm = self._make_recording_llm()
+        committed_payload = self._committed_stops_payload()
+        response = self._post_chat(
+            mocker=mocker,
+            monkeypatch=monkeypatch,
+            message="make stop 2 cheaper",
+            conversation_state={
+                "schema_version": 1,
+                "closure_context": [],
+                "prior_stops": [],
+                "committed_stops": committed_payload,
+            },
+            recording_llm=recording_llm,
+        )
+        assert response.status_code == 200
+
+        # The first plan() invocation saw the post-injection messages.
+        assert recording_llm.seen, "LLM was never invoked"
+        first_seen = recording_llm.seen[0]
+        # HIGH-3 adjacency: the message IMMEDIATELY BEFORE the user's
+        # final HumanMessage (index -2) is the structured-plan injection.
+        assert len(first_seen) >= 2, f"expected >= 2 messages, got {len(first_seen)}"
+        injected_msg = first_seen[-2]
+        user_msg = first_seen[-1]
+        assert isinstance(user_msg, HumanMessage)
+        assert user_msg.content == "make stop 2 cheaper"
+        assert isinstance(injected_msg, HumanMessage)
+        assert isinstance(injected_msg.content, str)
+        # Both anchors must be present in the actual injected HumanMessage.
+        assert self._INJECTION_SENTINEL in injected_msg.content
+        assert "current_plan" in injected_msg.content
+
+        # Caveat #5 byte-identity: the /chat-injected message equals a
+        # direct call to the shared helper with the same committed_stops.
+        expected_stops = [Stop(**s) for s in committed_payload]
+        expected_msg = build_refinement_prompt_message(expected_stops)
+        assert injected_msg.content == expected_msg.content
+
+    def test_flag_off_non_refinement_first_turn_unchanged(self, monkeypatch, mocker) -> None:
+        """Cell 5 (REF-04 parity): flag OFF, regex NO-MATCH, committed_stops
+        NON-EMPTY → no inject (the first-turn-style code path is unchanged
+        when the flag is off, regardless of payload)."""
+        monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
+        recording_llm = self._make_recording_llm()
+        response = self._post_chat(
+            mocker=mocker,
+            monkeypatch=monkeypatch,
+            message="Plan a date night",
+            conversation_state={
+                "schema_version": 1,
+                "closure_context": [],
+                "prior_stops": [],
+                "committed_stops": self._committed_stops_payload(),
+            },
+            recording_llm=recording_llm,
+        )
+        assert response.status_code == 200
+        self._assert_no_injection(recording_llm)
+
+    def test_flag_off_refinement_message_committed_stops_empty_no_injection(
+        self, monkeypatch, mocker
+    ) -> None:
+        """Cell 6: flag OFF, regex MATCH, committed_stops EMPTY → no inject."""
+        monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
+        recording_llm = self._make_recording_llm()
+        response = self._post_chat(
+            mocker=mocker,
+            monkeypatch=monkeypatch,
+            message="make stop 2 cheaper",
+            conversation_state=None,
+            recording_llm=recording_llm,
+        )
+        assert response.status_code == 200
+        self._assert_no_injection(recording_llm)
+
+    def test_flag_on_non_refinement_message_committed_stops_empty_no_injection(
+        self, monkeypatch, mocker
+    ) -> None:
+        """Cell 7: flag ON, regex NO-MATCH, committed_stops EMPTY → no inject."""
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        recording_llm = self._make_recording_llm()
+        response = self._post_chat(
+            mocker=mocker,
+            monkeypatch=monkeypatch,
+            message="Plan a date night",
+            conversation_state=None,
+            recording_llm=recording_llm,
+        )
+        assert response.status_code == 200
+        self._assert_no_injection(recording_llm)
+
+    def test_flag_off_non_refinement_message_committed_stops_empty_no_injection(
+        self, monkeypatch, mocker
+    ) -> None:
+        """Cell 8 (turn-1 dominant case): flag OFF, regex NO-MATCH,
+        committed_stops EMPTY → no inject."""
+        monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
+        recording_llm = self._make_recording_llm()
+        response = self._post_chat(
+            mocker=mocker,
+            monkeypatch=monkeypatch,
+            message="Plan a date night",
+            conversation_state=None,
+            recording_llm=recording_llm,
+        )
+        assert response.status_code == 200
+        self._assert_no_injection(recording_llm)
+
+    # ─── Residual-2 fix — malformed conversation_state degrades, not 422 ──
+
+    def test_chat_with_malformed_committed_stops_degrades_gracefully(
+        self, monkeypatch, mocker
+    ) -> None:
+        """Per plan 06-05 Residual-2 fix language: when `conversation_state`
+        decodes through the field-level Pydantic validator and one of the
+        nested Stop entries fails the plan-06-01 Task-3 `place_id` format
+        validator, `app/main.py:660-666` catches `ValidationError` and
+        degrades to an empty ConversationState. Because the three-way
+        injection guard short-circuits on empty `committed_stops`, the
+        structured-plan helper is never built — even though the flag is
+        ON and the message matches the refinement regex.
+
+        Asserts:
+          (1) HTTP 200 (NOT 422 — the handler caught ValidationError),
+          (2) NO message the LLM saw contains `current_plan` (guard short-
+              circuited on empty committed_stops after degrade),
+          (3) the response body has a non-empty `reply` string (the agent
+              ran to completion).
+        """
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        recording_llm = self._make_recording_llm()
+        malformed_payload = {
+            "schema_version": 1,
+            "closure_context": [],
+            "prior_stops": [],
+            # "INVALID short" contains a space → fails the plan-06-01 Task-3
+            # `place_id` format validator (`^[A-Za-z0-9_-]{20,255}$`).
+            "committed_stops": [
+                {
+                    "place_id": "INVALID short",
+                    "name": "x",
+                    "rationale": "r",
+                    "source": "google_places",
+                }
+            ],
+        }
+        response = self._post_chat(
+            mocker=mocker,
+            monkeypatch=monkeypatch,
+            message="make stop 2 cheaper",
+            conversation_state=malformed_payload,
+            recording_llm=recording_llm,
+        )
+        # (1) HTTP 200, not 422.
+        assert response.status_code == 200, (
+            f"expected 200 degrade-to-empty, got {response.status_code}: {response.text}"
+        )
+        # (2) Guard short-circuited (empty committed_stops after degrade)
+        #     → no `current_plan` anywhere.
+        self._assert_no_injection(recording_llm)
+        # (3) The reply is a non-empty string (agent ran to completion).
+        body = response.json()
+        assert isinstance(body.get("reply"), str)
+        assert body["reply"], "expected a non-empty reply"
