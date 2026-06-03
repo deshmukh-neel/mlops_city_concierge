@@ -19,9 +19,13 @@ eval_reports/
 # Committed eval baselines (Plan 03-07 / EVAL-07). The blanket `*.json`
 # rule above would catch these too, so explicitly re-include them. Plan
 # 03-07 commits the per-scenario baseline JSONs that Phase 4-6 merge gates
-# diff against.
+# diff against. Phase 6 plan 06-07 added a `_snapshots/` subdirectory for
+# pre-regen baseline snapshots (reference-only; see _snapshots/README.md)
+# — also re-included so the snapshots can be committed to the repo.
 !configs/eval_baselines/
 !configs/eval_baselines/*.json
+!configs/eval_baselines/_snapshots/
+!configs/eval_baselines/_snapshots/*.json
 
 # Distribution / packaging
 .Python
