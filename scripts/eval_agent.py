@@ -6,10 +6,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import math
 import os
 import sys
 import time
+import types
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -31,7 +33,8 @@ from app.agent.critique.checks import (
     walking_budget_respected,
 )
 from app.agent.graph import build_agent_graph
-from app.agent.state import ItineraryState, UserConstraints
+from app.agent.io import build_refinement_prompt_message, messages_from_history
+from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.config import get_settings
 from app.eval.config import (
     DEFAULT_EVAL_QUERIES_PATH,
@@ -39,6 +42,8 @@ from app.eval.config import (
     ExpectedResults,
     load_eval_queries,
 )
+
+_log = logging.getLogger(__name__)
 
 LlmProvider = Literal["openai", "gemini", "deepseek", "kimi", "scripted"]
 CheckFunction = Callable[[ItineraryState], float]
@@ -559,21 +564,47 @@ async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
 async def evaluate_multi_turn_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
     """Drive a multi-turn eval case against a shared agent graph (EVAL-06).
 
-    Turn 1 = ``case.query``; each entry in ``case.turns`` is fed back to the
-    same graph instance with the prior turn's message history threaded in,
-    mirroring how the frontend round-trips ``conversation_state`` via the
-    opaque ``/chat`` payload. The final reported QueryEvalResult is built
-    from the LAST turn's state (where every confirmed v2.0 refinement bug
-    surfaces — turn 2+, not turn 1) and ``latency_seconds`` is the SUM of
-    per-turn latencies.
+    Branches on ``case.threading_mode`` (added in plan 06-04 / D-06-05):
+      - ``legacy`` (default): the pre-Phase-6 turn loop — byte-identical to
+        the existing behavior. Preserves Phase 3/4 baselines for every
+        non-Phase-6 multi-turn case.
+      - ``prod``: rebuilds messages per turn using ``messages_from_history``
+        + the SHARED ``build_refinement_prompt_message`` helper from plan
+        06-05, mirroring the production ``/chat`` injection EXACTLY so the
+        merge gate measures parity with prod, not eval-only drift.
 
-    Fail-open semantics mirror ``evaluate_cases``: if any turn raises, the
-    helper records a synthetic ``multi_turn_runner`` entry in
-    ``state.scratch`` (surfaced via :func:`tool_errors_from_state`) and
+    Per D-06-06: only the ``refinement_cheaper`` scenario flips to
+    ``threading_mode='prod'`` in plan 06-07. ``late_night_closure_cascade``
+    stays ``legacy`` per ``project_eval_multi_turn_threading_bug``.
+
+    Turn 1 = ``case.query``; each entry in ``case.turns`` is fed back to the
+    same graph instance. The final reported QueryEvalResult is built from
+    the LAST turn's state and ``latency_seconds`` is the SUM of per-turn
+    latencies.
+
+    Fail-open semantics mirror ``evaluate_cases`` in BOTH branches: if any
+    turn raises, the helper records a synthetic ``multi_turn_runner`` entry
+    in ``state.scratch`` (surfaced via :func:`tool_errors_from_state`) and
     returns the partial QueryEvalResult instead of crashing the whole run.
-    The first failing turn's prior state is what gets reported.
     """
+    if case.threading_mode == "prod":
+        result, _state = await _run_prod_threading(graph, case)
+        return result
     eval_context = _eval_context_for(case)
+    return await _run_legacy_threading(graph, case, eval_context)
+
+
+async def _run_legacy_threading(
+    graph: Any,
+    case: EvalQuery,
+    eval_context: str,
+) -> QueryEvalResult:
+    """Pre-Phase-6 legacy turn loop — byte-identical to the prior shape.
+
+    Injects ``SystemMessage(eval_context)`` on every turn per the WR-06
+    contract. The N-1 fix from plan 06-06 does NOT apply to this branch;
+    only the prod branch drops the eval-context SystemMessage.
+    """
     all_turns: list[str] = [case.query, *(case.turns or [])]
     state: ItineraryState | None = None
     total_latency = 0.0
@@ -642,6 +673,202 @@ async def evaluate_multi_turn_case(graph: Any, case: EvalQuery) -> QueryEvalResu
         state = state_from_graph_output(raw)
     assert state is not None
     return query_result_from_state(case, state, latency_seconds=total_latency)
+
+
+# fmt: off
+async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalResult, ItineraryState]:  # noqa: E501
+    # fmt: on
+    """Phase 6 plan 06-06 — prod-threading branch.
+
+    Mirrors the production ``/chat`` invocation shape EXACTLY so the merge
+    gate (``refinement_minimal_edit``) measures byte-identical behavior
+    between production and eval. Key invariants:
+
+    - **N-1 fix**: does NOT inject ``SystemMessage(eval_context)``. The
+      ``graph.plan()`` node prepends ``SYSTEM_PROMPT`` naturally on first
+      invocation per ``app/agent/graph.py:264`` when no ``SystemMessage``
+      is present, matching ``/chat``.
+    - **N-2 fix**: ALWAYS sets ``state.scratch['refinement_context'] = True``
+      after turn 0, regardless of whether turn 0 commits any stops. This
+      lets plan 06-03 Branch 2 fail-loud surface the false-pass path.
+    - **HIGH-3 + Caveat #5**: turn N+1 ordering matches ``/chat``:
+      ``[*messages_from_history(synthesized), build_refinement_prompt_message(prior), HumanMessage(turn_text)]``.
+      The structured plan sits IMMEDIATELY before the user's turn-2 message.
+    - **NEW HIGH-B**: ``REFINEMENT_STRUCTURED_PLAN_ENABLED`` env var is
+      read INSIDE this function per OVR-05 / D-06-10 so a per-cell matrix
+      override flips behavior on the next request. Injection is gated on
+      the flag; scratch keys are written unconditionally so 06-03's regime
+      detection still works when the flag is off.
+    - **NEW HIGH-C**: helper call is gated on ``if prior_committed_stops:``
+      so an empty turn-0 commit does NOT crash via the helper's strict
+      raise-on-empty contract. Scratch keys still written.
+    - **Caveat #6 (re-stamp)**: ``prior_scratch`` carrying all THREE keys
+      (``refinement_context``, ``prior_committed_stops``,
+      ``refinement_target_slot``) is re-applied after every fresh
+      ``state_from_graph_output(raw)`` reset.
+    - **MEDIUM (history shape)**: synthesized history includes BOTH the
+      prior turn's user text AND the prior turn's assistant text (via
+      ``state.final_reply``), paired as user/assistant entries — matches
+      ``/chat``'s ``req.history`` shape, not just assistant-only.
+    - **INFO-1**: uses ``types.SimpleNamespace`` to feed
+      ``messages_from_history`` rather than importing ``app.main.ChatMessage``
+      (forbidden cross-layer import).
+
+    Returns BOTH the public ``QueryEvalResult`` AND the FINAL
+    ``ItineraryState`` so unit tests can inspect ``state.scratch`` directly.
+    The public ``evaluate_multi_turn_case`` discards the state.
+    """
+    if case.expected_refinement is None:
+        raise ValueError(
+            f"threading_mode='prod' on case {case.id} requires expected_refinement.target_slot"
+        )
+
+    all_turns: list[str] = [case.query, *(case.turns or [])]
+    state: ItineraryState | None = None
+    total_latency = 0.0
+    # prior_scratch carries the THREE Phase-6 scratch keys across the
+    # state_from_graph_output(raw) reset that happens after every turn.
+    prior_scratch: dict[str, Any] = {}
+    # Synthesized text history fed to messages_from_history for turn N >= 1.
+    # Each entry is a SimpleNamespace with .role and .content — the duck
+    # type required by `app.agent.io.messages_from_history`.
+    synthesized_history: list[Any] = []
+
+    for index, turn_text in enumerate(all_turns):
+        if index == 0:
+            # N-1 fix: NO SystemMessage(eval_context). graph.plan() will
+            # prepend SYSTEM_PROMPT naturally on the first invocation.
+            messages_in: list[Any] = [HumanMessage(content=turn_text)]
+        else:
+            # NEW HIGH-B: env var read INSIDE the function per OVR-05.
+            # The default ("") matches the /chat injection guard exactly
+            # (see app/main.py:753) so flag-off behavior is identical
+            # between /chat and prod-mode eval.
+            flag_raw = os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED", "")
+            flag_enabled = flag_raw.strip().lower() in {"1", "true", "yes", "on"}
+
+            prior_committed_stops = prior_scratch.get("prior_committed_stops", [])
+
+            # NEW HIGH-C: gate helper call on `flag_enabled AND prior non-empty`.
+            # Helper retains its strict raise-on-empty contract; the call site
+            # protects against the empty-prior path here so the prod branch
+            # runs to completion and 06-03 Branch 2 returns 0.0 on the final
+            # state.
+            refinement_messages: list[HumanMessage] = []
+            if flag_enabled and prior_committed_stops:
+                # Reconstruct Stop instances from prior_scratch's dict shape
+                # so the helper sees the same Pydantic types /chat passes.
+                prior_stops_models: list[Stop] = []
+                # prior_scratch stores {slot, place_id} dicts; we need full
+                # Stop instances. We carry the original Stop objects via a
+                # separate `prior_stops_obj` key written at turn 0.
+                for s in prior_scratch.get("prior_stops_obj", []):
+                    prior_stops_models.append(s)
+                if prior_stops_models:
+                    refinement_messages.append(build_refinement_prompt_message(prior_stops_models))
+
+            messages_in = [
+                *messages_from_history(synthesized_history),
+                *refinement_messages,
+                HumanMessage(content=turn_text),
+            ]
+
+        start_time = time.monotonic()
+        try:
+            raw = await graph.ainvoke(
+                ItineraryState(
+                    messages=messages_in,
+                    constraints=_constraints_for_case(case),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            total_latency += time.monotonic() - start_time
+            partial_state = (
+                state.model_copy(deep=True)
+                if state is not None
+                else ItineraryState(
+                    messages=messages_in,
+                    constraints=_constraints_for_case(case),
+                )
+            )
+            # Re-stamp scratch on the partial state too — the scorer reads
+            # the partial state for the failed-run report.
+            partial_state.scratch.update(prior_scratch)
+            partial_state.scratch.setdefault("multi_turn_runner", []).append(
+                {
+                    "args": {"turn_index": index, "turn": turn_text},
+                    "result": {"error": f"turn {index} raised: {exc}"},
+                    "step": index,
+                    "id": f"multi_turn_runner_{index}",
+                }
+            )
+            return (
+                query_result_from_state(case, partial_state, latency_seconds=total_latency),
+                partial_state,
+            )
+        total_latency += time.monotonic() - start_time
+        state = state_from_graph_output(raw)
+
+        # Caveat #6 re-stamp pattern: re-apply the prior scratch keys to the
+        # FRESH state returned by the graph (graph reset scratch on its way
+        # back). Without this, the final-turn state would lose refinement_context.
+        if prior_scratch:
+            state.scratch.update(prior_scratch)
+
+        # After turn 0 we capture the THREE Phase-6 scratch keys.
+        if index == 0:
+            target_slot = case.expected_refinement.target_slot
+            if state.stops:
+                # Happy path — turn 0 committed.
+                prior_scratch = {
+                    "refinement_context": True,
+                    "refinement_target_slot": target_slot,
+                    "prior_committed_stops": [
+                        {"slot": i + 1, "place_id": s.place_id} for i, s in enumerate(state.stops)
+                    ],
+                    # Carry the full Stop objects in a separate key so the
+                    # helper (which needs full Stop instances) can be called
+                    # without reconstructing them from the dict shape. This
+                    # key is internal to _run_prod_threading and is never
+                    # surfaced to the scorer (which only reads the three
+                    # documented keys).
+                    "prior_stops_obj": list(state.stops),
+                }
+            else:
+                # N-2 fix empty-commit branch: still set refinement_context=True
+                # so 06-03's Branch 2 returns 0.0 (fail-loud) rather than 1.0
+                # (silent abstain).
+                _log.warning(
+                    "threading_mode=prod turn 0 produced no committed_stops; "
+                    "refinement_minimal_edit will score 0.0 via Branch 2 "
+                    "fail-loud (refinement_context=True + empty prior). "
+                    "Inspect baseline for false-negative diagnosis."
+                )
+                prior_scratch = {
+                    "refinement_context": True,
+                    "refinement_target_slot": target_slot,
+                    "prior_committed_stops": [],
+                    "prior_stops_obj": [],
+                }
+            # Re-stamp on the current (turn-0 final) state too. Even though
+            # turn-0 doesn't *need* it for the scorer (scorer reads the
+            # final state), this keeps the invariant uniform across turns.
+            state.scratch.update(prior_scratch)
+
+        # MEDIUM (history shape): synthesize BOTH the user and assistant
+        # turn for the next turn's messages_from_history call. This matches
+        # /chat's req.history shape (user/assistant pairs) and ensures the
+        # full-sequence parity test holds.
+        synthesized_history.append(types.SimpleNamespace(role="user", content=turn_text))
+        synthesized_history.append(
+            types.SimpleNamespace(role="assistant", content=state.final_reply or "")
+        )
+
+    assert state is not None
+    return (
+        query_result_from_state(case, state, latency_seconds=total_latency),
+        state,
+    )
 
 
 async def evaluate_cases(
