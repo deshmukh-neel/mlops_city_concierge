@@ -566,3 +566,215 @@ def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mock
         "Cocktail Bar",
         "Dessert Shop",
     ]
+
+
+# ─── Phase 6 / 06-01 — ConversationState.committed_stops round-trip ───
+#
+# Per D-06-01 / D-06-02: ConversationState carries `committed_stops: list[Stop]`
+# defaulted to [], and `_build_outbound_state` stamps it from the post-graph
+# stops list. The frontend treats `conversation_state` as opaque, so this
+# field's only job is to round-trip the prior turn's committed plan into the
+# next /chat call (so the refinement injection block in plan 06-05 has
+# structured ground truth, and the eval runner in 06-06 has something to
+# thread).
+
+
+class TestConversationStateCommittedStopsRoundTrip:
+    """Functional proof that `committed_stops` survives the /chat round-trip.
+
+    Per memory `project_full_suite_db_pool_contamination.md`, every test in
+    this class stubs `app.agent.revision.itinerary_violations` so no live DB
+    pool is activated during full-suite collection. Every `Stop` fixture
+    uses a Google-Place-ID-conforming `place_id` (>= 20 chars, alphanumeric
+    + underscore + dash) so it passes the Task-3 model-boundary validator.
+    """
+
+    def test_committed_stops_stamped_on_outbound_response(self, monkeypatch, mocker) -> None:
+        """The /chat response's conversation_state.committed_stops is non-empty
+        and mirrors the committed plan (place_id-equal to the response.places)."""
+        monkeypatch.setattr(
+            "app.agent.tools._semantic_search",
+            lambda **_kw: [
+                PlaceHit(
+                    place_id="ChIJtest_round_trip_aaaaaaaa",
+                    name="Trick Dog",
+                    source="google_places",
+                    similarity=0.9,
+                    latitude=37.77,
+                    longitude=-122.41,
+                    rating=4.6,
+                    price_level="PRICE_LEVEL_MODERATE",
+                    business_status="OPERATIONAL",
+                    primary_type="cocktail_bar",
+                    formatted_address="3010 20th St, San Francisco",
+                    snippet=None,
+                )
+            ],
+        )
+
+        scripted = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "s1",
+                        "args": {"query": "cocktail bar"},
+                    }
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "commit_itinerary",
+                        "id": "c1",
+                        "args": {
+                            "stops": [
+                                {
+                                    "place_id": "ChIJtest_round_trip_aaaaaaaa",
+                                    "name": "Trick Dog",
+                                    "rationale": "iconic SF cocktail bar",
+                                    "source": "google_places",
+                                    "primary_type": "cocktail_bar",
+                                }
+                            ]
+                        },
+                    }
+                ],
+            ),
+            AIMessage(content="Try Trick Dog.", tool_calls=[]),
+        ]
+        real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=4)
+
+        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.build_agent_graph", return_value=real_graph)
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+
+        with TestClient(app) as client:
+            response = client.post("/chat", json={"message": "cocktail bar in SF"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["conversation_state"] is not None
+        committed = body["conversation_state"]["committed_stops"]
+        assert isinstance(committed, list)
+        assert len(committed) == 1
+        assert committed[0]["place_id"] == "ChIJtest_round_trip_aaaaaaaa"
+        # place_id-equal to the response.places (same source of truth).
+        assert [c["place_id"] for c in committed] == [p["place_id"] for p in body["places"]]
+
+    def test_committed_stops_round_trips_through_model_validate(self, monkeypatch, mocker) -> None:
+        """The outbound conversation_state dict can be fed back as the next
+        ChatRequest body and ConversationState.model_validate decodes
+        committed_stops element-by-element (place_id-equal)."""
+        from app.main import ChatRequest, ConversationState
+
+        monkeypatch.setattr(
+            "app.agent.tools._semantic_search",
+            lambda **_kw: [
+                PlaceHit(
+                    place_id="ChIJtest_round_trip_aaaaaaaa",
+                    name="Trick Dog",
+                    source="google_places",
+                    similarity=0.9,
+                    latitude=37.77,
+                    longitude=-122.41,
+                    rating=4.6,
+                    price_level="PRICE_LEVEL_MODERATE",
+                    business_status="OPERATIONAL",
+                    primary_type="cocktail_bar",
+                    formatted_address="3010 20th St, San Francisco",
+                    snippet=None,
+                )
+            ],
+        )
+
+        scripted = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "s1",
+                        "args": {"query": "cocktail bar"},
+                    }
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "commit_itinerary",
+                        "id": "c1",
+                        "args": {
+                            "stops": [
+                                {
+                                    "place_id": "ChIJtest_round_trip_aaaaaaaa",
+                                    "name": "Trick Dog",
+                                    "rationale": "iconic SF cocktail bar",
+                                    "source": "google_places",
+                                    "primary_type": "cocktail_bar",
+                                }
+                            ]
+                        },
+                    }
+                ],
+            ),
+            AIMessage(content="Try Trick Dog.", tool_calls=[]),
+        ]
+        real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=4)
+
+        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.build_agent_graph", return_value=real_graph)
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+
+        with TestClient(app) as client:
+            response = client.post("/chat", json={"message": "cocktail bar in SF"})
+
+        assert response.status_code == 200
+        outbound = response.json()["conversation_state"]
+
+        # Simulate the frontend echoing conversation_state on the next /chat call.
+        req = ChatRequest(message="next turn", conversation_state=outbound)
+        assert req.conversation_state is not None
+        decoded = ConversationState.model_validate(req.conversation_state)
+        outbound_committed = outbound["committed_stops"]
+        assert len(decoded.committed_stops) == len(outbound_committed)
+        for incoming, sent in zip(decoded.committed_stops, outbound_committed, strict=True):
+            assert incoming.place_id == sent["place_id"]
+
+    def test_legacy_conversation_state_payload_without_committed_stops_still_decodes(
+        self, monkeypatch, mocker
+    ) -> None:
+        """A legacy payload that omits `committed_stops` (pre-Phase-6 client)
+        still decodes via Pydantic's default_factory=list — no 422, and the
+        decoded ConversationState.committed_stops is []."""
+        from app.main import ConversationState
+
+        monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+        scripted = [
+            AIMessage(content="No matches.", tool_calls=[]),
+        ]
+        real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=2)
+
+        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.build_agent_graph", return_value=real_graph)
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+
+        legacy_payload = {
+            "schema_version": 1,
+            "closure_context": [],
+            "prior_stops": [],
+        }
+        with TestClient(app) as client:
+            response = client.post(
+                "/chat",
+                json={"message": "anything", "conversation_state": legacy_payload},
+            )
+
+        # The handler accepts the legacy payload (no 422).
+        assert response.status_code == 200
+        # Pydantic decoded the legacy payload with committed_stops defaulted to [].
+        decoded = ConversationState.model_validate(legacy_payload)
+        assert decoded.committed_stops == []
