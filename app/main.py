@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,9 +23,10 @@ from .agent.input_parsing import (
     SlotExtractionResult,
     explicit_num_stops_from_conversation,
     has_slot_structure,
+    is_refinement_request,
     parse_closure_decision,
 )
-from .agent.io import messages_from_history, state_to_cards
+from .agent.io import build_refinement_prompt_message, messages_from_history, state_to_cards
 from .agent.revision import summarize_stops
 from .agent.state import ClosureContext, ItineraryState, Stop, UserConstraints
 from .agent.swap import (
@@ -733,10 +735,46 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
                     )
                     extracted_types = []
 
+        # Phase 6 / plan 06-05 — refinement structured-plan injection.
+        # Three-way guard (D-06-01 + D-06-10 + MEDIUM target_slot-bounds):
+        #   (a) deterministic regex pre-check matches (hybrid pattern S2),
+        #   (b) target_slot is in 1..len(committed_stops) — defense-in-depth
+        #       against a regex false-positive ("make stop 99 cheaper") when
+        #       the prior plan only has 3 stops; injecting a structured plan
+        #       whose target slot does not exist would produce unpredictable
+        #       behavior,
+        #   (c) `incoming.committed_stops` non-empty (turn 1 has nothing to
+        #       preserve),
+        #   (d) `REFINEMENT_STRUCTURED_PLAN_ENABLED` env var is truthy.
+        # Env var is read INSIDE chat() per OVR-05 so tests can flip behavior
+        # via monkeypatch.setenv without restarting the app.
+        refinement_messages: list[HumanMessage] = []
+        matched, target_slot = is_refinement_request(req.message)
+        flag_enabled = os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if (
+            matched
+            and target_slot is not None
+            and 1 <= target_slot <= len(incoming.committed_stops)
+            and incoming.committed_stops
+            and flag_enabled
+        ):
+            refinement_messages.append(build_refinement_prompt_message(incoming.committed_stops))
+            logger.info(
+                "phase6.refinement.structured_plan.prepended target_slot=%s committed_stops=%d",
+                target_slot,
+                len(incoming.committed_stops),
+            )
+
         state = ItineraryState(
             messages=[
                 *messages_from_history(req.history),
                 *hint_messages,
+                *refinement_messages,
                 HumanMessage(content=req.message),
             ],
             constraints=UserConstraints(
