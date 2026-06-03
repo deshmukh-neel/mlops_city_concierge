@@ -26,6 +26,7 @@ from app.agent.critique.checks import (
     geographic_coherence,
     no_hallucinated_place_ids,
     rationale_stop_alignment,
+    refinement_minimal_edit,
     temporal_coherence,
     walking_budget_respected,
 )
@@ -49,6 +50,7 @@ DETERMINISTIC_CHECKS: dict[str, CheckFunction] = {
     "geographic_coherence": geographic_coherence,
     "no_hallucinated_place_ids": no_hallucinated_place_ids,
     "rationale_stop_alignment": rationale_stop_alignment,
+    "refinement_minimal_edit": refinement_minimal_edit,
     "temporal_coherence": temporal_coherence,
     "walking_budget_respected": walking_budget_respected,
 }

@@ -24,6 +24,7 @@ from app.agent.critique.checks import (
     itinerary_violations,
     no_hallucinated_place_ids,
     rationale_stop_alignment,
+    refinement_minimal_edit,
     stop_count_satisfied,
     temporal_coherence,
     walking_budget_respected,
@@ -974,3 +975,383 @@ def test_thresholds_are_strict_enough() -> None:
     assert CRITIQUE_THRESHOLDS["rationale_stop_alignment"] == 1.0
     # Constraint satisfaction has wiggle room — not every constraint is hard.
     assert CRITIQUE_THRESHOLDS["constraints_satisfied"] == 0.8
+
+
+# --- refinement_minimal_edit smoke (Task 1 driver; full class in Task 2) -----
+
+
+def test_refinement_minimal_edit_smoke_threshold_registered() -> None:
+    """Task 1 RED: CRITIQUE_THRESHOLDS must include the new strict scorer key."""
+    assert "refinement_minimal_edit" in CRITIQUE_THRESHOLDS
+    assert CRITIQUE_THRESHOLDS["refinement_minimal_edit"] == 1.0
+
+
+def test_refinement_minimal_edit_smoke_callable_returns_float() -> None:
+    """Task 1 RED: the scorer must be importable, callable on an empty state,
+    and return a float in [0.0, 1.0]. Empty state has no refinement_context →
+    Branch 1 abstain → 1.0."""
+    score = refinement_minimal_edit(ItineraryState())
+    assert isinstance(score, float)
+    assert 0.0 <= score <= 1.0
+    assert score == 1.0
+
+
+# --- refinement_minimal_edit full coverage (Task 2) -------------------------
+# Per 06-REVIEWS.md § Pass 2 N-3, every branch in the five-branch precedence
+# has its own dedicated test method so a regression localizes to one branch
+# in CI output. Test fixtures use >= 20-char place_ids per the HIGH-4
+# residual fix from plan 06-01 Task 3 (defensive against future regex
+# validation on Stop.place_id).
+
+
+_PID_LEN20_A = "ChIJtest_fixture_a_aaaaa"  # 24 chars, satisfies ^[A-Za-z0-9_-]{20,255}$
+_PID_LEN20_B = "ChIJtest_fixture_b_bbbbb"
+_PID_LEN20_C = "ChIJtest_fixture_c_ccccc"
+_PID_LEN20_D = "ChIJtest_fixture_d_ddddd"
+_PID_LEN20_E = "ChIJtest_fixture_e_eeeee"
+_PID_LEN20_NEW2 = "ChIJtest_new_slot2_xxxxx"
+_PID_LEN20_NEW4 = "ChIJtest_new_slot4_yyyyy"
+_PID_LEN20_LONE = "ChIJlone_valid_id_aaaa"
+
+
+def _refinement_stop(place_id: str) -> Stop:
+    """Build a Stop fixture suitable for the refinement_minimal_edit scorer.
+
+    Only `place_id` matters for the scorer's byte-equal comparison. Required
+    fields (name, source, rationale) get minimal values; the scorer never
+    touches them.
+    """
+    return Stop(
+        place_id=place_id,
+        name=place_id[-5:].upper(),
+        source="google_places",
+        rationale="",
+    )
+
+
+class TestRefinementMinimalEdit:
+    """Coverage for refinement_minimal_edit (D-06-08, D-06-09).
+
+    Every branch of the N-3 five-branch precedence has its own test method.
+    HIGH-2 regression guards live alongside the branch-5 happy-path test
+    (drop and insert variants). HIGH-1 cross-table registration check lives
+    in tests/unit/test_eval_agent.py:TestDeterministicChecksRegistration.
+
+    DB-pool-contamination guard (per project_full_suite_db_pool_contamination.md):
+    every test patches `app.agent.critique.checks.itinerary_violations`'s
+    DB-touching scorers so the full suite (`make test`) cannot leak a live
+    DB pool from this class.
+    """
+
+    # --- Branch 1: abstain (refinement_context absent or False) -------------
+
+    def test_branch_1_no_refinement_context_returns_1_0_abstain(self) -> None:
+        """Empty scratch → no refinement_context key → Branch 1 abstain → 1.0."""
+        state = ItineraryState()
+        assert refinement_minimal_edit(state) == 1.0
+
+    def test_branch_1_refinement_context_explicit_false_returns_1_0_abstain(
+        self,
+    ) -> None:
+        """Explicit False is equivalent to absent for Branch 1 abstain."""
+        state = ItineraryState()
+        state.scratch = {
+            "refinement_context": False,
+            "prior_committed_stops": [{"slot": 1, "place_id": _PID_LEN20_A}],
+            "refinement_target_slot": 2,
+        }
+        assert refinement_minimal_edit(state) == 1.0
+
+    # --- Branch 2: refinement context but prior missing/empty → fail-loud ---
+
+    def test_branch_2_refinement_context_true_empty_prior_returns_0_0_fail_loud(
+        self,
+    ) -> None:
+        """N-2 fix regression guard: turn 0 was supposed to commit but didn't.
+
+        The runner sets refinement_context=True regardless of turn-0 commit
+        outcome, so the scorer must signal the failure as 0.0 rather than
+        silently abstain at 1.0.
+        """
+        state = ItineraryState()
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [],
+        }
+        assert refinement_minimal_edit(state) == 0.0
+
+    def test_branch_2_refinement_context_true_missing_target_slot_returns_0_0(
+        self,
+    ) -> None:
+        """target_slot is required when refinement_context is True."""
+        state = ItineraryState()
+        state.scratch = {
+            "refinement_context": True,
+            "prior_committed_stops": [{"slot": 1, "place_id": _PID_LEN20_A}],
+        }
+        assert refinement_minimal_edit(state) == 0.0
+
+    def test_branch_2_refinement_context_true_none_prior_returns_0_0(self) -> None:
+        """prior_committed_stops explicitly None → Branch 2 fail-loud."""
+        state = ItineraryState()
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": None,
+        }
+        assert refinement_minimal_edit(state) == 0.0
+
+    # --- Branch 3: refinement context + malformed prior → fail-loud ---------
+
+    def test_branch_3_refinement_context_true_all_malformed_prior_returns_0_0_fail_loud(
+        self,
+    ) -> None:
+        """Every entry malformed (missing slot/place_id or empty place_id)
+        collapses prior_by_slot to {} → Branch 3 fail-loud → 0.0.
+
+        Eval-runner contract violation: surface it, don't hide it.
+        """
+        state = ItineraryState()
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1},  # missing place_id
+                {"place_id": _PID_LEN20_A},  # missing slot
+                {},  # empty
+                {"slot": 2, "place_id": ""},  # empty place_id
+            ],
+        }
+        assert refinement_minimal_edit(state) == 0.0
+
+    # --- Branch 4: legitimate zero-denom (lone-stop-target) -----------------
+
+    def test_branch_4_single_stop_target_lone_stop_returns_1_0(self) -> None:
+        """When the lone prior stop IS the target, prior_non_target_slots is
+        empty → Branch 4 legitimate zero-denom → 1.0 (no ZeroDivisionError).
+
+        Nothing to preserve — the user asked to change the only stop.
+        """
+        state = ItineraryState(
+            stops=[_refinement_stop(_PID_LEN20_NEW2)],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 1,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_LONE},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 1.0
+
+    # --- Branch 5: normal — matches / len(prior_non_target_slots) ----------
+
+    def test_branch_5_all_non_target_stops_preserved_returns_1_0(self) -> None:
+        """Happy path: prior 3 slots, target=2, slots 1+3 byte-equal in
+        current → 2/2 → 1.0."""
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),  # slot 1 — preserved
+                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 — changed (target)
+                _refinement_stop(_PID_LEN20_C),  # slot 3 — preserved
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 1.0
+
+    def test_branch_5_dropped_non_target_slot_scores_below_1_0(self) -> None:
+        """HIGH-2 regression guard: denominator iterates PRIOR non-target
+        slots, NOT current non-target slots.
+
+        Prior 3 stops (slots 1, 2, 3), target_slot=2. Current has only 2
+        stops: slot 1 preserved byte-equal, slot 2 changed; slot 3 is
+        DROPPED ENTIRELY (not present in current at all).
+
+        Pre-HIGH-2 bug: denom=current_non_target=1 → 1/1=1.0 (silent pass).
+        Post-fix: denom=prior_non_target=2 → 1/2=0.5 (correctly fails).
+        """
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),  # slot 1 preserved
+                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 changed (target)
+                # slot 3 entirely dropped from current
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 0.5
+
+    def test_branch_5_inserted_non_target_slot_does_not_help_score(self) -> None:
+        """HIGH-2 regression guard: insertions are neutral.
+
+        Prior 3 slots (1, 2, 3), target=2. Current has 4 stops: slots 1+3
+        preserved byte-equal, slot 2 changed, NEW slot 4 added. Denominator
+        still iterates PRIOR slots only → 2/2 → 1.0. An inserted slot
+        cannot pad the denominator to hide a drop.
+        """
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),  # slot 1 preserved
+                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 changed (target)
+                _refinement_stop(_PID_LEN20_C),  # slot 3 preserved
+                _refinement_stop(_PID_LEN20_NEW4),  # slot 4 NEW (inserted)
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 1.0
+
+    def test_branch_5_one_of_two_non_target_stops_changed_returns_0_5(self) -> None:
+        """Branch 5 partial: prior 3 slots, target=2, slot 1 CHANGED (not
+        preserved), slot 3 preserved → 1/2 → 0.5."""
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_D),  # slot 1 changed (not preserved)
+                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 changed (target)
+                _refinement_stop(_PID_LEN20_C),  # slot 3 preserved
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 0.5
+
+    def test_branch_5_all_non_target_stops_changed_returns_0_0(self) -> None:
+        """Branch 5 worst case: prior 3 slots, target=2, both slots 1 and 3
+        CHANGED → 0/2 → 0.0 (every non-target stop lost)."""
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_D),  # slot 1 changed
+                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 changed (target)
+                _refinement_stop(_PID_LEN20_E),  # slot 3 changed
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 0.0
+
+    # --- Registration + isolation guards ------------------------------------
+
+    def test_registered_in_thresholds(self) -> None:
+        """CRITIQUE_THRESHOLDS must carry the strict 1.0 threshold (D-06-09)."""
+        assert "refinement_minimal_edit" in CRITIQUE_THRESHOLDS
+        assert CRITIQUE_THRESHOLDS["refinement_minimal_edit"] == 1.0
+
+    def test_registered_in_itinerary_violations_when_refinement_context_present(
+        self, mocker
+    ) -> None:
+        """Mid-refinement: a scorer that returns < 1.0 (Branch 5 partial)
+        must surface in `itinerary_violations(state)`.
+
+        Mocks the DB-touching scorers so the full suite never sees a live
+        connection from this class.
+        """
+        # DB-pool contamination guard: stub every scorer that touches the DB.
+        mocker.patch("app.agent.critique.checks.no_hallucinated_place_ids", return_value=1.0)
+        mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=1.0)
+        mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=1.0)
+
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_D),  # slot 1 changed (drops score)
+                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 target
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B},
+            ],
+        }
+        violations = itinerary_violations(state)
+        assert "refinement_minimal_edit" in violations
+
+    def test_not_in_itinerary_violations_when_no_refinement_context(self, mocker) -> None:
+        """Ad-hoc revision-loop invocation: no refinement_context in scratch.
+
+        Branch 1 abstain must return 1.0 so itinerary_violations does NOT
+        produce a spurious refinement violation on every revision turn.
+        Without this guard, the new scorer would break the revision loop's
+        existing fail-open behavior.
+        """
+        # DB-pool contamination guard.
+        mocker.patch("app.agent.critique.checks.no_hallucinated_place_ids", return_value=1.0)
+        mocker.patch("app.agent.critique.checks.temporal_coherence", return_value=1.0)
+        mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=1.0)
+
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),
+                _refinement_stop(_PID_LEN20_B),
+            ],
+        )
+        # No refinement_context in scratch — this is the ad-hoc case.
+        violations = itinerary_violations(state)
+        assert "refinement_minimal_edit" not in violations
+
+    def test_pure_function_no_db_access(self, mocker) -> None:
+        """Pure-state scorer guard: `get_conn` must NEVER be called.
+
+        Mirrors test_category_compliance_pure_function_no_db_access. If the
+        scorer ever regresses into a DB call, the merge gate could be broken
+        by a DB outage (which would silently fail-open via _try in
+        itinerary_violations). This test ensures that path stays closed.
+        """
+        sentinel = mocker.patch("app.agent.critique.checks.get_conn")
+        # Use a real refinement-context state (Branch 5 normal path).
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),
+                _refinement_stop(_PID_LEN20_NEW2),
+                _refinement_stop(_PID_LEN20_C),
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 1.0
+        sentinel.assert_not_called()
