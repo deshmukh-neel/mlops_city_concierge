@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Production Readiness
 current_phase: 6
-status: complete
-last_updated: "2026-06-03T03:55:00.000Z"
-last_activity: 2026-06-03 -- Phase 06 plan 06-07 executed (7/7 plans complete)
+status: gaps_found
+last_updated: "2026-06-03T04:50:00.000Z"
+last_activity: 2026-06-03 -- Phase 06 verifier returned gaps_found (D-06-09 empirical gate FAILED)
 progress:
   total_phases: 5
-  completed_phases: 5
+  completed_phases: 4
   total_plans: 29
   completed_plans: 29
-  percent: 100
+  percent: 96
 ---
 
 # Project State
@@ -29,7 +29,7 @@ progress:
 - [x] Re-baseline complete: 5 live runs against merged main confirm 3 real bugs (category compliance, rationale-stop alignment, minimal-edit refinement). Step-budget tuning DROPPED — didn't reproduce. v2.0 = 5 phases, not 6.
 - [x] REQUIREMENTS.md written (v2.0-scoped, grounded in research + re-baseline, 21 requirements across 5 categories)
 - [x] ROADMAP.md written (Phases 2-6; phase numbering continues from v1.0 Phase 1)
-- [x] Phase 6 complete (7/7 plans shipped)
+- [ ] Phase 6 verified (7/7 plans shipped mechanically; D-06-09 empirical gate FAILED, see 06-VERIFICATION.md)
 
 ## Notes
 
@@ -41,11 +41,11 @@ progress:
 
 ## Current Position
 
-Phase: 06 (minimal-edit-refinement) — COMPLETE
-Plan: 7/7 plans complete
-Status: v2.0 milestone complete (5 phases, 29 plans)
-Last activity: 2026-06-03 -- Phase 06 plan 06-07 executed (final wiring + re-baseline + docs sync + bookkeeping)
-Resume: v2.0 milestone closed. Next: v2.1 scoping or hot-fix work as needed.
+Phase: 06 (minimal-edit-refinement) — GAPS FOUND
+Plan: 7/7 plans shipped mechanically; verifier returned gaps_found
+Status: D-06-09 empirical merge gate FAILED (refinement_minimal_edit.median = 0.0 on openai/gpt-4o-mini, requires 1.0). CR-01 (descriptive vs imperative preamble in app/agent/io.py) + CR-02 (place_id validator accepts trailing newline in app/agent/state.py) are BLOCKER findings from code review. v2.0 milestone NOT yet complete.
+Last activity: 2026-06-03 -- Phase 06 verifier returned gaps_found (06-VERIFICATION.md committed)
+Resume: `/gsd-plan-phase 6 --gaps` to create gap-closure plans, then `/gsd-execute-phase 6 --gaps-only`.
 
 ## Phase 03 closure summary (2026-05-22)
 
