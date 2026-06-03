@@ -636,6 +636,249 @@ def test_run_matrix_uses_provider_override_in_subprocess_cmd(mocker, monkeypatch
     assert "openai" not in cmd
 
 
+# ─── Plan 06-06 Task 2: per-cell env override (D-06-10 / NEW HIGH-B) ─────────
+
+
+class TestPerCellEnvOverride:
+    """Phase 6 plan 06-06 Task 2 — `MatrixCell.env` + `iter_cells` threading
+    + `run_matrix` per-cell env composition (subprocess) and os.environ
+    apply/cleanup (in-process). Closes the D-06-10 + NEW HIGH-B gap where
+    flipping `REFINEMENT_STRUCTURED_PLAN_ENABLED` on the refinement cell
+    without flipping it for the first-turn cells was structurally impossible
+    in the prior shared-env shape, AND where the propagated env was never
+    visible to in-process consumers.
+
+    Per `project_full_suite_db_pool_contamination.md` these tests mock
+    `subprocess.run` so no real subprocess fires; the unit suite stays
+    hermetic.
+    """
+
+    def test_matrix_cell_env_default_is_none(self) -> None:
+        """`MatrixCell.env` default is None — backward compat with all
+        existing constructors that don't pass `env=...`."""
+        from scripts.eval_matrix import MatrixCell
+
+        cell = MatrixCell(provider="o", model="m", scenario_id="s", run_n=0)
+        assert cell.env is None
+
+    def test_iter_cells_threads_entry_env(self) -> None:
+        """`iter_cells` propagates `entry.env` to every cell yielded for
+        that entry. Entries with `env=None` yield cells with `env=None`."""
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import iter_cells
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(
+                    provider="openai",
+                    model="gpt-4o-mini",
+                    env={"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"},
+                ),
+                MatrixEntry(provider="deepseek", model="deepseek-chat"),
+            ],
+            scenarios=["scenario_a"],
+        )
+        cells = list(iter_cells(matrix, runs=1))
+        assert cells[0].env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}
+        assert cells[1].env is None
+
+    def test_run_matrix_composes_per_cell_env(self, monkeypatch, mocker, tmp_path) -> None:
+        """`run_matrix` composes `{**parent_env, **cell.env}` per-cell and
+        passes it to `subprocess.run(env=...)`. Cells without an override
+        get the parent env unchanged."""
+        monkeypatch.setenv("APP_ENV", "eval")
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import run_matrix
+
+        captured_envs: list[dict] = []
+
+        def fake_subprocess_run(*args, **kwargs):
+            captured_envs.append(dict(kwargs.get("env") or {}))
+            return mocker.Mock(returncode=0, stdout="{}", stderr="")
+
+        mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_subprocess_run)
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(
+                    provider="scripted",
+                    model="placeholder",
+                    env={"FOO": "bar"},
+                ),
+                MatrixEntry(provider="scripted", model="other"),
+            ],
+            scenarios=["scenario_a"],
+        )
+        run_matrix(
+            matrix=matrix,
+            runs=1,
+            output_dir=tmp_path,
+            llm_provider_override=None,
+            eval_queries_path="configs/eval_queries.yaml",
+        )
+
+        assert len(captured_envs) == 2
+        # First cell got FOO=bar in addition to the parent env.
+        assert captured_envs[0].get("FOO") == "bar"
+        # Parent env keys (like PATH) are present in every cell.
+        assert "PATH" in captured_envs[0]
+        # Second cell does NOT have FOO (no override on that cell).
+        assert "FOO" not in captured_envs[1]
+
+    def test_run_matrix_backward_compat_no_per_cell_env(
+        self, monkeypatch, mocker, tmp_path
+    ) -> None:
+        """When all entries have `env=None`, every cell's captured subprocess
+        env equals `os.environ.copy()` exactly — backward compat with the
+        pre-Phase-6 shared-env behavior."""
+        monkeypatch.setenv("APP_ENV", "eval")
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import run_matrix
+
+        captured_envs: list[dict] = []
+
+        def fake_subprocess_run(*args, **kwargs):
+            captured_envs.append(dict(kwargs.get("env") or {}))
+            return mocker.Mock(returncode=0, stdout="{}", stderr="")
+
+        mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_subprocess_run)
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(provider="scripted", model="placeholder"),
+                MatrixEntry(provider="scripted", model="other"),
+            ],
+            scenarios=["scenario_a"],
+        )
+        # Snapshot the parent env BEFORE run_matrix so we compare against
+        # what run_matrix saw at call time.
+        import os as _os
+
+        parent_env_snapshot = dict(_os.environ)
+
+        run_matrix(
+            matrix=matrix,
+            runs=1,
+            output_dir=tmp_path,
+            llm_provider_override=None,
+            eval_queries_path="configs/eval_queries.yaml",
+        )
+
+        # Each cell's env equals the parent env snapshot (no per-cell override).
+        for captured in captured_envs:
+            assert captured == parent_env_snapshot
+
+    def test_apply_override_preserves_env(self) -> None:
+        """MEDIUM-1 fix: `_apply_override` preserves `entry.env` when
+        rewriting `provider` so the per-cell flag still propagates after
+        `--llm-provider-override scripted` rebinds entries."""
+        from app.eval.config import MatrixEntry
+        from scripts.eval_matrix import _apply_override
+
+        entries = [
+            MatrixEntry(
+                provider="openai",
+                model="gpt-4o-mini",
+                env={"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"},
+            ),
+            MatrixEntry(provider="deepseek", model="deepseek-chat"),
+        ]
+        result = list(_apply_override(entries, llm_provider_override="scripted"))
+        assert all(e.provider == "scripted" for e in result)
+        assert result[0].env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}
+        assert result[1].env is None
+
+    def test_per_cell_env_applies_to_os_environ_then_unsets(
+        self, monkeypatch, mocker, tmp_path
+    ) -> None:
+        """NEW HIGH-B: per-cell `env` is applied to `os.environ` DURING the
+        cell's run and restored AFTER. Critical because in-process consumers
+        (e.g., unit-test invocations of `_run_prod_threading`) read
+        `os.environ` directly — without the apply/cleanup the per-cell
+        override would be invisible to them."""
+        monkeypatch.setenv("APP_ENV", "eval")
+        monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
+        import os as _os
+
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import run_matrix
+
+        captured_inside: list[str | None] = []
+
+        def fake_subprocess_run(*args, **kwargs):
+            # Read os.environ at the moment subprocess.run is called — this
+            # is INSIDE the per-cell block, so the apply must already have
+            # happened.
+            captured_inside.append(_os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED"))
+            return mocker.Mock(returncode=0, stdout="{}", stderr="")
+
+        mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_subprocess_run)
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(
+                    provider="scripted",
+                    model="placeholder",
+                    env={"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"},
+                ),
+            ],
+            scenarios=["scenario_a"],
+        )
+        assert _os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") is None
+
+        run_matrix(
+            matrix=matrix,
+            runs=1,
+            output_dir=tmp_path,
+            llm_provider_override=None,
+            eval_queries_path="configs/eval_queries.yaml",
+        )
+
+        # DURING the cell: os.environ was set to "true".
+        assert captured_inside == ["true"]
+        # AFTER the cell: cleanup restored the prior unset state.
+        assert _os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") is None
+
+    def test_per_cell_env_restores_prior_value_after_cell(
+        self, monkeypatch, mocker, tmp_path
+    ) -> None:
+        """NEW HIGH-B edge case: when the parent env had a prior value for
+        a key the cell overrides, the cleanup restores the prior value
+        (not just pops the key)."""
+        monkeypatch.setenv("APP_ENV", "eval")
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "false")
+        import os as _os
+
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import run_matrix
+
+        def fake_subprocess_run(*args, **kwargs):
+            return mocker.Mock(returncode=0, stdout="{}", stderr="")
+
+        mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_subprocess_run)
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(
+                    provider="scripted",
+                    model="placeholder",
+                    env={"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"},
+                ),
+            ],
+            scenarios=["scenario_a"],
+        )
+        run_matrix(
+            matrix=matrix,
+            runs=1,
+            output_dir=tmp_path,
+            llm_provider_override=None,
+            eval_queries_path="configs/eval_queries.yaml",
+        )
+
+        # Prior parent value restored, not popped.
+        assert _os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") == "false"
+
+
 # ─── CI-workflow drift guards (Plan 03-06 / EVAL-09) ─────────────────────────
 # These tests pin the shape of .github/workflows/ci.yml's eval-matrix job so
 # that a future PR cannot silently drop the scripted-mode flag (exposing CI
