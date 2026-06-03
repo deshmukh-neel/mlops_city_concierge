@@ -18,6 +18,7 @@ from scripts.eval_agent import (
     EvalRunReport,
     ExpectedEvalResult,
     QueryEvalResult,
+    _constraints_for_case,
     aggregate_results,
     answer_place_names_from_state,
     answer_retrieved_place_coverage,
@@ -82,6 +83,67 @@ def test_expected_constraints_keeps_single_shared_list_validator() -> None:
     source = inspect.getsource(ExpectedConstraints)
 
     assert source.count("def _strip_non_empty_list") == 1
+
+
+class TestConstraintsForCaseNumStops:
+    """Phase-6 root-cause regression: ``_constraints_for_case`` MUST pass
+    ``num_stops`` so the eval prod-threading branch mirrors ``/chat``'s
+    constraint extraction. Without this, queries that say "3 stops" in
+    prose cause the model to ask "how many stops?" instead of committing
+    (the SystemMessage that previously suppressed that question is dropped
+    by the N-1 fix in plan 06-06).
+    """
+
+    def test_extracts_num_stops_from_query_text(self) -> None:
+        # The refinement_cheaper query body says "3 stops" in prose.
+        case = eval_case(query="Plan a date night dinner-then-drinks in Hayes Valley, 3 stops")
+        constraints = _constraints_for_case(case)
+        assert constraints.num_stops == 3
+
+    def test_falls_back_to_yaml_min_max_when_text_silent(self) -> None:
+        case = eval_case(
+            query="show me cool spots in soma",  # no count in prose
+            expected_results={"min_stops": 4, "max_stops": 4},
+        )
+        constraints = _constraints_for_case(case)
+        assert constraints.num_stops == 4
+
+    def test_does_not_invent_count_when_range_ambiguous(self) -> None:
+        # min != max means the YAML range is a range, not a target — don't
+        # fabricate a single count from it.
+        case = eval_case(
+            query="show me cool spots in soma",
+            expected_results={"min_stops": 1, "max_stops": 5},
+        )
+        constraints = _constraints_for_case(case)
+        assert constraints.num_stops is None
+
+    def test_text_extraction_wins_over_yaml(self) -> None:
+        # If text says 3 but YAML says 5/5, the prose is authoritative — that
+        # matches `/chat`'s behavior of trusting the user-spoken count.
+        case = eval_case(
+            query="something something 3 stops",
+            expected_results={"min_stops": 5, "max_stops": 5},
+        )
+        constraints = _constraints_for_case(case)
+        assert constraints.num_stops == 3
+
+    def test_requested_primary_types_still_set(self) -> None:
+        # Regression: num_stops fix must not break the existing
+        # requested_primary_types pass-through.
+        case = eval_case(
+            query="dinner-then-drinks-then-dessert, 3 stops",
+            expected_constraints={
+                "requested_primary_types": ["Restaurant", "Cocktail Bar", "Dessert Shop"],
+            },
+        )
+        constraints = _constraints_for_case(case)
+        assert constraints.requested_primary_types == [
+            "Restaurant",
+            "Cocktail Bar",
+            "Dessert Shop",
+        ]
+        assert constraints.num_stops == 3
 
 
 @pytest.mark.parametrize(

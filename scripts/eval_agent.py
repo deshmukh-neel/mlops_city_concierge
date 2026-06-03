@@ -33,6 +33,7 @@ from app.agent.critique.checks import (
     walking_budget_respected,
 )
 from app.agent.graph import build_agent_graph
+from app.agent.input_parsing import explicit_num_stops_from_text
 from app.agent.io import build_refinement_prompt_message, messages_from_history
 from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.config import get_settings
@@ -526,9 +527,34 @@ def _eval_context_for(case: EvalQuery) -> str:
 
 
 def _constraints_for_case(case: EvalQuery) -> UserConstraints:
-    """Build deterministic eval constraints from checked-in YAML metadata."""
+    """Build deterministic eval constraints from checked-in YAML metadata.
+
+    Phase 6 root-cause fix for D-06-09 turn-0 failure: mirror ``/chat``'s
+    ``num_stops`` extraction (``app/main.py:781`` calls
+    ``explicit_num_stops_from_conversation``). Without this, the eval
+    prod-threading branch under-constrains the model relative to ``/chat``
+    on identical queries — for "Plan a date night ... 3 stops" the model
+    asks a clarifying question ("how many stops?") instead of committing,
+    because the SystemMessage that previously suppressed that question is
+    dropped by the N-1 fix in plan 06-06.
+
+    Precedence: text extraction first (``"3 stops"`` in the query body),
+    then YAML metadata (``expected_results.{min,max}_stops`` when they
+    agree). Text extraction mirrors ``/chat`` byte-identically; the YAML
+    fallback covers queries where the count is implied by the scenario
+    rather than spoken in prose.
+    """
     requested_primary_types = list(case.expected_constraints.requested_primary_types)
-    return UserConstraints(requested_primary_types=requested_primary_types)
+    num_stops: int | None = explicit_num_stops_from_text(case.query)
+    if num_stops is None:
+        min_s = case.expected_results.min_stops
+        max_s = case.expected_results.max_stops
+        if min_s is not None and max_s is not None and min_s == max_s:
+            num_stops = min_s
+    return UserConstraints(
+        requested_primary_types=requested_primary_types,
+        num_stops=num_stops,
+    )
 
 
 async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
