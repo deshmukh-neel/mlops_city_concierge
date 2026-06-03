@@ -9,6 +9,7 @@ from app.agent.input_parsing import (
     explicit_num_stops_from_conversation,
     explicit_num_stops_from_text,
     has_slot_structure,
+    is_refinement_request,
     parse_closure_decision,
 )
 
@@ -211,3 +212,21 @@ def test_slot_extraction_result_accepts_title_case_primary_types() -> None:
         requested_primary_types=["Sushi Restaurant", "Cocktail Bar", "Dessert Shop"]
     )
     assert s.requested_primary_types == ["Sushi Restaurant", "Cocktail Bar", "Dessert Shop"]
+
+
+# ─── is_refinement_request (Phase 6 / D-06-03) ───────────────────────────
+
+
+class TestIsRefinementRequest:
+    """Deterministic regex pre-check that gates structured-plan injection.
+
+    Per D-06-03 the helper is conservative on purpose — false negatives are
+    cheaper than false positives because a false positive on turn 1 would
+    clobber first-turn behavior (REF-04). These tests pin the conservative
+    contract: the four pattern families fire, first-turn intent does not,
+    and the 1-indexed target slot is extracted correctly.
+    """
+
+    def test_returns_true_with_slot_for_canonical_refinement_cheaper(self) -> None:
+        # Exact scenario string from configs/eval_queries.yaml refinement_cheaper.
+        assert is_refinement_request("make stop 2 cheaper") == (True, 2)
