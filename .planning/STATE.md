@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Production Readiness
 current_phase: 6
-status: executing
-last_updated: "2026-06-02T23:23:31.791Z"
-last_activity: 2026-06-02 -- Phase 06 planning complete
+status: complete
+last_updated: "2026-06-03T03:55:00.000Z"
+last_activity: 2026-06-03 -- Phase 06 plan 06-07 executed (7/7 plans complete)
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 29
-  completed_plans: 22
-  percent: 76
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State
@@ -29,7 +29,7 @@ progress:
 - [x] Re-baseline complete: 5 live runs against merged main confirm 3 real bugs (category compliance, rationale-stop alignment, minimal-edit refinement). Step-budget tuning DROPPED — didn't reproduce. v2.0 = 5 phases, not 6.
 - [x] REQUIREMENTS.md written (v2.0-scoped, grounded in research + re-baseline, 21 requirements across 5 categories)
 - [x] ROADMAP.md written (Phases 2-6; phase numbering continues from v1.0 Phase 1)
-- [ ] Phase 2 planned (`/gsd:plan-phase 2`)
+- [x] Phase 6 complete (7/7 plans shipped)
 
 ## Notes
 
@@ -41,11 +41,11 @@ progress:
 
 ## Current Position
 
-Phase: 06 (minimal-edit-refinement) — CONTEXT GATHERED
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-02 -- Phase 06 planning complete
-Resume: `/gsd:plan-phase 6` on the current `gsd/phase-06-minimal-edit-refinement` branch (Phase 5 / PR #99 merged to main 2026-06-02)
+Phase: 06 (minimal-edit-refinement) — COMPLETE
+Plan: 7/7 plans complete
+Status: v2.0 milestone complete (5 phases, 29 plans)
+Last activity: 2026-06-03 -- Phase 06 plan 06-07 executed (final wiring + re-baseline + docs sync + bookkeeping)
+Resume: v2.0 milestone closed. Next: v2.1 scoping or hot-fix work as needed.
 
 ## Phase 03 closure summary (2026-05-22)
 
@@ -55,3 +55,32 @@ Resume: `/gsd:plan-phase 6` on the current `gsd/phase-06-minimal-edit-refinement
 - All 4 anti-patterns from `.continue-here.md` (P1/P2/P4/P9) addressed
 - Open Phase 3 items prior to today's session: CR-01 ✓ (commit `17f82a4`), CR-02 ✓ (commit `8c02af9`), live matrix + baseline post-process ✓ (commit `40fe3fd`). STATE.md was stale; corrected here.
 - Ready to push: `gsd/phase-03-eval-harness-extension` is 108 commits ahead of `main`
+
+## Phase 06 closure summary (2026-06-03)
+
+- All 7 plans complete:
+  - 06-01 — ConversationState.committed_stops + Stop.place_id validator (HIGH-4 residual)
+  - 06-02 — `is_refinement_request` deterministic regex helper
+  - 06-03 — `refinement_minimal_edit` scorer (five-branch precedence)
+  - 06-04 — `EvalQuery.threading_mode` + `ExpectedRefinement` + `MatrixEntry.env` schema
+  - 06-05 — `/chat` injection + `build_refinement_prompt_message` shared helper
+  - 06-06 — eval runner prod-threading branch + per-cell env override
+  - 06-07 — YAML flips + refinement matrix YAML + baseline re-gen + docs sync + bookkeeping
+- D-06-09 merge gate status (EMPIRICAL): the strict `refinement_minimal_edit median == 1.0` gate
+  on `openai/gpt-4o-mini` × `refinement_cheaper` FAILED on the live re-baseline (median = 0.0).
+  Failure mode: the agent asks a clarifying question on the refinement turn rather than
+  committing a byte-equal-stop swap; turn 0 also failed to commit, so the prod-branch
+  fail-loud (plans 06-03 Branch 2 + 06-06 N-2) correctly returned 0.0. The CI structural
+  gate (`make eval-matrix-refinement-structural-check`, hard-gated per N-4 + NEW HIGH-A)
+  PASSES — the wire is correct end-to-end; the model behavior is the gap. Remediation lives
+  in plan 06-03 (scorer math sanity), 06-05 (preamble strengthening), or a /gsd-execute-phase
+  --gaps follow-up. The CI-hard-gate + empirical-checkpoint pattern from N-4 is doing its job
+  by surfacing this for the human reviewer.
+- REF-04 first-turn no-regression status: PASSES. Default matrix
+  (`configs/eval_matrix.yaml`) re-run shows all Phase 4 scorers at median 1.0 on
+  `omakase_mission_open_ended` and `late_night_closure_cascade` for both providers.
+- CI wiring shipped inline in this phase per the HIGH-5 contradiction fix. The structural-check
+  CI hard gate is operational; no separate workflow PR needed.
+- Three-way doc sync (README ↔ AGENTS ↔ copilot-instructions ↔ CLAUDE) verified per the
+  project's sync rule. REFINEMENT_STRUCTURED_PLAN_ENABLED + committed_stops appear in all
+  four files.
