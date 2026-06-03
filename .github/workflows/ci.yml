@@ -203,6 +203,18 @@ jobs:
         continue-on-error: true
         run: make eval-matrix LLM_OVERRIDE=scripted RUNS=1
 
+      - name: Run eval matrix — refinement scenarios structural check (no subprocess)
+        # Phase 6 plan 06-07 / N-4 + NEW HIGH-A: HARD gate (no
+        # continue-on-error). Invokes the structural-check Makefile target
+        # which validates the refinement matrix end-to-end WITHOUT calling
+        # subprocess.run — sidesteps the SCRIPTED_SCENARIOS-empty problem
+        # at app/llm_factory.py:170. Catches silent-fail modes REF-04
+        # wants caught: matrix YAML doesn't load, env override propagation
+        # breaks, scorer registration drifts, shared helper breaks.
+        # Empirical regression on absolute scorer floors is enforced by
+        # the blocking human checkpoint in plan 06-07 Task 3.
+        run: make eval-matrix-refinement-structural-check
+
       - name: Upload eval matrix report
         if: always()
         uses: actions/upload-artifact@v4

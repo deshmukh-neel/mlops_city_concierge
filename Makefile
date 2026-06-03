@@ -124,6 +124,30 @@ eval-matrix: ## Run cross-provider matrix (LLM_OVERRIDE=scripted for CI; RUNS=3 
 	  --runs $(RUNS) \
 	  $(if $(LLM_OVERRIDE),--llm-provider-override $(LLM_OVERRIDE),)
 
+# Phase 6 plan 06-07 / D-06-10: refinement-only matrix runner.
+# LIVE target — used for human baseline generation (Task 2a). Runs
+# REFINEMENT_STRUCTURED_PLAN_ENABLED=true on both provider entries and
+# fans out to real-provider subprocesses. Requires APP_ENV=eval +
+# OPENAI_API_KEY + DEEPSEEK_API_KEY for non-scripted runs.
+.PHONY: eval-matrix-refinement
+eval-matrix-refinement: ## Run the Phase 6 refinement-only matrix (LIVE; APP_ENV=eval required)
+	$(POETRY_RUN) python scripts/eval_matrix.py \
+	  --matrix-config configs/eval_matrix_refinement.yaml \
+	  --runs $(RUNS) \
+	  $(if $(LLM_OVERRIDE),--llm-provider-override $(LLM_OVERRIDE),)
+
+# Phase 6 plan 06-07 / NEW HIGH-A: structural-check target used by CI as
+# a HARD gate (no continue-on-error). Validates the matrix loads,
+# iter_cells produces cells, env override propagates through
+# _apply_override, DETERMINISTIC_CHECKS contains 'refinement_minimal_edit',
+# and build_refinement_prompt_message is functional. Does NOT invoke any
+# subprocess — sidesteps the SCRIPTED_SCENARIOS-empty problem.
+.PHONY: eval-matrix-refinement-structural-check
+eval-matrix-refinement-structural-check: ## Phase 6 refinement matrix structural check (CI hard gate; no subprocess)
+	$(POETRY_RUN) python scripts/eval_matrix.py \
+	  --matrix-config configs/eval_matrix_refinement.yaml \
+	  --structural-check
+
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
 test: ## Run the full test suite

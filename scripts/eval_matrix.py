@@ -507,6 +507,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "invoking any subprocess. Useful for plan 03-07 baseline preview."
         ),
     )
+    parser.add_argument(
+        "--structural-check",
+        action="store_true",
+        default=False,
+        help=(
+            "Structural-only validation mode: load the matrix config, "
+            "iterate cells, verify env override propagation through "
+            "_apply_override, verify scripts.eval_agent.DETERMINISTIC_CHECKS "
+            "contains 'refinement_minimal_edit', verify "
+            "app.agent.io.build_refinement_prompt_message is callable on a "
+            "valid single-stop input. Exits 0 if all checks pass; exits 1 "
+            "with a descriptive message on the first failure. Does NOT "
+            "invoke subprocess.run — meant for CI smoke (NEW HIGH-A / "
+            "Phase 6 REF-04). Independent of --llm-provider-override and "
+            "--runs (both ignored when --structural-check is set)."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -526,6 +543,98 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     matrix = load_eval_matrix(args.matrix_config)
+
+    if args.structural_check:
+        # NEW HIGH-A strategy (b): no-subprocess validation for CI hard
+        # gate. All five checks must pass; first failure prints to stderr
+        # and exits with code 1. This sidesteps the SCRIPTED_SCENARIOS-empty
+        # problem (app/llm_factory.py:170) by validating the matrix
+        # end-to-end WITHOUT invoking any subprocess.
+        from app.agent.io import build_refinement_prompt_message
+        from app.agent.state import Stop
+        from scripts.eval_agent import DETERMINISTIC_CHECKS
+
+        # Check 1: matrix loads (already done above at args.matrix_config).
+        # `matrix` is in scope.
+
+        # Check 2: iter_cells produces non-empty.
+        cells = list(iter_cells(matrix, runs=1))
+        if not cells:
+            print(
+                "structural-check: iter_cells produced 0 cells; check matrix YAML",
+                file=sys.stderr,
+            )
+            return 1
+
+        # Check 3: every cell is reachable via _apply_override (the scripted
+        # override path); MEDIUM-1 regression guard (env is preserved).
+        rebound = list(_apply_override(matrix.entries, "scripted"))
+        if len(rebound) != len(matrix.entries):
+            print(
+                f"structural-check: _apply_override changed entry count "
+                f"({len(matrix.entries)} -> {len(rebound)})",
+                file=sys.stderr,
+            )
+            return 1
+        for original, rebound_entry in zip(matrix.entries, rebound, strict=True):
+            if rebound_entry.env != original.env:
+                print(
+                    f"structural-check: _apply_override dropped env on "
+                    f"{original.provider}/{original.model}: {original.env} -> "
+                    f"{rebound_entry.env} (MEDIUM-1 regression)",
+                    file=sys.stderr,
+                )
+                return 1
+
+        # Check 4: DETERMINISTIC_CHECKS registration (HIGH-1 regression
+        # guard — refinement_minimal_edit must appear so the merge gate is
+        # not silently absent from baseline JSON).
+        if "refinement_minimal_edit" not in DETERMINISTIC_CHECKS:
+            print(
+                "structural-check: 'refinement_minimal_edit' missing from "
+                "scripts.eval_agent.DETERMINISTIC_CHECKS (HIGH-1 regression)",
+                file=sys.stderr,
+            )
+            return 1
+
+        # Check 5: shared helper is importable AND callable on a valid
+        # input (PATTERNS.md Caveat #5 regression guard — proves the helper
+        # exists and the place_id validator from plan 06-01 Task 3 accepts
+        # the conforming fixture).
+        try:
+            msg = build_refinement_prompt_message(
+                [
+                    Stop(
+                        place_id="ChIJtest_structural_check_aaaaa",
+                        name="x",
+                        rationale="r",
+                        source="t",
+                    )
+                ]
+            )
+            if not isinstance(msg.content, str) or "current_plan" not in msg.content:
+                print(
+                    "structural-check: build_refinement_prompt_message did "
+                    "not produce expected str content with 'current_plan' "
+                    "substring",
+                    file=sys.stderr,
+                )
+                return 1
+        except Exception as exc:
+            print(
+                f"structural-check: build_refinement_prompt_message raised "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+
+        print(
+            f"structural-check: OK — matrix has {len(cells)} cell(s), "
+            f"env-override preserved through _apply_override, scorer "
+            f"registered, shared helper functional",
+            file=sys.stderr,
+        )
+        return 0
 
     # Apply override for the dry-run printout so users see the effective
     # provider list before any subprocess fires.
