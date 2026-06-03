@@ -151,7 +151,7 @@ _PRICE_LEVEL_RANK: dict[str, int] = {
 # HIGH-4 strategy (a) (field whitelisting in 06-05): even if a future
 # change re-introduces a client-tamperable field to the prompt, place_id
 # itself is no longer a viable injection vector.
-_PLACE_ID_PATTERN: re.Pattern[str] = re.compile(r"^[A-Za-z0-9_-]{20,255}$")
+_PLACE_ID_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z0-9_-]{20,255}")
 
 
 def _validate_place_id_format(value: str) -> str:
@@ -160,8 +160,14 @@ def _validate_place_id_format(value: str) -> str:
     Raises ValueError on any string that does not match the Google Place ID
     format (alphanumeric + underscore + dash, 20-255 chars). Returns the
     input unchanged on a match.
+
+    Uses ``fullmatch`` (not ``match`` with ``$``) so trailing newline and
+    other content past the formatted body are rejected. ``re.match`` with
+    ``$`` accepts ``"A"*25 + "\\n"`` because Python's ``$`` matches before
+    a final newline by default — that's a defense-in-depth bypass
+    (CR-02 from phase 06 code review).
     """
-    if not _PLACE_ID_PATTERN.match(value):
+    if not _PLACE_ID_PATTERN.fullmatch(value):
         raise ValueError(
             "place_id must match Google Place ID format "
             "(alphanumeric + underscore + dash, 20-255 chars)"

@@ -342,6 +342,32 @@ class TestStopPlaceIdValidator:
         # Exactly 255 chars (upper boundary).
         Stop(place_id="A" * 255, name="x", rationale="r", source="google_places")
 
+    def test_place_id_format_validator_rejects_trailing_newline(self) -> None:
+        # CR-02 regression: `re.match` with `$` accepts trailing `\n` because
+        # Python's `$` matches before a final newline. The fix uses `fullmatch`
+        # so any trailing whitespace or newline is rejected — keeping the
+        # validator a true defense-in-depth boundary for HIGH-4.
+        for trailing in ("\n", "\r\n", "\r", " ", "\t"):
+            with pytest.raises(ValueError):
+                Stop(
+                    place_id="A" * 25 + trailing,
+                    name="x",
+                    rationale="r",
+                    source="google_places",
+                )
+
+    def test_place_id_format_validator_rejects_leading_newline(self) -> None:
+        # Companion to the trailing-newline regression: a leading newline
+        # would also evade a `re.match`-only check if combined with MULTILINE
+        # flags. `fullmatch` blocks both directions.
+        with pytest.raises(ValueError):
+            Stop(
+                place_id="\n" + "A" * 25,
+                name="x",
+                rationale="r",
+                source="google_places",
+            )
+
     def test_place_id_format_validator_applied_to_closure_context_and_place_card(self) -> None:
         # ClosureContext.place_id is also a trust boundary (round-tripped via
         # conversation_state from the client). The validator must apply.
