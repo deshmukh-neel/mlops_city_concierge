@@ -879,7 +879,7 @@ class TestChatRefinementInjection:
     # signal. (The earlier sentinel `"current_plan"` is ambiguous because
     # the SYSTEM_PROMPT's addendum names the JSON field by name when telling
     # the model how to read the structured plan.)
-    _INJECTION_SENTINEL = "Below is the current committed itinerary"
+    _INJECTION_SENTINEL = "REFINEMENT TURN"
 
     @staticmethod
     def _human_content_strings_seen(recording_llm) -> list[str]:

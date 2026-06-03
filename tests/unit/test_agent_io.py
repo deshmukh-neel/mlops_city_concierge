@@ -179,6 +179,28 @@ class TestBuildRefinementPromptMessage:
         for phrase in forbidden:
             assert phrase not in content_lower, f"preamble undercuts commit directive: {phrase!r}"
 
+    def test_preamble_is_imperative_not_descriptive(self) -> None:
+        """CR-01 (06-REVIEW.md): preamble must give explicit commands.
+
+        Empirical D-06-09 failure showed gpt-4o-mini dropping a stop and
+        asking clarifying questions on the refinement turn. The earlier
+        preamble described what byte-for-byte preservation IS without
+        telling the model what to DO. This test pins the imperative
+        wording so a future rewrite cannot silently regress to descriptive.
+        """
+        result = build_refinement_prompt_message([_make_stop()])
+        content_lower = result.content.lower()
+        # Positive presence: at least these three imperatives must appear.
+        required_substrings = [
+            "commit_itinerary",  # explicit tool name
+            "do not",  # explicit prohibition
+            "same number of stops",  # explicit count preservation
+        ]
+        for phrase in required_substrings:
+            assert phrase in content_lower, (
+                f"preamble missing imperative '{phrase!r}' — reverts CR-01 fix"
+            )
+
     def test_slot_index_is_one_indexed(self) -> None:
         """Matches user prose ('make stop 2 cheaper') and the
         `expected_refinement.target_slot: 2` YAML convention from D-06-08."""
