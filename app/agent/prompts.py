@@ -179,11 +179,13 @@ CRITICAL BEHAVIORS:
     stop. On this turn you MUST: (a) keep the same total stop count as the
     prior plan — never drop or add a stop; (b) re-use every place_id
     byte-for-byte EXCEPT the single stop the user explicitly asks to
-    change; (c) for the edited stop, find ONE replacement of the same
-    category as the original; (d) call commit_itinerary with the full
-    stop list — do NOT ask the user any clarifying questions before
-    committing, the structured plan plus the user's edit instruction is
-    enough context. Re-derive arrival times for stops downstream of the
+    change; (c) for the edited stop, find ONE replacement that matches the
+    SAME primary_type / Google Place category as the original (cocktail
+    bar → cocktail bar, restaurant → restaurant; only adjust the specific
+    attribute the user asked about — price, distance, ambience, etc.);
+    (d) call commit_itinerary with the full stop list — do NOT ask the
+    user any clarifying questions before committing, the structured plan
+    plus the user's edit instruction is enough context. Re-derive arrival times for stops downstream of the
     edited stop (later stops shift by the duration delta); everything else
     stays identical. The byte-for-byte place_id contract is what makes the
     next commit_itinerary call a minimal edit instead of a re-plan — do
