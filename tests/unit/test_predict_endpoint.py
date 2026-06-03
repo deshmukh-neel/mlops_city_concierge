@@ -33,7 +33,7 @@ def test_predict_returns_chain_result_and_sources(mocker) -> None:
                     "rating": 4.7,
                     "address": "123 Mission St, San Francisco, CA",
                     "similarity": 0.981,
-                    "place_id": "p1",
+                    "place_id": "ChIJtest_p1_aaaaaaaa",
                     "primary_type": "restaurant",
                 }
             )
@@ -54,7 +54,7 @@ def test_predict_returns_chain_result_and_sources(mocker) -> None:
     assert body["response"] == "You should try Taqueria Example."
     assert len(body["sources"]) == 1
     assert body["sources"][0]["name"] == "Taqueria Example"
-    assert body["sources"][0]["place_id"] == "p1"
+    assert body["sources"][0]["place_id"] == "ChIJtest_p1_aaaaaaaa"
     assert body["sources"][0]["similarity"] == 0.981
     fake_chain.invoke.assert_called_once_with({"query": "Best tacos in the Mission"})
 

@@ -379,8 +379,8 @@ async def test_itinerary_violation_triggers_revision(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="plan it")],
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
     fake = _make_fake(
@@ -426,8 +426,8 @@ async def test_itinerary_violation_ships_with_caveats_after_exhaustion(monkeypat
     state = ItineraryState(
         messages=[HumanMessage(content="plan it")],
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
         revision_counts={"geographic_coherence": MAX_REVISIONS_PER_REASON},
     )
@@ -447,8 +447,8 @@ def test_geographic_coherence_perfect_when_close() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            make_stop("p1", name="A", latitude=37.78, longitude=-122.41),
-            make_stop("p2", name="B", latitude=37.781, longitude=-122.411),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A", latitude=37.78, longitude=-122.41),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B", latitude=37.781, longitude=-122.411),
         ],
     )
     assert geographic_coherence(state) == 1.0
@@ -458,8 +458,10 @@ def test_walking_budget_respected_fails_when_over() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=100),
         stops=[
-            make_stop("p1", name="A", latitude=37.78, longitude=-122.41),
-            make_stop("p2", name="B", latitude=37.80, longitude=-122.41),  # ~2km away
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A", latitude=37.78, longitude=-122.41),
+            make_stop(
+                "ChIJtest_p2_aaaaaaaa", name="B", latitude=37.80, longitude=-122.41
+            ),  # ~2km away
         ],
     )
     assert walking_budget_respected(state) == 0.0
@@ -472,8 +474,8 @@ def test_vibe_check_returns_none_when_disabled(monkeypatch) -> None:
     monkeypatch.delenv(vibe.VIBE_ENV_VAR, raising=False)
     state = ItineraryState(
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
     # Even with a non-None judge, disabled env var short-circuits to None.
@@ -493,7 +495,7 @@ def test_vibe_check_returns_none_for_single_stop(monkeypatch) -> None:
             raise AssertionError("judge_llm should not be invoked for 1 stop")
 
     state = ItineraryState(
-        stops=[make_stop("p1", name="A")],
+        stops=[make_stop("ChIJtest_p1_aaaaaaaa", name="A")],
     )
     assert vibe.vibe_check(state, _Judge()) is None
 
@@ -508,8 +510,8 @@ def test_vibe_check_parses_judge_score(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
     assert vibe.vibe_check(state, _Judge()) == 4.2
@@ -526,8 +528,8 @@ def test_vibe_check_returns_none_on_unparseable_json(monkeypatch) -> None:
 
     state = ItineraryState(
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
     assert vibe.vibe_check(state, _Judge()) is None
@@ -565,8 +567,8 @@ async def test_multiple_violations_picks_first_actionable(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="plan")],
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
         # Temporal exhausted; geographic has budget left.
         revision_counts={"temporal_coherence": MAX_REVISIONS_PER_REASON},
@@ -675,10 +677,12 @@ def test_nearby_zero_similarity_does_not_emit_low_similarity() -> None:
     only."""
     from app.agent.revision import _diagnose_one
 
-    zero_sim_result = [make_hit(place_id="n1", similarity=0.0)]
+    zero_sim_result = [make_hit(place_id="ChIJtest_n1_aaaaaaaa", similarity=0.0)]
 
     # nearby with all-zero similarity (its normal output) → NO low_similarity
-    hint = _diagnose_one("nearby", {"args": {"place_id": "p1"}, "result": zero_sim_result})
+    hint = _diagnose_one(
+        "nearby", {"args": {"place_id": "ChIJtest_p1_aaaaaaaa"}, "result": zero_sim_result}
+    )
     assert hint is None, f"nearby must not emit low_similarity, got {hint!r}"
 
     # get_details / kg_traverse likewise exempt
@@ -716,24 +720,32 @@ async def test_diagnose_walks_every_tool_call_in_round() -> None:
             AIMessage(
                 content="",
                 tool_calls=[
-                    {"name": "semantic_search", "id": "a", "args": {"query": "x"}},
-                    {"name": "nearby", "id": "b", "args": {"place_id": "p1"}},
+                    {
+                        "name": "semantic_search",
+                        "id": "ChIJtest_a_aaaaaaaaa",
+                        "args": {"query": "x"},
+                    },
+                    {
+                        "name": "nearby",
+                        "id": "ChIJtest_b_aaaaaaaaa",
+                        "args": {"place_id": "ChIJtest_p1_aaaaaaaa"},
+                    },
                 ],
             ),
-            ToolMessage(content="<unused>", tool_call_id="a"),
-            ToolMessage(content="<unused>", tool_call_id="b"),
+            ToolMessage(content="<unused>", tool_call_id="ChIJtest_a_aaaaaaaaa"),
+            ToolMessage(content="<unused>", tool_call_id="ChIJtest_b_aaaaaaaaa"),
         ],
         scratch={
             # First call returned [] (bad); second returned a healthy hit.
             "semantic_search": [
-                {"args": {"query": "x"}, "result": [], "step": 0, "id": "a"},
+                {"args": {"query": "x"}, "result": [], "step": 0, "id": "ChIJtest_a_aaaaaaaaa"},
             ],
             "nearby": [
                 {
-                    "args": {"place_id": "p1"},
+                    "args": {"place_id": "ChIJtest_p1_aaaaaaaa"},
                     "result": [_hit()],
                     "step": 0,
-                    "id": "b",
+                    "id": "ChIJtest_b_aaaaaaaaa",
                 },
             ],
         },
@@ -806,13 +818,13 @@ def test_hint_for_violation_maps_each_check(
     state = ItineraryState(
         stops=[
             make_stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="A",
                 rationale="Walking-distance alternative for X",
                 primary_type="American Restaurant",
             ),
             make_stop(
-                "p2",
+                "ChIJtest_p2_aaaaaaaa",
                 name="B",
                 rationale="Walking-distance alternative for Y",
                 primary_type="American Restaurant",
@@ -852,13 +864,13 @@ def test_first_misaligned_stop_index_returns_first_offender() -> None:
     state = ItineraryState(
         stops=[
             make_stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu offers a tasting menu",
                 primary_type="Sushi Restaurant",
             ),
             make_stop(
-                "p2",
+                "ChIJtest_p2_aaaaaaaa",
                 name="Stookey's",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
                 primary_type="Cocktail Bar",
@@ -876,7 +888,7 @@ def test_first_misaligned_stop_index_handles_none_primary_type() -> None:
     state = ItineraryState(
         stops=[
             make_stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Mystery Spot",
                 rationale="A pleasant place with great vibes",
                 primary_type=None,
@@ -904,13 +916,13 @@ def test_hint_for_violation_rationale_misaligned_targets_stop_index() -> None:
     state = ItineraryState(
         stops=[
             make_stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu offers a tasting menu",
                 primary_type="Sushi Restaurant",
             ),
             make_stop(
-                "p2",
+                "ChIJtest_p2_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
                 primary_type="American Restaurant",
@@ -946,7 +958,7 @@ async def test_revision_emits_rationale_misaligned_on_closure_placeholder_bleed(
         messages=[HumanMessage(content="plan a date")],
         stops=[
             make_stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
                 primary_type="American Restaurant",
@@ -987,7 +999,7 @@ async def test_revision_rationale_misaligned_respects_retry_budget(
         messages=[HumanMessage(content="plan a date")],
         stops=[
             make_stop(
-                "p1",
+                "ChIJtest_p1_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
                 primary_type="American Restaurant",
@@ -1015,8 +1027,12 @@ async def test_diagnose_pairs_by_tool_call_id() -> None:
             AIMessage(
                 content="",
                 tool_calls=[
-                    {"name": "nearby", "id": "first", "args": {"place_id": "p1"}},
-                    {"name": "nearby", "id": "second", "args": {"place_id": "p2"}},
+                    {"name": "nearby", "id": "first", "args": {"place_id": "ChIJtest_p1_aaaaaaaa"}},
+                    {
+                        "name": "nearby",
+                        "id": "second",
+                        "args": {"place_id": "ChIJtest_p2_aaaaaaaa"},
+                    },
                 ],
             ),
             ToolMessage(content="<unused>", tool_call_id="first"),
@@ -1025,10 +1041,15 @@ async def test_diagnose_pairs_by_tool_call_id() -> None:
         scratch={
             "nearby": [
                 # First (id="first") was bad — empty.
-                {"args": {"place_id": "p1"}, "result": [], "step": 0, "id": "first"},
+                {
+                    "args": {"place_id": "ChIJtest_p1_aaaaaaaa"},
+                    "result": [],
+                    "step": 0,
+                    "id": "first",
+                },
                 # Second (id="second") was healthy.
                 {
-                    "args": {"place_id": "p2"},
+                    "args": {"place_id": "ChIJtest_p2_aaaaaaaa"},
                     "result": [_hit()],
                     "step": 0,
                     "id": "second",
@@ -1066,8 +1087,8 @@ async def test_vibe_pass_injects_revision_when_below_threshold(monkeypatch) -> N
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
     fake = _make_fake(
@@ -1102,8 +1123,8 @@ async def test_vibe_pass_skips_when_judge_none(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
     fake = _make_fake([AIMessage(content="my plan", tool_calls=[])])
@@ -1126,8 +1147,8 @@ async def test_vibe_pass_respects_retry_budget(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
         revision_counts={"vibe_mismatch": MAX_REVISIONS_PER_REASON},
     )
@@ -1157,8 +1178,8 @@ async def test_vibe_pass_skipped_when_violations_present(monkeypatch) -> None:
     state = ItineraryState(
         messages=[HumanMessage(content="hi")],
         stops=[
-            make_stop("p1", name="A"),
-            make_stop("p2", name="B"),
+            make_stop("ChIJtest_p1_aaaaaaaa", name="A"),
+            make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
         revision_counts={"geographic_coherence": MAX_REVISIONS_PER_REASON},  # exhausted
     )

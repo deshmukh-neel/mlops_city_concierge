@@ -55,7 +55,7 @@ def _fake_details(
     name: str = "Foo",
 ) -> PlaceDetails:
     return PlaceDetails(
-        place_id="p1",
+        place_id="ChIJtest_p1_aaaaaaaa",
         name=name,
         source="google_places",
         similarity=0.0,
@@ -69,7 +69,7 @@ def test_resy_url_includes_date_and_seats() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details("https://resy.com/cities/sf/foo"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=4)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=4)
     assert b.provider == "resy"
     assert "date=2026-04-26" in b.booking_url
     assert "seats=4" in b.booking_url
@@ -81,7 +81,7 @@ def test_tock_url_includes_date_size_time() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details("https://www.exploretock.com/bar"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.provider == "tock"
     # urlencode percent-encodes the colon in 19:30
     assert "time=19%3A30" in b.booking_url
@@ -94,7 +94,7 @@ def test_opentable_url_includes_covers_and_datetime() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details("https://www.opentable.com/baz"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=3)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=3)
     assert b.provider == "opentable"
     assert "covers=3" in b.booking_url
     # Tee+colon both percent-encoded by urlencode
@@ -106,7 +106,7 @@ def test_appends_with_ampersand_when_url_already_has_query() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details("https://resy.com/cities/sf/foo?ref=share"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     # Existing ?ref=share preserved, our params appended with &
     assert "?ref=share&" in b.booking_url
     assert b.booking_url.count("?") == 1
@@ -120,7 +120,7 @@ def test_preserves_fragment_when_appending_query() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details("https://resy.com/cities/sf/foo#book"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.booking_url.endswith("#book")
     assert "date=2026-04-26" in b.booking_url
     assert "seats=2" in b.booking_url
@@ -136,7 +136,7 @@ def test_overwrites_existing_param_with_same_key() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details("https://resy.com/cities/sf/foo?date=lunch"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert "date=2026-04-26" in b.booking_url
     assert "date=lunch" not in b.booking_url
     # Single `date=` token, not two.
@@ -150,7 +150,7 @@ def test_handles_trailing_question_mark_cleanly() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details("https://resy.com/cities/sf/foo?"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert "?&" not in b.booking_url
     assert "date=2026-04-26" in b.booking_url
 
@@ -167,7 +167,7 @@ def test_unknown_provider_with_website_returns_website_unchanged() -> None:
             maps_uri="https://maps.google.com/?cid=42",
         ),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.provider == "unknown"
     assert b.booking_url == "https://random.cafe"
     # Notes must steer the user toward finding the reservations page.
@@ -183,7 +183,7 @@ def test_no_provider_no_website_falls_back_to_maps_uri() -> None:
             maps_uri="https://maps.google.com/?cid=42",
         ),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.provider == "google_maps"
     assert b.booking_url == "https://maps.google.com/?cid=42"
 
@@ -193,7 +193,7 @@ def test_no_website_no_maps_uri_falls_back_to_maps_search() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details(website_uri=None, maps_uri=None, name="Tony's"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.provider == "google_maps"
     assert "google.com/maps/search" in b.booking_url
     # urlencode escapes the apostrophe to %27.
@@ -209,7 +209,7 @@ def test_maps_search_encodes_ampersand_in_venue_name() -> None:
             website_uri=None, maps_uri=None, name="Tartine Manufactory & Bakery"
         ),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.provider == "google_maps"
     # The literal `&` must NOT appear inside the query token; only `&` joining
     # api=1 and query=... is allowed.
@@ -227,7 +227,7 @@ def test_maps_search_encodes_unicode_in_venue_name() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details(website_uri=None, maps_uri=None, name="Café Joséphine"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.provider == "google_maps"
     # Non-ASCII chars survive only as percent-encoded bytes.
     assert "Caf" in b.booking_url
@@ -242,7 +242,7 @@ def test_maps_search_encodes_plus_in_venue_name() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details(website_uri=None, maps_uri=None, name="Mr.+Mrs Bun"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.provider == "google_maps"
     # '+' inside the venue name escaped as %2B; raw '+' would be misread as space.
     assert "%2B" in b.booking_url
@@ -258,7 +258,7 @@ def test_empty_website_string_treated_as_no_website() -> None:
             maps_uri="https://maps.google.com/?cid=99",
         ),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.provider == "google_maps"
     assert b.booking_url == "https://maps.google.com/?cid=99"
 
@@ -276,7 +276,7 @@ def test_notes_match_provider() -> None:
         "app.tools.booking.get_details",
         return_value=_fake_details("https://resy.com/cities/sf/foo"),
     ):
-        b = propose_booking("p1", datetime(2026, 4, 26, 19, 30), party_size=2)
+        b = propose_booking("ChIJtest_p1_aaaaaaaa", datetime(2026, 4, 26, 19, 30), party_size=2)
     assert b.notes is not None
     assert "Resy" in b.notes
 
@@ -298,7 +298,11 @@ def _grounded_state(place_ids: list[str], party_size: int = 2) -> ItineraryState
         for pid in place_ids
     ]
     return ItineraryState(
-        scratch={"semantic_search": [{"args": {}, "result": hits, "step": 0, "id": "s1"}]},
+        scratch={
+            "semantic_search": [
+                {"args": {}, "result": hits, "step": 0, "id": "ChIJtest_s1_aaaaaaaa"}
+            ]
+        },
         constraints=UserConstraints(party_size=party_size, when=datetime(2026, 5, 7, 19, 0)),
     )
 
@@ -313,17 +317,19 @@ def _patch_commit_details_many(place_id: str, details: PlaceDetails):
 
 def test_functional_commit_attaches_resy_url_via_real_propose_booking() -> None:
     """Resy detection + URL params + Stop enrichment all wired together."""
-    state = _grounded_state(["p1"], party_size=4)
+    state = _grounded_state(["ChIJtest_p1_aaaaaaaa"], party_size=4)
     raw_stops = [
         {
-            "place_id": "p1",
+            "place_id": "ChIJtest_p1_aaaaaaaa",
             "name": "Place p1",
             "rationale": "dinner",
             "source": "google_places",
             "arrival_time": datetime(2026, 5, 7, 19, 30).isoformat(),
         }
     ]
-    with _patch_commit_details_many("p1", _fake_details("https://resy.com/cities/sf/foo")):
+    with _patch_commit_details_many(
+        "ChIJtest_p1_aaaaaaaa", _fake_details("https://resy.com/cities/sf/foo")
+    ):
         committed, _ = commit_stops(state, raw_stops)
 
     assert len(committed) == 1
@@ -338,12 +344,17 @@ def test_functional_falls_back_to_venue_website_for_non_provider_site() -> None:
     """A venue whose website isn't Resy/Tock/OpenTable still gets a usable
     booking_url — the venue's own website (more useful than a map pin, since
     it likely hosts a reservations page)."""
-    state = _grounded_state(["p1"])
+    state = _grounded_state(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
-        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+        {
+            "place_id": "ChIJtest_p1_aaaaaaaa",
+            "name": "Place p1",
+            "rationale": "x",
+            "source": "google_places",
+        },
     ]
     with _patch_commit_details_many(
-        "p1",
+        "ChIJtest_p1_aaaaaaaa",
         _fake_details(
             website_uri="https://random-cafe.example",
             maps_uri="https://maps.google.com/?cid=999",
@@ -358,12 +369,17 @@ def test_functional_falls_back_to_venue_website_for_non_provider_site() -> None:
 
 def test_functional_falls_back_to_maps_when_no_website() -> None:
     """No website at all → Google Maps deep-link from places_raw.maps_uri."""
-    state = _grounded_state(["p1"])
+    state = _grounded_state(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
-        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+        {
+            "place_id": "ChIJtest_p1_aaaaaaaa",
+            "name": "Place p1",
+            "rationale": "x",
+            "source": "google_places",
+        },
     ]
     with _patch_commit_details_many(
-        "p1",
+        "ChIJtest_p1_aaaaaaaa",
         _fake_details(website_uri=None, maps_uri="https://maps.google.com/?cid=999"),
     ):
         committed, _ = commit_stops(state, raw_stops)
@@ -376,11 +392,18 @@ def test_functional_falls_back_to_maps_when_no_website() -> None:
 def test_functional_uses_constraints_when_arrival_time_missing() -> None:
     """When the LLM commits a stop without arrival_time, enrichment should
     fall back to constraints.when so the URL still has a date param."""
-    state = _grounded_state(["p1"])
+    state = _grounded_state(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
-        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+        {
+            "place_id": "ChIJtest_p1_aaaaaaaa",
+            "name": "Place p1",
+            "rationale": "x",
+            "source": "google_places",
+        },
     ]
-    with _patch_commit_details_many("p1", _fake_details("https://www.opentable.com/baz")):
+    with _patch_commit_details_many(
+        "ChIJtest_p1_aaaaaaaa", _fake_details("https://www.opentable.com/baz")
+    ):
         committed, _ = commit_stops(state, raw_stops)
 
     stop = committed[0]

@@ -167,7 +167,7 @@ def test_nearby_excludes_anchor_and_filters_distance(patch_get_conn) -> None:
     cursor = patch_get_conn(
         [
             {
-                "place_id": "neighbor1",
+                "place_id": "ChIJtest_neighbor1_a",
                 "name": "Bar Next Door",
                 "primary_type": "bar",
                 "formatted_address": "601 Guerrero St",
@@ -278,27 +278,29 @@ def test_get_details_many_empty_input_skips_db_call() -> None:
 def test_get_details_many_returns_keyed_dict(patch_get_conn) -> None:
     """The contract: input list of N place_ids → output dict of up-to-N rows
     keyed by place_id. Order doesn't matter; presence does."""
-    cursor = patch_get_conn([_details_row("p1"), _details_row("p2")])
-    out = get_details_many(["p1", "p2"])
+    cursor = patch_get_conn(
+        [_details_row("ChIJtest_p1_aaaaaaaa"), _details_row("ChIJtest_p2_aaaaaaaa")]
+    )
+    out = get_details_many(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
 
-    assert set(out.keys()) == {"p1", "p2"}
-    assert out["p1"].place_id == "p1"
-    assert out["p2"].place_id == "p2"
-    assert out["p1"].website_uri == "https://p1.example"
+    assert set(out.keys()) == {"ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"}
+    assert out["ChIJtest_p1_aaaaaaaa"].place_id == "ChIJtest_p1_aaaaaaaa"
+    assert out["ChIJtest_p2_aaaaaaaa"].place_id == "ChIJtest_p2_aaaaaaaa"
+    assert out["ChIJtest_p1_aaaaaaaa"].website_uri == "https://ChIJtest_p1_aaaaaaaa.example"
     # Single SQL execute — this is the whole point of batching vs N round-trips.
     assert cursor.executed_sql.count("ANY") == 1
     # Params: a single list of place_ids passed as the ANY operand.
-    assert cursor.executed_params == [["p1", "p2"]]
+    assert cursor.executed_params == [["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]]
 
 
 def test_get_details_many_omits_missing_ids_silently(patch_get_conn) -> None:
     """If a requested place_id isn't in the DB, it's simply absent from the
     result dict — no error, no None placeholder. Callers (booking enrichment)
     use `dict.get(...)` and skip on miss."""
-    patch_get_conn([_details_row("p1")])  # p2 not in DB
-    out = get_details_many(["p1", "p2"])
-    assert "p1" in out
-    assert "p2" not in out
+    patch_get_conn([_details_row("ChIJtest_p1_aaaaaaaa")])  # p2 not in DB
+    out = get_details_many(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
+    assert "ChIJtest_p1_aaaaaaaa" in out
+    assert "ChIJtest_p2_aaaaaaaa" not in out
 
 
 # --- dist_m projection (closure-aware swap) -------------------------------
@@ -308,7 +310,7 @@ def test_place_hit_dist_m_defaults_to_none() -> None:
     """Backward compatibility: semantic_search rows have no dist_m column,
     so PlaceHit must accept missing dist_m and default to None."""
     hit = PlaceHit(
-        place_id="p1",
+        place_id="ChIJtest_p1_aaaaaaaa",
         name="x",
         source="google_places",
         similarity=0.7,
@@ -322,7 +324,7 @@ def test_nearby_projects_dist_m_in_select_and_returns_it(patch_get_conn) -> None
     cursor = patch_get_conn(
         [
             {
-                "place_id": "p2",
+                "place_id": "ChIJtest_p2_aaaaaaaa",
                 "name": "near",
                 "primary_type": "Bar",
                 "formatted_address": "...",
@@ -338,7 +340,7 @@ def test_nearby_projects_dist_m_in_select_and_returns_it(patch_get_conn) -> None
             }
         ]
     )
-    hits = nearby(place_id="anchor", radius_m=800)
+    hits = nearby(place_id="ChIJtest_anchor_aaaa", radius_m=800)
     # The outer SELECT must project dist_m alongside the other fields.
     assert "dist_m" in cursor.executed_sql
     assert hits[0].dist_m == 250.0

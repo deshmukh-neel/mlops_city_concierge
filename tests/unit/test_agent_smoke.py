@@ -84,10 +84,15 @@ def test_retrieval_tools_ignore_slot_index_for_underlying_calls(monkeypatch) -> 
 
     tools = {tool.name: tool for tool in all_tools()}
     assert tools["semantic_search"].invoke({"query": "omakase", "slot_index": 0}) == []
-    assert tools["nearby"].invoke({"place_id": "p1", "slot_index": 1}) == []
+    assert tools["nearby"].invoke({"place_id": "ChIJtest_p1_aaaaaaaa", "slot_index": 1}) == []
 
     assert captured["semantic_search"] == {"query": "omakase", "filters": None, "k": 8}
-    assert captured["nearby"] == {"place_id": "p1", "radius_m": 800, "filters": None, "k": 8}
+    assert captured["nearby"] == {
+        "place_id": "ChIJtest_p1_aaaaaaaa",
+        "radius_m": 800,
+        "filters": None,
+        "k": 8,
+    }
 
 
 async def test_build_agent_graph_compiles_and_runs_happy_path() -> None:
