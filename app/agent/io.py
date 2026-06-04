@@ -86,22 +86,12 @@ def state_to_cards(state: ItineraryState) -> list[dict[str, Any]]:
 # committing") — PATTERNS.md Caveat #8 pins this so the refinement turn
 # does not pull against `commit_itinerary`'s decisiveness directive.
 _REFINEMENT_PREAMBLE: str = (
-    "REFINEMENT TURN — the user is editing ONE stop in the itinerary below. "
-    "Each entry has a 1-indexed `slot`, the byte-for-byte `place_id` you "
-    "previously committed, and the planned `arrival_time`. "
-    "REQUIRED behavior on this turn: "
-    "(1) keep the SAME number of stops — do not drop or add stops; "
-    "(2) re-use every `place_id` byte-for-byte EXCEPT the single stop the "
-    "user is asking to change in their next message; "
-    "(3) for the stop being changed, find ONE replacement that matches the "
-    "SAME primary_type / Google Place category as the original — if the "
-    "original is a Cocktail Bar do not substitute a Wine Bar, if the "
-    "original is a Restaurant do not substitute a Cafe; only adjust the "
-    "specific attribute the user asked to change (price, distance, etc.); "
-    "(4) call `commit_itinerary` with the full updated stop list — do not "
-    "ask the user any clarifying questions before committing, the prior "
-    "plan plus the user's edit instruction is sufficient. "
-    "Downstream `arrival_time` values may shift; nothing else changes."
+    "REFINEMENT TURN — the user is editing one stop in the itinerary below. "
+    "The fenced JSON block carries the prior committed plan: each entry has "
+    "a 1-indexed `slot`, the `place_id` of that stop, and its planned "
+    "`arrival_time`. The user's next message names what to change. "
+    "Produce the updated itinerary by calling the `commit_itinerary` tool "
+    "with the full stop list."
 )
 
 
