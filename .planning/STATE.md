@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
-current_phase: Not started (roadmap created, ready to plan Phase 7)
+current_phase: 07
 status: executing
-last_updated: "2026-06-04T03:08:25.355Z"
-last_activity: 2026-06-04 -- Phase 7 planning complete
+last_updated: "2026-06-04T03:20:29.654Z"
+last_activity: 2026-06-04 -- Phase 07 execution started
 progress:
   total_phases: 5
   completed_phases: 0
@@ -19,7 +19,7 @@ progress:
 **Project:** City Concierge
 **Initialized:** 2026-05-14
 **Active milestone:** v2.1 Reasoning-Model Compat (started 2026-06-03)
-**Current phase:** Not started (roadmap created, ready to plan Phase 7)
+**Current phase:** 07
 
 ## Project Reference
 
@@ -28,7 +28,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0)
 See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** v2.1 Reasoning-Model Compat — fix `_prune_for_llm` so reasoning models can be agent drivers; decouple prompt from rubric; wire Anthropic; regen honest cross-model baselines.
+**Current focus:** Phase 07 — prompt-rubric-decoupling
 
 ## Status
 
@@ -57,7 +57,7 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 
 ## Current Position
 
-Phase: Not started (roadmap created)
-Plan: —
-Status: Ready to execute
-Last activity: 2026-06-04 -- Phase 7 planning complete
+Phase: 07 (prompt-rubric-decoupling) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 07
+Last activity: 2026-06-04 -- Phase 07 execution started
