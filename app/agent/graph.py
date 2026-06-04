@@ -26,6 +26,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
+from app.agent.adapters import ADAPTERS, NoOpAdapter, ProviderAdapter
 from app.agent.commit import commit_stops
 from app.agent.critique import vibe
 from app.agent.planning import chain_arrival_times
@@ -250,6 +251,8 @@ def build_agent_graph(
     llm: BaseChatModel,
     max_steps: int = 8,
     judge_llm: BaseChatModel | None = None,
+    *,
+    provider: str = "openai",
 ):
     """Construct the agent graph.
 
@@ -257,10 +260,23 @@ def build_agent_graph(
     and EVAL_VIBE_CRITIQUE_ENABLED=true, one is constructed via
     vibe.make_judge() at graph-build time. If construction fails (missing
     creds, unknown provider) the vibe pass is silently skipped.
+
+    `provider` (keyword-only, default "openai") selects the
+    `ProviderAdapter` that `plan()` closes over for reasoning-state
+    round-trip. Resolved ONCE via `ADAPTERS.get(provider, NoOpAdapter())`
+    at graph-build time (D-08-04, D-08-16). Unknown providers fall back to
+    `NoOpAdapter` rather than raise — defensive default for Phase 8 where
+    every registered entry is `NoOpAdapter` anyway (D-08-08); Phase 9
+    sub-phases may add stricter validation when real adapters land.
     """
     tools = all_tools()
     llm_with_tools = llm.bind_tools(tools)
     tool_by_name = {t.name: t for t in tools}
+    # D-08-04 / D-08-16: resolve the ProviderAdapter once at graph-build time
+    # and close it over plan(). Phase 8 ships NoOpAdapter for every provider
+    # in SUPPORTED_PROVIDERS (D-08-08), so this is byte-identical to pre-Phase-8
+    # behavior on the gpt-4o-mini path.
+    adapter: ProviderAdapter = ADAPTERS.get(provider, NoOpAdapter())
     if judge_llm is None and vibe.is_enabled():
         judge_llm = vibe.make_judge()
 
@@ -281,7 +297,31 @@ def build_agent_graph(
         # per tool name so token cost stays linear in tool *kinds*, not in
         # tool *calls*. Full history is preserved on state.messages for tracing.
         messages_for_llm = _prune_for_llm(messages_in)
+
+        # D-08-05 / D-08-06: POST-PRUNE reasoning-state replay. Read the most
+        # recent AIMessage's _reasoning_state kwarg (stashed by the previous
+        # turn's capture, preserved across the _RECENT_TOOL_EXCHANGES_KEPT
+        # cutoff by D-08-07's additional_kwargs forwarding in _prune_for_llm).
+        # The adapter decides how to inject it; NoOpAdapter returns the list
+        # unchanged so this is byte-identical for non-reasoning providers.
+        captured_state = None
+        for m in reversed(messages_for_llm):
+            if isinstance(m, AIMessage):
+                captured_state = m.additional_kwargs.get("_reasoning_state")
+                break
+        messages_for_llm = adapter.replay_reasoning_state(messages_for_llm, captured_state)
+
         ai = await llm_with_tools.ainvoke(messages_for_llm)
+
+        # D-08-05 / D-08-06: capture the new turn's reasoning state and stash
+        # it on the just-returned AIMessage's additional_kwargs. Storage lives
+        # on the AIMessage (NOT on ItineraryState, NOT in a module-level dict)
+        # so it survives the LangGraph add_messages reducer between turns —
+        # load-bearing for the REASON-05 conformance gate in Plan 04.
+        state_payload = adapter.capture_reasoning_state(ai)
+        if state_payload is not None:
+            ai.additional_kwargs["_reasoning_state"] = state_payload
+
         new_messages: list[BaseMessage] = []
         if len(messages_in) > len(state.messages):
             new_messages.append(messages_in[0])
