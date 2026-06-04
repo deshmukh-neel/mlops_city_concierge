@@ -36,7 +36,7 @@ Empirical anchor gate: `gpt-5-mini × refinement_cheaper × prod × flag-on` com
 Without this, every new reasoning model the field ships in 2026 is permanently unusable on this codebase.
 
 - [x] **Phase 7: Prompt/Rubric Decoupling** — Behavioral rules move from prompt body to scorer; no regression on v2.0 anchor; serves as falsifier for Phase 8 architectural diagnosis (completed 2026-06-04)
-- [ ] **Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness** — Typed `ProviderAdapter` contract + per-provider conformance tests + `_prune_for_llm` refactor; doubles as harness-swap decision gate
+- [x] **Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness** — Typed `ProviderAdapter` contract + per-provider conformance tests + `_prune_for_llm` refactor; doubles as harness-swap decision gate (completed 2026-06-04)
 - [ ] **Phase 9: Per-Provider State Preservation Implementations** — One sub-phase each: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (+ Anthropic wiring) → Gemini 3 (experimental); milestone anchor gate lands here
 - [ ] **Phase 10: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open; add three new cross-model anchors; lock per-family merge gates in CI
 
@@ -87,7 +87,7 @@ Plans:
   5. The conformance test passes end-to-end **including through `graph.invoke`** for at least the gpt-5 family provider (REASON-05 — harness-swap decision gate). If the isolated conformance test passes but `graph.invoke` drops state, this criterion is explicitly marked FAILED, a Phase 8 blocker is filed, and v2.1 replans around a custom imperative loop before Phase 9 starts. This branch point is not a footnote — it gates whether Phase 9 proceeds as written.
   6. After the `_prune_for_llm` refactor, all v2.0 baselines (`openai/gpt-4o-mini × refinement_cheaper` and all other committed baselines) do not regress; the existing staleness CI hard gate (`scripts/check_baselines_fresh.py`) continues to pass (REASON-06 no-regression gate).
 
-**Plans:** 3/5 plans executed
+**Plans:** 5/5 plans complete
 Plans:
 **Wave 1**
 
@@ -100,8 +100,8 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 08-04-conformance-harness-and-reason-05-PLAN.md — Parametrized 4-shape conformance harness + REASON-05 graph.ainvoke gate test + pytest marker quarantine + Makefile target + conditional 08-REASON-05-BLOCKER.md (REASON-02, REASON-03, REASON-05)
-- [ ] 08-05-byte-identity-regression-PLAN.md — Byte-identity regression test for the NoOp adapter path on gpt-4o-mini-shaped inputs + committed fixture (REASON-06)
+- [x] 08-04-conformance-harness-and-reason-05-PLAN.md — Parametrized 4-shape conformance harness + REASON-05 graph.ainvoke gate test + pytest marker quarantine + Makefile target + conditional 08-REASON-05-BLOCKER.md (REASON-02, REASON-03, REASON-05)
+- [x] 08-05-byte-identity-regression-PLAN.md — Byte-identity regression test for the NoOp adapter path on gpt-4o-mini-shaped inputs + committed fixture (REASON-06)
 
 ### Phase 9: Per-Provider State Preservation Implementations
 
@@ -143,7 +143,7 @@ Plans:
 | 5. Rationale-Stop Alignment Fix                | v2.0      | 2/2            | Complete    | 2026-05-27 |
 | 6. Minimal-Edit Refinement                     | v2.0      | 7/7            | Complete    | 2026-06-03 |
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
-| 8. Reasoning-State Contract + Harness          | v2.1      | 3/5 | In Progress|  |
+| 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete   | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 0/TBD          | Pending     | -          |
 | 10. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
