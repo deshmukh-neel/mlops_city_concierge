@@ -35,7 +35,7 @@
 Empirical anchor gate: `gpt-5-mini × refinement_cheaper × prod × flag-on` commits 3 stops in median 5/5 runs at temp=1.0 (currently 0/1).
 Without this, every new reasoning model the field ships in 2026 is permanently unusable on this codebase.
 
-- [ ] **Phase 7: Prompt/Rubric Decoupling** — Behavioral rules move from prompt body to scorer; no regression on v2.0 anchor; serves as falsifier for Phase 8 architectural diagnosis
+- [x] **Phase 7: Prompt/Rubric Decoupling** — Behavioral rules move from prompt body to scorer; no regression on v2.0 anchor; serves as falsifier for Phase 8 architectural diagnosis (completed 2026-06-04)
 - [ ] **Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness** — Typed `ProviderAdapter` contract + per-provider conformance tests + `_prune_for_llm` refactor; doubles as harness-swap decision gate
 - [ ] **Phase 9: Per-Provider State Preservation Implementations** — One sub-phase each: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (+ Anthropic wiring) → Gemini 3 (experimental); milestone anchor gate lands here
 - [ ] **Phase 10: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open; add three new cross-model anchors; lock per-family merge gates in CI
@@ -55,23 +55,23 @@ Without this, every new reasoning model the field ships in 2026 is permanently u
   4. `openai/gpt-4o-mini × refinement_cheaper` median score is >= the pre-Phase-7 v2.0 baseline (no regression on the v2.0 prod anchor; PROMPT-04 gate).
   5. `gpt-5-mini × refinement_cheaper` median score is > 0 across 5 runs at temp=1.0 — any non-zero confirms prompt-coupling materially contributed; a flat 0/5 confirms architectural state-loss dominates and Phase 9 scope stays at full (PROMPT-05 falsifier signal).
 
-**Plans:** 7 plans
+**Plans:** 7/7 plans complete
 Plans:
 **Wave 1**
 
-- [ ] 07-01-prompt-rewrite-PLAN.md — Delete SYSTEM_PROMPT rule 10 and rewrite `_REFINEMENT_PREAMBLE` as task-only (PROMPT-01, PROMPT-02)
-- [ ] 07-02-scratch-payload-extend-PLAN.md — Extend `prior_committed_stops` scratch entries with `primary_type` and update `ExpectedRefinement` docstring (PROMPT-03)
-- [ ] 07-03-gpt5-mini-matrix-entry-PLAN.md — Add `openai/gpt-5-mini` as logged-not-gated entry in `configs/eval_matrix_refinement.yaml` (PROMPT-05 wiring)
+- [x] 07-01-prompt-rewrite-PLAN.md — Delete SYSTEM_PROMPT rule 10 and rewrite `_REFINEMENT_PREAMBLE` as task-only (PROMPT-01, PROMPT-02)
+- [x] 07-02-scratch-payload-extend-PLAN.md — Extend `prior_committed_stops` scratch entries with `primary_type` and update `ExpectedRefinement` docstring (PROMPT-03)
+- [x] 07-03-gpt5-mini-matrix-entry-PLAN.md — Add `openai/gpt-5-mini` as logged-not-gated entry in `configs/eval_matrix_refinement.yaml` (PROMPT-05 wiring)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 07-04-scorer-category-extend-PLAN.md — Extend `refinement_minimal_edit` Branch 5 with target-slot `primary_type` check per D-07-07 (PROMPT-03)
-- [ ] 07-05-scorer-tests-and-grep-gate-PLAN.md — Unit tests: PROMPT-02 grep gate + six new `TestRefinementMinimalEdit` methods + prod-threading scratch assertion (PROMPT-02, PROMPT-03)
-- [ ] 07-06-chat-refinement-integration-test-PLAN.md — Functional test in `TestChatRefinementInjection` driving real LangGraph + `/chat` with scripted-LLM commit (PROMPT-01)
+- [x] 07-04-scorer-category-extend-PLAN.md — Extend `refinement_minimal_edit` Branch 5 with target-slot `primary_type` check per D-07-07 (PROMPT-03)
+- [x] 07-05-scorer-tests-and-grep-gate-PLAN.md — Unit tests: PROMPT-02 grep gate + six new `TestRefinementMinimalEdit` methods + prod-threading scratch assertion (PROMPT-02, PROMPT-03)
+- [x] 07-06-chat-refinement-integration-test-PLAN.md — Functional test in `TestChatRefinementInjection` driving real LangGraph + `/chat` with scripted-LLM commit (PROMPT-01)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 07-07-rebaseline-and-falsifier-PLAN.md — Snapshot pre-Phase-7 baseline; re-run `make eval-matrix-refinement RUNS=5`; evaluate PROMPT-04 vs snapshot + PROMPT-05 falsifier signal (PROMPT-04, PROMPT-05)
+- [x] 07-07-rebaseline-and-falsifier-PLAN.md — Snapshot pre-Phase-7 baseline; re-run `make eval-matrix-refinement RUNS=5`; evaluate PROMPT-04 vs snapshot + PROMPT-05 falsifier signal (PROMPT-04, PROMPT-05)
 
 ### Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness
 
@@ -128,7 +128,7 @@ Plans:
 | 4. Category Compliance Fix                     | v2.0      | 7/7            | Complete    | 2026-05-23 |
 | 5. Rationale-Stop Alignment Fix                | v2.0      | 2/2            | Complete    | 2026-05-27 |
 | 6. Minimal-Edit Refinement                     | v2.0      | 7/7            | Complete    | 2026-06-03 |
-| 7. Prompt/Rubric Decoupling                    | v2.1      | 0/7            | Pending     | -          |
+| 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
 | 8. Reasoning-State Contract + Harness          | v2.1      | 0/TBD          | Pending     | -          |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 0/TBD          | Pending     | -          |
 | 10. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
