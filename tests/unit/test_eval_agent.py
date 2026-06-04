@@ -1141,9 +1141,21 @@ class TestEvaluateMultiTurnProdThreading:
 
     @classmethod
     def _stops_for_pids(cls, pids: list[str]) -> list:
+        """Build fixture Stops for the prod-threading scratch contract tests.
+
+        Phase 7 / D-07-06 / D-07-07: every Stop gets ``primary_type="Cafe"`` so
+        the eval runner's turn-0 happy-path can populate the new
+        ``prior_committed_stops[i]["primary_type"]`` scratch field (per plan
+        07-02) with a deterministic, assertable value. The existing call sites
+        across this class (all using the no-keyword form) pick up the
+        deterministic value automatically; no test below needs to override it.
+        """
         from tests.conftest import make_stop
 
-        return [make_stop(place_id=pid, name=f"Stop {i + 1}") for i, pid in enumerate(pids)]
+        return [
+            make_stop(place_id=pid, name=f"Stop {i + 1}", primary_type="Cafe")
+            for i, pid in enumerate(pids)
+        ]
 
     class _ProdCapturingGraph:
         """Graph double for the prod-branch tests that captures every
@@ -1220,6 +1232,17 @@ class TestEvaluateMultiTurnProdThreading:
     async def test_prod_mode_injects_structured_plan_on_turn_1(self, mocker, monkeypatch) -> None:
         """Turn 1 of a prod refinement scenario must include the structured-plan
         HumanMessage when the env-var flag is ON and turn 0 committed >= 1 stop.
+
+        Phase 7 / D-07-03 + D-07-04: the task-only preamble dropped the
+        ``byte-for-byte`` behavioral prescription (it moved into
+        ``refinement_minimal_edit``). Assertions here pin the NEW preamble's
+        task-description contract instead: the ``REFINEMENT TURN`` sentinel,
+        the ``commit_itinerary`` output-channel callout, and the JSON-block
+        field names (``slot``, ``place_id``, ``arrival_time``) — none of which
+        appear on the D-07-04 forbidden-phrase list.
+
+        Phase 7 / D-07-06 extension: also pins that turn-0 prior_committed_stops
+        scratch entries now carry ``primary_type`` per entry per plan 07-02.
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
@@ -1238,9 +1261,35 @@ class TestEvaluateMultiTurnProdThreading:
         turn_one_humans = [m for m in graph.seen_messages[1] if isinstance(m, HumanMessage)]
         contents = [m.content for m in turn_one_humans if isinstance(m.content, str)]
         assert any("current_plan" in c for c in contents)
-        assert any("byte-for-byte" in c for c in contents)
+        # Phase 7 task-only preamble assertions (D-07-03): the new preamble
+        # carries the REFINEMENT TURN sentinel + commit_itinerary output-channel
+        # callout + the JSON-block field names. None of these are on the
+        # D-07-04 forbidden-phrase list.
+        assert any("REFINEMENT TURN" in c for c in contents), (
+            "Phase 7 sentinel 'REFINEMENT TURN' missing from structured-plan HumanMessage"
+        )
+        assert any("commit_itinerary" in c for c in contents), (
+            "Phase 7 output-channel callout 'commit_itinerary' missing from preamble"
+        )
+        # JSON-block field names from build_refinement_prompt_message (io.py:123-132).
+        assert any("slot" in c for c in contents)
+        assert any("place_id" in c for c in contents)
+        assert any("arrival_time" in c for c in contents)
         # Result is the expected dataclass.
         assert isinstance(result, QueryEvalResult)
+
+        # Phase 7 / D-07-06 scratch-payload extension (plan 07-02): turn-0
+        # prior_committed_stops entries carry primary_type per entry. The
+        # _stops_for_pids helper sets primary_type='Cafe' on every Stop, so
+        # the scratch echoes that value into each entry.
+        prior = final_state.scratch["prior_committed_stops"]
+        assert all("primary_type" in entry for entry in prior), (
+            "Phase 7 / D-07-06: primary_type missing from one or more scratch entries"
+        )
+        assert all(entry["primary_type"] == "Cafe" for entry in prior), (
+            "Phase 7 / D-07-06: scratch primary_type does not match Stop.primary_type "
+            "from the eval runner's turn-0 commit"
+        )
 
     @pytest.mark.asyncio
     async def test_prod_mode_message_byte_identical_to_chat_helper_output(
@@ -1427,6 +1476,12 @@ class TestEvaluateMultiTurnProdThreading:
         """Caveat #6 + N-2: FINAL returned state carries ALL THREE scratch keys
         — refinement_context=True, prior_committed_stops (list[dict]), and
         refinement_target_slot (int).
+
+        Phase 7 / D-07-06 extension (plan 07-02 / PROMPT-03): each
+        ``prior_committed_stops`` entry now also carries a ``primary_type``
+        field sourced from ``Stop.primary_type``. The ``_stops_for_pids``
+        helper sets ``primary_type='Cafe'`` on every fixture stop so the
+        assertion below is deterministic.
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
@@ -1446,6 +1501,15 @@ class TestEvaluateMultiTurnProdThreading:
         assert prior[0]["place_id"] == self._PID_1
         assert prior[1]["slot"] == 2
         assert prior[1]["place_id"] == self._PID_2
+        # Phase 7 / D-07-06: primary_type lives on every scratch entry now.
+        assert "primary_type" in prior[0], (
+            "Phase 7 / D-07-06: primary_type missing from scratch entry 0"
+        )
+        assert prior[0]["primary_type"] == "Cafe"
+        assert "primary_type" in prior[1]
+        assert prior[1]["primary_type"] == "Cafe"
+        assert "primary_type" in prior[2]
+        assert prior[2]["primary_type"] == "Cafe"
 
     @pytest.mark.asyncio
     async def test_prod_mode_raises_on_missing_expected_refinement(
