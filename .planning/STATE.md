@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Production Readiness
 current_phase: 6
-status: gate_passed_partial
-last_updated: "2026-06-03T23:15:00.000Z"
-last_activity: 2026-06-03 -- Phase 06 D-06-09 part-1 gate PASSES after 4 follow-up fixes + 5-run re-baseline
+status: closed_with_notes
+last_updated: "2026-06-04T00:00:00.000Z"
+last_activity: 2026-06-03 -- Phase 06 closed; v2.0 milestone shippable; v2.1 scoped (reasoning-model compat)
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 29
   completed_plans: 29
-  percent: 96
+  percent: 100
 ---
 
 # Project State
@@ -29,7 +29,7 @@ progress:
 - [x] Re-baseline complete: 5 live runs against merged main confirm 3 real bugs (category compliance, rationale-stop alignment, minimal-edit refinement). Step-budget tuning DROPPED — didn't reproduce. v2.0 = 5 phases, not 6.
 - [x] REQUIREMENTS.md written (v2.0-scoped, grounded in research + re-baseline, 21 requirements across 5 categories)
 - [x] ROADMAP.md written (Phases 2-6; phase numbering continues from v1.0 Phase 1)
-- [~] Phase 6: 7/7 plans shipped + 4 follow-up fixes + 5-run re-baseline. D-06-09 part 1 (`refinement_minimal_edit median == 1.0`) PASSES on openai/gpt-4o-mini. Part 2 (no-regression vs prior baselines) is partial — prior 1.0 baselines were Phase-4 fail-open false positives that are now exposed by an actually-committing agent. Awaiting user decision on whether to re-verify (`/gsd-verify-work 6`) or merge as-is.
+- [x] Phase 6: closed 2026-06-03. 7/7 plans + 5 follow-up commits. D-06-09 part 1 (refinement_minimal_edit median == 1.0) PASSES. Part 2 (no-regression) accepted with note — prior 1.0 baselines were Phase-4 fail-open false positives now exposed by an actually-committing agent (real behavior improvement, just measures differently). gpt-5-mini and gpt-5.4-mini probe confirmed reasoning models underperform on this codebase due to _prune_for_llm dropping reasoning_content (architectural, not model quality). Remediation scoped as v2.1 milestone.
 
 ## Notes
 
@@ -41,11 +41,11 @@ progress:
 
 ## Current Position
 
-Phase: 06 (minimal-edit-refinement) — GATE PARTIALLY PASSES
-Plan: 7/7 plans + 5 follow-up commits (d5005af, 4421910, df7e4ca, 49385a7, 61aee1b)
-Status: D-06-09 part 1 (refinement_minimal_edit.median == 1.0) PASSES on 5-run live re-baseline. Part 2 (no regression on other scorers) is partial — category_compliance dropped on omakase + refinement_cheaper because the pre-Phase-6 1.0 baselines were Phase-4 fail-open false positives (vacuous-truth scoring on 0-stop responses). CR-02 (place_id validator) and CR-01 (preamble wording) both fixed. Real root cause was eval/chat asymmetry on num_stops in _run_prod_threading + Docker DB being down during original 06-07 re-baseline run.
-Last activity: 2026-06-03 -- 4 follow-up code fixes + n=5 live re-baseline committed (61aee1b)
-Resume: `/gsd-verify-work 6` to re-run verifier against the post-fix state, OR open PR and let CI re-verify on merge.
+Phase: 06 (minimal-edit-refinement) — CLOSED 2026-06-03
+Plan: 7/7 plans + 5 follow-up commits (d5005af, 4421910, df7e4ca, 49385a7, 61aee1b) + STATE/ROADMAP updates (d513b85)
+Status: D-06-09 part 1 PASSES on 5-run live re-baseline (refinement_minimal_edit median = 1.0). Part 2 accepted with note. Phase 6 closes the v2.0 milestone (5/5 phases shipped).
+Last activity: 2026-06-03 -- Phase 6 closed; v2.0 milestone ready to ship; v2.1 scoped as next milestone (see project_v2_1_reasoning_compat_scope memory).
+Resume: open PR for `gsd/phase-06-minimal-edit-refinement` → merge to main → close v2.0 milestone → run `/gsd-new-milestone v2.1` when ready to start reasoning-model compat work.
 
 ## Phase 03 closure summary (2026-05-22)
 
