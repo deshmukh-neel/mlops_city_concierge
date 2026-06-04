@@ -8,6 +8,8 @@ one provider at a time.
 
 from __future__ import annotations
 
+from langchain_core.messages import AIMessage
+
 from app.agent.adapters import (
     ADAPTERS,
     MockReasoningAdapter,
@@ -15,8 +17,6 @@ from app.agent.adapters import (
     ProviderAdapter,
     StatePayload,
 )
-from langchain_core.messages import AIMessage
-
 from app.llm_factory import SUPPORTED_PROVIDERS
 
 
