@@ -149,4 +149,4 @@ Plans:
 
 ---
 
-*Last updated: 2026-06-04 — Phase 8 (Reasoning-State Thread-Through Contract + Conformance Harness) planned: 5 plans across 3 waves.*
+*Last updated: 2026-06-04 — Phase 8 shipped: D-08-11 Branch A acceptance (REASON-05 gate PASSED, LangGraph retained for v2.1).*
