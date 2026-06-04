@@ -36,6 +36,10 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 **Active milestone:** v2.1 Reasoning-Model Compat (started 2026-06-03; phases 7-10).
 **Current codebase scale:** ~107 files touched and 18k LOC added across v2.0; agent driver locked to `openai/gpt-4o-mini` until v2.1 ships reasoning-content thread-through.
 
+**v2.1 progress:**
+- Phase 7 (Prompt/Rubric Decoupling) — shipped 2026-06-03 (PR #101).
+- Phase 8 (Reasoning-State Thread-Through Contract + Conformance Harness) — shipped 2026-06-04 (branch `gsd/phase-08-...`). D-08-11 Branch A acceptance: REASON-05 gate PASSED — LangGraph's `add_messages` reducer preserves `additional_kwargs` end-to-end through `graph.invoke`. Phase 9 proceeds on LangGraph; no v2.1.1 imperative-loop replan triggered. Typed `ProviderAdapter` contract live; `NoOpAdapter` byte-identical to pre-Phase-8 for the locked `openai/gpt-4o-mini` anchor (pinned by `tests/unit/fixtures/reason_04_prune_baseline.json`).
+
 **v2.0 delivered:**
 - Reproducible cross-model eval harness with committed baselines, multi-turn threading, scripted-LLM CI mode, and a hard CI gate on baseline staleness.
 - `RAG_MODEL_OVERRIDE` env var so any candidate model can be wired through `/chat` without touching the shared MLflow `production` alias.
@@ -113,7 +117,7 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 | v2.1 milestone drafted: reasoning-state thread-through + prompt/rubric decoupling + Anthropic wiring + honest baseline regen | Without these, every new reasoning model the field ships in 2026 is unusable on this codebase. Empirical anchor gate: gpt-5-mini × refinement_cheaper commits 3 stops in median 5/5 runs at temp=1.0 | ✓ Promoted to active 2026-06-03 |
 | v2.1 phase order reversed from draft: prompt/rubric decoupling (Phase 7) sequenced BEFORE reasoning-state thread-through | Decoupling is a falsifier for the architectural diagnosis (if reasoning models still 0/5 after decoupling, state-loss is confirmed; if they move off 0, prompt-coupling was a bigger factor and Phase 9 scope shrinks). Also the only phase that pays back on the v2.0 anchor even if v2.1 stalls | — Pending (decided 2026-06-03) |
 | v2.1 draft Phase 1 (reasoning-state thread-through) split into Phase 8 (contract + conformance harness) and Phase 9 (per-provider impls, one sub-phase each) | W10 prior attempt landed three different "fixes" before finding what worked; per-provider variance is too high for one phase. Splitting gives independent ship/revert per provider and lets Phase 8 double as the harness-swap decision gate | — Pending (decided 2026-06-03) |
-| Stay on LangGraph for v2.1 unless Phase 8's conformance harness shows `graph.invoke` itself drops the round-tripped state | The W10 failure was at the langchain-openai library boundary, not at LangGraph's reducer. Swapping the harness now would pay full architectural cost for a problem we haven't proven the harness causes. Phase 8 is the cheapest place to test the harness in isolation | — Pending (decided 2026-06-03) |
+| Stay on LangGraph for v2.1 unless Phase 8's conformance harness shows `graph.invoke` itself drops the round-tripped state | The W10 failure was at the langchain-openai library boundary, not at LangGraph's reducer. Swapping the harness now would pay full architectural cost for a problem we haven't proven the harness causes. Phase 8 is the cheapest place to test the harness in isolation | ✓ Resolved 2026-06-04 — Phase 8 REASON-05 gate PASSED: `add_messages` reducer preserves `additional_kwargs["_reasoning_state"]` through `graph.invoke`. LangGraph retained for v2.1; no v2.1.1 replan triggered |
 
 ## Evolution
 
@@ -133,4 +137,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-03 — v2.1 Reasoning-Model Compat milestone started (phases 7-10)*
+*Last updated: 2026-06-04 — Phase 8 shipped: ProviderAdapter contract + conformance harness; LangGraph retained for v2.1 (REASON-05 gate PASSED).*
