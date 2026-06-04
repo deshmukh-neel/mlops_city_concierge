@@ -1,0 +1,76 @@
+[
+  {
+    "additional_kwargs": {},
+    "content": "You are City Concierge...",
+    "tool_call_id": null,
+    "tool_calls": null,
+    "type": "system"
+  },
+  {
+    "additional_kwargs": {},
+    "content": "lunch in mission, 3 stops",
+    "tool_call_id": null,
+    "tool_calls": null,
+    "type": "human"
+  },
+  {
+    "additional_kwargs": {},
+    "content": "searching",
+    "tool_call_id": null,
+    "tool_calls": null,
+    "type": "ai"
+  },
+  {
+    "additional_kwargs": {},
+    "content": "more searches",
+    "tool_call_id": null,
+    "tool_calls": [
+      {
+        "args": {
+          "place_id": "ChIJX"
+        },
+        "id": "c2",
+        "name": "nearby",
+        "type": "tool_call"
+      }
+    ],
+    "type": "ai"
+  },
+  {
+    "additional_kwargs": {},
+    "content": "[result-2]",
+    "tool_call_id": "c2",
+    "tool_calls": null,
+    "type": "tool"
+  },
+  {
+    "additional_kwargs": {},
+    "content": "trying again",
+    "tool_call_id": null,
+    "tool_calls": [
+      {
+        "args": {
+          "q": "lunch mission cheap"
+        },
+        "id": "c3",
+        "name": "semantic_search",
+        "type": "tool_call"
+      }
+    ],
+    "type": "ai"
+  },
+  {
+    "additional_kwargs": {},
+    "content": "[result-3]",
+    "tool_call_id": "c3",
+    "tool_calls": null,
+    "type": "tool"
+  },
+  {
+    "additional_kwargs": {},
+    "content": "done",
+    "tool_call_id": null,
+    "tool_calls": null,
+    "type": "ai"
+  }
+]

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
-current_phase: 07
-status: "Phase 07 shipped — PR #101"
-last_updated: "2026-06-04T20:18:51.724Z"
-last_activity: 2026-06-04
+current_phase: 9
+status: "Phase 08 shipped — PR #102"
+last_updated: "2026-06-04T23:10:08.551Z"
+last_activity: "2026-06-04 -- Phase 08 shipped (PR #102)"
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 1
-  total_plans: 7
-  completed_plans: 7
-  percent: 25
+  total_plans: 12
+  completed_plans: 12
+  percent: 20
 ---
 
 # Project State
@@ -19,7 +19,7 @@ progress:
 **Project:** City Concierge
 **Initialized:** 2026-05-14
 **Active milestone:** v2.1 Reasoning-Model Compat (started 2026-06-03)
-**Current phase:** 07
+**Current phase:** 9
 
 ## Project Reference
 
@@ -28,7 +28,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0)
 See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 07 — prompt-rubric-decoupling
+**Current focus:** Phase 9 — per provider state preservation implementations
 
 ## Status
 
@@ -57,7 +57,7 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 
 ## Current Position
 
-Phase: 07 — COMPLETE
-Plan: 1 of 7
-Status: Phase 07 shipped — PR #101
-Last activity: 2026-06-04
+Phase: 08 (reasoning-state-thread-through-contract-conformance-harness) — EXECUTING
+Plan: Not started
+Status: Phase 08 shipped — PR #102
+Last activity: 2026-06-04 -- Phase 08 shipped (PR #102)

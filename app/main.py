@@ -406,7 +406,12 @@ async def lifespan(app: FastAPI):
             app.state.rag_chain = loaded.chain
             app.state.active_model_config = loaded.params
             try:
-                app.state.agent_graph = build_agent_graph(loaded.llm)
+                # D-08-16: thread provider for ProviderAdapter dispatch; NoOpAdapter for all providers in Phase 8.
+                # loaded.params is an ActiveModelConfig pydantic model — read via attribute, not .get().
+                app.state.agent_graph = build_agent_graph(
+                    loaded.llm,
+                    provider=getattr(loaded.params, "llm_provider", "openai"),
+                )
                 # Phase 4: expose the same BaseChatModel the graph was
                 # built on so the /chat intake call can reuse it (D-04-02
                 # — same RAG_MODEL_OVERRIDE resolution, single source).

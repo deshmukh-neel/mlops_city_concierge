@@ -27,6 +27,15 @@ eval_reports/
 !configs/eval_baselines/_snapshots/
 !configs/eval_baselines/_snapshots/*.json
 
+# Committed test fixtures (Phase 8 Plan 05 / REASON-06 / D-08-15). The
+# REASON-06 byte-identity regression baseline lives at
+# tests/unit/fixtures/reason_04_prune_baseline.json — it MUST be committed
+# alongside the test so it cannot drift silently. Re-include the entire
+# tests/unit/fixtures/ directory so future fixture additions don't need a
+# parallel .gitignore edit.
+!tests/unit/fixtures/
+!tests/unit/fixtures/*.json
+
 # Distribution / packaging
 .Python
 build/

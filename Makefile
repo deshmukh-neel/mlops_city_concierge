@@ -161,6 +161,10 @@ test-unit: ## Run unit tests only
 test-integration: ## Run integration tests only
 	$(POETRY_RUN) pytest tests/integration/ -v
 
+.PHONY: test-reasoning-conformance
+test-reasoning-conformance: ## Run reasoning-state conformance harness (quarantined; not in make test)
+	$(POETRY_RUN) pytest -m reasoning_conformance -v
+
 # Cloud SQL connection details for IAM-DB-auth via the proxy.
 # Override on the command line if your gcloud identity differs.
 CLOUD_SQL_INSTANCE ?= mlops-491820:us-central1:mlops--city-concierge

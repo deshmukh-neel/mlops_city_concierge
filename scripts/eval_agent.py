@@ -902,9 +902,11 @@ async def evaluate_cases(
     cases: Sequence[EvalQuery],
     llm: BaseChatModel,
     max_steps: int,
+    provider: str,
 ) -> list[QueryEvalResult]:
     """Run the deterministic eval suite sequentially against one candidate LLM."""
-    graph = build_agent_graph(llm, max_steps=max_steps)
+    # D-08-16: thread provider for ProviderAdapter dispatch
+    graph = build_agent_graph(llm, max_steps=max_steps, provider=provider)
     results: list[QueryEvalResult] = []
     for case in cases:
         results.append(await evaluate_case(graph, case))
@@ -1042,7 +1044,7 @@ async def build_report(args: argparse.Namespace) -> EvalRunReport:
     )
     llm = build_eval_llm(provider, chat_model, args.temperature)
     start_time = time.monotonic()
-    results = await evaluate_cases(cases, llm, max_steps=args.max_steps)
+    results = await evaluate_cases(cases, llm, max_steps=args.max_steps, provider=provider)
     total_runtime_seconds = time.monotonic() - start_time
     aggregate = aggregate_results(results)
     aggregate["total_runtime_seconds"] = total_runtime_seconds
