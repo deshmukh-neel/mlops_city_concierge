@@ -1,9 +1,24 @@
 """Integration of the graph with a fake LLM that emits a scripted sequence
-of tool calls. Verifies plan->act->critique loops correctly and terminates."""
+of tool calls. Verifies plan->act->critique loops correctly and terminates.
+
+tests/unit/fixtures/reason_04_prune_baseline.json is the REASON-06 byte-identity
+baseline for the gpt-4o-mini (empty additional_kwargs, no _reasoning_state) path
+through `_prune_for_llm` + `NoOpAdapter().replay_reasoning_state(...)`. The
+fixture was generated at Phase 8 commit time from this very test file's input
+list. Regenerate ONLY on an INTENTIONAL change to `_prune_for_llm` or
+`NoOpAdapter` via:
+
+    poetry run python tests/unit/test_agent_graph.py --regen-reason-04-fixture
+
+and document the change in the fixture commit message AND the Phase 8 SUMMARY
+(D-08-15).
+"""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -14,6 +29,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
+from app.agent.adapters import NoOpAdapter
 from app.agent.commit import commit_stops, enrich_stops_with_booking
 from app.agent.graph import _prune_for_llm, build_agent_graph
 from app.agent.state import ItineraryState, Stop, UserConstraints
@@ -594,6 +610,133 @@ def test_prune_for_llm_preserves_additional_kwargs_on_stub() -> None:
     assert pruned[1].content == "searching"
     assert pruned[1].tool_calls == []
     assert pruned[1].additional_kwargs.get("reasoning_content") == "carried-over"
+
+
+# ---------- Phase 8 Plan 05: REASON-06 byte-identity regression (D-08-15) ----------
+
+
+# Type tag mapping for message classes — single source of truth used both by
+# the regen-fixture script (CLI flag below) and the test itself. Mirrors the
+# fixture's "type" field exactly.
+_MESSAGE_TYPE_TAG = {
+    SystemMessage: "system",
+    HumanMessage: "human",
+    AIMessage: "ai",
+    ToolMessage: "tool",
+}
+
+
+def _serialize_messages_for_fixture(msgs: list[BaseMessage]) -> list[dict[str, Any]]:
+    """JSON-serializable representation of a message list (D-08-15).
+
+    Each entry: {type, content, tool_calls, tool_call_id, additional_kwargs}.
+    `tool_calls` is None for messages without them (HumanMessage, ToolMessage,
+    SystemMessage, AIMessage with empty tool_calls); `tool_call_id` is None
+    for non-ToolMessages; `additional_kwargs` is always a dict (possibly empty).
+
+    Used on BOTH sides of the byte-identity check: the fixture is generated
+    from `_serialize_messages_for_fixture(pipeline_output)` and the runtime
+    output is compared via `_serialize_messages_for_fixture(pipeline_output)`,
+    so the helper itself cannot accidentally introduce a comparison-side bias.
+    """
+    out: list[dict[str, Any]] = []
+    for m in msgs:
+        type_tag = _MESSAGE_TYPE_TAG.get(type(m), type(m).__name__.lower())
+        tool_calls = getattr(m, "tool_calls", None)
+        # AIMessages always have a tool_calls attribute (possibly []); to keep
+        # the fixture clean for stub/non-tool AIMessages we normalize empty
+        # tool_calls to None (matches the JSON intent: "no tool_calls here").
+        if isinstance(tool_calls, list) and not tool_calls:
+            tool_calls = None
+        out.append(
+            {
+                "type": type_tag,
+                "content": m.content,
+                "tool_calls": tool_calls,
+                "tool_call_id": getattr(m, "tool_call_id", None),
+                "additional_kwargs": dict(getattr(m, "additional_kwargs", {}) or {}),
+            }
+        )
+    return out
+
+
+def _reason_04_input_messages() -> list[BaseMessage]:
+    """Realistic refinement-turn message list with 3 tool-issuing AIMessages
+    (D-08-15). _RECENT_TOOL_EXCHANGES_KEPT=2 forces the OLDEST to be stubbed,
+    exercising the pre-cutoff branch patched by Plan 02. All AIMessages have
+    empty `additional_kwargs` — the gpt-4o-mini case where NoOpAdapter is
+    observationally a no-op and the Plan-02 kwargs-preservation patch is
+    invisible.
+    """
+    return [
+        SystemMessage(content="You are City Concierge..."),
+        HumanMessage(content="lunch in mission, 3 stops"),
+        AIMessage(
+            content="searching",
+            tool_calls=[{"name": "semantic_search", "id": "c1", "args": {"q": "lunch mission"}}],
+        ),
+        ToolMessage(content="[result-1]", tool_call_id="c1"),
+        AIMessage(
+            content="more searches",
+            tool_calls=[{"name": "nearby", "id": "c2", "args": {"place_id": "ChIJX"}}],
+        ),
+        ToolMessage(content="[result-2]", tool_call_id="c2"),
+        AIMessage(
+            content="trying again",
+            tool_calls=[
+                {"name": "semantic_search", "id": "c3", "args": {"q": "lunch mission cheap"}}
+            ],
+        ),
+        ToolMessage(content="[result-3]", tool_call_id="c3"),
+        AIMessage(content="done", tool_calls=[]),
+    ]
+
+
+def _reason_04_pipeline_output(msgs: list[BaseMessage]) -> list[BaseMessage]:
+    """Run the input list through the post-Phase-8 pipeline that REASON-06
+    guards: `_prune_for_llm` then `NoOpAdapter().replay_reasoning_state(...,
+    None)`. State=None because the input list carries no `_reasoning_state`
+    marker — this is the gpt-4o-mini case where NoOpAdapter.replay is a
+    mathematical identity (D-08-15).
+    """
+    pruned = _prune_for_llm(msgs)
+    return NoOpAdapter().replay_reasoning_state(pruned, None)
+
+
+def test_reason_04_noop_adapter_byte_identical_to_pre_phase8() -> None:
+    """REASON-06 byte-identity regression for the gpt-4o-mini (empty
+    additional_kwargs, no `_reasoning_state`) path. Fixture at
+    `tests/unit/fixtures/reason_04_prune_baseline.json`. To regenerate:
+
+        poetry run python tests/unit/test_agent_graph.py --regen-reason-04-fixture
+
+    Regenerate ONLY when an INTENTIONAL change to `_prune_for_llm` or
+    `NoOpAdapter` requires the baseline to move; document the change in the
+    fixture commit message AND in the Phase 8 SUMMARY (D-08-15).
+
+    Combined with Plan 02's `additional_kwargs` preservation test and Plan 03's
+    full `tests/unit/test_agent_graph.py` sweep, this enforces REASON-06 at
+    the hardest possible level — byte-identical output for the locked v2.0 prod
+    anchor's message shape.
+    """
+    msgs = _reason_04_input_messages()
+    out = _reason_04_pipeline_output(msgs)
+    serialized = _serialize_messages_for_fixture(out)
+
+    fixture_path = Path(__file__).parent / "fixtures" / "reason_04_prune_baseline.json"
+    expected = json.loads(fixture_path.read_text())
+
+    assert serialized == expected, (
+        f"Byte-identity regression on the gpt-4o-mini path (REASON-06): "
+        f"runtime output diverged from "
+        f"tests/unit/fixtures/reason_04_prune_baseline.json.\n"
+        f"  runtime: {serialized!r}\n"
+        f"  fixture: {expected!r}\n"
+        f"If this divergence is INTENTIONAL, regenerate the fixture via "
+        f"`poetry run python tests/unit/test_agent_graph.py "
+        f"--regen-reason-04-fixture` and document the change in the commit "
+        f"message + Phase 8 SUMMARY (D-08-15)."
+    )
 
 
 # ---------- Phase 8 Plan 03: ProviderAdapter wiring (D-08-04..06, D-08-16) ----------
@@ -1459,3 +1602,32 @@ async def test_retime_noop_when_first_stop_has_no_arrival(monkeypatch, mocker) -
     # No-op: stops unchanged (still None on stop 0), reply unchanged.
     assert out["stops"][0].arrival_time is None
     assert out["final_reply"] == "Here is your plan."
+
+
+# ---------- Phase 8 Plan 05: __main__ regen-fixture entrypoint (D-08-15) ----------
+#
+# `--regen-reason-04-fixture` regenerates tests/unit/fixtures/reason_04_prune_baseline.json
+# from the SAME pipeline the byte-identity regression test asserts against. Run
+# this ONLY when an INTENTIONAL change to `_prune_for_llm` or `NoOpAdapter`
+# requires the baseline to move; document the change in the fixture commit
+# message AND in the Phase 8 SUMMARY. The regen path is gated behind an
+# explicit CLI flag (T-08-13 mitigation: no accidental drift).
+if __name__ == "__main__":
+    import sys
+
+    if "--regen-reason-04-fixture" in sys.argv:
+        msgs = _reason_04_input_messages()
+        out = _reason_04_pipeline_output(msgs)
+        serialized = _serialize_messages_for_fixture(out)
+
+        fixture_path = Path(__file__).parent / "fixtures" / "reason_04_prune_baseline.json"
+        fixture_path.parent.mkdir(parents=True, exist_ok=True)
+        fixture_path.write_text(json.dumps(serialized, indent=2, sort_keys=True) + "\n")
+        print(f"regen-reason-04-fixture: wrote {len(serialized)} entries to {fixture_path}")
+    else:
+        print(
+            "test_agent_graph.py: no recognised CLI flag. "
+            "Available flags: --regen-reason-04-fixture",
+            file=sys.stderr,
+        )
+        sys.exit(2)
