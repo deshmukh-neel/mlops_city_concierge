@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: between milestones
-current_phase: null
-status: ready_for_next_milestone
-last_updated: "2026-06-03T18:50:00.000Z"
-last_activity: 2026-06-03 -- v2.0 milestone shipped (PR #100 -> main 14e01dd); MILESTONES.md created; v2.1 reasoning-model compat drafted in ROADMAP and PROJECT
+milestone: v2.1
+milestone_name: Reasoning-Model Compat
+current_phase: Not started (roadmap created, ready to plan Phase 7)
+status: executing
+last_updated: "2026-06-04T03:08:25.355Z"
+last_activity: 2026-06-04 -- Phase 7 planning complete
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
-  total_plans: 0
+  total_plans: 7
   completed_plans: 0
   percent: 0
 ---
@@ -18,34 +18,46 @@ progress:
 
 **Project:** City Concierge
 **Initialized:** 2026-05-14
-**Active milestone:** none (v2.0 shipped; v2.1 drafted in ROADMAP but not started)
-**Current phase:** none
+**Active milestone:** v2.1 Reasoning-Model Compat (started 2026-06-03)
+**Current phase:** Not started (roadmap created, ready to plan Phase 7)
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-03 after v2.0 milestone)
-See: .planning/MILESTONES.md for historical record
-See: .planning/milestones/v2.0-ROADMAP.md + v2.0-REQUIREMENTS.md for v2.0 archive
+See: .planning/PROJECT.md (updated 2026-06-03 for v2.1 milestone start)
+See: .planning/MILESTONES.md for historical record (v1.0, v2.0)
+See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Between milestones. v2.1 Reasoning-Model Compat is drafted; run `/gsd-new-milestone v2.1` to formalize when ready.
+**Current focus:** v2.1 Reasoning-Model Compat — fix `_prune_for_llm` so reasoning models can be agent drivers; decouple prompt from rubric; wire Anthropic; regen honest cross-model baselines.
 
 ## Status
 
 - [x] v1.0 Knowledge Graph shipped 2026-05-14
 - [x] v2.0 Production Readiness shipped 2026-06-03 via PR #100 (main `14e01dd`)
-- [x] v2.0 archives written to `.planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md`
-- [x] ROADMAP.md collapsed; PROJECT.md evolved; MILESTONES.md created
-- [ ] v2.1 milestone formalized (`/gsd-new-milestone v2.1`)
+- [x] v2.1 milestone formalized via `/gsd-new-milestone v2.1` (2026-06-03)
+- [x] v2.1 requirements defined (REQUIREMENTS.md — 20 requirements, 4 categories)
+- [x] v2.1 roadmap created (phases 7-10, 2026-06-04)
+- [ ] Phase 7: Prompt/rubric decoupling
+- [ ] Phase 8: Reasoning-state thread-through (contract + harness)
+- [ ] Phase 9: Per-provider state preservation impls (gpt-5 → DeepSeek → Claude → Gemini 3)
+- [ ] Phase 10: Cross-model baseline regen + matrix expansion
 
 ## Notes
 
-- v2.0 closed with one accepted-with-notes gate (D-06-09 part 2 baseline regen — pre-Phase-6 1.0 baselines were Phase-4 fail-open false positives now surfaced by an actually-committing agent). Real fix is reasoning-content thread-through, scoped to v2.1.
-- Agent driver locked to `openai/gpt-4o-mini` for prod until v2.1 ships. gpt-5-mini / gpt-5.4-mini / DeepSeek reasoner / Claude / Gemini 3 all fail on tool-loop tasks because `_prune_for_llm` drops `reasoning_content` across turns.
-- Flagged for v2.1 or separate hotfix: CLO-01 — over-aggressive closure detection on Mission queries (likely hours-data drift or `_per_stop_closure_status` overly cautious; pre-Phase-3 D-07 sanity check confirmed `place_is_open` is correct).
+- **Empirical anchor gate for v2.1:** gpt-5-mini × `refinement_cheaper` × prod × flag-on commits 3 stops in median 5/5 runs at temp=1.0 (currently 0/1). Gates on PROV-01 in Phase 9.
+- **Phase 7 falsifier:** if `gpt-5-mini × refinement_cheaper` is still 0/5 after Phase 7 ships, prompt-coupling was not the root cause — state-loss dominates and Phase 9 scope stays at full. If > 0, prompt-coupling contributed and Phase 9 scope may shrink.
+- **Phase 8 harness-swap decision gate (REASON-05):** if conformance tests pass in isolation but fail through `graph.invoke`, Phase 8 surfaces this as an explicit blocker and v2.1 replans around a custom imperative loop before Phase 9 starts. This is a real architectural branch point.
+- v2.0 closed with one accepted-with-notes gate (D-06-09 part 2 baseline regen — pre-Phase-6 1.0 baselines were Phase-4 fail-open false positives). Real fix is the reasoning-content thread-through landing in Phase 8/9 and honest regen in Phase 10.
+- Agent driver remains locked to `openai/gpt-4o-mini` for prod until Phase 9 sub-phases ship per-provider.
+- Flagged for separate hotfix (carried from v2.0): CLO-01 — over-aggressive closure detection on Mission queries.
 
 ## Resume
 
-When ready to start v2.1:
-1. `/gsd-new-milestone v2.1` to scope reasoning-model compat (4 phases drafted in ROADMAP).
-2. Empirical anchor gate for the milestone: gpt-5-mini × `refinement_cheaper` commits 3 stops in median 5/5 runs at temp=1.0.
+Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
+
+## Current Position
+
+Phase: Not started (roadmap created)
+Plan: —
+Status: Ready to execute
+Last activity: 2026-06-04 -- Phase 7 planning complete
