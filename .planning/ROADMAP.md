@@ -87,7 +87,21 @@ Plans:
   5. The conformance test passes end-to-end **including through `graph.invoke`** for at least the gpt-5 family provider (REASON-05 — harness-swap decision gate). If the isolated conformance test passes but `graph.invoke` drops state, this criterion is explicitly marked FAILED, a Phase 8 blocker is filed, and v2.1 replans around a custom imperative loop before Phase 9 starts. This branch point is not a footnote — it gates whether Phase 9 proceeds as written.
   6. After the `_prune_for_llm` refactor, all v2.0 baselines (`openai/gpt-4o-mini × refinement_cheaper` and all other committed baselines) do not regress; the existing staleness CI hard gate (`scripts/check_baselines_fresh.py`) continues to pass (REASON-06 no-regression gate).
 
-**Plans**: TBD
+**Plans:** 5 plans across 3 waves
+Plans:
+**Wave 1**
+
+- [ ] 08-01-adapters-subpackage-PLAN.md — Create app/agent/adapters/ subpackage with ProviderAdapter ABC + NoOpAdapter + MockReasoningAdapter + ADAPTERS registry (REASON-01, REASON-02)
+- [ ] 08-02-prune-kwargs-preservation-PLAN.md — Patch _prune_for_llm stub constructor to preserve additional_kwargs across the cutoff window (REASON-04 precondition)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 08-03-plan-capture-replay-wiring-PLAN.md — Wire ProviderAdapter into build_agent_graph (keyword-only provider param) + plan() capture/replay + thread provider through app/main.py and scripts/eval_agent.py call sites (REASON-01, REASON-04)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 08-04-conformance-harness-and-reason-05-PLAN.md — Parametrized 4-shape conformance harness + REASON-05 graph.ainvoke gate test + pytest marker quarantine + Makefile target + conditional 08-REASON-05-BLOCKER.md (REASON-02, REASON-03, REASON-05)
+- [ ] 08-05-byte-identity-regression-PLAN.md — Byte-identity regression test for the NoOp adapter path on gpt-4o-mini-shaped inputs + committed fixture (REASON-06)
 
 ### Phase 9: Per-Provider State Preservation Implementations
 
@@ -129,10 +143,10 @@ Plans:
 | 5. Rationale-Stop Alignment Fix                | v2.0      | 2/2            | Complete    | 2026-05-27 |
 | 6. Minimal-Edit Refinement                     | v2.0      | 7/7            | Complete    | 2026-06-03 |
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
-| 8. Reasoning-State Contract + Harness          | v2.1      | 0/TBD          | Pending     | -          |
+| 8. Reasoning-State Contract + Harness          | v2.1      | 0/5            | Planned     | -          |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 0/TBD          | Pending     | -          |
 | 10. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
 ---
 
-*Last updated: 2026-06-04 — Phase 7 (Prompt/Rubric Decoupling) planned: 7 plans across 3 waves.*
+*Last updated: 2026-06-04 — Phase 8 (Reasoning-State Thread-Through Contract + Conformance Harness) planned: 5 plans across 3 waves.*

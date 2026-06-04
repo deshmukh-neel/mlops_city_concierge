@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 07
-status: "Phase 07 shipped — PR #101"
-last_updated: "2026-06-04T20:18:51.724Z"
-last_activity: 2026-06-04
+status: executing
+last_updated: "2026-06-04T21:03:10.993Z"
+last_activity: 2026-06-04 -- Phase 08 planning complete
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 1
-  total_plans: 7
+  total_plans: 12
   completed_plans: 7
-  percent: 25
+  percent: 20
 ---
 
 # Project State
@@ -59,5 +59,5 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 
 Phase: 07 — COMPLETE
 Plan: 1 of 7
-Status: Phase 07 shipped — PR #101
-Last activity: 2026-06-04
+Status: Ready to execute
+Last activity: 2026-06-04 -- Phase 08 planning complete
