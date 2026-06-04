@@ -85,6 +85,21 @@ def state_to_cards(state: ItineraryState) -> list[dict[str, Any]]:
 # directive ("consider whether to commit", "carefully think about
 # committing") — PATTERNS.md Caveat #8 pins this so the refinement turn
 # does not pull against `commit_itinerary`'s decisiveness directive.
+#
+# Phase 7 / D-07-10 KNOWN EXCEPTION to D-07-03 ("preamble is task-only,
+# no behavioral prescriptions"). The "Reuse the `place_id` and `slot`
+# index of every stop you are not changing exactly as listed" sentence
+# IS a behavioral prescription, paraphrased to avoid the six D-07-04
+# forbidden substrings (see the grep-gate test for the literal list).
+# It was added in commit 2315430 after the live PROMPT-04 measurement
+# (plan 07-07) showed `openai/gpt-4o-mini` regressing on the pure
+# task-only preamble; the iteration recovered partial signal but median
+# stayed at 0.0. Resolved as PROMPT-04 accept-with-notes (see
+# `.planning/phases/07-prompt-rubric-decoupling/07-07-SUMMARY.md`) per
+# Phase 6 D-06-09 part 2 precedent. The
+# `test_phase7_known_d_07_10_preamble_exception` test in
+# `tests/unit/test_critique_checks.py` pins this exact sentence so any
+# further drift in prescription wording fails CI loudly.
 _REFINEMENT_PREAMBLE: str = (
     "REFINEMENT TURN — the user is editing one stop in the itinerary below. "
     "The fenced JSON block carries the prior committed plan: each entry has "

@@ -1025,6 +1025,48 @@ def test_prompt_02_grep_gate_no_behavioral_phrases_in_prompts() -> None:
     )
 
 
+def test_phase7_known_d_07_10_preamble_exception() -> None:
+    """D-07-10 KNOWN EXCEPTION to D-07-03 (preamble is task-only).
+
+    Plan 07-07's live PROMPT-04 measurement showed `openai/gpt-4o-mini`
+    regressing from `refinement_minimal_edit.median == 1.0` (pre-Phase-7)
+    to `0.0` under the pure task-only preamble. After the user-approved
+    D-07-10 iteration, one behavioral-prescription sentence was added back
+    to `_REFINEMENT_PREAMBLE`. It was deliberately phrased to avoid the
+    six D-07-04 forbidden literal substrings ("byte-for-byte", etc.) but
+    IS semantically equivalent — it tells the model to reuse `place_id` /
+    `slot` on non-target stops, which is the byte-equality rule the scorer
+    now enforces.
+
+    The grep-gate test above uses literal-substring matching and therefore
+    does NOT catch the paraphrase. This test PINS the exact sentence so:
+
+      1. Any drift in the prescription wording (rewording, deletion,
+         re-introduction of forbidden phrases) fails CI loudly with a
+         pointer to 07-07-SUMMARY.md's accept-with-notes resolution.
+      2. Future contributors reading `io.py` + the green grep gate cannot
+         mistake the prescription for an oversight.
+
+    Resolved by Phase 6 D-06-09 part 2 precedent (accept-with-notes when
+    scorer tightening + prompt rewrite jointly move a baseline under a
+    deliberate contract change). See 07-07-SUMMARY.md for the full
+    measurement + decision record.
+    """
+    from app.agent.io import _REFINEMENT_PREAMBLE
+
+    expected_d_07_10_exception_sentence = (
+        "Reuse the `place_id` and `slot` index of every stop you are not changing "
+        "exactly as listed; only the slot named by the user gets a new `place_id`."
+    )
+    assert expected_d_07_10_exception_sentence in _REFINEMENT_PREAMBLE, (
+        "Phase 7 / D-07-10 KNOWN-EXCEPTION sentence drifted. "
+        "If you intentionally removed or rewrote the prescription, update this "
+        "test AND 07-07-SUMMARY.md's PROMPT-04 outcome record together. "
+        "If you re-introduced a D-07-04 forbidden phrase, the grep gate above "
+        "will also fail."
+    )
+
+
 # --- refinement_minimal_edit smoke (Task 1 driver; full class in Task 2) -----
 
 
