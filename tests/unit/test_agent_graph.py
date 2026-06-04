@@ -560,6 +560,42 @@ def test_prune_for_llm_drops_oldest_tool_exchanges() -> None:
     assert len(ai_with_tools) == 2  # the two most recent
 
 
+def test_prune_for_llm_preserves_additional_kwargs_on_stub() -> None:
+    """D-08-07: the pre-cutoff stub constructor preserves `additional_kwargs`
+    from the original AIMessage. Without this, a `_reasoning_state` payload
+    stashed on an AIMessage from > _RECENT_TOOL_EXCHANGES_KEPT turns ago would
+    be silently dropped by the pruner before the adapter's
+    `replay_reasoning_state` could see it (REASON-04 precondition for Plan 03).
+    """
+    msgs: list[BaseMessage] = [
+        HumanMessage(content="hi"),
+        AIMessage(
+            content="searching",
+            tool_calls=[{"name": "semantic_search", "id": "a1", "args": {"q": "1"}}],
+            additional_kwargs={"reasoning_content": "carried-over"},
+        ),
+        ToolMessage(content="r1", tool_call_id="a1"),
+        AIMessage(
+            content="more",
+            tool_calls=[{"name": "semantic_search", "id": "a2", "args": {"q": "2"}}],
+        ),
+        ToolMessage(content="r2", tool_call_id="a2"),
+        AIMessage(
+            content="more again",
+            tool_calls=[{"name": "semantic_search", "id": "a3", "args": {"q": "3"}}],
+        ),
+        ToolMessage(content="r3", tool_call_id="a3"),
+        AIMessage(content="done", tool_calls=[]),
+    ]
+    pruned = _prune_for_llm(msgs)
+    # The stub replaces the oldest tool-issuing AIMessage at index 1
+    # (immediately after HumanMessage("hi")). It must keep content +
+    # additional_kwargs but lose tool_calls.
+    assert pruned[1].content == "searching"
+    assert pruned[1].tool_calls == []
+    assert pruned[1].additional_kwargs.get("reasoning_content") == "carried-over"
+
+
 def _state_with_grounded(place_ids: list[str], party_size: int = 2) -> ItineraryState:
     """Build a state where the given place_ids appear in scratch, so
     commit_stops considers them grounded."""

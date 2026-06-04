@@ -219,8 +219,13 @@ def _prune_for_llm(messages: list[BaseMessage]) -> list[BaseMessage]:
         if isinstance(m, AIMessage) and m.tool_calls:
             # Replace with a content-only AIMessage so we don't strand the
             # LLM thinking it issued tool_calls that were never answered.
+            # D-08-07: preserve additional_kwargs (e.g. _reasoning_state)
+            # across the cutoff window so adapter capture/replay can survive.
             pruned.append(
-                AIMessage(content=m.content if isinstance(m.content, str) else str(m.content))
+                AIMessage(
+                    content=m.content if isinstance(m.content, str) else str(m.content),
+                    additional_kwargs=m.additional_kwargs,
+                )
             )
             continue
         pruned.append(m)
