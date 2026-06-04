@@ -353,7 +353,7 @@ def rationale_stop_alignment(state: ItineraryState) -> float:
 
 
 def refinement_minimal_edit(state: ItineraryState) -> float:
-    """Refinement minimal-edit scorer (REF-01 merge gate).
+    """Refinement minimal-edit scorer (REF-01 merge gate; PROMPT-03 extended).
 
     Computes the fraction of PRIOR non-target stops that survive byte-equal
     (same `place_id` in the same slot) in the current `state.stops`. Strict
@@ -377,40 +377,103 @@ def refinement_minimal_edit(state: ItineraryState) -> float:
       with explicit five-branch precedence so each branch is independently
       testable (a regression in any one branch produces a precise CI name).
 
+    Phase 7 / D-07-05 extension (PROMPT-03):
+        Branch 5 additionally enforces same-`primary_type` on the TARGET
+        (replacement) slot. The behavioral rule prompt rule 10 used to
+        prescribe ("SAME `primary_type` / Google Place category as the
+        original") now lives here where the binary 1.0 merge gate
+        (`CRITIQUE_THRESHOLDS["refinement_minimal_edit"] = 1.0`) can
+        enforce it deterministically. The change is IN-PLACE in Branch 5
+        only — Branches 1-4 are byte-identical to Phase 6 (abstain /
+        fail-loud-empty / fail-loud-malformed / lone-stop semantics are
+        category-blind). No new scorer, no new threshold key, no new
+        dispatcher entry in `itinerary_violations`.
+
+        Scratch contract extension (plan 07-02 / D-07-06):
+            `prior_committed_stops` entries now carry an optional
+            `primary_type` field per entry alongside `slot` and
+            `place_id`: `{slot: int, place_id: str, primary_type: str | None}`.
+            The eval runner reads `Stop.primary_type` from the turn-0
+            committed itinerary; the model-facing JSON block (`io.py`)
+            is NOT extended (HIGH-4 prompt-injection mitigation preserved
+            byte-identically).
+
+        D-07-07 four-cell `primary_type` matrix in Branch 5
+        (evaluated AFTER computing the byte-equality fraction):
+
+            | prior primary_type | current primary_type | Branch 5 returns       |
+            |--------------------|----------------------|------------------------|
+            | None / missing     | (any)                | byte_fraction unchanged|
+            |                    |                      | (D-07-07 abstain —     |
+            |                    |                      |  migration path for    |
+            |                    |                      |  legacy 06-06 scratch  |
+            |                    |                      |  payloads)             |
+            | present            | None                 | 0.0 (fail-loud — the   |
+            |                    |                      |  commit dropped a real |
+            |                    |                      |  field; defect)        |
+            | present            | present, different   | 0.0 (category mismatch |
+            |                    |                      |  zeros the byte-       |
+            |                    |                      |  fraction; binary gate)|
+            | present            | present, equal       | byte_fraction unchanged|
+
+        Comparison is EXACT STRING EQUALITY (D-07-05): no `family_of()`
+        lookup, no case folding. The prompt rule being moved was "SAME
+        `primary_type` / Google Place category", not "same family".
+
     Five-branch precedence (mutually exclusive, evaluated in order):
         Branch 1 (abstain): `refinement_context` absent or False → 1.0.
             Covers (a) first-turn / non-refinement scratch and (b) the
             ad-hoc invocation by `itinerary_violations` in the revision
             loop where no refinement context is present. Mirrors
-            `category_compliance`'s fail-open shape.
+            `category_compliance`'s fail-open shape. Category check
+            does NOT fire on Branch 1.
         Branch 2 (fail-loud): `refinement_context == True` AND
             (`prior_committed_stops` is None / missing / empty list OR
             `refinement_target_slot` is missing) → 0.0. Turn 0 was supposed
             to commit but didn't; the merge gate must surface the failure.
+            Category check does NOT fire on Branch 2.
         Branch 3 (fail-loud): `refinement_context == True` AND prior is
             non-empty but every entry is malformed (missing `slot` or
             `place_id`, or `place_id` is empty/non-string) such that
             `prior_by_slot` collapses to empty → 0.0. Eval-runner contract
-            violation; surface it.
+            violation; surface it. Category check does NOT fire on
+            Branch 3.
         Branch 4 (legitimate zero-denom): `refinement_context == True`
             AND `prior_by_slot` non-empty AND every surviving entry has
             `slot == target_slot` (single-stop-target case where the lone
             prior stop IS the one being changed) → 1.0. Nothing to preserve.
-        Branch 5 (normal): all four prior branches inapplicable → return
-            `matches / len(prior_non_target_slots)`.
+            Category check does NOT fire on Branch 4 (per Phase 7
+            PATTERNS.md "Preserve abstain semantics on Branch 4" — the
+            lone-stop case is a degenerate refinement shape and the byte-
+            equality denominator is already zero; treating it as a
+            category abstain keeps the scorer's no-data semantics
+            consistent).
+        Branch 5 (normal): all four prior branches inapplicable → compute
+            `byte_fraction = matches / len(prior_non_target_slots)` then
+            apply the D-07-07 four-cell `primary_type` matrix above.
 
     Scratch keys read (1-indexed slots, matching the YAML convention from
     plan 06-04 and the `is_refinement_request` return convention from
     plan 06-02):
-        - `prior_committed_stops`: `list[dict]` with `{slot: int, place_id: str}`
-          per entry. Populated by the eval runner (plan 06-06) between turns;
-          NOT populated on the `/chat` production path (production never runs
-          this scorer mid-flight — it's an offline-eval scorer).
+        - `prior_committed_stops`: `list[dict]` with
+          `{slot: int, place_id: str, primary_type: str | None}` per entry
+          (the `primary_type` key is Phase-7 / D-07-06 additive; legacy
+          06-06 payloads without it trigger the D-07-07 abstain branch).
+          Populated by the eval runner (plan 06-06 / 07-02) between turns;
+          NOT populated on the `/chat` production path (production never
+          runs this scorer mid-flight — it's an offline-eval scorer).
         - `refinement_target_slot`: `int` (1-indexed). The slot the user
-          asked to change. Excluded from the denominator.
-        - `refinement_context`: `bool` (NEW per N-2). True iff the eval
+          asked to change. Excluded from the byte-equality denominator and
+          used as the lookup index for the D-07-07 category sub-check.
+        - `refinement_context`: `bool` (per N-2). True iff the eval
           runner identified this turn as a refinement scenario. Used to
           disambiguate Branches 1 vs 2.
+
+    Current-state field read (Phase 7 / D-07-06):
+        - `state.stops[target_slot - 1].primary_type`: populated on commit
+          by `commit_itinerary` via places_raw lookups (CAT-01..CAT-04;
+          plan 04). Missing → D-07-07 fail-loud (0.0) — that path is a
+          real defect, not a migration case.
 
     HIGH-2 regression guards (covered in
     `tests/unit/test_critique_checks.py::TestRefinementMinimalEdit`):
@@ -437,7 +500,17 @@ def refinement_minimal_edit(state: ItineraryState) -> float:
         return 0.0
 
     # Build prior_by_slot defensively — skip malformed entries.
+    # Phase 7 / D-07-06 / D-07-07: build a parallel
+    # `prior_primary_type_by_slot` keyed on the same well-formed slots.
+    # Implementation choice (CONTEXT.md "Claude's Discretion item 3"):
+    # parallel dict rather than upgrading `prior_by_slot` to carry the
+    # full entry — preserves the existing place_id-keyed dict shape so
+    # the Branch 5 byte-equality logic is byte-identical to Phase 6,
+    # which keeps the diff localized and makes the new lookup self-
+    # documenting. Legacy entries without a `primary_type` key map to
+    # None (D-07-07 abstain marker).
     prior_by_slot: dict[int, str] = {}
+    prior_primary_type_by_slot: dict[int, str | None] = {}
     for entry in prior:
         if not isinstance(entry, dict):
             continue
@@ -448,6 +521,12 @@ def refinement_minimal_edit(state: ItineraryState) -> float:
         if not isinstance(place_id, str) or not place_id:
             continue
         prior_by_slot[slot] = place_id
+        # Tolerate missing key OR explicit None (legacy 06-06 payload).
+        # Tolerate non-string values defensively — coerce to None so the
+        # D-07-07 abstain branch fires rather than an EQ comparison
+        # crashing on, e.g., an int sneaking through the scratch contract.
+        pt = entry.get("primary_type")
+        prior_primary_type_by_slot[slot] = pt if isinstance(pt, str) else None
 
     # Branch 3: every prior entry was malformed → fail-loud.
     if not prior_by_slot:
@@ -456,15 +535,46 @@ def refinement_minimal_edit(state: ItineraryState) -> float:
     prior_non_target_slots = [s for s in prior_by_slot if s != target_slot]
 
     # Branch 4: every surviving prior entry IS the target slot (lone-stop case).
+    # Per Phase 7 PATTERNS.md, the D-07-05 category check does NOT fire
+    # here — see Branch 4 doc above.
     if not prior_non_target_slots:
         return 1.0
 
-    # Branch 5: normal path — matches / len(prior_non_target_slots).
+    # Branch 5: normal path — byte-equality fraction first, then D-07-07
+    # category sub-check.
     current_by_slot: dict[int, str] = {i + 1: s.place_id for i, s in enumerate(state.stops)}
     matches = sum(
         1 for slot in prior_non_target_slots if current_by_slot.get(slot) == prior_by_slot[slot]
     )
-    return matches / len(prior_non_target_slots)
+    byte_fraction = matches / len(prior_non_target_slots)
+
+    # Phase 7 / D-07-05 + D-07-07: target-slot primary_type sub-check.
+    prior_target_pt = prior_primary_type_by_slot.get(target_slot)
+    current_target_idx = target_slot - 1  # 1-indexed slot → 0-indexed list
+    # Defensive bounds-check: refinement turn that LOST the target slot
+    # entirely already produces a byte-fraction reflecting the loss; the
+    # category sub-check abstains in that case (no current target to
+    # compare against). This mirrors Branch 4's "no-data → abstain" shape.
+    if current_target_idx < 0 or current_target_idx >= len(state.stops):
+        return byte_fraction
+    current_target_pt = state.stops[current_target_idx].primary_type
+
+    # D-07-07 four-cell matrix (order matters — prior-None abstain takes
+    # precedence over current-None fail-loud so legacy scratch payloads
+    # never get penalized for a current-side defect they cannot observe).
+    if prior_target_pt is None:
+        # Abstain — legacy scratch payload OR commit-time data not yet
+        # populated. Return byte-fraction unchanged.
+        return byte_fraction
+    if current_target_pt is None:
+        # Fail-loud — prior carried a real value but commit dropped it.
+        return 0.0
+    if prior_target_pt != current_target_pt:
+        # Category mismatch zeros the byte-fraction (binary merge-gate
+        # semantic; D-07-05 forbids fractional penalties).
+        return 0.0
+    # Both present and equal → category check passes, return byte_fraction.
+    return byte_fraction
 
 
 def itinerary_violations(state: ItineraryState) -> list[str]:
