@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
-current_phase: 07
+current_phase: 08
 status: executing
-last_updated: "2026-06-04T21:03:10.993Z"
-last_activity: 2026-06-04 -- Phase 08 planning complete
+last_updated: "2026-06-04T21:06:54.956Z"
+last_activity: 2026-06-04 -- Phase 08 execution started
 progress:
   total_phases: 5
   completed_phases: 1
@@ -19,7 +19,7 @@ progress:
 **Project:** City Concierge
 **Initialized:** 2026-05-14
 **Active milestone:** v2.1 Reasoning-Model Compat (started 2026-06-03)
-**Current phase:** 07
+**Current phase:** 08
 
 ## Project Reference
 
@@ -28,7 +28,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0)
 See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 07 — prompt-rubric-decoupling
+**Current focus:** Phase 08 — reasoning-state-thread-through-contract-conformance-harness
 
 ## Status
 
@@ -57,7 +57,7 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 
 ## Current Position
 
-Phase: 07 — COMPLETE
-Plan: 1 of 7
-Status: Ready to execute
-Last activity: 2026-06-04 -- Phase 08 planning complete
+Phase: 08 (reasoning-state-thread-through-contract-conformance-harness) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 08
+Last activity: 2026-06-04 -- Phase 08 execution started
