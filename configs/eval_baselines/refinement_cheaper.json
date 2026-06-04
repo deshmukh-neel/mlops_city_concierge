@@ -1,10 +1,10 @@
 {
-  "closure_check_confirmed": "2026-05-21",
-  "generated_at": "2026-06-03T23-06-39Z",
-  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 5 (Phase 6 re-baseline after CR-02 + num_stops asymmetry + imperative-preamble + primary_type-preserve fixes)",
+  "closure_check_confirmed": "2026-06-04",
+  "generated_at": "2026-06-04T05-34-17Z",
+  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 5 (Phase 7 re-baseline after prompt decoupling + scorer category extension + gpt-5-mini matrix entry)",
   "providers": {
     "deepseek/deepseek-chat": {
-      "_observations": "Phase 6 re-baseline (post-fix, 2026-06-03) under threading_mode='prod' + REFINEMENT_STRUCTURED_PLAN_ENABLED=true, n=5 runs. DeepSeek is logged-but-not-gated per D-04-11 / D-06-09. refinement_minimal_edit.median=0.0 because DeepSeek never decisively commits an itinerary (committed_itinerary_rate=0.0) \u2014 matches the known project_deepseek_decisiveness_gap pattern. The other 1.0s reflect vacuous-truth scoring on an empty stop list; not a Phase 6 regression.",
+      "_observations": "Phase 7 re-baseline (post-prompt-decoupling + scorer category extension), n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0 via Branch 2 (refinement_context=True, prior_committed_stops=[] because committed_itinerary_rate=0.0 on the refinement scenario \u2014 DeepSeek's known decisiveness gap, project_deepseek_decisiveness_gap, persists post-Phase-7). Logged-not-gated per D-04-11 / D-06-09 / D-07-08.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
@@ -72,21 +72,21 @@
       }
     },
     "openai/gpt-4o-mini": {
-      "_observations": "Phase 6 re-baseline (post-fix, 2026-06-03) under threading_mode='prod' + REFINEMENT_STRUCTURED_PLAN_ENABLED=true, n=5 runs. The refinement_minimal_edit scorer carries the strict 1.0 merge gate per D-06-09 (REF-01). GATE STATUS: refinement_minimal_edit median == 1.0 on this run (4/5 = 1.0, 1/5 = 0.5; one stochastic miss). Other scorers: category_compliance.median=0.667 is LOWER than the pre-Phase-6 baseline (1.0), but the pre-Phase-6 1.0 was a fail-open false positive (the agent under-constrained and did not commit, so the scorer trivially returned 1.0 on 0 stops). The post-fix agent actually commits an itinerary on the refinement turn (committed_itinerary_rate=1.0), exposing a real category-drift issue where the model sometimes substitutes a wine bar into the dinner slot. See _snapshots/refinement_cheaper.pre-phase6.json for the saturated comparison floor and project_phase4_d_04_14_locked memory for the fail-open pattern.",
+      "_observations": "Phase 7 re-baseline (post-prompt-decoupling + scorer category extension), n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. Reference cell for PROMPT-04 no-regression gate per D-07-10. Pre-Phase-7 snapshot at _snapshots/refinement_cheaper.pre-phase7.json. PROMPT-04 FAILS (delta=-1.000). pre-Phase-7 saturated at 1.0; new median=0.0. Root cause needs disambiguation between (a) byte-equality regression from task-only preamble removing 'keep same stop count' / 'byte-for-byte preserve place_id' imperatives (07-01) \u2014 supported by revision_reasons showing stop_count_mismatch retries in cells; vs (b) target-slot primary_type mismatch from new D-07-05 / D-07-07 sub-check (07-04) \u2014 would require state inspection. The committed_itinerary_rate median=1.0 shows the agent still commits 3 stops; the scorer flags either byte-equality or category mismatch on the swap.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
-          "median": 0.6666666666666666,
-          "min": 0.6666666666666666,
+          "median": 1.0,
+          "min": 0.3333333333333333,
           "n": 5,
-          "stdev": 0.18257418583505539
+          "stdev": 0.36514837167011077
         },
         "category_compliance_strict": {
           "max": 1.0,
-          "median": 0.6666666666666666,
-          "min": 0.6666666666666666,
+          "median": 1.0,
+          "min": 0.3333333333333333,
           "n": 5,
-          "stdev": 0.18257418583505539
+          "stdev": 0.36514837167011077
         },
         "constraints_satisfied": {
           "max": 1.0,
@@ -98,9 +98,9 @@
         "geographic_coherence": {
           "max": 1.0,
           "median": 1.0,
-          "min": 0.5,
+          "min": 1.0,
           "n": 5,
-          "stdev": 0.22360679774997896
+          "stdev": 0.0
         },
         "no_hallucinated_place_ids": {
           "max": 1.0,
@@ -117,11 +117,11 @@
           "stdev": 0.0
         },
         "refinement_minimal_edit": {
-          "max": 1.0,
-          "median": 1.0,
-          "min": 0.5,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0,
           "n": 5,
-          "stdev": 0.22360679774997896
+          "stdev": 0.0
         },
         "temporal_coherence": {
           "max": 1.0,
@@ -133,12 +133,79 @@
         "walking_budget_respected": {
           "max": 1.0,
           "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        }
+      }
+    },
+    "openai/gpt-5-mini": {
+      "_observations": "Phase 7 PROMPT-05 falsifier cell. n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, reasoning ENABLED per D-07-09 (no thinking-disable \u2014 disabling would neutralize the very signal). Logged-not-gated per D-07-08. PROMPT-05 falsifier: median=0 (5/5 runs) \u2192 state-loss dominates over prompt-coupling; Phase 9 stays at full scope (per-provider state preservation impls, project_agent_loses_reasoning_state_all_providers). committed_itinerary_rate median=0.0: gpt-5-mini's reasoning state is dropped by _prune_for_llm, so even with the new task-only preamble the agent loses the loop.",
+      "scorers": {
+        "category_compliance": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 0.6666666666666666,
+          "n": 5,
+          "stdev": 0.14907119849998599
+        },
+        "category_compliance_strict": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 0.6666666666666666,
+          "n": 5,
+          "stdev": 0.14907119849998599
+        },
+        "constraints_satisfied": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "geographic_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "no_hallucinated_place_ids": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "rationale_stop_alignment": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "refinement_minimal_edit": {
+          "max": 0.0,
+          "median": 0.0,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.4472135954999579
+          "stdev": 0.0
+        },
+        "temporal_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "walking_budget_respected": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
         }
       }
     }
-  },
-  "scenario_id": "refinement_cheaper"
+  }
 }
