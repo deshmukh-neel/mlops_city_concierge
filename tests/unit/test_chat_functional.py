@@ -813,6 +813,11 @@ class TestChatRefinementInjection:
     # Canonical fixture used by every test in this class.
     _CANON_PLACE_ID = "ChIJtest_fixture_id_aaaaaa"
     _CANON_PLACE_ID_2 = "ChIJtest_fixture_id_bbbbbb"
+    # Phase 7 plan 07-06 (PROMPT-01) — the replacement slot-2 place_id the
+    # scripted refinement commit emits. Must match `^[A-Za-z0-9_-]{20,255}$`
+    # per the plan-06-01 Task-3 validator (PATTERNS.md "Place_id fixture
+    # convention"). 28 chars.
+    _NEW_SLOT2_PLACE_ID = "ChIJtest_fixture_NEW2_xxxxxx"
 
     @classmethod
     def _committed_stops_payload(cls) -> list[dict]:
@@ -1150,3 +1155,217 @@ class TestChatRefinementInjection:
         body = response.json()
         assert isinstance(body.get("reply"), str)
         assert body["reply"], "expected a non-empty reply"
+
+    # ─── Phase 7 / plan 07-06 — PROMPT-01 functional acceptance test ────
+    #
+    # The Phase 7 prompt rewrite (plan 07-01) deletes the SYSTEM_PROMPT
+    # rule that previously told the model to preserve `place_id`s
+    # byte-for-byte. PROMPT-01 verifies the user-observable behavior
+    # survives that deletion: a /chat refinement turn with
+    # REFINEMENT_STRUCTURED_PLAN_ENABLED=on returns a full itinerary where
+    # the requested edit is applied (slot 2 place_id differs) AND all
+    # other stops are byte-identical to the prior committed plan.
+    #
+    # Per D-07-11 the runner is `openai/gpt-4o-mini` for determinism =
+    # ScriptedLLM. Per PATTERNS.md (and the existing class structure at
+    # lines 800-1026) this is the canonical location for /chat functional
+    # tests — `tests/integration/` has no chat-endpoint analog.
+    #
+    # Approach: single-POST refinement turn. The class pattern (every
+    # truth-table test above) drives a single POST with pre-populated
+    # `committed_stops`, which exercises the same code path as a real
+    # turn-1 refinement (handler reads `committed_stops` →
+    # `build_refinement_prompt_message` injects → real LangGraph agent
+    # runs → `commit_itinerary` tool call → response). The pre-population
+    # is the moral equivalent of "turn 0 already happened in a prior
+    # conversation".
+    #
+    # `_post_chat` is NOT used here because it hardcodes
+    # `_semantic_search → []` and `max_steps=2`. PROMPT-01 needs prior-
+    # turn place_ids GROUNDED in scratch (the agent's anti-hallucination
+    # guard `_grounded_place_ids` in `app/agent/commit.py` rejects any
+    # `place_id` not seen via a prior tool result) AND enough steps for
+    # the agent to issue a semantic_search before `commit_itinerary`.
+
+    def test_prompt_01_chat_refinement_returns_full_itinerary_with_edit_applied(
+        self, monkeypatch, mocker
+    ) -> None:
+        """PROMPT-01 / D-07-11: a flag-ON refinement turn returns a 3-stop
+        itinerary where slots 1 and 3 keep the prior committed `place_id`s
+        byte-for-byte and slot 2 carries the new (edit-applied) `place_id`.
+
+        Asserts (per D-07-11 acceptance):
+          (1) HTTP 200
+          (2) response has same stop count (3) as the prior committed plan
+          (3) slot 1 `place_id` == prior slot 1 (byte-equal)
+          (4) slot 3 `place_id` == prior slot 3 (byte-equal)
+          (5) slot 2 `place_id` == the new `_NEW_SLOT2_PLACE_ID` fixture
+          (6) slot 2 `place_id` != prior slot 2 (`_CANON_PLACE_ID_2`) —
+              sanity guard that the edit was actually applied, not a no-op.
+        """
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+
+        # Stub `_semantic_search` to return PlaceHits for ALL four place_ids
+        # this test references — the three prior committed stops AND the new
+        # slot-2 replacement. The agent's `_grounded_place_ids` set is built
+        # from every PlaceHit observed across scratch entries (commit.py:23-
+        # 42), so a single semantic_search whose result list contains all
+        # four place_ids grounds the entire post-refinement commit list at
+        # once. This keeps the trajectory short (1 search + 1 commit) so
+        # `max_steps=4` is plenty.
+        monkeypatch.setattr(
+            "app.agent.tools._semantic_search",
+            lambda **_kw: [
+                PlaceHit(
+                    place_id=self._CANON_PLACE_ID,
+                    name="Stop One",
+                    source="google_places",
+                    similarity=0.9,
+                    latitude=37.770,
+                    longitude=-122.410,
+                    business_status="OPERATIONAL",
+                    primary_type="cocktail_bar",
+                    formatted_address="1 A St, San Francisco",
+                    snippet=None,
+                ),
+                PlaceHit(
+                    place_id=self._NEW_SLOT2_PLACE_ID,
+                    name="Cheap Stop Two",
+                    source="google_places",
+                    similarity=0.9,
+                    latitude=37.780,
+                    longitude=-122.420,
+                    business_status="OPERATIONAL",
+                    primary_type="cocktail_bar",
+                    formatted_address="2 B St, San Francisco",
+                    snippet=None,
+                ),
+                PlaceHit(
+                    place_id="ChIJtest_fixture_id_cccccc",
+                    name="Stop Three",
+                    source="google_places",
+                    similarity=0.9,
+                    latitude=37.790,
+                    longitude=-122.430,
+                    business_status="OPERATIONAL",
+                    primary_type="cocktail_bar",
+                    formatted_address="3 C St, San Francisco",
+                    snippet=None,
+                ),
+            ],
+        )
+
+        # Scripted trajectory:
+        #   1. semantic_search to ground the four place_ids in scratch
+        #   2. commit_itinerary with the post-refinement 3-stop list:
+        #      slot 1 = _CANON_PLACE_ID (unchanged), slot 2 = NEW (edited),
+        #      slot 3 = "..._cccccc" (unchanged)
+        # Per `project_finalize_on_commit_fix`: the graph terminates on a
+        # successful commit, so no trailing narration message is needed.
+        # A narration AIMessage is included as defense-in-depth (matches
+        # the convention used by `test_chat_runs_real_graph_with_tool_call`).
+        scripted = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "ChIJtest_s1_promprt_01_aa",
+                        "args": {"query": "cheaper cocktail bar SF"},
+                    }
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "commit_itinerary",
+                        "id": "ChIJtest_c1_prompt_01_aa",
+                        "args": {
+                            "stops": [
+                                {
+                                    "place_id": self._CANON_PLACE_ID,
+                                    "name": "Stop One",
+                                    "rationale": "first stop preserved",
+                                    "source": "google_places",
+                                    "primary_type": "cocktail_bar",
+                                },
+                                {
+                                    "place_id": self._NEW_SLOT2_PLACE_ID,
+                                    "name": "Cheap Stop Two",
+                                    "rationale": "cheaper alternative per user edit",
+                                    "source": "google_places",
+                                    "primary_type": "cocktail_bar",
+                                },
+                                {
+                                    "place_id": "ChIJtest_fixture_id_cccccc",
+                                    "name": "Stop Three",
+                                    "rationale": "third stop preserved",
+                                    "source": "google_places",
+                                    "primary_type": "cocktail_bar",
+                                },
+                            ]
+                        },
+                    }
+                ],
+            ),
+            AIMessage(content="(stub final reply)", tool_calls=[]),
+        ]
+        # `max_steps=4` budgets: plan (search) → act (search exec) → plan
+        # (commit) → act (commit) → critique → END (finalize-on-commit).
+        real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=4)
+
+        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.build_agent_graph", return_value=real_graph)
+        # Per `project_full_suite_db_pool_contamination`: itinerary_violations
+        # activates the live DB pool in full-suite runs. Stub to [] so the
+        # commit path doesn't drive a revision loop (which would exhaust the
+        # scripted LLM).
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/chat",
+                json={
+                    "message": "make stop 2 cheaper",
+                    "conversation_state": {
+                        "schema_version": 1,
+                        "closure_context": [],
+                        "prior_stops": [],
+                        "committed_stops": self._committed_stops_payload(),
+                    },
+                },
+            )
+
+        # (1) HTTP 200.
+        assert response.status_code == 200, (
+            f"expected 200, got {response.status_code}: {response.text}"
+        )
+        data = response.json()
+        # The /chat response surfaces stops under the `places` key (the
+        # frontend-contract name in `ChatResponse.places`, app/main.py:230).
+        # PROMPT-01 / D-07-11 calls this "stops" in prose; the wire field
+        # is `places`. They are the same list.
+        places = data["places"]
+        # (2) Same stop count as the prior committed plan.
+        assert len(places) == 3, f"expected 3 stops post-refinement, got {len(places)}: {places}"
+        # (3) Slot 1 byte-equal to the prior committed plan.
+        assert places[0]["place_id"] == self._CANON_PLACE_ID, (
+            f"slot 1 place_id changed: expected {self._CANON_PLACE_ID}, got {places[0]['place_id']}"
+        )
+        # (4) Slot 3 byte-equal to the prior committed plan.
+        assert places[2]["place_id"] == "ChIJtest_fixture_id_cccccc", (
+            f"slot 3 place_id changed: expected ChIJtest_fixture_id_cccccc, "
+            f"got {places[2]['place_id']}"
+        )
+        # (5) Slot 2 is the new replacement place_id.
+        assert places[1]["place_id"] == self._NEW_SLOT2_PLACE_ID, (
+            f"slot 2 place_id mismatch: expected {self._NEW_SLOT2_PLACE_ID}, "
+            f"got {places[1]['place_id']}"
+        )
+        # (6) Sanity guard: slot 2 is NOT the prior slot 2 (the edit was
+        # actually applied, not a no-op preserving _CANON_PLACE_ID_2).
+        assert places[1]["place_id"] != self._CANON_PLACE_ID_2, (
+            "slot 2 place_id was not changed by the refinement turn — "
+            "the edit was a no-op, violating PROMPT-01"
+        )

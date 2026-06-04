@@ -74,13 +74,30 @@ class TestBuildRefinementPromptMessage:
         # serialization per `project_aimessage_tool_call_args_json_safe.md`.
         assert isinstance(result.content, str)
 
-    def test_content_contains_byte_for_byte_phrase_in_preamble(self) -> None:
+    def test_preamble_describes_task_not_behavior(self) -> None:
+        """Phase 7 D-07-03 / D-07-04: preamble describes the refinement TASK
+        only — JSON contract + `commit_itinerary` output channel — and never
+        prescribes behavioral rules. The behavioral rules ("byte-for-byte",
+        "SAME primary_type", "do not ask clarifying questions", "keep same
+        stop count") moved into the `refinement_minimal_edit` scorer where
+        the binary 1.0 merge gate enforces them deterministically.
+        """
         result = build_refinement_prompt_message([_make_stop()])
         content = result.content
-        # CONTEXT.md `<specifics>` first bullet pins the anchor phrase.
-        assert "byte-for-byte" in content or "EXACT SAME" in content or "byte equal" in content, (
-            f"preamble missing byte-equal anchor phrase; content was:\n{content}"
-        )
+        # Task description anchors (D-07-03).
+        assert "REFINEMENT TURN" in content
+        assert "commit_itinerary" in content
+        # Behavioral phrases are deleted (D-07-04 grep gate).
+        for forbidden in (
+            "byte-for-byte",
+            "EXACT SAME",
+            "byte equal",
+            "same primary_type",
+            "SAME primary_type",
+        ):
+            assert forbidden not in content, (
+                f"preamble re-introduced forbidden behavioral phrase {forbidden!r}"
+            )
 
     def test_content_contains_fenced_json_block(self) -> None:
         result = build_refinement_prompt_message([_make_stop()])
@@ -179,27 +196,22 @@ class TestBuildRefinementPromptMessage:
         for phrase in forbidden:
             assert phrase not in content_lower, f"preamble undercuts commit directive: {phrase!r}"
 
-    def test_preamble_is_imperative_not_descriptive(self) -> None:
-        """CR-01 (06-REVIEW.md): preamble must give explicit commands.
-
-        Empirical D-06-09 failure showed gpt-4o-mini dropping a stop and
-        asking clarifying questions on the refinement turn. The earlier
-        preamble described what byte-for-byte preservation IS without
-        telling the model what to DO. This test pins the imperative
-        wording so a future rewrite cannot silently regress to descriptive.
+    def test_preamble_names_tool_and_json_contract(self) -> None:
+        """Phase 7 D-07-03: preamble is task-only — it describes the JSON
+        block contract (`slot`, `place_id`, `arrival_time`) and names the
+        `commit_itinerary` output channel. It does NOT prescribe behavior;
+        the prior CR-01 imperatives ("do not …", "same number of stops")
+        moved into `refinement_minimal_edit` per D-07-05.
         """
         result = build_refinement_prompt_message([_make_stop()])
         content_lower = result.content.lower()
-        # Positive presence: at least these three imperatives must appear.
-        required_substrings = [
-            "commit_itinerary",  # explicit tool name
-            "do not",  # explicit prohibition
-            "same number of stops",  # explicit count preservation
-        ]
-        for phrase in required_substrings:
-            assert phrase in content_lower, (
-                f"preamble missing imperative '{phrase!r}' — reverts CR-01 fix"
-            )
+        for phrase in (
+            "commit_itinerary",
+            "slot",
+            "place_id",
+            "arrival_time",
+        ):
+            assert phrase in content_lower, f"preamble missing task-contract anchor {phrase!r}"
 
     def test_slot_index_is_one_indexed(self) -> None:
         """Matches user prose ('make stop 2 cheaper') and the

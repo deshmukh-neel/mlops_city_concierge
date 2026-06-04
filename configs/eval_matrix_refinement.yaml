@@ -22,6 +22,16 @@ entries:
     model: deepseek-chat
     env:
       REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
+  # Phase 7 / D-07-08: gpt-5-mini added as logged-not-gated entry.
+  # Runs the refinement_cheaper cell so PROMPT-05 (gpt-5-mini median > 0
+  # across 5 runs at temp=1.0) can be measured, but the merge gate stays
+  # at openai/gpt-4o-mini only — Makefile + scripts/check_baselines_fresh.py
+  # are unchanged. Reasoning stays ENABLED (D-07-09): disabling it would
+  # neutralize the falsifier signal that PROMPT-05 was designed to surface.
+  - provider: openai
+    model: gpt-5-mini
+    env:
+      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
 
 scenarios:
   - refinement_cheaper
