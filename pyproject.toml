@@ -62,7 +62,14 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-v --tb=short"
+# D-08-14: exclude the reasoning-state conformance harness from default
+# `make test`. The harness is quarantined per REASON-03 and runs only via
+# `make test-reasoning-conformance`. Phase 10 (BASE-03) promotes it to a
+# required gate.
+addopts = "-v --tb=short -m 'not reasoning_conformance'"
+markers = [
+    "reasoning_conformance: reasoning-state conformance harness (quarantined; run via make test-reasoning-conformance)",
+]
 
 [tool.ruff]
 line-length = 100
