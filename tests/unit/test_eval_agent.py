@@ -18,6 +18,7 @@ from scripts.eval_agent import (
     EvalRunReport,
     ExpectedEvalResult,
     QueryEvalResult,
+    _constraints_for_case,
     aggregate_results,
     answer_place_names_from_state,
     answer_retrieved_place_coverage,
@@ -84,6 +85,67 @@ def test_expected_constraints_keeps_single_shared_list_validator() -> None:
     assert source.count("def _strip_non_empty_list") == 1
 
 
+class TestConstraintsForCaseNumStops:
+    """Phase-6 root-cause regression: ``_constraints_for_case`` MUST pass
+    ``num_stops`` so the eval prod-threading branch mirrors ``/chat``'s
+    constraint extraction. Without this, queries that say "3 stops" in
+    prose cause the model to ask "how many stops?" instead of committing
+    (the SystemMessage that previously suppressed that question is dropped
+    by the N-1 fix in plan 06-06).
+    """
+
+    def test_extracts_num_stops_from_query_text(self) -> None:
+        # The refinement_cheaper query body says "3 stops" in prose.
+        case = eval_case(query="Plan a date night dinner-then-drinks in Hayes Valley, 3 stops")
+        constraints = _constraints_for_case(case)
+        assert constraints.num_stops == 3
+
+    def test_falls_back_to_yaml_min_max_when_text_silent(self) -> None:
+        case = eval_case(
+            query="show me cool spots in soma",  # no count in prose
+            expected_results={"min_stops": 4, "max_stops": 4},
+        )
+        constraints = _constraints_for_case(case)
+        assert constraints.num_stops == 4
+
+    def test_does_not_invent_count_when_range_ambiguous(self) -> None:
+        # min != max means the YAML range is a range, not a target — don't
+        # fabricate a single count from it.
+        case = eval_case(
+            query="show me cool spots in soma",
+            expected_results={"min_stops": 1, "max_stops": 5},
+        )
+        constraints = _constraints_for_case(case)
+        assert constraints.num_stops is None
+
+    def test_text_extraction_wins_over_yaml(self) -> None:
+        # If text says 3 but YAML says 5/5, the prose is authoritative — that
+        # matches `/chat`'s behavior of trusting the user-spoken count.
+        case = eval_case(
+            query="something something 3 stops",
+            expected_results={"min_stops": 5, "max_stops": 5},
+        )
+        constraints = _constraints_for_case(case)
+        assert constraints.num_stops == 3
+
+    def test_requested_primary_types_still_set(self) -> None:
+        # Regression: num_stops fix must not break the existing
+        # requested_primary_types pass-through.
+        case = eval_case(
+            query="dinner-then-drinks-then-dessert, 3 stops",
+            expected_constraints={
+                "requested_primary_types": ["Restaurant", "Cocktail Bar", "Dessert Shop"],
+            },
+        )
+        constraints = _constraints_for_case(case)
+        assert constraints.requested_primary_types == [
+            "Restaurant",
+            "Cocktail Bar",
+            "Dessert Shop",
+        ]
+        assert constraints.num_stops == 3
+
+
 @pytest.mark.parametrize(
     ("case_id", "expected"),
     [
@@ -130,6 +192,7 @@ def query_result(**overrides: object) -> QueryEvalResult:
         "geographic_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
         "no_hallucinated_place_ids": CheckResult(score=1.0, threshold=1.0, passed=True),
         "rationale_stop_alignment": CheckResult(score=1.0, threshold=1.0, passed=True),
+        "refinement_minimal_edit": CheckResult(score=1.0, threshold=1.0, passed=True),
         "temporal_coherence": CheckResult(score=1.0, threshold=1.0, passed=True),
         "walking_budget_respected": CheckResult(score=1.0, threshold=1.0, passed=True),
     }
@@ -273,7 +336,7 @@ def test_tool_errors_from_state_extracts_tool_error_payloads() -> None:
         scratch={
             "semantic_search": [
                 {"result": {"error": "permission denied"}},
-                {"result": [{"place_id": "p1"}]},
+                {"result": [{"place_id": "ChIJtest_p1_aaaaaaaa"}]},
             ],
             "debug": {"ignored": True},
         }
@@ -463,7 +526,7 @@ def test_aggregate_results_flattens_mean_metrics() -> None:
         actual=ActualEvalResult(
             result_count=4,
             committed_stop_count=4,
-            place_ids=["p1", "p2", "p3", "p4"],
+            place_ids=["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa", "p3", "p4"],
             place_names=["P1", "P2", "P3", "P4"],
             sources=["google_places"],
             answer_place_names=[],
@@ -984,3 +1047,488 @@ def test_selected_cases_backward_compat_without_scenario_ids() -> None:
     cases = [eval_case(id="a"), eval_case(id="b")]
     # No scenario_ids arg at all — pre-03-05 signature is preserved.
     assert selected_cases(cases, None) == cases
+
+
+# --- Plan 06-03 HIGH-1 fix: refinement_minimal_edit dual-registration -------
+
+
+class TestDeterministicChecksRegistration:
+    """HIGH-1 regression guard (06-REVIEWS.md): the merge-gate scorer
+    `refinement_minimal_edit` must be registered in BOTH
+    `app/agent/critique/checks.py:CRITIQUE_THRESHOLDS` (tested in
+    tests/unit/test_critique_checks.py) AND
+    `scripts/eval_agent.py:DETERMINISTIC_CHECKS` (tested here).
+
+    Without dual registration, the scorer auto-runs in the revision-loop
+    critique but is silently absent from every per-cell baseline JSON
+    output — meaning the merge gate cannot diff refinement_minimal_edit
+    pass-rates across PRs. This class asserts both registrations agree
+    on the same callable identity (not just presence)."""
+
+    def test_refinement_minimal_edit_registered_in_deterministic_checks(self) -> None:
+        """HIGH-1 fix: the scorer must appear as a key in DETERMINISTIC_CHECKS
+        AND the registered callable must be identical to the imported one
+        (catches the silent-rename / shadow-by-mock failure mode)."""
+        from app.agent.critique.checks import refinement_minimal_edit
+
+        assert "refinement_minimal_edit" in DETERMINISTIC_CHECKS
+        # Identity, not just equality — same callable, not a wrapper or stub.
+        assert DETERMINISTIC_CHECKS["refinement_minimal_edit"] is refinement_minimal_edit
+
+
+# --- Plan 06-06: evaluate_multi_turn_case prod-threading branch ------------
+#
+# These tests pin the Phase 6 plan 06-06 contract for `threading_mode='prod'`:
+#   - N-1 fix: prod branch DOES NOT inject SystemMessage(eval_context); the
+#     graph's plan() node prepends SYSTEM_PROMPT naturally on the first
+#     invocation when no SystemMessage is present (graph.py:264), matching
+#     /chat's prompt chain exactly.
+#   - N-2 fix: prod branch ALWAYS sets state.scratch['refinement_context'] =
+#     True for refinement scenarios. Paired with plan 06-03's Branch 2
+#     fail-loud, this closes the false-pass path where turn 0 commits empty.
+#   - HIGH-3 + Caveat #5: shared `build_refinement_prompt_message` helper
+#     produces byte-identical messages between /chat and the prod branch.
+#   - NEW HIGH-B: prod branch reads REFINEMENT_STRUCTURED_PLAN_ENABLED INSIDE
+#     `_run_prod_threading` per OVR-05; injection is gated on the flag.
+#   - NEW HIGH-C: helper call is gated on `if prior_committed_stops:` so
+#     empty-prior never raises ValueError; scratch keys still written.
+#
+# Per `project_full_suite_db_pool_contamination.md` every test patches
+# `app.agent.revision.itinerary_violations` to [] so no live DB pool fires.
+
+
+class TestEvaluateMultiTurnProdThreading:
+    """Phase 6 plan 06-06 Task 1 — prod-threading branch contract.
+
+    Every test in this class follows the project full-suite DB-pool
+    contamination guard: `app.agent.revision.itinerary_violations` is
+    mocked to [] so the revision loop cannot leak a live DB pool.
+
+    Every Stop fixture uses a Google-Place-ID-conforming `place_id`
+    per plan 06-01 Task 3 validator (`^[A-Za-z0-9_-]{20,255}$`).
+    """
+
+    _PID_1 = "ChIJ_test_id_aaaaaaaa_a"
+    _PID_2 = "ChIJ_test_id_bbbbbbbb_b"
+    _PID_3 = "ChIJ_test_id_cccccccc_c"
+
+    @classmethod
+    def _prod_case(
+        cls,
+        *,
+        target_slot: int = 2,
+        turns: list[str] | None = None,
+        query: str = "Plan a date night with sushi, cocktails, and dessert",
+    ) -> EvalQuery:
+        """Build a prod-mode refinement EvalQuery with `expected_refinement`."""
+        return eval_case(
+            id="refinement_cheaper",
+            query=query,
+            turns=turns if turns is not None else ["make stop 2 cheaper"],
+            threading_mode="prod",
+            expected_refinement={"target_slot": target_slot},
+        )
+
+    @classmethod
+    def _commit_turn_message(cls, place_ids: list[str], reply: str = "committed") -> AIMessage:
+        """Build a scripted AIMessage that emits a commit_itinerary tool call
+        AND finalizes — but for these tests we use a simpler shape: a
+        finalize-only AIMessage paired with an explicit state override at
+        the graph layer. We don't fully exercise commit; instead we set
+        state.stops directly via the graph layer or use a CapturingGraph.
+        """
+        return AIMessage(content=reply, tool_calls=[])
+
+    @classmethod
+    def _stops_for_pids(cls, pids: list[str]) -> list:
+        from tests.conftest import make_stop
+
+        return [make_stop(place_id=pid, name=f"Stop {i + 1}") for i, pid in enumerate(pids)]
+
+    class _ProdCapturingGraph:
+        """Graph double for the prod-branch tests that captures every
+        invocation's input state AND lets the test script per-turn stops
+        and final_reply on the returned state.
+
+        Each turn pops the next entry from `script` which is a tuple
+        (stops_to_set, final_reply_to_set). If the script is exhausted,
+        an IndexError is raised — surfaces a mis-count loudly.
+        """
+
+        def __init__(self, script: list[tuple[list, str]]) -> None:
+            self.script = list(script)
+            self.invocations: list = []
+            self.seen_messages: list[list] = []
+
+        async def ainvoke(self, state) -> object:
+            self.invocations.append(state)
+            self.seen_messages.append(list(state.messages))
+            stops, reply = self.script.pop(0)
+            return state.model_copy(update={"stops": list(stops), "final_reply": reply})
+
+    @pytest.mark.asyncio
+    async def test_legacy_mode_threads_messages_unchanged(self, mocker) -> None:
+        """Legacy branch byte-identical to pre-Phase-6 — SystemMessage(eval_context)
+        survives into turn 2 just like `test_evaluate_multi_turn_threads_messages`.
+        Regression guard against accidental N-1-style fixes to the legacy path.
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        llm = RecordingScriptedLLM(
+            scripted=[_finalize_msg("turn1 reply"), _finalize_msg("turn2 reply")],
+        )
+        graph = build_agent_graph(llm, max_steps=4)
+        case = eval_case(
+            query="coffee in soma",
+            turns=["make stop 2 cheaper"],
+            threading_mode="legacy",
+        )
+        result = await evaluate_multi_turn_case(graph, case)
+        assert result.final_reply == "turn2 reply"
+        # Legacy STILL injects SystemMessage(eval_context) — substring survives.
+        turn_two_systems = [m.content for m in llm.seen[1] if isinstance(m, SystemMessage)]
+        assert any("Expected open time:" in c for c in turn_two_systems)
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_turn_0_messages_do_not_contain_system_message(
+        self, mocker, monkeypatch
+    ) -> None:
+        """N-1 fix: prod branch does NOT inject SystemMessage(eval_context) on turn 0.
+        graph.plan() prepends SYSTEM_PROMPT naturally per graph.py:264 — the only
+        SystemMessage seen by the LLM is the SYSTEM_PROMPT itself, which must NOT
+        contain the eval-context substring (e.g. 'Expected open time:').
+        """
+        from app.agent.prompts import SYSTEM_PROMPT  # noqa: F401  (anchor for the assertion)
+
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        llm = RecordingScriptedLLM(
+            scripted=[_finalize_msg("turn0 reply"), _finalize_msg("turn1 reply")],
+        )
+        graph = build_agent_graph(llm, max_steps=4)
+        case = self._prod_case()
+        await evaluate_multi_turn_case(graph, case)
+
+        # On turn 0 graph.plan() prepended SYSTEM_PROMPT — but NO SystemMessage
+        # carrying the eval_context body. The eval-context substring must be
+        # absent from every SystemMessage seen on turn 0.
+        turn_zero_systems = [m.content for m in llm.seen[0] if isinstance(m, SystemMessage)]
+        for sysmsg in turn_zero_systems:
+            assert "Expected open time:" not in sysmsg
+            assert "Expected result range:" not in sysmsg
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_injects_structured_plan_on_turn_1(self, mocker, monkeypatch) -> None:
+        """Turn 1 of a prod refinement scenario must include the structured-plan
+        HumanMessage when the env-var flag is ON and turn 0 committed >= 1 stop.
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        # We use the prod-branch's helper _run_prod_threading directly so we can
+        # script turn-0 commits via a _ProdCapturingGraph; the real graph cannot
+        # script committed stops without a full retrieval/commit trajectory.
+        from scripts.eval_agent import _run_prod_threading
+
+        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        graph = self._ProdCapturingGraph(script=[(stops, "turn0 reply"), ([], "turn1 reply")])
+        case = self._prod_case()
+
+        result, final_state = await _run_prod_threading(graph, case)
+
+        # Turn 1's messages contain a HumanMessage with structured-plan content.
+        turn_one_humans = [m for m in graph.seen_messages[1] if isinstance(m, HumanMessage)]
+        contents = [m.content for m in turn_one_humans if isinstance(m.content, str)]
+        assert any("current_plan" in c for c in contents)
+        assert any("byte-for-byte" in c for c in contents)
+        # Result is the expected dataclass.
+        assert isinstance(result, QueryEvalResult)
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_message_byte_identical_to_chat_helper_output(
+        self, mocker, monkeypatch
+    ) -> None:
+        """Caveat #5 invariant: prod branch's structured-plan HumanMessage content
+        equals the SHARED helper's direct output for the same committed_stops.
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        from app.agent.io import build_refinement_prompt_message
+        from scripts.eval_agent import _run_prod_threading
+
+        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        graph = self._ProdCapturingGraph(script=[(stops, "turn0 reply"), ([], "turn1 reply")])
+        case = self._prod_case()
+
+        await _run_prod_threading(graph, case)
+
+        # Direct call to the helper with the same committed_stops.
+        expected_msg = build_refinement_prompt_message(stops)
+        # Find the structured-plan HumanMessage on turn 1's seen sequence.
+        turn_one_humans = [m for m in graph.seen_messages[1] if isinstance(m, HumanMessage)]
+        structured_human_contents = [
+            m.content
+            for m in turn_one_humans
+            if isinstance(m.content, str) and "current_plan" in m.content
+        ]
+        assert structured_human_contents, "no structured-plan HumanMessage on turn 1"
+        assert structured_human_contents[0] == expected_msg.content
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_message_sequence_matches_chat_invocation(
+        self, mocker, monkeypatch
+    ) -> None:
+        """HIGH-3 + N-1: the full message sequence the LLM sees on turn 1 of a
+        prod-mode case must match the sequence /chat builds on a refinement
+        request. Specifically: positions and contents agree at the
+        synthesized-history → structured-plan → user-turn boundary.
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+
+        from app.agent.io import build_refinement_prompt_message
+        from scripts.eval_agent import _run_prod_threading
+
+        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        graph = self._ProdCapturingGraph(
+            script=[(stops, "turn0 assistant reply"), ([], "turn1 reply")]
+        )
+        case = self._prod_case(query="Plan a date night", turns=["make stop 2 cheaper"])
+        await _run_prod_threading(graph, case)
+
+        # On turn 1 the prod branch builds [*history(user+assistant turn 0),
+        # structured-plan HumanMessage, user-turn-1 HumanMessage].
+        # There must be NO SystemMessage at position 0 in messages_in
+        # (graph.plan() will prepend SYSTEM_PROMPT; the ProdCapturingGraph
+        # does NOT do that prepend, so we look at the raw state.messages
+        # that the runner constructed).
+        turn_one_msgs = graph.seen_messages[1]
+        # First element must be a HumanMessage (history user turn 0).
+        assert isinstance(turn_one_msgs[0], HumanMessage)
+        assert turn_one_msgs[0].content == "Plan a date night"
+        # Second element: AIMessage (history assistant turn 0).
+        assert isinstance(turn_one_msgs[1], AIMessage)
+        assert turn_one_msgs[1].content == "turn0 assistant reply"
+        # Then the structured-plan HumanMessage.
+        expected_struct = build_refinement_prompt_message(stops)
+        assert isinstance(turn_one_msgs[2], HumanMessage)
+        assert turn_one_msgs[2].content == expected_struct.content
+        # Last element: the user's turn-1 message.
+        assert isinstance(turn_one_msgs[-1], HumanMessage)
+        assert turn_one_msgs[-1].content == "make stop 2 cheaper"
+        # NO SystemMessage anywhere in the prod-branch-constructed messages.
+        assert not any(isinstance(m, SystemMessage) for m in turn_one_msgs)
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_always_sets_refinement_context_true(self, mocker, monkeypatch) -> None:
+        """N-2 regression guard: refinement_context is True regardless of
+        whether turn 0 commits empty or non-empty stops.
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        from scripts.eval_agent import _run_prod_threading
+
+        # Non-empty commit.
+        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        graph_a = self._ProdCapturingGraph(script=[(stops, "ok"), ([], "ok2")])
+        _, state_a = await _run_prod_threading(graph_a, self._prod_case())
+        assert state_a.scratch["refinement_context"] is True
+
+        # Empty commit.
+        graph_b = self._ProdCapturingGraph(script=[([], "empty turn 0"), ([], "ok")])
+        _, state_b = await _run_prod_threading(graph_b, self._prod_case())
+        assert state_b.scratch["refinement_context"] is True
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_turn_0_empty_commit_sets_empty_prior_and_target(
+        self, mocker, monkeypatch
+    ) -> None:
+        """N-2 fix: empty commit on turn 0 still writes the three scratch keys
+        (refinement_context=True, prior_committed_stops=[], refinement_target_slot).
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        from scripts.eval_agent import _run_prod_threading
+
+        graph = self._ProdCapturingGraph(script=[([], "empty"), ([], "ok")])
+        case = self._prod_case(target_slot=2)
+        _, final_state = await _run_prod_threading(graph, case)
+        assert final_state.scratch["prior_committed_stops"] == []
+        assert final_state.scratch["refinement_target_slot"] == 2
+        assert final_state.scratch["refinement_context"] is True
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_empty_prior_does_not_raise_and_scorer_returns_0_0(
+        self, mocker, monkeypatch
+    ) -> None:
+        """NEW HIGH-C: helper call site gated on `if prior_committed_stops:`.
+        When turn 0 commits empty, the helper is NOT called; no ValueError;
+        the scorer (Branch 2) returns 0.0.
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        from scripts.eval_agent import _run_prod_threading
+
+        graph = self._ProdCapturingGraph(script=[([], "empty"), ([], "ok")])
+        case = self._prod_case()
+        result, _ = await _run_prod_threading(graph, case)
+
+        # No structured-plan content was emitted on turn 1 (helper not called).
+        turn_one_msgs = graph.seen_messages[1]
+        for m in turn_one_msgs:
+            if isinstance(m, HumanMessage) and isinstance(m.content, str):
+                assert "current_plan" not in m.content
+        # Scorer returns 0.0 via Branch 2 fail-loud (refinement_context=True,
+        # prior_committed_stops=[]).
+        assert result.deterministic.checks["refinement_minimal_edit"].score == 0.0
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_skips_injection_when_flag_off(self, mocker, monkeypatch) -> None:
+        """NEW HIGH-B: when REFINEMENT_STRUCTURED_PLAN_ENABLED is unset,
+        the structured-plan HumanMessage is NOT emitted even though turn 0
+        committed 3 stops. The scratch keys are still written (gate only
+        controls emission, not scratch).
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
+        from scripts.eval_agent import _run_prod_threading
+
+        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        graph = self._ProdCapturingGraph(script=[(stops, "ok"), ([], "ok2")])
+        case = self._prod_case()
+        _, final_state = await _run_prod_threading(graph, case)
+
+        # No structured-plan content on turn 1 (flag was off).
+        turn_one_msgs = graph.seen_messages[1]
+        for m in turn_one_msgs:
+            if isinstance(m, HumanMessage) and isinstance(m.content, str):
+                assert "current_plan" not in m.content
+        # Scratch keys still written.
+        assert final_state.scratch["refinement_context"] is True
+        assert final_state.scratch["prior_committed_stops"]  # non-empty
+        assert len(final_state.scratch["prior_committed_stops"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_turn_0_empty_commit_scorer_returns_0_0_end_to_end(
+        self, mocker, monkeypatch
+    ) -> None:
+        """N-2 fix end-to-end: through the public evaluate_multi_turn_case API,
+        an empty turn-0 commit on a prod refinement scenario yields
+        refinement_minimal_edit score == 0.0 (Branch 2 fail-loud).
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+
+        graph = self._ProdCapturingGraph(script=[([], "empty"), ([], "ok")])
+        case = self._prod_case()
+        result = await evaluate_multi_turn_case(graph, case)
+        assert result.deterministic.checks["refinement_minimal_edit"].score == 0.0
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_populates_state_scratch_for_scorer(self, mocker, monkeypatch) -> None:
+        """Caveat #6 + N-2: FINAL returned state carries ALL THREE scratch keys
+        — refinement_context=True, prior_committed_stops (list[dict]), and
+        refinement_target_slot (int).
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        from scripts.eval_agent import _run_prod_threading
+
+        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        graph = self._ProdCapturingGraph(script=[(stops, "ok"), (stops, "ok2")])
+        case = self._prod_case(target_slot=2)
+        _, final_state = await _run_prod_threading(graph, case)
+
+        assert final_state.scratch["refinement_context"] is True
+        assert final_state.scratch["refinement_target_slot"] == 2
+        prior = final_state.scratch["prior_committed_stops"]
+        assert isinstance(prior, list)
+        assert len(prior) == 3
+        assert prior[0]["slot"] == 1
+        assert prior[0]["place_id"] == self._PID_1
+        assert prior[1]["slot"] == 2
+        assert prior[1]["place_id"] == self._PID_2
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_raises_on_missing_expected_refinement(
+        self, mocker, monkeypatch
+    ) -> None:
+        """Defensive: prod-mode case without `expected_refinement` raises."""
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        from scripts.eval_agent import _run_prod_threading
+
+        graph = self._ProdCapturingGraph(script=[([], "ok")])
+        case = eval_case(
+            id="bad_prod_case",
+            query="x",
+            turns=["y"],
+            threading_mode="prod",
+            # no expected_refinement
+        )
+        with pytest.raises(ValueError, match="requires expected_refinement"):
+            await _run_prod_threading(graph, case)
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_preserves_fail_open_on_exception(self, mocker, monkeypatch) -> None:
+        """Fail-open contract preserved in prod branch: a per-turn exception
+        records the synthetic `multi_turn_runner` scratch entry.
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+
+        # Script only ONE turn — second invocation pops from empty list.
+        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        graph = self._ProdCapturingGraph(script=[(stops, "turn0 reply")])
+        case = self._prod_case()
+        result = await evaluate_multi_turn_case(graph, case)
+
+        assert any(
+            "multi_turn_runner" in err and "turn 1" in err
+            for err in result.deterministic.tool_errors
+        )
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_synthesized_history_includes_user_and_assistant(
+        self, mocker, monkeypatch
+    ) -> None:
+        """MEDIUM: synthesized text history for turn 1 must contain BOTH the
+        prior turn's user HumanMessage AND the prior turn's assistant
+        AIMessage (via state.final_reply). Not just assistant-only.
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+        from scripts.eval_agent import _run_prod_threading
+
+        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        graph = self._ProdCapturingGraph(script=[(stops, "turn0 assistant prose"), ([], "ok")])
+        case = self._prod_case(query="initial query")
+        await _run_prod_threading(graph, case)
+
+        turn_one_msgs = graph.seen_messages[1]
+        human_contents = [m.content for m in turn_one_msgs if isinstance(m, HumanMessage)]
+        ai_contents = [m.content for m in turn_one_msgs if isinstance(m, AIMessage)]
+        # Prior user message threaded through.
+        assert "initial query" in human_contents
+        # Prior assistant message (state.final_reply) threaded through.
+        assert "turn0 assistant prose" in ai_contents
+
+    @pytest.mark.asyncio
+    async def test_prod_mode_refinement_minimal_edit_scores_1_0_end_to_end(
+        self, mocker, monkeypatch
+    ) -> None:
+        """WARNING-4 + MEDIUM-2: a happy-path prod refinement that preserves
+        non-target slots byte-equal must score refinement_minimal_edit == 1.0.
+        """
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
+
+        # Turn 0: commit stops 1, 2, 3 with pids A, B, C.
+        # Turn 1: commit stops 1, 2', 3 with pids A, NEW_B, C (slot 2 swapped).
+        turn_0_stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        new_b = "ChIJ_test_id_zzzzzzzz_z"
+        turn_1_stops = self._stops_for_pids([self._PID_1, new_b, self._PID_3])
+        graph = self._ProdCapturingGraph(
+            script=[(turn_0_stops, "turn0 reply"), (turn_1_stops, "turn1 reply")]
+        )
+        case = self._prod_case(target_slot=2)
+        result = await evaluate_multi_turn_case(graph, case)
+
+        assert result.deterministic.checks["refinement_minimal_edit"].score == 1.0

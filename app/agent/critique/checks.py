@@ -30,6 +30,7 @@ CRITIQUE_THRESHOLDS: dict[str, float] = {
     "category_compliance": 1.0,
     "category_compliance_strict": 1.0,
     "rationale_stop_alignment": 1.0,
+    "refinement_minimal_edit": 1.0,
 }
 
 
@@ -351,6 +352,121 @@ def rationale_stop_alignment(state: ItineraryState) -> float:
     return matches / len(state.stops)
 
 
+def refinement_minimal_edit(state: ItineraryState) -> float:
+    """Refinement minimal-edit scorer (REF-01 merge gate).
+
+    Computes the fraction of PRIOR non-target stops that survive byte-equal
+    (same `place_id` in the same slot) in the current `state.stops`. Strict
+    1.0 == every prior non-target stop preserved exactly; anything else
+    indicates the refinement turn over-edited beyond the requested slot.
+
+    Contract sources:
+    - D-06-08 (06-CONTEXT.md): scorer math + abstain semantics.
+    - D-06-09 (06-CONTEXT.md): strict 1.0 merge gate (REF-01 is binary).
+    - 06-REVIEWS.md § HIGH-2: denominator iterates PRIOR non-target slots,
+      NOT current non-target slots. A dropped prior non-target slot must
+      fail the scorer (< 1.0), not be silently excluded from the denom.
+    - 06-REVIEWS.md § Pass 2 N-2: a NEW explicit
+      `state.scratch['refinement_context']: bool` flag (populated by 06-06
+      for every refinement scenario regardless of turn-0 commit outcome)
+      lets the scorer distinguish "non-refinement / ad-hoc invocation →
+      abstain 1.0" from "refinement scenario where turn 0 produced no
+      prior stops → fail-loud 0.0". Closes the silent-pass path where
+      turn 0 fails to commit and the merge gate misses the failure.
+    - 06-REVIEWS.md § Pass 2 N-3: the abstain/fail branching is rewritten
+      with explicit five-branch precedence so each branch is independently
+      testable (a regression in any one branch produces a precise CI name).
+
+    Five-branch precedence (mutually exclusive, evaluated in order):
+        Branch 1 (abstain): `refinement_context` absent or False → 1.0.
+            Covers (a) first-turn / non-refinement scratch and (b) the
+            ad-hoc invocation by `itinerary_violations` in the revision
+            loop where no refinement context is present. Mirrors
+            `category_compliance`'s fail-open shape.
+        Branch 2 (fail-loud): `refinement_context == True` AND
+            (`prior_committed_stops` is None / missing / empty list OR
+            `refinement_target_slot` is missing) → 0.0. Turn 0 was supposed
+            to commit but didn't; the merge gate must surface the failure.
+        Branch 3 (fail-loud): `refinement_context == True` AND prior is
+            non-empty but every entry is malformed (missing `slot` or
+            `place_id`, or `place_id` is empty/non-string) such that
+            `prior_by_slot` collapses to empty → 0.0. Eval-runner contract
+            violation; surface it.
+        Branch 4 (legitimate zero-denom): `refinement_context == True`
+            AND `prior_by_slot` non-empty AND every surviving entry has
+            `slot == target_slot` (single-stop-target case where the lone
+            prior stop IS the one being changed) → 1.0. Nothing to preserve.
+        Branch 5 (normal): all four prior branches inapplicable → return
+            `matches / len(prior_non_target_slots)`.
+
+    Scratch keys read (1-indexed slots, matching the YAML convention from
+    plan 06-04 and the `is_refinement_request` return convention from
+    plan 06-02):
+        - `prior_committed_stops`: `list[dict]` with `{slot: int, place_id: str}`
+          per entry. Populated by the eval runner (plan 06-06) between turns;
+          NOT populated on the `/chat` production path (production never runs
+          this scorer mid-flight — it's an offline-eval scorer).
+        - `refinement_target_slot`: `int` (1-indexed). The slot the user
+          asked to change. Excluded from the denominator.
+        - `refinement_context`: `bool` (NEW per N-2). True iff the eval
+          runner identified this turn as a refinement scenario. Used to
+          disambiguate Branches 1 vs 2.
+
+    HIGH-2 regression guards (covered in
+    `tests/unit/test_critique_checks.py::TestRefinementMinimalEdit`):
+        - prior 3 stops, target_slot=2, current dropped slot 3 entirely
+          → 0.5 (NOT 1.0).
+        - prior 3 stops, target_slot=2, current inserted a NEW slot 4
+          alongside preserved slots 1+3 → 1.0 (insertions are neutral).
+
+    Pure function of state: no DB access. The `_try(...)` fail-open in
+    `itinerary_violations` therefore never trips on a DB error here.
+    """
+    # Branch 1: abstain when not in refinement context.
+    refinement_context = bool(state.scratch.get("refinement_context", False))
+    if not refinement_context:
+        return 1.0
+
+    prior = state.scratch.get("prior_committed_stops")
+    target_slot = state.scratch.get("refinement_target_slot")
+
+    # Branch 2: refinement context but prior data missing → fail-loud.
+    if target_slot is None or prior is None:
+        return 0.0
+    if isinstance(prior, list) and len(prior) == 0:
+        return 0.0
+
+    # Build prior_by_slot defensively — skip malformed entries.
+    prior_by_slot: dict[int, str] = {}
+    for entry in prior:
+        if not isinstance(entry, dict):
+            continue
+        slot = entry.get("slot")
+        place_id = entry.get("place_id")
+        if not isinstance(slot, int):
+            continue
+        if not isinstance(place_id, str) or not place_id:
+            continue
+        prior_by_slot[slot] = place_id
+
+    # Branch 3: every prior entry was malformed → fail-loud.
+    if not prior_by_slot:
+        return 0.0
+
+    prior_non_target_slots = [s for s in prior_by_slot if s != target_slot]
+
+    # Branch 4: every surviving prior entry IS the target slot (lone-stop case).
+    if not prior_non_target_slots:
+        return 1.0
+
+    # Branch 5: normal path — matches / len(prior_non_target_slots).
+    current_by_slot: dict[int, str] = {i + 1: s.place_id for i, s in enumerate(state.stops)}
+    matches = sum(
+        1 for slot in prior_non_target_slots if current_by_slot.get(slot) == prior_by_slot[slot]
+    )
+    return matches / len(prior_non_target_slots)
+
+
 def itinerary_violations(state: ItineraryState) -> list[str]:
     """Return the list of check names that fell below their threshold.
 
@@ -381,4 +497,10 @@ def itinerary_violations(state: ItineraryState) -> list[str]:
     _try("walking_budget_respected", walking_budget_respected)
     _try("constraints_satisfied", constraints_satisfied)
     _try("rationale_stop_alignment", rationale_stop_alignment)
+    # refinement_minimal_edit is grouped adjacent to rationale_stop_alignment
+    # because both are refinement-related. Per its Branch 1 abstain, this
+    # call returns 1.0 every time `state.scratch['refinement_context']` is
+    # absent (the ad-hoc revision-loop invocation case), so it never produces
+    # a spurious violation in the standard /chat critique path.
+    _try("refinement_minimal_edit", refinement_minimal_edit)
     return failed

@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Literal
 
 import yaml  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EVAL_QUERIES_PATH = Path("configs/eval_queries.yaml")
@@ -104,8 +112,38 @@ class ExpectedResults(BaseModel):
         return self
 
 
+class ExpectedRefinement(BaseModel):
+    """Refinement-turn expectations (Phase 6 / D-06-08).
+
+    Only set when the eval scenario is a refinement turn. ``target_slot`` is
+    the 1-indexed stop the user asks to change in the LAST turn — the index
+    convention matches:
+      - the user-facing prose ("make stop 2 cheaper"),
+      - the ``is_refinement_request`` helper return convention (plan 06-02), and
+      - the ``refinement_minimal_edit`` scorer convention (plan 06-03).
+
+    Drives the ``refinement_minimal_edit`` scorer via ``state.scratch``
+    population in ``evaluate_multi_turn_case`` under ``threading_mode='prod'``
+    only. Default ``None`` on the parent ``EvalQuery`` keeps the field opt-in
+    (no impact on the 30 existing legacy cases).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_slot: int = Field(ge=1)
+
+
 class EvalQuery(BaseModel):
-    """One hand-written offline eval case."""
+    """One hand-written offline eval case.
+
+    Phase 6 additions (plan 06-04):
+      - ``threading_mode``: opt-in switch between legacy eval-only message
+        threading and prod-equivalent threading (D-06-05). Default ``'legacy'``
+        preserves the 30 existing cases.
+      - ``expected_refinement``: nested ``ExpectedRefinement`` model that
+        carries the target slot for refinement-turn scenarios (D-06-08).
+        Default ``None`` keeps non-refinement cases unaffected.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -118,6 +156,15 @@ class EvalQuery(BaseModel):
     expects_clarification_or_relaxation: bool = False
     tags: list[str] = Field(default_factory=list)
     turns: list[str] | None = None
+    # Phase 6 / D-06-05: opt-in threading switch — `legacy` keeps the existing
+    # 30 cases on the old eval threading; only `refinement_cheaper` flips to
+    # `prod` in plan 06-07. `Literal` enforces membership at validation time;
+    # `yaml.safe_load` already produces lowercase strings so no normalization
+    # validator is needed.
+    threading_mode: Literal["legacy", "prod"] = "legacy"
+    # Phase 6 / D-06-08: nested refinement expectations, only meaningful for
+    # refinement-turn scenarios. `None` default = backward compat.
+    expected_refinement: ExpectedRefinement | None = None
 
     @field_validator("id", "query", "reference", mode="before")
     @classmethod
@@ -216,12 +263,44 @@ class MatrixEntry(BaseModel):
 
     provider: str
     model: str
+    # Phase 6 / D-06-10: per-cell env override gateway for plan 06-06's matrix
+    # runner. `StrictStr` on values rejects YAML coercion (e.g. unquoted
+    # `true`/`false` -> bool -> coerced str) at type-validation time, which
+    # closes the coercion-before-validator gap a `mode='after'` validator
+    # would otherwise leave open (MEDIUM env-StrictStr fix from REVIEWS.md).
+    # Keys are guarded by the `env_keys_must_be_strings` validator below.
+    env: dict[StrictStr, StrictStr] | None = None
 
     @field_validator("provider", "model", mode="before")
     @classmethod
     def strip_required_text(cls, value: object, info: ValidationInfo) -> str:
         """Trim provider/model names and reject blanks (parity with EvalQuery)."""
         return strip_non_empty(value, info.field_name or "field")
+
+    @field_validator("env", mode="before")
+    @classmethod
+    def env_keys_must_be_strings(cls, value: object) -> object:
+        """Reject non-string env keys for symmetry with the StrictStr value guard.
+
+        Without this `mode='before'` check, Pydantic would coerce a numeric
+        key like ``{1: "true"}`` into a string via its standard dict-key
+        coercion before validation, silently producing ``{"1": "true"}``.
+        That would crash downstream when ``subprocess.run(env=...)`` rejects
+        the (technically valid str) key for unexpected reasons. Surface the
+        type mismatch at config load time, in line with the StrictStr value
+        contract.
+        """
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            # Pass through; downstream Pydantic typing handles non-dict shapes.
+            return value
+        for key in value:
+            if not isinstance(key, str):
+                raise ValueError(
+                    f"env keys must be strings; got {type(key).__name__} for key {key!r}"
+                )
+        return value
 
     @field_validator("provider", "model", mode="after")
     @classmethod

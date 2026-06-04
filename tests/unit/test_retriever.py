@@ -45,7 +45,7 @@ def test_get_relevant_documents_formats_vector_and_maps_metadata(mocker) -> None
     rows = [
         (
             "Name: Taqueria Example\nPrimary Type: mexican_restaurant",
-            "abc123",
+            "ChIJtest_abc123_aaaa",
             "Taqueria Example",
             4.7,
             "123 Mission St, San Francisco, CA",
@@ -88,7 +88,7 @@ def test_get_relevant_documents_formats_vector_and_maps_metadata(mocker) -> None
     document = documents[0]
     assert document.page_content == rows[0][0]
     assert document.metadata == {
-        "place_id": "abc123",
+        "place_id": "ChIJtest_abc123_aaaa",
         "name": "Taqueria Example",
         "rating": 4.7,
         "address": "123 Mission St, San Francisco, CA",

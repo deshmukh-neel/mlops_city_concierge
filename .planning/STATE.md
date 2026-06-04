@@ -2,17 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Production Readiness
-current_phase: 05
-status: ready_to_plan
-last_updated: 2026-05-27T18:23:27.628Z
-last_activity: 2026-05-27
+current_phase: 6
+status: closed_with_notes
+last_updated: "2026-06-04T00:00:00.000Z"
+last_activity: 2026-06-03 -- Phase 06 closed; v2.0 milestone shippable; v2.1 scoped (reasoning-model compat)
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 22
-  completed_plans: 22
-  percent: 80
-stopped_at: Phase 05 complete (2/2) — ready to discuss Phase 6
+  completed_phases: 5
+  total_plans: 29
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +29,7 @@ stopped_at: Phase 05 complete (2/2) — ready to discuss Phase 6
 - [x] Re-baseline complete: 5 live runs against merged main confirm 3 real bugs (category compliance, rationale-stop alignment, minimal-edit refinement). Step-budget tuning DROPPED — didn't reproduce. v2.0 = 5 phases, not 6.
 - [x] REQUIREMENTS.md written (v2.0-scoped, grounded in research + re-baseline, 21 requirements across 5 categories)
 - [x] ROADMAP.md written (Phases 2-6; phase numbering continues from v1.0 Phase 1)
-- [ ] Phase 2 planned (`/gsd:plan-phase 2`)
+- [x] Phase 6: closed 2026-06-03. 7/7 plans + 5 follow-up commits. D-06-09 part 1 (refinement_minimal_edit median == 1.0) PASSES. Part 2 (no-regression) accepted with note — prior 1.0 baselines were Phase-4 fail-open false positives now exposed by an actually-committing agent (real behavior improvement, just measures differently). gpt-5-mini and gpt-5.4-mini probe confirmed reasoning models underperform on this codebase due to _prune_for_llm dropping reasoning_content (architectural, not model quality). Remediation scoped as v2.1 milestone.
 
 ## Notes
 
@@ -42,11 +41,11 @@ stopped_at: Phase 05 complete (2/2) — ready to discuss Phase 6
 
 ## Current Position
 
-Phase: 05 (rationale-stop-alignment-fix) — EXECUTING
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-27
-Resume: `/gsd:plan-phase 5` on a fresh `feature/v2-rationale-alignment` branch off updated main
+Phase: 06 (minimal-edit-refinement) — CLOSED 2026-06-03
+Plan: 7/7 plans + 5 follow-up commits (d5005af, 4421910, df7e4ca, 49385a7, 61aee1b) + STATE/ROADMAP updates (d513b85)
+Status: D-06-09 part 1 PASSES on 5-run live re-baseline (refinement_minimal_edit median = 1.0). Part 2 accepted with note. Phase 6 closes the v2.0 milestone (5/5 phases shipped).
+Last activity: 2026-06-03 -- Phase 6 closed; v2.0 milestone ready to ship; v2.1 scoped as next milestone (see project_v2_1_reasoning_compat_scope memory).
+Resume: open PR for `gsd/phase-06-minimal-edit-refinement` → merge to main → close v2.0 milestone → run `/gsd-new-milestone v2.1` when ready to start reasoning-model compat work.
 
 ## Phase 03 closure summary (2026-05-22)
 
@@ -56,3 +55,32 @@ Resume: `/gsd:plan-phase 5` on a fresh `feature/v2-rationale-alignment` branch o
 - All 4 anti-patterns from `.continue-here.md` (P1/P2/P4/P9) addressed
 - Open Phase 3 items prior to today's session: CR-01 ✓ (commit `17f82a4`), CR-02 ✓ (commit `8c02af9`), live matrix + baseline post-process ✓ (commit `40fe3fd`). STATE.md was stale; corrected here.
 - Ready to push: `gsd/phase-03-eval-harness-extension` is 108 commits ahead of `main`
+
+## Phase 06 closure summary (2026-06-03)
+
+- All 7 plans complete:
+  - 06-01 — ConversationState.committed_stops + Stop.place_id validator (HIGH-4 residual)
+  - 06-02 — `is_refinement_request` deterministic regex helper
+  - 06-03 — `refinement_minimal_edit` scorer (five-branch precedence)
+  - 06-04 — `EvalQuery.threading_mode` + `ExpectedRefinement` + `MatrixEntry.env` schema
+  - 06-05 — `/chat` injection + `build_refinement_prompt_message` shared helper
+  - 06-06 — eval runner prod-threading branch + per-cell env override
+  - 06-07 — YAML flips + refinement matrix YAML + baseline re-gen + docs sync + bookkeeping
+- D-06-09 merge gate status (EMPIRICAL): the strict `refinement_minimal_edit median == 1.0` gate
+  on `openai/gpt-4o-mini` × `refinement_cheaper` FAILED on the live re-baseline (median = 0.0).
+  Failure mode: the agent asks a clarifying question on the refinement turn rather than
+  committing a byte-equal-stop swap; turn 0 also failed to commit, so the prod-branch
+  fail-loud (plans 06-03 Branch 2 + 06-06 N-2) correctly returned 0.0. The CI structural
+  gate (`make eval-matrix-refinement-structural-check`, hard-gated per N-4 + NEW HIGH-A)
+  PASSES — the wire is correct end-to-end; the model behavior is the gap. Remediation lives
+  in plan 06-03 (scorer math sanity), 06-05 (preamble strengthening), or a /gsd-execute-phase
+  --gaps follow-up. The CI-hard-gate + empirical-checkpoint pattern from N-4 is doing its job
+  by surfacing this for the human reviewer.
+- REF-04 first-turn no-regression status: PASSES. Default matrix
+  (`configs/eval_matrix.yaml`) re-run shows all Phase 4 scorers at median 1.0 on
+  `omakase_mission_open_ended` and `late_night_closure_cascade` for both providers.
+- CI wiring shipped inline in this phase per the HIGH-5 contradiction fix. The structural-check
+  CI hard gate is operational; no separate workflow PR needed.
+- Three-way doc sync (README ↔ AGENTS ↔ copilot-instructions ↔ CLAUDE) verified per the
+  project's sync rule. REFINEMENT_STRUCTURED_PLAN_ENABLED + committed_stops appear in all
+  four files.

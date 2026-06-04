@@ -7,12 +7,13 @@ critique node do deterministic checks (geographic coherence, hours).
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.tools.booking_types import Provider as BookingProvider
 
@@ -136,6 +137,44 @@ _PRICE_LEVEL_RANK: dict[str, int] = {
 }
 
 
+# Phase 6 / 06-01 Task 3 — HIGH-4 residual fix from pass-2 review.
+#
+# Google Place IDs match `^[A-Za-z0-9_-]{20,255}$` (alphanumeric + underscore
+# + dash; typical real-world length is 20-255 chars). Enforcing this at the
+# Pydantic model boundary blocks prompt-injection-shaped strings (e.g.,
+# `place_id = "IGNORE PRIOR INSTRUCTIONS"`) BEFORE they reach
+# `build_refinement_prompt_message` (plan 06-05) or any other consumer of
+# Stop / ClosureContext / PlaceCard. `json.dumps` only escapes quotes and
+# backslashes, NOT arbitrary plain-string content — so without this
+# validator a crafted plain-string place_id flows through json-encoding
+# into the prompt unescaped. The validator is defense-in-depth on top of
+# HIGH-4 strategy (a) (field whitelisting in 06-05): even if a future
+# change re-introduces a client-tamperable field to the prompt, place_id
+# itself is no longer a viable injection vector.
+_PLACE_ID_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z0-9_-]{20,255}")
+
+
+def _validate_place_id_format(value: str) -> str:
+    """Validator helper shared by Stop, ClosureContext, and PlaceCard.
+
+    Raises ValueError on any string that does not match the Google Place ID
+    format (alphanumeric + underscore + dash, 20-255 chars). Returns the
+    input unchanged on a match.
+
+    Uses ``fullmatch`` (not ``match`` with ``$``) so trailing newline and
+    other content past the formatted body are rejected. ``re.match`` with
+    ``$`` accepts ``"A"*25 + "\\n"`` because Python's ``$`` matches before
+    a final newline by default — that's a defense-in-depth bypass
+    (CR-02 from phase 06 code review).
+    """
+    if not _PLACE_ID_PATTERN.fullmatch(value):
+        raise ValueError(
+            "place_id must match Google Place ID format "
+            "(alphanumeric + underscore + dash, 20-255 chars)"
+        )
+    return value
+
+
 def price_level_to_rank(value: str | None) -> int | None:
     """Map Google's price_level enum string to the 0..4 rank PlaceCard expects.
 
@@ -163,6 +202,12 @@ class Stop(BaseModel):
     primary_type: str | None = None
     booking_url: str | None = None
     booking_provider: BookingProvider | None = None
+
+    @field_validator("place_id")
+    @classmethod
+    def _validate_place_id(cls, value: str) -> str:
+        # HIGH-4 residual fix (pass-2 review). See `_validate_place_id_format`.
+        return _validate_place_id_format(value)
 
 
 ClosureOutcome = Literal[
@@ -197,6 +242,12 @@ class ClosureContext(BaseModel):
     stop_index_hint: int
     proposed_alternative: Stop | None = None
     proposed_distance_m: float | None = None
+
+    @field_validator("place_id")
+    @classmethod
+    def _validate_place_id(cls, value: str) -> str:
+        # HIGH-4 residual fix (pass-2 review). See `_validate_place_id_format`.
+        return _validate_place_id_format(value)
 
 
 MAX_CLOSURE_CONTEXT_ENTRIES = 10
@@ -244,3 +295,9 @@ class PlaceCard(BaseModel):
     rationale: str
     booking_url: str | None = None
     booking_provider: BookingProvider | None = None
+
+    @field_validator("place_id")
+    @classmethod
+    def _validate_place_id(cls, value: str) -> str:
+        # HIGH-4 residual fix (pass-2 review). See `_validate_place_id_format`.
+        return _validate_place_id_format(value)

@@ -77,7 +77,7 @@ def _row(weight: float, relation_type: str, **overrides: Any) -> dict:
 def test_near_returns_places_ordered_by_weight_asc(patch_get_conn) -> None:
     rows = [_row(100, "NEAR"), _row(50, "NEAR"), _row(200, "NEAR")]
     cursor = patch_get_conn(rows)
-    out = kg_traverse("anchor", "NEAR", k=3)
+    out = kg_traverse("ChIJtest_anchor_aaaa", "NEAR", k=3)
     # SQL carries the asc-for-NEAR ordering (DB does the sort, not Python).
     assert "WHEN 'NEAR'           THEN  r.weight" in cursor.executed_sql
     # Rows pass through unchanged in the order the cursor provided.
@@ -88,7 +88,7 @@ def test_near_returns_places_ordered_by_weight_asc(patch_get_conn) -> None:
 def test_similar_vector_returns_places_ordered_desc_in_sql(patch_get_conn) -> None:
     rows = [_row(0.9, "SIMILAR_VECTOR"), _row(0.7, "SIMILAR_VECTOR")]
     cursor = patch_get_conn(rows)
-    out = kg_traverse("anchor", "SIMILAR_VECTOR", k=2)
+    out = kg_traverse("ChIJtest_anchor_aaaa", "SIMILAR_VECTOR", k=2)
     assert "WHEN 'SIMILAR_VECTOR' THEN -r.weight" in cursor.executed_sql
     assert [r.relation_type for r in out] == ["SIMILAR_VECTOR", "SIMILAR_VECTOR"]
 
@@ -96,5 +96,5 @@ def test_similar_vector_returns_places_ordered_desc_in_sql(patch_get_conn) -> No
 def test_metadata_preserved_through_pipeline(patch_get_conn) -> None:
     meta = {"displayName": "Ferry Building", "types": ["landmark"]}
     patch_get_conn([_row(1.0, "NEAR_LANDMARK", relation_metadata=meta)])
-    out = kg_traverse("anchor", "NEAR_LANDMARK", k=1)
+    out = kg_traverse("ChIJtest_anchor_aaaa", "NEAR_LANDMARK", k=1)
     assert out[0].relation_metadata == meta

@@ -1,0 +1,144 @@
+{
+  "closure_check_confirmed": "2026-05-21",
+  "generated_at": "2026-06-03T03-56-25Z",
+  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 3 (Phase 6 re-baseline under threading_mode: prod with REFINEMENT_STRUCTURED_PLAN_ENABLED=true)",
+  "providers": {
+    "deepseek/deepseek-chat": {
+      "_observations": "Phase 6 re-baseline under threading_mode='prod' + REFINEMENT_STRUCTURED_PLAN_ENABLED=true. DeepSeek is logged-but-not-gated per D-04-11 / D-06-09; values captured for visibility only. The refinement_minimal_edit scorer registered for D-06-09 \u2014 DeepSeek's median is tracked here but does not enforce the merge gate. The 0.0 median on this run reflects the same turn-0-no-commit behavior observed on openai (the model asks a clarifying question on the refinement turn before any commit happens).",
+      "scorers": {
+        "category_compliance": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "category_compliance_strict": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "constraints_satisfied": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "geographic_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "no_hallucinated_place_ids": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "rationale_stop_alignment": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "refinement_minimal_edit": {
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "temporal_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "walking_budget_respected": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        }
+      }
+    },
+    "openai/gpt-4o-mini": {
+      "_observations": "Phase 6 re-baseline under threading_mode='prod' + REFINEMENT_STRUCTURED_PLAN_ENABLED=true. The refinement_minimal_edit scorer carries the strict 1.0 merge gate per D-06-09 (REF-01). The other 8 scorers may show LOWER medians than the pre-Phase-6 file because the pre-Phase-6 floor was saturated via fail-open under legacy threading; the regenerated baseline reflects the actual prod-threaded behavior. EMPIRICAL GATE STATUS: refinement_minimal_edit median == 0.0 on this run (gate FAILS at the 1.0 threshold). The agent asked a clarifying question on the refinement turn rather than committing a byte-equal-stop swap. See SUMMARY.md plan 06-07 for the open-issue trace + remediation path.",
+      "scorers": {
+        "category_compliance": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "category_compliance_strict": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "constraints_satisfied": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "geographic_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "no_hallucinated_place_ids": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "rationale_stop_alignment": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "refinement_minimal_edit": {
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "temporal_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "walking_budget_respected": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        }
+      }
+    }
+  },
+  "scenario_id": "refinement_cheaper"
+}

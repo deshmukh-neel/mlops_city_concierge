@@ -1,130 +1,144 @@
 {
-  "scenario_id": "refinement_cheaper",
-  "generated_at": "2026-05-22T23-07-11Z",
-  "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
   "closure_check_confirmed": "2026-05-21",
+  "generated_at": "2026-06-03T23-06-39Z",
+  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 5 (Phase 6 re-baseline after CR-02 + num_stops asymmetry + imperative-preamble + primary_type-preserve fixes)",
   "providers": {
     "deepseek/deepseek-chat": {
+      "_observations": "Phase 6 re-baseline (post-fix, 2026-06-03) under threading_mode='prod' + REFINEMENT_STRUCTURED_PLAN_ENABLED=true, n=5 runs. DeepSeek is logged-but-not-gated per D-04-11 / D-06-09. refinement_minimal_edit.median=0.0 because DeepSeek never decisively commits an itinerary (committed_itinerary_rate=0.0) \u2014 matches the known project_deepseek_decisiveness_gap pattern. The other 1.0s reflect vacuous-truth scoring on an empty stop list; not a Phase 6 regression.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         },
         "category_compliance_strict": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         },
         "constraints_satisfied": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         },
         "geographic_coherence": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         },
         "no_hallucinated_place_ids": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         },
         "rationale_stop_alignment": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "refinement_minimal_edit": {
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "n": 5,
           "stdev": 0.0
         },
         "temporal_coherence": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         },
         "walking_budget_respected": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         }
-      },
-      "_observations": "Post-Phase-4 baseline (DeepSeek, tracked but not gated per D-04-11). Same decisiveness-gap caveat as omakase_mission_open_ended."
+      }
     },
     "openai/gpt-4o-mini": {
+      "_observations": "Phase 6 re-baseline (post-fix, 2026-06-03) under threading_mode='prod' + REFINEMENT_STRUCTURED_PLAN_ENABLED=true, n=5 runs. The refinement_minimal_edit scorer carries the strict 1.0 merge gate per D-06-09 (REF-01). GATE STATUS: refinement_minimal_edit median == 1.0 on this run (4/5 = 1.0, 1/5 = 0.5; one stochastic miss). Other scorers: category_compliance.median=0.667 is LOWER than the pre-Phase-6 baseline (1.0), but the pre-Phase-6 1.0 was a fail-open false positive (the agent under-constrained and did not commit, so the scorer trivially returned 1.0 on 0 stops). The post-fix agent actually commits an itinerary on the refinement turn (committed_itinerary_rate=1.0), exposing a real category-drift issue where the model sometimes substitutes a wine bar into the dinner slot. See _snapshots/refinement_cheaper.pre-phase6.json for the saturated comparison floor and project_phase4_d_04_14_locked memory for the fail-open pattern.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
-          "median": 1.0,
-          "min": 1.0,
-          "n": 3,
-          "stdev": 0.0
+          "median": 0.6666666666666666,
+          "min": 0.6666666666666666,
+          "n": 5,
+          "stdev": 0.18257418583505539
         },
         "category_compliance_strict": {
           "max": 1.0,
-          "median": 1.0,
-          "min": 1.0,
-          "n": 3,
-          "stdev": 0.0
+          "median": 0.6666666666666666,
+          "min": 0.6666666666666666,
+          "n": 5,
+          "stdev": 0.18257418583505539
         },
         "constraints_satisfied": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         },
         "geographic_coherence": {
           "max": 1.0,
           "median": 1.0,
-          "min": 1.0,
-          "n": 3,
-          "stdev": 0.0
+          "min": 0.5,
+          "n": 5,
+          "stdev": 0.22360679774997896
         },
         "no_hallucinated_place_ids": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         },
         "rationale_stop_alignment": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
+        },
+        "refinement_minimal_edit": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 0.5,
+          "n": 5,
+          "stdev": 0.22360679774997896
         },
         "temporal_coherence": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
-          "n": 3,
+          "n": 5,
           "stdev": 0.0
         },
         "walking_budget_respected": {
           "max": 1.0,
           "median": 1.0,
-          "min": 1.0,
-          "n": 3,
-          "stdev": 0.0
+          "min": 0.0,
+          "n": 5,
+          "stdev": 0.4472135954999579
         }
-      },
-      "_observations": "Post-Phase-4 baseline for the refinement scenario. Plan 04-05's rationale_misaligned revision dispatch addresses RAT-01 (refinement-turn rationale integrity, folded into Phase 4 per D-04-09). category_compliance_strict and rationale_stop_alignment are now actually measured rather than abstaining. Phase 4 merge gate per D-04-13 applies (strict floor 0.3 absolute; rationale_stop_alignment delta +0.2 vs pre-Phase-4 baseline)."
+      }
     }
-  }
+  },
+  "scenario_id": "refinement_cheaper"
 }

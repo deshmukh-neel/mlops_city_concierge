@@ -26,7 +26,7 @@ def test_price_level_to_rank(enum: str | None, expected: int | None) -> None:
 
 
 def test_stop_defaults_new_fields_to_none() -> None:
-    s = Stop(place_id="p1", name="A", rationale="r", source="google_places")
+    s = Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")
     assert s.address is None
     assert s.rating is None
     assert s.price_level is None

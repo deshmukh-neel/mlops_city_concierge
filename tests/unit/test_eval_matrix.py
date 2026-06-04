@@ -32,18 +32,45 @@ from app.eval.config import REPO_ROOT, load_eval_matrix
 
 def test_repo_eval_matrix_yaml_loads_via_load_eval_matrix() -> None:
     """configs/eval_matrix.yaml ships with the D-06 anchors locked:
-    providers=[openai/gpt-4o-mini, deepseek/deepseek-chat]; scenarios=
-    [omakase_mission_open_ended, refinement_cheaper,
-    late_night_closure_cascade]."""
+    providers=[openai/gpt-4o-mini, deepseek/deepseek-chat].
+
+    Phase 6 / D-06-09 / plan 06-07: `refinement_cheaper` was moved out of
+    the default matrix and into `configs/eval_matrix_refinement.yaml`. The
+    default matrix now contains only the first-turn scenarios so REF-04
+    (omakase first-turn no-regression with flag OFF) is preserved.
+    """
     matrix = load_eval_matrix(REPO_ROOT / "configs/eval_matrix.yaml")
     assert len(matrix.entries) == 2
-    assert len(matrix.scenarios) == 3
+    assert len(matrix.scenarios) == 2
     providers = {(e.provider, e.model) for e in matrix.entries}
     assert ("openai", "gpt-4o-mini") in providers
     assert ("deepseek", "deepseek-chat") in providers
     assert "omakase_mission_open_ended" in matrix.scenarios
-    assert "refinement_cheaper" in matrix.scenarios
     assert "late_night_closure_cascade" in matrix.scenarios
+    # Phase 6 invariant: the refinement scenario lives in the sibling
+    # refinement-only matrix, NOT in the default matrix.
+    assert "refinement_cheaper" not in matrix.scenarios
+
+
+def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
+    """configs/eval_matrix_refinement.yaml (Phase 6 / D-06-09 / plan 06-07)
+    carries BOTH provider entries with a per-cell env override
+    REFINEMENT_STRUCTURED_PLAN_ENABLED=true on EACH entry, and a single
+    scenario (refinement_cheaper). The merge gate is strict 1.0 on
+    openai/gpt-4o-mini only; DeepSeek is logged but not gated.
+    """
+    matrix = load_eval_matrix(REPO_ROOT / "configs/eval_matrix_refinement.yaml")
+    assert len(matrix.entries) == 2
+    assert len(matrix.scenarios) == 1
+    providers = {(e.provider, e.model) for e in matrix.entries}
+    assert ("openai", "gpt-4o-mini") in providers
+    assert ("deepseek", "deepseek-chat") in providers
+    assert matrix.scenarios == ["refinement_cheaper"]
+    for entry in matrix.entries:
+        assert entry.env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}, (
+            f"entry {entry.provider}/{entry.model} missing the per-cell env"
+            f" override; got env={entry.env}"
+        )
 
 
 # ─── scripts/eval_matrix.py imports without env vars ─────────────────────────
@@ -118,10 +145,14 @@ def test_iter_cells_zero_runs_yields_empty() -> None:
 # ─── --dry-run prints the cell list without running subprocess ───────────────
 
 
-def test_dry_run_prints_18_cells(capsys, monkeypatch) -> None:
+def test_dry_run_prints_default_matrix_cells(capsys, monkeypatch) -> None:
     """`python scripts/eval_matrix.py --dry-run --matrix-config
-    configs/eval_matrix.yaml --runs 3` exits 0 and prints exactly 18 cells.
-    Acceptance criterion from the plan."""
+    configs/eval_matrix.yaml --runs 3` exits 0 and prints one line per cell.
+
+    Phase 6 / D-06-09 / plan 06-07: default matrix has 2 entries × 2
+    scenarios × 3 runs = 12 cells (refinement_cheaper moved to the sibling
+    refinement-only matrix). Pre-Phase-6 expected 18 cells.
+    """
     monkeypatch.setenv("APP_ENV", "eval")  # gate doesn't apply to dry-run
     from scripts.eval_matrix import main
 
@@ -136,9 +167,9 @@ def test_dry_run_prints_18_cells(capsys, monkeypatch) -> None:
     )
     out = capsys.readouterr().out
     assert rc == 0
-    # Each cell prints one descriptive line — count is exactly 18.
+    # 2 providers * 2 scenarios * 3 runs = 12 cells.
     cell_lines = [line for line in out.splitlines() if "--run-" in line]
-    assert len(cell_lines) == 18
+    assert len(cell_lines) == 12
 
 
 # ─── APP_ENV=eval gate enforcement (EVAL-09) ─────────────────────────────────
@@ -636,6 +667,249 @@ def test_run_matrix_uses_provider_override_in_subprocess_cmd(mocker, monkeypatch
     assert "openai" not in cmd
 
 
+# ─── Plan 06-06 Task 2: per-cell env override (D-06-10 / NEW HIGH-B) ─────────
+
+
+class TestPerCellEnvOverride:
+    """Phase 6 plan 06-06 Task 2 — `MatrixCell.env` + `iter_cells` threading
+    + `run_matrix` per-cell env composition (subprocess) and os.environ
+    apply/cleanup (in-process). Closes the D-06-10 + NEW HIGH-B gap where
+    flipping `REFINEMENT_STRUCTURED_PLAN_ENABLED` on the refinement cell
+    without flipping it for the first-turn cells was structurally impossible
+    in the prior shared-env shape, AND where the propagated env was never
+    visible to in-process consumers.
+
+    Per `project_full_suite_db_pool_contamination.md` these tests mock
+    `subprocess.run` so no real subprocess fires; the unit suite stays
+    hermetic.
+    """
+
+    def test_matrix_cell_env_default_is_none(self) -> None:
+        """`MatrixCell.env` default is None — backward compat with all
+        existing constructors that don't pass `env=...`."""
+        from scripts.eval_matrix import MatrixCell
+
+        cell = MatrixCell(provider="o", model="m", scenario_id="s", run_n=0)
+        assert cell.env is None
+
+    def test_iter_cells_threads_entry_env(self) -> None:
+        """`iter_cells` propagates `entry.env` to every cell yielded for
+        that entry. Entries with `env=None` yield cells with `env=None`."""
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import iter_cells
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(
+                    provider="openai",
+                    model="gpt-4o-mini",
+                    env={"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"},
+                ),
+                MatrixEntry(provider="deepseek", model="deepseek-chat"),
+            ],
+            scenarios=["scenario_a"],
+        )
+        cells = list(iter_cells(matrix, runs=1))
+        assert cells[0].env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}
+        assert cells[1].env is None
+
+    def test_run_matrix_composes_per_cell_env(self, monkeypatch, mocker, tmp_path) -> None:
+        """`run_matrix` composes `{**parent_env, **cell.env}` per-cell and
+        passes it to `subprocess.run(env=...)`. Cells without an override
+        get the parent env unchanged."""
+        monkeypatch.setenv("APP_ENV", "eval")
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import run_matrix
+
+        captured_envs: list[dict] = []
+
+        def fake_subprocess_run(*args, **kwargs):
+            captured_envs.append(dict(kwargs.get("env") or {}))
+            return mocker.Mock(returncode=0, stdout="{}", stderr="")
+
+        mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_subprocess_run)
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(
+                    provider="scripted",
+                    model="placeholder",
+                    env={"FOO": "bar"},
+                ),
+                MatrixEntry(provider="scripted", model="other"),
+            ],
+            scenarios=["scenario_a"],
+        )
+        run_matrix(
+            matrix=matrix,
+            runs=1,
+            output_dir=tmp_path,
+            llm_provider_override=None,
+            eval_queries_path="configs/eval_queries.yaml",
+        )
+
+        assert len(captured_envs) == 2
+        # First cell got FOO=bar in addition to the parent env.
+        assert captured_envs[0].get("FOO") == "bar"
+        # Parent env keys (like PATH) are present in every cell.
+        assert "PATH" in captured_envs[0]
+        # Second cell does NOT have FOO (no override on that cell).
+        assert "FOO" not in captured_envs[1]
+
+    def test_run_matrix_backward_compat_no_per_cell_env(
+        self, monkeypatch, mocker, tmp_path
+    ) -> None:
+        """When all entries have `env=None`, every cell's captured subprocess
+        env equals `os.environ.copy()` exactly — backward compat with the
+        pre-Phase-6 shared-env behavior."""
+        monkeypatch.setenv("APP_ENV", "eval")
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import run_matrix
+
+        captured_envs: list[dict] = []
+
+        def fake_subprocess_run(*args, **kwargs):
+            captured_envs.append(dict(kwargs.get("env") or {}))
+            return mocker.Mock(returncode=0, stdout="{}", stderr="")
+
+        mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_subprocess_run)
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(provider="scripted", model="placeholder"),
+                MatrixEntry(provider="scripted", model="other"),
+            ],
+            scenarios=["scenario_a"],
+        )
+        # Snapshot the parent env BEFORE run_matrix so we compare against
+        # what run_matrix saw at call time.
+        import os as _os
+
+        parent_env_snapshot = dict(_os.environ)
+
+        run_matrix(
+            matrix=matrix,
+            runs=1,
+            output_dir=tmp_path,
+            llm_provider_override=None,
+            eval_queries_path="configs/eval_queries.yaml",
+        )
+
+        # Each cell's env equals the parent env snapshot (no per-cell override).
+        for captured in captured_envs:
+            assert captured == parent_env_snapshot
+
+    def test_apply_override_preserves_env(self) -> None:
+        """MEDIUM-1 fix: `_apply_override` preserves `entry.env` when
+        rewriting `provider` so the per-cell flag still propagates after
+        `--llm-provider-override scripted` rebinds entries."""
+        from app.eval.config import MatrixEntry
+        from scripts.eval_matrix import _apply_override
+
+        entries = [
+            MatrixEntry(
+                provider="openai",
+                model="gpt-4o-mini",
+                env={"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"},
+            ),
+            MatrixEntry(provider="deepseek", model="deepseek-chat"),
+        ]
+        result = list(_apply_override(entries, llm_provider_override="scripted"))
+        assert all(e.provider == "scripted" for e in result)
+        assert result[0].env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}
+        assert result[1].env is None
+
+    def test_per_cell_env_applies_to_os_environ_then_unsets(
+        self, monkeypatch, mocker, tmp_path
+    ) -> None:
+        """NEW HIGH-B: per-cell `env` is applied to `os.environ` DURING the
+        cell's run and restored AFTER. Critical because in-process consumers
+        (e.g., unit-test invocations of `_run_prod_threading`) read
+        `os.environ` directly — without the apply/cleanup the per-cell
+        override would be invisible to them."""
+        monkeypatch.setenv("APP_ENV", "eval")
+        monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
+        import os as _os
+
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import run_matrix
+
+        captured_inside: list[str | None] = []
+
+        def fake_subprocess_run(*args, **kwargs):
+            # Read os.environ at the moment subprocess.run is called — this
+            # is INSIDE the per-cell block, so the apply must already have
+            # happened.
+            captured_inside.append(_os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED"))
+            return mocker.Mock(returncode=0, stdout="{}", stderr="")
+
+        mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_subprocess_run)
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(
+                    provider="scripted",
+                    model="placeholder",
+                    env={"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"},
+                ),
+            ],
+            scenarios=["scenario_a"],
+        )
+        assert _os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") is None
+
+        run_matrix(
+            matrix=matrix,
+            runs=1,
+            output_dir=tmp_path,
+            llm_provider_override=None,
+            eval_queries_path="configs/eval_queries.yaml",
+        )
+
+        # DURING the cell: os.environ was set to "true".
+        assert captured_inside == ["true"]
+        # AFTER the cell: cleanup restored the prior unset state.
+        assert _os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") is None
+
+    def test_per_cell_env_restores_prior_value_after_cell(
+        self, monkeypatch, mocker, tmp_path
+    ) -> None:
+        """NEW HIGH-B edge case: when the parent env had a prior value for
+        a key the cell overrides, the cleanup restores the prior value
+        (not just pops the key)."""
+        monkeypatch.setenv("APP_ENV", "eval")
+        monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "false")
+        import os as _os
+
+        from app.eval.config import EvalMatrixConfig, MatrixEntry
+        from scripts.eval_matrix import run_matrix
+
+        def fake_subprocess_run(*args, **kwargs):
+            return mocker.Mock(returncode=0, stdout="{}", stderr="")
+
+        mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_subprocess_run)
+
+        matrix = EvalMatrixConfig(
+            entries=[
+                MatrixEntry(
+                    provider="scripted",
+                    model="placeholder",
+                    env={"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"},
+                ),
+            ],
+            scenarios=["scenario_a"],
+        )
+        run_matrix(
+            matrix=matrix,
+            runs=1,
+            output_dir=tmp_path,
+            llm_provider_override=None,
+            eval_queries_path="configs/eval_queries.yaml",
+        )
+
+        # Prior parent value restored, not popped.
+        assert _os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") == "false"
+
+
 # ─── CI-workflow drift guards (Plan 03-06 / EVAL-09) ─────────────────────────
 # These tests pin the shape of .github/workflows/ci.yml's eval-matrix job so
 # that a future PR cannot silently drop the scripted-mode flag (exposing CI
@@ -769,3 +1043,137 @@ def test_ci_workflow_eval_matrix_uploads_artifact(ci_workflow: dict) -> None:
         "eval-matrix job has no actions/upload-artifact step — "
         "summary.json output cannot be recovered for PR review"
     )
+
+
+# ─── Phase 6 plan 06-07 / NEW HIGH-A: --structural-check flag ───────────────
+
+
+class TestStructuralCheck:
+    """NEW HIGH-A fix (plan 06-07): --structural-check validates the matrix
+    end-to-end WITHOUT invoking subprocess.run. Pins the no-subprocess
+    contract + all five structural checks (matrix loads, iter_cells
+    non-empty, _apply_override preserves env, DETERMINISTIC_CHECKS contains
+    'refinement_minimal_edit', build_refinement_prompt_message functional).
+
+    Sidesteps the SCRIPTED_SCENARIOS-empty problem (app/llm_factory.py:170 —
+    SCRIPTED_SCENARIOS is an empty dict; a live --llm-provider-override
+    scripted run on the refinement matrix would crash without a populated
+    refinement_cheaper trajectory). The structural-check path is the
+    CI-hard-gated smoke test per N-4 + REF-04.
+    """
+
+    @staticmethod
+    def _write_valid_refinement_matrix(tmp_path: Path) -> Path:
+        """Write a minimal valid refinement matrix YAML."""
+        yaml_path = tmp_path / "matrix.yaml"
+        yaml_path.write_text(
+            "entries:\n"
+            "  - provider: openai\n"
+            "    model: gpt-4o-mini\n"
+            "    env:\n"
+            '      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"\n'
+            "scenarios:\n"
+            "  - refinement_cheaper\n",
+            encoding="utf-8",
+        )
+        return yaml_path
+
+    def test_structural_check_exits_0_for_well_formed_refinement_matrix(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """A well-formed refinement matrix passes all five structural checks.
+
+        ALSO monkeypatches subprocess.run to raise so the test fails loudly
+        if the flag ever invokes a subprocess (NEW HIGH-A contract: zero
+        subprocess.run calls under --structural-check).
+        """
+        from scripts import eval_matrix as eval_matrix_mod
+
+        def _fail_subprocess(*_args, **_kwargs):  # pragma: no cover
+            raise AssertionError("subprocess.run must NOT be called in structural-check mode")
+
+        monkeypatch.setattr(eval_matrix_mod.subprocess, "run", _fail_subprocess)
+        yaml_path = self._write_valid_refinement_matrix(tmp_path)
+        rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "structural-check: OK" in captured.err
+
+    def test_structural_check_exits_1_when_cells_empty(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """If iter_cells yields zero cells -> exit 1 with descriptive error.
+
+        Pydantic's EvalMatrixConfig validator rejects YAML with `scenarios:
+        []` at load time (min_length=1), so the empty-cells branch is only
+        reachable via a stub-iter_cells. Monkeypatch the module's
+        `iter_cells` to return an empty iterator to exercise the guard.
+        """
+        from scripts import eval_matrix as eval_matrix_mod
+
+        monkeypatch.setattr(eval_matrix_mod, "iter_cells", lambda matrix, runs: iter([]))
+        yaml_path = self._write_valid_refinement_matrix(tmp_path)
+        rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "iter_cells produced 0 cells" in captured.err
+
+    def test_structural_check_does_not_invoke_subprocess_run(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Pin the no-subprocess contract: --structural-check NEVER calls
+        subprocess.run. Strategy (b) per NEW HIGH-A — this is the whole
+        point of the flag (avoids SCRIPTED_SCENARIOS-empty crash).
+        """
+        from scripts import eval_matrix as eval_matrix_mod
+
+        call_log: list[tuple] = []
+
+        def _record_subprocess(*args, **kwargs):
+            call_log.append((args, kwargs))
+            raise AssertionError("subprocess.run must NOT be called in structural-check mode")
+
+        monkeypatch.setattr(eval_matrix_mod.subprocess, "run", _record_subprocess)
+        yaml_path = self._write_valid_refinement_matrix(tmp_path)
+        rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
+        assert rc == 0
+        assert call_log == [], (
+            f"structural-check invoked subprocess.run {len(call_log)} time(s); "
+            f"strategy (b) contract violated"
+        )
+
+    def test_structural_check_passes_when_env_override_preserved(self, tmp_path: Path) -> None:
+        """A matrix with per-cell env={REFINEMENT_STRUCTURED_PLAN_ENABLED: 'true'}
+        exercises the MEDIUM-1 env-preservation path through _apply_override.
+        Exit 0 == env survived the scripted-override rebind in CI smoke.
+        """
+        from scripts import eval_matrix as eval_matrix_mod
+
+        yaml_path = tmp_path / "matrix.yaml"
+        yaml_path.write_text(
+            "entries:\n"
+            "  - provider: openai\n"
+            "    model: gpt-4o-mini\n"
+            "    env:\n"
+            '      FOO: "bar"\n'
+            "scenarios:\n"
+            "  - refinement_cheaper\n",
+            encoding="utf-8",
+        )
+        rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
+        assert rc == 0
+
+    def test_structural_check_passes_when_refinement_minimal_edit_registered(
+        self,
+    ) -> None:
+        """HIGH-1 cross-check: refinement_minimal_edit MUST be in
+        DETERMINISTIC_CHECKS for the merge gate to be enforceable. Without
+        this registration, the scorer key never appears in baseline JSON
+        and the D-06-09 gate is silently absent.
+        """
+        from scripts.eval_agent import DETERMINISTIC_CHECKS
+
+        assert "refinement_minimal_edit" in DETERMINISTIC_CHECKS, (
+            "refinement_minimal_edit missing from DETERMINISTIC_CHECKS — "
+            "plan 06-03 registration regressed"
+        )

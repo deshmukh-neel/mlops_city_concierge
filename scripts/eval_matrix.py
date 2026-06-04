@@ -62,12 +62,20 @@ _log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class MatrixCell:
-    """One (provider, model, scenario_id, run_n) cell in the matrix."""
+    """One (provider, model, scenario_id, run_n) cell in the matrix.
+
+    `env` (Phase 6 / plan 06-06 / D-06-10): optional per-cell env override
+    threaded from `MatrixEntry.env`. When set, `run_matrix` composes it
+    into the subprocess `env=` kwarg AND applies it to `os.environ` for
+    the cell's lifetime (NEW HIGH-B) so in-process consumers like
+    `_run_prod_threading` see the override.
+    """
 
     provider: str
     model: str
     scenario_id: str
     run_n: int
+    env: dict[str, str] | None = None
 
     def cell_filename(self) -> str:
         """Per-cell JSON filename (D-10 layout)."""
@@ -81,8 +89,19 @@ def iter_cells(matrix: EvalMatrixConfig, runs: int) -> Iterator[MatrixCell]:
     run-inner (0..runs-1). This ordering makes the dry-run printout and
     summary aggregation human-readable; the subprocess fan-out doesn't
     care about order since each cell is independent.
+
+    Phase 6 plan 06-06: thread `entry.env` through to every cell yielded
+    for that entry so the per-cell env override (D-06-10) reaches
+    `run_matrix`. `MatrixEntry.env` is `dict[StrictStr, StrictStr] | None`
+    per plan 06-04; we coerce the Pydantic field to a plain dict here
+    (the `frozen=True` dataclass needs hashability-friendly inputs, but
+    a regular `dict` field on the dataclass is fine since the dataclass
+    is constructed fresh per cell).
     """
     for entry in matrix.entries:
+        # entry.env is `dict[StrictStr, StrictStr] | None` (Pydantic).
+        # Coerce to a plain dict so the dataclass field is the plain shape.
+        entry_env = dict(entry.env) if entry.env is not None else None
         for scenario_id in matrix.scenarios:
             for run_n in range(runs):
                 yield MatrixCell(
@@ -90,6 +109,7 @@ def iter_cells(matrix: EvalMatrixConfig, runs: int) -> Iterator[MatrixCell]:
                     model=entry.model,
                     scenario_id=scenario_id,
                     run_n=run_n,
+                    env=entry_env,
                 )
 
 
@@ -323,10 +343,18 @@ def _gate_blocks(matrix: EvalMatrixConfig, llm_provider_override: str | None) ->
 def _apply_override(
     entries: Sequence[MatrixEntry], llm_provider_override: str | None
 ) -> Sequence[MatrixEntry]:
-    """Return entries with `provider` rewritten to llm_provider_override when set."""
+    """Return entries with `provider` rewritten to llm_provider_override when set.
+
+    MEDIUM-1 fix (plan 06-06): preserves `entry.env` so the per-cell
+    Phase-6 env override (e.g. `REFINEMENT_STRUCTURED_PLAN_ENABLED`) still
+    propagates after `--llm-provider-override scripted` rebinds entries.
+    Without this preservation, CI scripted-mode runs of the refinement
+    matrix would silently drop the flag and the prod-threading branch
+    would never inject the structured plan.
+    """
     if not llm_provider_override:
         return entries
-    return [MatrixEntry(provider=llm_provider_override, model=e.model) for e in entries]
+    return [MatrixEntry(provider=llm_provider_override, model=e.model, env=e.env) for e in entries]
 
 
 def run_matrix(
@@ -357,35 +385,58 @@ def run_matrix(
         scenarios=list(matrix.scenarios),
     )
     failures: list[dict[str, Any]] = []
-    # subprocess.run snapshots `env` for the child process, so a single
-    # os.environ.copy() shared across cells is safe (no in-loop mutation).
-    child_env = os.environ.copy()
+    # Phase 6 plan 06-06 / D-06-10: each cell composes its own env from
+    # `parent_env` + any per-cell overrides (`MatrixEntry.env` from
+    # `eval_matrix.yaml`). The per-cell composition replaces the prior
+    # shared snapshot to support flag-on-refinement-cell-only patterns.
+    # NEW HIGH-B: the per-cell env is ALSO applied to `os.environ` during
+    # the cell's run with try/finally cleanup, so in-process readers
+    # (e.g., unit-test invocations of `_run_prod_threading`'s
+    # `os.environ.get('REFINEMENT_STRUCTURED_PLAN_ENABLED')` read) see
+    # the override. Without the apply step, the env propagated to the
+    # subprocess child but was invisible to in-process consumers.
+    parent_env = os.environ.copy()
     for cell in iter_cells(effective_matrix, runs=runs):
         cell_path = output_dir / cell.cell_filename()
-        cmd = _build_subprocess_cmd(
-            cell=cell,
-            cell_path=cell_path,
-            eval_queries_path=eval_queries_path,
-            llm_provider_override=None,  # already applied via _apply_override
-        )
-        # cmd is built from a closed allowlist (sys.executable + repo-relative
-        # script path + structured matrix/scenario fields) — no shell, no
-        # untrusted input. The S603 lint here is a noqa-by-design.
-        result = subprocess.run(  # noqa: S603
-            cmd,
-            capture_output=True,
-            text=True,
-            env=child_env,
-            check=False,
-        )
-        if result.returncode != 0:
-            failures.append(
-                {
-                    "cell": cell.cell_filename(),
-                    "stderr": result.stderr,
-                    "returncode": result.returncode,
-                }
+        cell_env = {**parent_env, **(cell.env or {})}
+        # NEW HIGH-B: apply cell.env to os.environ for in-process callers.
+        # Capture prior values so cleanup restores them (or pops keys that
+        # had no prior value). Wrapped in try/finally so cells don't leak
+        # env into each other (T-06-06-06 mitigation).
+        saved_env: dict[str, str | None] = {k: os.environ.get(k) for k in (cell.env or {})}
+        try:
+            if cell.env:
+                os.environ.update(cell.env)
+            cmd = _build_subprocess_cmd(
+                cell=cell,
+                cell_path=cell_path,
+                eval_queries_path=eval_queries_path,
+                llm_provider_override=None,  # already applied via _apply_override
             )
+            # cmd is built from a closed allowlist (sys.executable + repo-relative
+            # script path + structured matrix/scenario fields) — no shell, no
+            # untrusted input. The S603 lint here is a noqa-by-design.
+            result = subprocess.run(  # noqa: S603
+                cmd,
+                capture_output=True,
+                text=True,
+                env=cell_env,
+                check=False,
+            )
+            if result.returncode != 0:
+                failures.append(
+                    {
+                        "cell": cell.cell_filename(),
+                        "stderr": result.stderr,
+                        "returncode": result.returncode,
+                    }
+                )
+        finally:
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
     rc = 0 if not failures else 1
     return rc, failures
 
@@ -456,6 +507,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "invoking any subprocess. Useful for plan 03-07 baseline preview."
         ),
     )
+    parser.add_argument(
+        "--structural-check",
+        action="store_true",
+        default=False,
+        help=(
+            "Structural-only validation mode: load the matrix config, "
+            "iterate cells, verify env override propagation through "
+            "_apply_override, verify scripts.eval_agent.DETERMINISTIC_CHECKS "
+            "contains 'refinement_minimal_edit', verify "
+            "app.agent.io.build_refinement_prompt_message is callable on a "
+            "valid single-stop input. Exits 0 if all checks pass; exits 1 "
+            "with a descriptive message on the first failure. Does NOT "
+            "invoke subprocess.run — meant for CI smoke (NEW HIGH-A / "
+            "Phase 6 REF-04). Independent of --llm-provider-override and "
+            "--runs (both ignored when --structural-check is set)."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -475,6 +543,98 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     matrix = load_eval_matrix(args.matrix_config)
+
+    if args.structural_check:
+        # NEW HIGH-A strategy (b): no-subprocess validation for CI hard
+        # gate. All five checks must pass; first failure prints to stderr
+        # and exits with code 1. This sidesteps the SCRIPTED_SCENARIOS-empty
+        # problem (app/llm_factory.py:170) by validating the matrix
+        # end-to-end WITHOUT invoking any subprocess.
+        from app.agent.io import build_refinement_prompt_message
+        from app.agent.state import Stop
+        from scripts.eval_agent import DETERMINISTIC_CHECKS
+
+        # Check 1: matrix loads (already done above at args.matrix_config).
+        # `matrix` is in scope.
+
+        # Check 2: iter_cells produces non-empty.
+        cells = list(iter_cells(matrix, runs=1))
+        if not cells:
+            print(
+                "structural-check: iter_cells produced 0 cells; check matrix YAML",
+                file=sys.stderr,
+            )
+            return 1
+
+        # Check 3: every cell is reachable via _apply_override (the scripted
+        # override path); MEDIUM-1 regression guard (env is preserved).
+        rebound = list(_apply_override(matrix.entries, "scripted"))
+        if len(rebound) != len(matrix.entries):
+            print(
+                f"structural-check: _apply_override changed entry count "
+                f"({len(matrix.entries)} -> {len(rebound)})",
+                file=sys.stderr,
+            )
+            return 1
+        for original, rebound_entry in zip(matrix.entries, rebound, strict=True):
+            if rebound_entry.env != original.env:
+                print(
+                    f"structural-check: _apply_override dropped env on "
+                    f"{original.provider}/{original.model}: {original.env} -> "
+                    f"{rebound_entry.env} (MEDIUM-1 regression)",
+                    file=sys.stderr,
+                )
+                return 1
+
+        # Check 4: DETERMINISTIC_CHECKS registration (HIGH-1 regression
+        # guard — refinement_minimal_edit must appear so the merge gate is
+        # not silently absent from baseline JSON).
+        if "refinement_minimal_edit" not in DETERMINISTIC_CHECKS:
+            print(
+                "structural-check: 'refinement_minimal_edit' missing from "
+                "scripts.eval_agent.DETERMINISTIC_CHECKS (HIGH-1 regression)",
+                file=sys.stderr,
+            )
+            return 1
+
+        # Check 5: shared helper is importable AND callable on a valid
+        # input (PATTERNS.md Caveat #5 regression guard — proves the helper
+        # exists and the place_id validator from plan 06-01 Task 3 accepts
+        # the conforming fixture).
+        try:
+            msg = build_refinement_prompt_message(
+                [
+                    Stop(
+                        place_id="ChIJtest_structural_check_aaaaa",
+                        name="x",
+                        rationale="r",
+                        source="t",
+                    )
+                ]
+            )
+            if not isinstance(msg.content, str) or "current_plan" not in msg.content:
+                print(
+                    "structural-check: build_refinement_prompt_message did "
+                    "not produce expected str content with 'current_plan' "
+                    "substring",
+                    file=sys.stderr,
+                )
+                return 1
+        except Exception as exc:
+            print(
+                f"structural-check: build_refinement_prompt_message raised "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+
+        print(
+            f"structural-check: OK — matrix has {len(cells)} cell(s), "
+            f"env-override preserved through _apply_override, scorer "
+            f"registered, shared helper functional",
+            file=sys.stderr,
+        )
+        return 0
 
     # Apply override for the dry-run printout so users see the effective
     # provider list before any subprocess fires.

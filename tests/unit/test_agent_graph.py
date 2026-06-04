@@ -102,7 +102,12 @@ async def test_graph_retries_unneeded_stop_count_clarification(monkeypatch) -> N
     monkeypatch.setattr(
         "app.agent.tools._semantic_search",
         lambda **_kw: [
-            PlaceHit(place_id="p1", name="Place p1", source="google_places", similarity=0.9)
+            PlaceHit(
+                place_id="ChIJtest_p1_aaaaaaaa",
+                name="Place p1",
+                source="google_places",
+                similarity=0.9,
+            )
         ],
     )
     fake = _make_fake(
@@ -144,7 +149,12 @@ async def test_graph_retries_finalize_without_stops_regardless_of_wording(monkey
     monkeypatch.setattr(
         "app.agent.tools._semantic_search",
         lambda **_kw: [
-            PlaceHit(place_id="p1", name="Place p1", source="google_places", similarity=0.9)
+            PlaceHit(
+                place_id="ChIJtest_p1_aaaaaaaa",
+                name="Place p1",
+                source="google_places",
+                similarity=0.9,
+            )
         ],
     )
     fake = _make_fake(
@@ -239,7 +249,7 @@ async def test_graph_executes_tool_and_continues(monkeypatch) -> None:
         "app.agent.tools._semantic_search",
         lambda **kw: [
             PlaceHit(
-                place_id="p1",
+                place_id="ChIJtest_p1_aaaaaaaa",
                 name="X",
                 source="google_places",
                 similarity=0.9,
@@ -324,7 +334,7 @@ async def test_graph_finalizes_on_commit_even_if_llm_keeps_calling_tools(
                 "args": {
                     "stops": [
                         {
-                            "place_id": "p0",
+                            "place_id": "ChIJtest_p0_aaaaaaaa",
                             "name": "Place p0",
                             "rationale": "omakase",
                             "source": "google_places",
@@ -353,7 +363,7 @@ async def test_graph_finalizes_on_commit_even_if_llm_keeps_calling_tools(
                 "args": {},
                 "result": [
                     PlaceHit(
-                        place_id="p0",
+                        place_id="ChIJtest_p0_aaaaaaaa",
                         name="Place p0",
                         source="google_places",
                         similarity=0.9,
@@ -364,7 +374,7 @@ async def test_graph_finalizes_on_commit_even_if_llm_keeps_calling_tools(
             }
         ]
     }
-    with _patch_details_many_for(["p0"]):
+    with _patch_details_many_for(["ChIJtest_p0_aaaaaaaa"]):
         out = await graph.ainvoke(
             ItineraryState(
                 messages=[HumanMessage(content="omakase date night, 1 stop")],
@@ -375,7 +385,7 @@ async def test_graph_finalizes_on_commit_even_if_llm_keeps_calling_tools(
 
     assert out["done"] is True
     assert out["stops"], "the committed stop must survive"
-    assert out["stops"][0].place_id == "p0"
+    assert out["stops"][0].place_id == "ChIJtest_p0_aaaaaaaa"
     # The bug's signature: step limit reached + canned error despite a good plan.
     assert out["step_count"] < 8, "must finalize on commit, not exhaust steps"
     assert "step limit" not in (out["final_reply"] or "").lower()
@@ -471,8 +481,16 @@ async def test_act_handles_parallel_tool_calls(monkeypatch) -> None:
             AIMessage(
                 content="",
                 tool_calls=[
-                    {"name": "semantic_search", "id": "a", "args": {"query": "x"}},
-                    {"name": "nearby", "id": "b", "args": {"place_id": "p1"}},
+                    {
+                        "name": "semantic_search",
+                        "id": "ChIJtest_a_aaaaaaaaa",
+                        "args": {"query": "x"},
+                    },
+                    {
+                        "name": "nearby",
+                        "id": "ChIJtest_b_aaaaaaaaa",
+                        "args": {"place_id": "ChIJtest_p1_aaaaaaaa"},
+                    },
                 ],
             ),
             AIMessage(content="done", tool_calls=[]),
@@ -484,7 +502,10 @@ async def test_act_handles_parallel_tool_calls(monkeypatch) -> None:
     from langchain_core.messages import ToolMessage as _ToolMessage
 
     tool_messages = [m for m in out["messages"] if isinstance(m, _ToolMessage)]
-    assert {tm.tool_call_id for tm in tool_messages} == {"a", "b"}
+    assert {tm.tool_call_id for tm in tool_messages} == {
+        "ChIJtest_a_aaaaaaaaa",
+        "ChIJtest_b_aaaaaaaaa",
+    }
     assert out["step_count"] == 1
     assert "semantic_search" in out["scratch"]
     assert "nearby" in out["scratch"]
@@ -510,14 +531,18 @@ def test_prune_for_llm_drops_oldest_tool_exchanges() -> None:
         HumanMessage(content="hi"),
         AIMessage(
             content="searching",
-            tool_calls=[{"name": "semantic_search", "id": "a", "args": {"q": "1"}}],
+            tool_calls=[
+                {"name": "semantic_search", "id": "ChIJtest_a_aaaaaaaaa", "args": {"q": "1"}}
+            ],
         ),
-        ToolMessage(content="r1", tool_call_id="a"),
+        ToolMessage(content="r1", tool_call_id="ChIJtest_a_aaaaaaaaa"),
         AIMessage(
             content="searching again",
-            tool_calls=[{"name": "semantic_search", "id": "b", "args": {"q": "2"}}],
+            tool_calls=[
+                {"name": "semantic_search", "id": "ChIJtest_b_aaaaaaaaa", "args": {"q": "2"}}
+            ],
         ),
-        ToolMessage(content="r2", tool_call_id="b"),
+        ToolMessage(content="r2", tool_call_id="ChIJtest_b_aaaaaaaaa"),
         AIMessage(
             content="searching once more",
             tool_calls=[{"name": "semantic_search", "id": "c", "args": {"q": "3"}}],
@@ -543,7 +568,11 @@ def _state_with_grounded(place_ids: list[str], party_size: int = 2) -> Itinerary
         for pid in place_ids
     ]
     return ItineraryState(
-        scratch={"semantic_search": [{"args": {}, "result": hits, "step": 0, "id": "s1"}]},
+        scratch={
+            "semantic_search": [
+                {"args": {}, "result": hits, "step": 0, "id": "ChIJtest_s1_aaaaaaaa"}
+            ]
+        },
         constraints=UserConstraints(party_size=party_size, when=datetime(2026, 5, 7, 19, 0)),
     )
 
@@ -553,10 +582,20 @@ def test_commit_stops_enriches_with_booking() -> None:
     committed stop, without the LLM calling a tool. Now batched: one
     get_details_many fetches details for all stops in a single round-trip,
     then per-stop URL construction is pure."""
-    state = _state_with_grounded(["p1", "p2"])
+    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
     raw_stops = [
-        {"place_id": "p1", "name": "Place p1", "rationale": "first", "source": "google_places"},
-        {"place_id": "p2", "name": "Place p2", "rationale": "second", "source": "google_places"},
+        {
+            "place_id": "ChIJtest_p1_aaaaaaaa",
+            "name": "Place p1",
+            "rationale": "first",
+            "source": "google_places",
+        },
+        {
+            "place_id": "ChIJtest_p2_aaaaaaaa",
+            "name": "Place p2",
+            "rationale": "second",
+            "source": "google_places",
+        },
     ]
 
     def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
@@ -567,15 +606,15 @@ def test_commit_stops_enriches_with_booking() -> None:
         )
 
     with (
-        _patch_details_many_for(["p1", "p2"]) as mock_get,
+        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]) as mock_get,
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         committed, payload = commit_stops(state, raw_stops)
 
-    assert payload["committed"] == ["p1", "p2"]
+    assert payload["committed"] == ["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]
     assert all(s.booking_url is not None for s in committed)
     assert all(s.booking_provider == "resy" for s in committed)
-    assert "p1" in committed[0].booking_url
+    assert "ChIJtest_p1_aaaaaaaa" in committed[0].booking_url
     assert "seats=2" in committed[0].booking_url
     # The whole point of this refactor: ONE DB call for the whole commit, not N.
     assert mock_get.call_count == 1
@@ -586,14 +625,19 @@ def test_commit_stops_skips_enrichment_for_place_id_missing_from_db() -> None:
     condition: deletion between scratch grounding and enrichment, or a stale
     id), the stop is committed without a booking link instead of crashing.
     Same recoverable semantic the old ValueError("unknown place_id") had."""
-    state = _state_with_grounded(["p1"])
+    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
-        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+        {
+            "place_id": "ChIJtest_p1_aaaaaaaa",
+            "name": "Place p1",
+            "rationale": "x",
+            "source": "google_places",
+        },
     ]
     with patch("app.agent.commit.get_details_many", return_value={}):
         committed, payload = commit_stops(state, raw_stops)
 
-    assert payload["committed"] == ["p1"]
+    assert payload["committed"] == ["ChIJtest_p1_aaaaaaaa"]
     assert committed[0].booking_url is None
     assert committed[0].booking_provider is None
 
@@ -602,9 +646,14 @@ def test_commit_stops_enrichment_swallows_psycopg_db_blip() -> None:
     """A transient DB error during the batched read shouldn't kill the whole
     commit — the user still gets the planned stops, just without booking
     links. The error is caught at the single point of DB contact."""
-    state = _state_with_grounded(["p1"])
+    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
-        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+        {
+            "place_id": "ChIJtest_p1_aaaaaaaa",
+            "name": "Place p1",
+            "rationale": "x",
+            "source": "google_places",
+        },
     ]
     with patch(
         "app.agent.commit.get_details_many",
@@ -612,7 +661,7 @@ def test_commit_stops_enrichment_swallows_psycopg_db_blip() -> None:
     ):
         committed, payload = commit_stops(state, raw_stops)
 
-    assert payload["committed"] == ["p1"]
+    assert payload["committed"] == ["ChIJtest_p1_aaaaaaaa"]
     assert committed[0].booking_url is None
     assert committed[0].booking_provider is None
 
@@ -621,12 +670,17 @@ def test_commit_stops_enrichment_propagates_programmer_errors() -> None:
     """Bugs in URL construction (TypeError, AttributeError, etc.) must NOT
     be silently swallowed — that's how regressions ship to prod undetected.
     Only the documented recoverable cases (missing-from-DB, DB blip) are caught."""
-    state = _state_with_grounded(["p1"])
+    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
-        {"place_id": "p1", "name": "Place p1", "rationale": "x", "source": "google_places"},
+        {
+            "place_id": "ChIJtest_p1_aaaaaaaa",
+            "name": "Place p1",
+            "rationale": "x",
+            "source": "google_places",
+        },
     ]
     with (
-        _patch_details_many_for(["p1"]),
+        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch(
             "app.agent.commit.propose_booking_from_details",
             side_effect=TypeError("propose_booking_from_details() got an unexpected kwarg"),
@@ -641,9 +695,14 @@ def test_commit_stops_re_commit_is_idempotent() -> None:
     first plan fails a check. Re-committing the same place_id must produce the
     same booking link — same inputs, same output. Locks the contract so a
     future 'skip if already enriched' optimization can't silently break it."""
-    state = _state_with_grounded(["p1"])
+    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
-        {"place_id": "p1", "name": "Place p1", "rationale": "first", "source": "google_places"},
+        {
+            "place_id": "ChIJtest_p1_aaaaaaaa",
+            "name": "Place p1",
+            "rationale": "first",
+            "source": "google_places",
+        },
     ]
 
     def fake_build(details: PlaceDetails, when: datetime, party_size: int) -> BookingProposal:
@@ -654,7 +713,7 @@ def test_commit_stops_re_commit_is_idempotent() -> None:
         )
 
     with (
-        _patch_details_many_for(["p1"]),
+        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         first_committed, _ = commit_stops(state, raw_stops)
@@ -669,10 +728,20 @@ def test_commit_stops_per_stop_independence_when_one_id_missing() -> None:
     still ship the other stop's booking link. The for-loop in
     enrich_stops_with_booking skips per-stop on missing details rather than
     bailing on the whole commit."""
-    state = _state_with_grounded(["p1", "p2"])
+    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
     raw_stops = [
-        {"place_id": "p1", "name": "Place p1", "rationale": "first", "source": "google_places"},
-        {"place_id": "p2", "name": "Place p2", "rationale": "second", "source": "google_places"},
+        {
+            "place_id": "ChIJtest_p1_aaaaaaaa",
+            "name": "Place p1",
+            "rationale": "first",
+            "source": "google_places",
+        },
+        {
+            "place_id": "ChIJtest_p2_aaaaaaaa",
+            "name": "Place p2",
+            "rationale": "second",
+            "source": "google_places",
+        },
     ]
 
     # get_details_many returns details for p2 but NOT p1 — same shape as the
@@ -687,19 +756,19 @@ def test_commit_stops_per_stop_independence_when_one_id_missing() -> None:
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"p2": _details_for("p2")},
+            return_value={"ChIJtest_p2_aaaaaaaa": _details_for("ChIJtest_p2_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         committed, _ = commit_stops(state, raw_stops)
 
     # p1 missing from DB → skipped, no booking fields populated.
-    assert committed[0].place_id == "p1"
+    assert committed[0].place_id == "ChIJtest_p1_aaaaaaaa"
     assert committed[0].booking_url is None
     assert committed[0].booking_provider is None
     # p2 was independent of p1 and succeeded.
-    assert committed[1].place_id == "p2"
-    assert committed[1].booking_url == "https://opentable.com/p2"
+    assert committed[1].place_id == "ChIJtest_p2_aaaaaaaa"
+    assert committed[1].booking_url == "https://opentable.com/ChIJtest_p2_aaaaaaaa"
     assert committed[1].booking_provider == "opentable"
 
 
@@ -709,8 +778,8 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
     going through commit_stops; the in-place-mutation contract is what makes
     that re-enrichment cheap."""
     stops = [
-        Stop(place_id="p1", name="A", rationale="r", source="google_places"),
-        Stop(place_id="p2", name="B", rationale="r", source="google_places"),
+        Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places"),
+        Stop(place_id="ChIJtest_p2_aaaaaaaa", name="B", rationale="r", source="google_places"),
     ]
     state = ItineraryState(
         constraints=UserConstraints(party_size=4, when=datetime(2026, 5, 7, 19, 0)),
@@ -725,7 +794,7 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
 
     original_ids = [id(s) for s in stops]
     with (
-        _patch_details_many_for(["p1", "p2"]),
+        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
@@ -739,7 +808,7 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
 
 def test_enrich_populates_card_fields_from_details() -> None:
     """Authoritative display fields flow from PlaceDetails onto Stop."""
-    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    stops = [Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")]
     state = ItineraryState(
         constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
     )
@@ -750,15 +819,15 @@ def test_enrich_populates_card_fields_from_details() -> None:
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"p1": _rich_details_for("p1")},
+            return_value={"ChIJtest_p1_aaaaaaaa": _rich_details_for("ChIJtest_p1_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
 
-    assert stops[0].name == "Place p1"
+    assert stops[0].name == "Place ChIJtest_p1_aaaaaaaa"
     assert stops[0].primary_type == "restaurant"
-    assert stops[0].address == "p1 Main St, San Francisco"
+    assert stops[0].address == "ChIJtest_p1_aaaaaaaa Main St, San Francisco"
     assert stops[0].rating == 4.4
     assert stops[0].price_level == 2
 
@@ -768,7 +837,7 @@ def test_enrich_backfills_coordinates_when_stop_has_none() -> None:
     so without this backfill every stop is lat=lng=None -> the frontend's
     `routable` filter drops them all -> no map pins, no route line. The DB
     details already carry lat/lng; enrichment must copy them onto the stop."""
-    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    stops = [Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")]
     state = ItineraryState(
         constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
     )
@@ -779,7 +848,7 @@ def test_enrich_backfills_coordinates_when_stop_has_none() -> None:
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"p1": _rich_details_for("p1")},
+            return_value={"ChIJtest_p1_aaaaaaaa": _rich_details_for("ChIJtest_p1_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
@@ -794,7 +863,7 @@ def test_enrich_does_not_overwrite_llm_supplied_coordinates() -> None:
     it, that wins — enrichment only fills a missing (None) coordinate."""
     stops = [
         Stop(
-            place_id="p1",
+            place_id="ChIJtest_p1_aaaaaaaa",
             name="A",
             rationale="r",
             source="google_places",
@@ -812,7 +881,7 @@ def test_enrich_does_not_overwrite_llm_supplied_coordinates() -> None:
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"p1": _rich_details_for("p1")},
+            return_value={"ChIJtest_p1_aaaaaaaa": _rich_details_for("ChIJtest_p1_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
@@ -825,13 +894,13 @@ def test_enrich_does_not_overwrite_llm_supplied_coordinates() -> None:
 def test_enrich_card_fields_set_even_when_no_booking_time() -> None:
     """Regression guard: the no-time path skips booking but must NOT skip
     address/rating/price. These do not depend on `when`."""
-    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    stops = [Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")]
     state = ItineraryState(constraints=UserConstraints(party_size=2))  # when=None
 
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"p1": _rich_details_for("p1")},
+            return_value={"ChIJtest_p1_aaaaaaaa": _rich_details_for("ChIJtest_p1_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details") as mock_build,
     ):
@@ -839,7 +908,7 @@ def test_enrich_card_fields_set_even_when_no_booking_time() -> None:
 
     mock_build.assert_not_called()  # no booking without a time
     assert stops[0].booking_url is None
-    assert stops[0].address == "p1 Main St, San Francisco"
+    assert stops[0].address == "ChIJtest_p1_aaaaaaaa Main St, San Francisco"
     assert stops[0].rating == 4.4
     assert stops[0].price_level == 2
 
@@ -847,7 +916,7 @@ def test_enrich_card_fields_set_even_when_no_booking_time() -> None:
 def test_enrich_card_fields_none_when_details_missing() -> None:
     """place_id missing from DB at enrichment time -> fields stay None
     (same degradation as booking links)."""
-    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    stops = [Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")]
     state = ItineraryState(
         constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
     )
@@ -865,11 +934,11 @@ def test_enrich_skipped_when_no_time_anywhere() -> None:
     skip the stop, NOT inject datetime.now(). The wall-clock fallback would
     embed a timestamp in the URL that's meaningless to the user and breaks
     re-commit idempotency (same inputs, different URL each call)."""
-    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    stops = [Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")]
     state = ItineraryState(constraints=UserConstraints(party_size=2))  # when=None
 
     with (
-        _patch_details_many_for(["p1"]),
+        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details") as mock_build,
     ):
         enrich_stops_with_booking(stops, state)
@@ -883,11 +952,11 @@ def test_enrich_skipped_when_no_time_anywhere() -> None:
 def test_enrich_idempotent_when_no_time_set() -> None:
     """The no-time skip preserves re-commit idempotency: same inputs in,
     same (absent) booking link out, both calls."""
-    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    stops = [Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")]
     state = ItineraryState(constraints=UserConstraints(party_size=2))
 
     with (
-        _patch_details_many_for(["p1"]),
+        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details") as mock_build,
     ):
         enrich_stops_with_booking(stops, state)
@@ -904,7 +973,7 @@ def test_enrich_uses_constraints_when_when_arrival_time_missing() -> None:
     """If a stop has no arrival_time but constraints.when IS set, the constraint
     fills in. (Counterpoint to the skip test above — make sure we don't skip
     too aggressively.)"""
-    stops = [Stop(place_id="p1", name="A", rationale="r", source="google_places")]
+    stops = [Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")]
     state = ItineraryState(
         constraints=UserConstraints(party_size=2, when=datetime(2026, 5, 7, 19, 0)),
     )
@@ -916,7 +985,7 @@ def test_enrich_uses_constraints_when_when_arrival_time_missing() -> None:
         return BookingProposal(place_id=details.place_id, provider="resy", booking_url="https://x")
 
     with (
-        _patch_details_many_for(["p1"]),
+        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
@@ -932,7 +1001,7 @@ def test_enrich_party_size_defaulting(party_size_in: int | None, expected_in_cal
     the default."""
     stops = [
         Stop(
-            place_id="p1",
+            place_id="ChIJtest_p1_aaaaaaaa",
             name="A",
             rationale="r",
             source="google_places",
@@ -948,7 +1017,7 @@ def test_enrich_party_size_defaulting(party_size_in: int | None, expected_in_cal
         return BookingProposal(place_id=details.place_id, provider="resy", booking_url="https://x")
 
     with (
-        _patch_details_many_for(["p1"]),
+        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
@@ -962,14 +1031,14 @@ def test_enrich_stops_with_booking_uses_arrival_time_per_stop() -> None:
     stops get a 'date' for the first stop's time slot."""
     stops = [
         Stop(
-            place_id="p1",
+            place_id="ChIJtest_p1_aaaaaaaa",
             name="dinner",
             rationale="r",
             source="google_places",
             arrival_time=datetime(2026, 5, 7, 19, 0),
         ),
         Stop(
-            place_id="p2",
+            place_id="ChIJtest_p2_aaaaaaaa",
             name="drinks",
             rationale="r",
             source="google_places",
@@ -989,14 +1058,14 @@ def test_enrich_stops_with_booking_uses_arrival_time_per_stop() -> None:
         )
 
     with (
-        _patch_details_many_for(["p1", "p2"]),
+        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
 
     assert captured == [
-        ("p1", datetime(2026, 5, 7, 19, 0)),
-        ("p2", datetime(2026, 5, 7, 21, 30)),
+        ("ChIJtest_p1_aaaaaaaa", datetime(2026, 5, 7, 19, 0)),
+        ("ChIJtest_p2_aaaaaaaa", datetime(2026, 5, 7, 21, 30)),
     ]
 
 
@@ -1006,7 +1075,9 @@ def _committed_state(n_stops: int, *, with_coords: bool) -> ItineraryState:
     for i in range(n_stops):
         stops.append(
             Stop(
-                place_id=f"p{i}",
+                # Pad with 'a' so the literal satisfies the 06-01 Task 3
+                # Google-Place-ID-format validator (>= 20 chars).
+                place_id=f"ChIJtest_p{i}_aaaaaaaa",
                 name=f"P{i}",
                 source="google_places",
                 rationale="",
@@ -1182,7 +1253,7 @@ async def test_act_does_not_mutate_aimessage_tool_call_args_across_steps(
         messages=[HumanMessage(content="start")],
         closure_context=[
             ClosureContext(
-                place_id="ChIJ_closed",
+                place_id="ChIJtest_closed_aaaa",
                 place_name="Closed",
                 family="bar",
                 attempted_arrival=datetime(2026, 5, 19, 20, 0),

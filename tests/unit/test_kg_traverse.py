@@ -57,7 +57,7 @@ def patch_get_conn(mocker):
 
 def _row(**overrides: Any) -> dict:
     base = {
-        "place_id": "p2",
+        "place_id": "ChIJtest_p2_aaaaaaaa",
         "name": "Test",
         "primary_type": None,
         "formatted_address": None,
@@ -79,12 +79,12 @@ def _row(**overrides: Any) -> dict:
 
 def test_invalid_relation_raises() -> None:
     with pytest.raises(ValueError, match="Unknown relation_type"):
-        kg_traverse("p1", "BOGUS")
+        kg_traverse("ChIJtest_p1_aaaaaaaa", "BOGUS")
 
 
 def test_related_place_shape(patch_get_conn) -> None:
     patch_get_conn([_row(relation_type="NEAR", weight=42.0, relation_metadata={"k": "v"})])
-    out = kg_traverse("p1", "NEAR", k=5)
+    out = kg_traverse("ChIJtest_p1_aaaaaaaa", "NEAR", k=5)
     assert len(out) == 1
     rp = out[0]
     assert isinstance(rp, RelatedPlace)
@@ -95,20 +95,20 @@ def test_related_place_shape(patch_get_conn) -> None:
 
 def test_ordering_clause_near_ascending(patch_get_conn) -> None:
     cursor = patch_get_conn([])
-    kg_traverse("p1", "NEAR", k=5)
+    kg_traverse("ChIJtest_p1_aaaaaaaa", "NEAR", k=5)
     assert "CASE r.relation_type" in cursor.executed_sql
     assert "WHEN 'NEAR'           THEN  r.weight" in cursor.executed_sql
 
 
 def test_ordering_clause_similar_vector_descending(patch_get_conn) -> None:
     cursor = patch_get_conn([])
-    kg_traverse("p1", "SIMILAR_VECTOR", k=5)
+    kg_traverse("ChIJtest_p1_aaaaaaaa", "SIMILAR_VECTOR", k=5)
     assert "WHEN 'SIMILAR_VECTOR' THEN -r.weight" in cursor.executed_sql
 
 
 def test_join_drops_missing_dst(patch_get_conn) -> None:
     cursor = patch_get_conn([])
-    out = kg_traverse("p1", "NEAR", k=5)
+    out = kg_traverse("ChIJtest_p1_aaaaaaaa", "NEAR", k=5)
     assert out == []
     # Inner JOIN (not LEFT JOIN) so dst missing from the view is dropped.
     assert "JOIN " in cursor.executed_sql
@@ -118,7 +118,7 @@ def test_join_drops_missing_dst(patch_get_conn) -> None:
 def test_view_name_resolved(patch_get_conn, monkeypatch) -> None:
     monkeypatch.setattr("app.tools.graph._view_name", lambda: "place_documents_v2")
     cursor = patch_get_conn([])
-    kg_traverse("p1", "NEAR", k=5)
+    kg_traverse("ChIJtest_p1_aaaaaaaa", "NEAR", k=5)
     assert "place_documents_v2" in cursor.executed_sql
     assert "JOIN place_documents pd" not in cursor.executed_sql
 
@@ -130,7 +130,7 @@ def test_kg_traverse_excluded_place_ids_filters_at_sql_layer(patch_get_conn) -> 
     """Closure-swap exclusion: kg_traverse must drop excluded place_ids in
     the WHERE clause at the SQL layer, not in Python."""
     cursor = patch_get_conn([])
-    kg_traverse("anchor", excluded_place_ids=["ChIJ_a", "ChIJ_b"])
+    kg_traverse("ChIJtest_anchor_aaaa", excluded_place_ids=["ChIJ_a", "ChIJ_b"])
 
     # The SQL must include the exclusion guarded by a NULL check so the
     # no-exclusion call site stays backward-compatible.
@@ -143,7 +143,7 @@ def test_kg_traverse_no_exclusions_is_no_op(patch_get_conn) -> None:
     clause; the parameter is None so the guard short-circuits and rows
     aren't filtered."""
     cursor = patch_get_conn([])
-    kg_traverse("anchor")
+    kg_traverse("ChIJtest_anchor_aaaa")
     assert "IS NULL OR pd.place_id != ALL" in cursor.executed_sql
     # Excluded slot appears twice in params (NULL-guard + comparison); both None.
     assert cursor.executed_params.count(None) == 2

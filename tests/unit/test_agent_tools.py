@@ -80,8 +80,13 @@ def test_nearby_tool_invokes_underlying(monkeypatch) -> None:
 
     monkeypatch.setattr("app.agent.tools._nearby", _fake)
     tools = {t.name: t for t in all_tools()}
-    tools["nearby"].invoke({"place_id": "p1", "radius_m": 500, "k": 4})
-    assert captured == {"place_id": "p1", "radius_m": 500, "filters": None, "k": 4}
+    tools["nearby"].invoke({"place_id": "ChIJtest_p1_aaaaaaaa", "radius_m": 500, "k": 4})
+    assert captured == {
+        "place_id": "ChIJtest_p1_aaaaaaaa",
+        "radius_m": 500,
+        "filters": None,
+        "k": 4,
+    }
 
 
 def test_get_details_tool_invokes_underlying(monkeypatch) -> None:
@@ -93,8 +98,8 @@ def test_get_details_tool_invokes_underlying(monkeypatch) -> None:
 
     monkeypatch.setattr("app.agent.tools._get_details", _fake)
     tools = {t.name: t for t in all_tools()}
-    tools["get_details"].invoke({"place_id": "p1"})
-    assert captured == {"place_id": "p1"}
+    tools["get_details"].invoke({"place_id": "ChIJtest_p1_aaaaaaaa"})
+    assert captured == {"place_id": "ChIJtest_p1_aaaaaaaa"}
 
 
 def test_kg_traverse_tool_delegates_to_graph(monkeypatch) -> None:
@@ -118,10 +123,12 @@ def test_kg_traverse_tool_delegates_to_graph(monkeypatch) -> None:
 
     monkeypatch.setattr("app.tools.graph.kg_traverse", _fake)
     tools = {t.name: t for t in all_tools()}
-    result = tools["kg_traverse"].invoke({"place_id": "p1", "relation_type": "NEAR", "k": 3})
+    result = tools["kg_traverse"].invoke(
+        {"place_id": "ChIJtest_p1_aaaaaaaa", "relation_type": "NEAR", "k": 3}
+    )
     assert result == []
     assert captured == {
-        "place_id": "p1",
+        "place_id": "ChIJtest_p1_aaaaaaaa",
         "relation_type": "NEAR",
         "k": 3,
         "excluded_place_ids": None,
