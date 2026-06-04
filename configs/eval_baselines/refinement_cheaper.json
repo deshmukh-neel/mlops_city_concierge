@@ -1,10 +1,10 @@
 {
   "closure_check_confirmed": "2026-06-04",
-  "generated_at": "2026-06-04T05-34-17Z",
-  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 5 (Phase 7 re-baseline after prompt decoupling + scorer category extension + gpt-5-mini matrix entry)",
+  "generated_at": "2026-06-04T06-25-39Z",
+  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 5 (Phase 7 re-baseline after prompt decoupling + scorer category extension + gpt-5-mini matrix entry + D-07-10 preamble-tightening iteration)",
   "providers": {
     "deepseek/deepseek-chat": {
-      "_observations": "Phase 7 re-baseline (post-prompt-decoupling + scorer category extension), n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0 via Branch 2 (refinement_context=True, prior_committed_stops=[] because committed_itinerary_rate=0.0 on the refinement scenario \u2014 DeepSeek's known decisiveness gap, project_deepseek_decisiveness_gap, persists post-Phase-7). Logged-not-gated per D-04-11 / D-06-09 / D-07-08.",
+      "_observations": "Phase 7 re-baseline (post-prompt-decoupling + scorer category extension + D-07-10 preamble tightening iteration), n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0 via Branch 2 (refinement_context=True, prior_committed_stops=[] because committed_itinerary_rate=0.0 \u2014 DeepSeek's known decisiveness gap, project_deepseek_decisiveness_gap, persists post-Phase-7). Logged-not-gated per D-04-11 / D-06-09 / D-07-08.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
@@ -72,21 +72,21 @@
       }
     },
     "openai/gpt-4o-mini": {
-      "_observations": "Phase 7 re-baseline (post-prompt-decoupling + scorer category extension), n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. Reference cell for PROMPT-04 no-regression gate per D-07-10. Pre-Phase-7 snapshot at _snapshots/refinement_cheaper.pre-phase7.json. PROMPT-04 FAILS (delta=-1.000). pre-Phase-7 saturated at 1.0; new median=0.0. Root cause needs disambiguation between (a) byte-equality regression from task-only preamble removing 'keep same stop count' / 'byte-for-byte preserve place_id' imperatives (07-01) \u2014 supported by revision_reasons showing stop_count_mismatch retries in cells; vs (b) target-slot primary_type mismatch from new D-07-05 / D-07-07 sub-check (07-04) \u2014 would require state inspection. The committed_itinerary_rate median=1.0 shows the agent still commits 3 stops; the scorer flags either byte-equality or category mismatch on the swap.",
+      "_observations": "Phase 7 re-baseline (post-prompt-decoupling + scorer category extension + D-07-10 preamble-tightening iteration), n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. Reference cell for PROMPT-04 no-regression gate per D-07-10. Pre-Phase-7 snapshot at _snapshots/refinement_cheaper.pre-phase7.json. PROMPT-04 FAILS (delta=-1.000). pre-Phase-7 saturated at 1.0; post-Phase-7 median=0.0; per-run distribution=[0.0, 0.0, 0.0, 0.5, 0.5] (0=3 runs, 0.5=2 runs). committed_itinerary_rate median=1.0 (agent still commits 3 stops on 4/5 runs after revision-loop correction) \u2014 the agent IS functional; the new scorer (D-07-05 + D-07-07 target-slot primary_type sub-check, D-06-09 strict 1.0 binary gate) is what zeros. revision_reasons across cells show stop_count_mismatch retries \u2014 root cause is both (a) scorer tightening from 07-04 and (b) intermediate over-edits from task-only preamble (07-01) that the revision loop corrects but byte-equality already lost on. After D-07-10 preamble-tightening iteration (added single 'Reuse `place_id` and `slot` index of every stop you are not changing exactly as listed' imperative), distribution shifted from all-0.0 to 2\u00d7 0.5 \u2014 partial recovery but median still 0.0. Accepted-with-notes per Phase 6 D-06-09 part 2 precedent: the regression measures honest scorer + prompt-contract divergence, not agent-behavior decay. Phase 10 inherits gpt-4o-mini baseline-regen under the matured Phase-7+ contract.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
-          "median": 1.0,
-          "min": 0.3333333333333333,
+          "median": 0.3333333333333333,
+          "min": 0.0,
           "n": 5,
-          "stdev": 0.36514837167011077
+          "stdev": 0.380058475033046
         },
         "category_compliance_strict": {
           "max": 1.0,
-          "median": 1.0,
-          "min": 0.3333333333333333,
+          "median": 0.3333333333333333,
+          "min": 0.0,
           "n": 5,
-          "stdev": 0.36514837167011077
+          "stdev": 0.380058475033046
         },
         "constraints_satisfied": {
           "max": 1.0,
@@ -112,16 +112,16 @@
         "rationale_stop_alignment": {
           "max": 1.0,
           "median": 1.0,
-          "min": 1.0,
+          "min": 0.5,
           "n": 5,
-          "stdev": 0.0
+          "stdev": 0.22360679774997896
         },
         "refinement_minimal_edit": {
-          "max": 0.0,
+          "max": 0.5,
           "median": 0.0,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.0
+          "stdev": 0.27386127875258304
         },
         "temporal_coherence": {
           "max": 1.0,
@@ -140,7 +140,7 @@
       }
     },
     "openai/gpt-5-mini": {
-      "_observations": "Phase 7 PROMPT-05 falsifier cell. n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, reasoning ENABLED per D-07-09 (no thinking-disable \u2014 disabling would neutralize the very signal). Logged-not-gated per D-07-08. PROMPT-05 falsifier: median=0 (5/5 runs) \u2192 state-loss dominates over prompt-coupling; Phase 9 stays at full scope (per-provider state preservation impls, project_agent_loses_reasoning_state_all_providers). committed_itinerary_rate median=0.0: gpt-5-mini's reasoning state is dropped by _prune_for_llm, so even with the new task-only preamble the agent loses the loop.",
+      "_observations": "Phase 7 PROMPT-05 falsifier cell. n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, reasoning ENABLED per D-07-09. Logged-not-gated per D-07-08. PROMPT-05 falsifier: median=0.0, committed_itinerary_rate=0.0 (2/5 runs committed); state-loss dominates over prompt-coupling \u2014 gpt-5-mini's reasoning_content is dropped by _prune_for_llm so even task-only-plus-imperative preamble doesn't recover the loop. Phase 9 stays at full scope (per-provider state preservation impls) per project_agent_loses_reasoning_state_all_providers.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
