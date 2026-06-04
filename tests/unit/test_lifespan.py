@@ -52,7 +52,9 @@ async def test_lifespan_initializes_and_closes_db_pool(mocker) -> None:
         10,
     )
     load_registered_rag_chain.assert_called_once_with()
-    build_agent_graph.assert_called_once_with(fake_llm)
+    # D-08-16 (Phase 8 plan 03): lifespan threads provider= from the loaded
+    # MLflow params (ActiveModelConfig.llm_provider) into build_agent_graph.
+    build_agent_graph.assert_called_once_with(fake_llm, provider="openai")
     close_db_pool.assert_called_once_with()
 
 
