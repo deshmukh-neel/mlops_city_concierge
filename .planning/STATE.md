@@ -2,17 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
-current_phase: 08
-status: ready_to_plan
-last_updated: 2026-06-04T22:07:45.969Z
-last_activity: 2026-06-04 -- Phase 08 execution started
+current_phase: 9
+status: "Phase 08 shipped — PR #102"
+last_updated: "2026-06-04T23:10:08.551Z"
+last_activity: "2026-06-04 -- Phase 08 shipped (PR #102)"
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 12
   completed_plans: 12
   percent: 20
-stopped_at: Phase 8 complete (5/5) — ready to discuss Phase 9
 ---
 
 # Project State
@@ -60,5 +59,5 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 
 Phase: 08 (reasoning-state-thread-through-contract-conformance-harness) — EXECUTING
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-06-04
+Status: Phase 08 shipped — PR #102
+Last activity: 2026-06-04 -- Phase 08 shipped (PR #102)
