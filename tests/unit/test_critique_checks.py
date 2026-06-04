@@ -977,6 +977,54 @@ def test_thresholds_are_strict_enough() -> None:
     assert CRITIQUE_THRESHOLDS["constraints_satisfied"] == 0.8
 
 
+# --- PROMPT-02 grep gate (Phase 7 / D-07-04) --------------------------------
+# Source-file guard: the six canonical behavioral phrases that Phase 7 moved
+# OUT of the prompt body and INTO the `refinement_minimal_edit` scorer must
+# never reappear in `app/agent/prompts.py` or `app/agent/io.py`. This is a
+# SOURCE FILE substring check (not a runtime import + module-state check),
+# because some of the forbidden text lives in docstrings/comments adjacent to
+# the relevant code constants — a runtime import would only see the post-load
+# string constant, missing the commentary that the prompt rewrite was meant
+# to remove. PATTERNS.md confirms: "asserts canonical behavioral phrases are
+# absent from prompts.py + io.py".
+
+
+def test_prompt_02_grep_gate_no_behavioral_phrases_in_prompts() -> None:
+    """PROMPT-02 / D-07-04: the six canonical behavioral phrases that moved
+    from the prompt body into `refinement_minimal_edit` must NOT reappear in
+    `app/agent/prompts.py` or `app/agent/io.py`.
+
+    Fails CI if a future PR resurrects any of the phrases in the prompt body.
+    The scorer is the single source of truth for these behavioral rules; the
+    prompt body describes the refinement TASK only.
+    """
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    prompts_path = repo_root / "app/agent/prompts.py"
+    io_path = repo_root / "app/agent/io.py"
+
+    combined_lower = (prompts_path.read_text() + "\n" + io_path.read_text()).lower()
+
+    # The six D-07-04 canonical behavioral phrases (case-insensitive). Each
+    # entry is matched as a literal substring against the lowercased combined
+    # source. The `SAME primary_type` variant is covered by `.lower()`
+    # normalization of the prior entry.
+    forbidden = [
+        "keep same stop count",
+        "do not ask clarifying questions",
+        "preserve `place_id` byte-for-byte",
+        "byte-for-byte",
+        "same primary_type".lower(),
+        "SAME primary_type".lower(),
+    ]
+    found = [phrase for phrase in forbidden if phrase in combined_lower]
+    assert not found, (
+        f"PROMPT-02 violation: behavioral phrases found in prompt body: {found}. "
+        "These rules must live in refinement_minimal_edit, not in the prompt."
+    )
+
+
 # --- refinement_minimal_edit smoke (Task 1 driver; full class in Task 2) -----
 
 
@@ -1014,18 +1062,25 @@ _PID_LEN20_NEW4 = "ChIJtest_new_slot4_yyyyy"
 _PID_LEN20_LONE = "ChIJlone_valid_id_aaaa"
 
 
-def _refinement_stop(place_id: str) -> Stop:
+def _refinement_stop(place_id: str, primary_type: str | None = None) -> Stop:
     """Build a Stop fixture suitable for the refinement_minimal_edit scorer.
 
-    Only `place_id` matters for the scorer's byte-equal comparison. Required
-    fields (name, source, rationale) get minimal values; the scorer never
-    touches them.
+    Only ``place_id`` matters for the scorer's byte-equal comparison. Required
+    fields (``name``, ``source``, ``rationale``) get minimal values; the scorer
+    never touches them.
+
+    Phase 7 / D-07-05 / D-07-07: ``primary_type`` is now also relevant to the
+    scorer's Branch-5 same-category sub-check on the TARGET slot. The kwarg is
+    optional with a default of ``None`` so every pre-Phase-7 call site stays
+    backward-compatible (a Stop with ``primary_type=None`` triggers the
+    D-07-07 fail-loud / abstain branches in Branch 5 depending on the prior).
     """
     return Stop(
         place_id=place_id,
         name=place_id[-5:].upper(),
         source="google_places",
         rationale="",
+        primary_type=primary_type,
     )
 
 
@@ -1265,6 +1320,192 @@ class TestRefinementMinimalEdit:
             ],
         }
         assert refinement_minimal_edit(state) == 0.0
+
+    # --- Branch 5: D-07-07 target-slot primary_type sub-check (Phase 7) -----
+    # Four-cell matrix (prior x current):
+    #   | prior pt        | current pt   | scorer returns        |
+    #   |-----------------|--------------|-----------------------|
+    #   | None / missing  | (any)        | byte_fraction unchanged (abstain) |
+    #   | present         | None         | 0.0 (fail-loud)       |
+    #   | present, "X"    | present, "Y" | 0.0 (mismatch)        |
+    #   | present, "X"    | present, "X" | byte_fraction unchanged (match) |
+    # Plus two edge guards:
+    #   - partial byte_fraction (0.5) with category match → 0.5 (multiplication
+    #     not override).
+    #   - Branch 4 lone-stop short-circuit → 1.0 regardless of category.
+
+    def test_branch_5_target_primary_type_matches_returns_byte_fraction(self) -> None:
+        """D-07-07 match cell: prior+current target both 'Cocktail Bar';
+        non-target byte-fraction = 1.0; expect 1.0 (category check returns
+        byte_fraction unchanged).
+        """
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),  # slot 1 preserved
+                _refinement_stop(_PID_LEN20_NEW2, primary_type="Cocktail Bar"),
+                _refinement_stop(_PID_LEN20_C),  # slot 3 preserved
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": "Cocktail Bar"},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 1.0
+
+    def test_branch_5_target_primary_type_mismatch_returns_0_0(self) -> None:
+        """D-07-07 mismatch cell: prior target 'Cocktail Bar', current target
+        'Wine Bar'; byte-fraction would be 1.0 but category mismatch zeros
+        the score per D-07-05 binary merge-gate semantic.
+        """
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),
+                _refinement_stop(_PID_LEN20_NEW2, primary_type="Wine Bar"),
+                _refinement_stop(_PID_LEN20_C),
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": "Cocktail Bar"},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 0.0
+
+    def test_branch_5_prior_primary_type_missing_abstains_on_category(self) -> None:
+        """D-07-07 abstain cell (missing-key variant): prior entry dict OMITS
+        the `primary_type` key entirely; current target has primary_type='Cafe';
+        scorer abstains on the category check and returns byte_fraction (1.0).
+
+        This is the migration path for legacy 06-06 scratch payloads.
+        """
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),
+                _refinement_stop(_PID_LEN20_NEW2, primary_type="Cafe"),
+                _refinement_stop(_PID_LEN20_C),
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                # Target slot 2 entry omits primary_type entirely (legacy payload).
+                {"slot": 2, "place_id": _PID_LEN20_B},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 1.0
+
+    def test_branch_5_prior_primary_type_none_abstains_on_category(self) -> None:
+        """D-07-07 abstain cell (explicit-None variant): prior entry has
+        ``"primary_type": None`` explicitly; current target has any value;
+        scorer abstains on the category check and returns byte_fraction (1.0).
+
+        Pins BOTH the missing-key path AND the explicit-None path to the
+        D-07-07 abstain branch.
+        """
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),
+                _refinement_stop(_PID_LEN20_NEW2, primary_type="Cafe"),
+                _refinement_stop(_PID_LEN20_C),
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": None},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 1.0
+
+    def test_branch_5_current_primary_type_none_fails_loud(self) -> None:
+        """D-07-07 fail-loud cell: prior carries a real value ('Cocktail Bar')
+        but current target's primary_type is None — the commit dropped a real
+        field, so the scorer returns 0.0.
+        """
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),
+                _refinement_stop(_PID_LEN20_NEW2, primary_type=None),
+                _refinement_stop(_PID_LEN20_C),
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": "Cocktail Bar"},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 0.0
+
+    def test_branch_5_target_primary_type_match_with_partial_byte_fraction(
+        self,
+    ) -> None:
+        """D-07-07 match cell with partial byte_fraction (0.5): prior 3 stops,
+        target_slot=2, current dropped slot 3 → byte_fraction = 0.5, prior+
+        current target both 'Bar' → expect 0.5.
+
+        Proves the category check MULTIPLIES the byte_fraction (rather than
+        overriding to 1.0) on a match — the scorer's byte-equality signal must
+        survive even when the category sub-check passes.
+        """
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_A),  # slot 1 preserved
+                _refinement_stop(_PID_LEN20_NEW2, primary_type="Bar"),  # target
+                # slot 3 dropped entirely from current
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 2,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": "Bar"},
+                {"slot": 3, "place_id": _PID_LEN20_C},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 0.5
+
+    def test_branch_4_lone_stop_target_skips_category_check(self) -> None:
+        """Branch 4 short-circuit: single-stop prior, that stop IS the target,
+        ``prior_non_target_slots`` is empty → Branch 4 returns 1.0 BEFORE the
+        D-07-07 category sub-check fires.
+
+        Pins the PATTERNS.md "Preserve abstain semantics on Branch 4" rule:
+        the lone-stop case is a degenerate refinement shape and treating it
+        as a category abstain keeps the scorer's no-data semantics consistent.
+        """
+        state = ItineraryState(
+            stops=[
+                _refinement_stop(_PID_LEN20_NEW2, primary_type="Restaurant"),
+            ],
+        )
+        state.scratch = {
+            "refinement_context": True,
+            "refinement_target_slot": 1,
+            "prior_committed_stops": [
+                {"slot": 1, "place_id": _PID_LEN20_LONE, "primary_type": "Cocktail Bar"},
+            ],
+        }
+        assert refinement_minimal_edit(state) == 1.0
 
     # --- Registration + isolation guards ------------------------------------
 
