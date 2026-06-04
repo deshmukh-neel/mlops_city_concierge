@@ -53,18 +53,20 @@ def test_repo_eval_matrix_yaml_loads_via_load_eval_matrix() -> None:
 
 
 def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
-    """configs/eval_matrix_refinement.yaml (Phase 6 / D-06-09 / plan 06-07)
-    carries BOTH provider entries with a per-cell env override
-    REFINEMENT_STRUCTURED_PLAN_ENABLED=true on EACH entry, and a single
-    scenario (refinement_cheaper). The merge gate is strict 1.0 on
-    openai/gpt-4o-mini only; DeepSeek is logged but not gated.
+    """configs/eval_matrix_refinement.yaml carries three provider entries
+    with a per-cell env override REFINEMENT_STRUCTURED_PLAN_ENABLED=true on
+    EACH entry, and a single scenario (refinement_cheaper). The merge gate
+    is strict 1.0 on openai/gpt-4o-mini only; DeepSeek and gpt-5-mini are
+    logged but not gated (Phase 7 D-07-08 added gpt-5-mini as the PROMPT-05
+    falsifier cell, mirroring the DeepSeek logged-not-gated precedent).
     """
     matrix = load_eval_matrix(REPO_ROOT / "configs/eval_matrix_refinement.yaml")
-    assert len(matrix.entries) == 2
+    assert len(matrix.entries) == 3
     assert len(matrix.scenarios) == 1
     providers = {(e.provider, e.model) for e in matrix.entries}
     assert ("openai", "gpt-4o-mini") in providers
     assert ("deepseek", "deepseek-chat") in providers
+    assert ("openai", "gpt-5-mini") in providers
     assert matrix.scenarios == ["refinement_cheaper"]
     for entry in matrix.entries:
         assert entry.env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}, (
