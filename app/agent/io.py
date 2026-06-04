@@ -90,6 +90,8 @@ _REFINEMENT_PREAMBLE: str = (
     "The fenced JSON block carries the prior committed plan: each entry has "
     "a 1-indexed `slot`, the `place_id` of that stop, and its planned "
     "`arrival_time`. The user's next message names what to change. "
+    "Reuse the `place_id` and `slot` index of every stop you are not changing "
+    "exactly as listed; only the slot named by the user gets a new `place_id`. "
     "Produce the updated itinerary by calling the `commit_itinerary` tool "
     "with the full stop list."
 )
