@@ -263,11 +263,11 @@ def build_agent_graph(
 
     `provider` (keyword-only, default "openai") selects the
     `ProviderAdapter` that `plan()` closes over for reasoning-state
-    round-trip. Resolved ONCE via `ADAPTERS.get(provider, NoOpAdapter())`
-    at graph-build time (D-08-04, D-08-16). Unknown providers fall back to
-    `NoOpAdapter` rather than raise — defensive default for Phase 8 where
-    every registered entry is `NoOpAdapter` anyway (D-08-08); Phase 9
-    sub-phases may add stricter validation when real adapters land.
+    round-trip. Resolved ONCE via the ADAPTERS registry (with NoOpAdapter
+    fallback) at graph-build time (D-08-04, D-08-16). Unknown providers
+    fall back to `NoOpAdapter` rather than raise — defensive default for
+    Phase 8 where every registered entry is `NoOpAdapter` anyway (D-08-08);
+    Phase 9 sub-phases may add stricter validation when real adapters land.
     """
     tools = all_tools()
     llm_with_tools = llm.bind_tools(tools)
