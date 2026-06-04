@@ -126,6 +126,15 @@ class ExpectedRefinement(BaseModel):
     population in ``evaluate_multi_turn_case`` under ``threading_mode='prod'``
     only. Default ``None`` on the parent ``EvalQuery`` keeps the field opt-in
     (no impact on the 30 existing legacy cases).
+
+    Phase 7 / D-07-06 extension: ``prior_committed_stops`` entries now carry
+    ``primary_type`` per entry (in addition to ``slot`` and ``place_id``) so
+    ``refinement_minimal_edit`` can enforce same-category on the target slot.
+    The model-facing JSON block in ``build_refinement_prompt_message`` remains
+    ``{slot, place_id, arrival_time}`` only — the category rule moved into the
+    scorer, not the prompt (HIGH-4 prompt-injection mitigation preserved). See
+    ``app/agent/critique/checks.py::refinement_minimal_edit`` for the canonical
+    scratch-shape contract.
     """
 
     model_config = ConfigDict(extra="forbid")
