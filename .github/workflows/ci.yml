@@ -191,7 +191,17 @@ jobs:
           key: poetry-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('poetry.lock') }}
 
       - name: Install dev dependencies
-        run: poetry install --with dev --no-interaction --no-root
+        # `app` is a poetry-editable-installed package (pyproject.toml:
+        # `packages = [{ include = "app" }]`). The eval-matrix scripts
+        # `from app... import` at module top level, so `--no-root` would
+        # leave them with `ModuleNotFoundError: No module named 'app'`.
+        # Other jobs (unit/mypy/lint) avoid this by going through pytest
+        # auto-discovery / mypy direct-source scanning, so they tolerate
+        # `--no-root`. See project_app_editable_install memory.
+        # Docker deploy MUST keep `--no-root` for the README.md packaging
+        # reason — see project_docker_no_root_packaging — but that's
+        # Dockerfile, not ci.yml.
+        run: poetry install --with dev --no-interaction
 
       - name: Run eval matrix (scripted, RUNS=1)
         # Phase 3 soft-gate: the matrix runner exits non-zero when scripted
