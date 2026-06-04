@@ -596,6 +596,122 @@ def test_prune_for_llm_preserves_additional_kwargs_on_stub() -> None:
     assert pruned[1].additional_kwargs.get("reasoning_content") == "carried-over"
 
 
+# ---------- Phase 8 Plan 03: ProviderAdapter wiring (D-08-04..06, D-08-16) ----------
+
+
+class _RecordingLLM(BaseChatModel):
+    """Test double that records the inbound messages list for each `_generate`
+    call, then returns the next scripted AIMessage in order. Used by the
+    replay test to assert the adapter injected `_reasoning_state` into the
+    most-recent AIMessage of the outbound payload before `ainvoke`.
+    """
+
+    scripted: list[AIMessage]
+    recorded_inputs: list[list[BaseMessage]] = []  # noqa: RUF012 — pydantic mutable default
+
+    @property
+    def _llm_type(self) -> str:
+        return "recording"
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        # Capture a shallow copy so subsequent mutation by the graph
+        # (or the adapter) on the same list spine doesn't taint history.
+        self.recorded_inputs.append(list(messages))
+        if not self.scripted:
+            raise RuntimeError("scripted responses exhausted")
+        msg = self.scripted.pop(0)
+        return ChatResult(generations=[ChatGeneration(message=msg)])
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> _RecordingLLM:
+        return self
+
+
+async def test_build_agent_graph_provider_default_is_noop_adapter() -> None:
+    """D-08-04 + D-08-08: omitting `provider=` routes through `NoOpAdapter`.
+    Observable: after a one-turn loop, the inbound AIMessage's
+    `additional_kwargs` does NOT have `_reasoning_state` set (NoOp.capture
+    returns None, so the post-ainvoke writer never fires).
+    """
+    fake = _make_fake([AIMessage(content="here is your plan", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4)  # default provider
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
+
+    ai_messages = [m for m in out["messages"] if isinstance(m, AIMessage)]
+    assert ai_messages, "expected at least one AIMessage on output"
+    # NoOpAdapter.capture returns None → no kwarg written.
+    for ai in ai_messages:
+        assert "_reasoning_state" not in ai.additional_kwargs, (
+            f"unexpected _reasoning_state on default-provider AIMessage: {ai.additional_kwargs}"
+        )
+
+
+async def test_plan_captures_reasoning_state_via_adapter(monkeypatch) -> None:
+    """D-08-05 + D-08-06: when an adapter's `capture_reasoning_state` returns
+    a payload, `plan()` writes it onto the just-returned AIMessage's
+    `additional_kwargs["_reasoning_state"]`. Use the test-only
+    `MockReasoningAdapter` patched into `ADAPTERS["scripted"]`.
+    """
+    from app.agent.adapters import ADAPTERS, MockReasoningAdapter
+
+    marker = {"provider": "test_capture", "reasoning_content": "captured"}
+    monkeypatch.setitem(ADAPTERS, "scripted", MockReasoningAdapter(payload=marker))
+
+    fake = _make_fake([AIMessage(content="here is your plan", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4, provider="scripted")
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
+
+    ai_messages = [m for m in out["messages"] if isinstance(m, AIMessage)]
+    assert ai_messages, "expected at least one AIMessage on output"
+    # The most-recent AIMessage carries the captured marker.
+    assert ai_messages[-1].additional_kwargs.get("_reasoning_state") == marker
+
+
+async def test_plan_replays_reasoning_state_into_outbound(monkeypatch) -> None:
+    """D-08-05 + REASON-05 precursor: across two `plan()` turns, the captured
+    `_reasoning_state` from turn 1 is replayed into turn 2's outbound payload
+    BEFORE `ainvoke`. Uses `_RecordingLLM` to capture the input messages list
+    and `MockReasoningAdapter` to do both the capture and the replay.
+    """
+    from app.agent.adapters import ADAPTERS, MockReasoningAdapter
+
+    marker = {"provider": "test_replay", "reasoning_content": "injected"}
+    monkeypatch.setitem(ADAPTERS, "scripted", MockReasoningAdapter(payload=marker))
+
+    # Turn 1: LLM emits a tool call so the graph loops back into plan() for turn 2.
+    # Turn 2: LLM emits a final AIMessage (no tool calls) so the graph terminates.
+    scripted = [
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "semantic_search", "id": "rs1", "args": {"query": "x"}}],
+        ),
+        AIMessage(content="done", tool_calls=[]),
+    ]
+    recording = _RecordingLLM(scripted=list(scripted), recorded_inputs=[])
+    # Patch the tool so act() succeeds without DB.
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    graph = build_agent_graph(recording, max_steps=4, provider="scripted")
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
+    assert out["done"] is True
+
+    # Two plan() turns recorded.
+    assert len(recording.recorded_inputs) >= 2, (
+        f"expected ≥ 2 recorded LLM invocations, got {len(recording.recorded_inputs)}"
+    )
+    turn2_input = recording.recorded_inputs[1]
+    # The most-recent AIMessage in turn 2's outbound MUST carry the injected
+    # marker (MockReasoningAdapter.replay walks reverse and tags the last AIMessage).
+    ai_in_turn2 = [m for m in turn2_input if isinstance(m, AIMessage)]
+    assert ai_in_turn2, "turn 2 outbound should contain at least one AIMessage from turn 1"
+    assert ai_in_turn2[-1].additional_kwargs.get("_reasoning_state") == marker
+
+
 def _state_with_grounded(place_ids: list[str], party_size: int = 2) -> ItineraryState:
     """Build a state where the given place_ids appear in scratch, so
     commit_stops considers them grounded."""
