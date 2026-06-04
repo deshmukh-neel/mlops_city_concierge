@@ -850,7 +850,8 @@ async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalRes
                     "refinement_context": True,
                     "refinement_target_slot": target_slot,
                     "prior_committed_stops": [
-                        {"slot": i + 1, "place_id": s.place_id} for i, s in enumerate(state.stops)
+                        {"slot": i + 1, "place_id": s.place_id, "primary_type": s.primary_type}
+                        for i, s in enumerate(state.stops)
                     ],
                     # Carry the full Stop objects in a separate key so the
                     # helper (which needs full Stop instances) can be called
