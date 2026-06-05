@@ -46,7 +46,12 @@ from app.eval.config import (
 
 _log = logging.getLogger(__name__)
 
-LlmProvider = Literal["openai", "gemini", "deepseek", "kimi", "scripted"]
+# Keep this Literal in sync with `app.llm_factory.SUPPORTED_PROVIDERS`. Drift
+# between the two has bitten this script twice (argparse `choices` in 09-03 /
+# `resolve_chat_model` env_var dict in 09 / CR-01 + IN-01). The runtime
+# enforcement comes from argparse `choices=list(SUPPORTED_PROVIDERS)`; this
+# alias exists so static type-checkers see the same canonical set.
+LlmProvider = Literal["openai", "gemini", "deepseek", "kimi", "anthropic", "scripted"]
 CheckFunction = Callable[[ItineraryState], float]
 
 DETERMINISTIC_CHECKS: dict[str, CheckFunction] = {
@@ -238,7 +243,22 @@ def resolve_chat_model(provider: LlmProvider, chat_model: str | None) -> str:
         return settings.openai_chat_model
     if provider == "gemini":
         return settings.gemini_chat_model
-    env_var = {"deepseek": "DEEPSEEK_MODEL", "kimi": "MOONSHOT_MODEL"}[provider]
+    # PROV-03 (Phase 9) added "anthropic" to SUPPORTED_PROVIDERS. The previous
+    # hardcoded {"deepseek": ..., "kimi": ...} dict raised KeyError on every
+    # other provider — masked in CI because the matrix runner always passes
+    # `--chat-model claude-sonnet-4-6` explicitly. A direct invocation
+    # `python scripts/eval_agent.py --llm-provider anthropic` (the pattern used
+    # by the 09-03 live probes) crashed with a non-actionable traceback.
+    # Use `.get()` so unknown providers fall through to the user-friendly
+    # ValueError on the next line rather than KeyError.
+    env_var_map = {
+        "deepseek": "DEEPSEEK_MODEL",
+        "kimi": "MOONSHOT_MODEL",
+        "anthropic": "ANTHROPIC_MODEL",
+    }
+    env_var = env_var_map.get(provider)
+    if env_var is None:
+        raise ValueError(f"No chat model resolver for {provider}: pass --chat-model explicitly")
     model = os.getenv(env_var)
     if not model:
         raise ValueError(f"No chat model for {provider}: pass --chat-model or set {env_var}")
