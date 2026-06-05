@@ -4,13 +4,13 @@ milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 9
 status: executing
-last_updated: "2026-06-05T22:00:00.000Z"
+last_updated: "2026-06-05T22:06:14.970Z"
 last_activity: 2026-06-05
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
   percent: 47
 ---
 
@@ -58,10 +58,10 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 ## Current Position
 
 Phase: 09 (per-provider-state-preservation-implementations) — EXECUTING
-Plan: 3 of 5 complete (09-01 SHIPPED-WITH-GAP, 09-02 SHIPPED-WITH-GAP, 09-03 SHIPPED-WITH-GAP). Next: Plan 09-04 (gemini3-experimental-adapter), Wave 4.
+Plan: 4 of 5 complete (09-01 SHIPPED-WITH-GAP, 09-02 SHIPPED-WITH-GAP, 09-03 SHIPPED-WITH-GAP, 09-04 SHIPPED-STRUCTURAL). Next: Plan 09-05 (revertability-audit), Wave 5.
 Status: Ready to execute
 Last activity: 2026-06-05
 
 ### Blockers
 
-None active for next-plan dispatch. Plan 09-03's PROV-03 strict gate (`claude-sonnet-4-6 × refinement_minimal_edit` median ≥ 1.0 over n=5) could NOT be empirically measured this run because the OpenAI embeddings quota exhausted DURING the retry matrix (`semantic_search` 429s on every tool call regardless of LLM provider). Billing-side blocker outside Plan 09-03 scope; n=5 anthropic measurement carried forward to Phase 10 BASE-01 baseline regen. Adapter charter delivered: live n=1 post-fix probe (after 4 PROV-03 bug fixes — max_tokens=8192, eval_agent choices, replay idempotency, temperature clamp) ran 11 tool calls + committed a 3-stop itinerary against real Claude Sonnet 4.6 with zero 400s on signed thinking blocks; 18 unit tests + 1 conformance sibling test all pass; v2.0 anchor non-regression confirmed (gpt-4o-mini commit_rate=1.0 unchanged). PROV-03 SHIPPED-WITH-GAP per Wave 1+2 D-06-09 precedent (third consecutive SHIPPED-WITH-GAP within Phase 9). See `.planning/phases/09-per-provider-state-preservation-implementations/09-03-SUMMARY.md` "Ship rationale" section. **Pre-Phase-10 prerequisite:** OpenAI quota top-up before Phase 10 BASE-01.
+None active for next-plan dispatch. Plan 09-04's PROV-04 charter (state-preservation) shipped structurally per D-09-08 no-merge-gate framing — GeminiAdapter handles BOTH the Phase 8 synthetic fixture shape AND the live-probe-confirmed lcgg 4.x wire shape (`additional_kwargs["__gemini_function_call_thought_signatures__"]: dict[tc_id, base64_str]`); 13 unit tests + 1 conformance sibling pass. ADAPTERS registry consolidated to explicit literal at one site (D-09-07 Option B) — all 4 reasoning providers (openai/deepseek/anthropic/gemini) wired off NoOp; kimi (PROV-FUT-02 library-blocked) + scripted (CI-only) stay on NoOp. Empirical n=5 baseline measurement deferred to Phase 10 BASE-01 per user-approved Option B — same OpenAI embeddings quota blocker from Plan 09-03 still in effect (`semantic_search` 429s on every matrix cell regardless of LLM provider). See `.planning/phases/09-per-provider-state-preservation-implementations/09-04-SUMMARY.md` for live-probe finding + asymmetry visualization + Phase 10 BASE-01 carry-forward (re-measure anthropic n=5 + first-time gemini n=5). **Pre-Phase-10 prerequisite:** OpenAI quota top-up before Phase 10 BASE-01.
