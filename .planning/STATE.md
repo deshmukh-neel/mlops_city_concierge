@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 9
-status: "Phase 9 — Plan 2 of 5 SHIPPED-WITH-GAP; Wave 3 unblocked"
-last_updated: "2026-06-05T19:08:17.347Z"
-last_activity: "2026-06-05 -- Plan 09-02 SHIPPED-WITH-GAP per Wave 1 D-06-09 precedent; PROV-02 complete; Wave 3 (09-03 Anthropic Claude) unblocked"
+status: executing
+last_updated: "2026-06-05T22:00:00.000Z"
+last_activity: 2026-06-05
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 17
-  completed_plans: 15
-  percent: 44
+  completed_plans: 16
+  percent: 47
 ---
 
 # Project State
@@ -58,10 +58,10 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 ## Current Position
 
 Phase: 09 (per-provider-state-preservation-implementations) — EXECUTING
-Plan: 2 of 5 complete (09-01 SHIPPED-WITH-GAP, 09-02 SHIPPED-WITH-GAP). Next: Plan 09-03 (anthropic-claude-wiring), Wave 3.
-Status: Phase 09 — Plan 2 of 5 complete (SHIPPED-WITH-GAP). Next: Plan 09-03 (anthropic-claude-wiring), Wave 3.
-Last activity: 2026-06-05 -- Plan 09-02 SHIPPED-WITH-GAP per Wave 1 D-06-09 precedent; PROV-02 complete; Wave 3 (09-03 Anthropic Claude) unblocked
+Plan: 3 of 5 complete (09-01 SHIPPED-WITH-GAP, 09-02 SHIPPED-WITH-GAP, 09-03 SHIPPED-WITH-GAP). Next: Plan 09-04 (gemini3-experimental-adapter), Wave 4.
+Status: Ready to execute
+Last activity: 2026-06-05
 
 ### Blockers
 
-None active. Plan 09-02's PROV-02 lower-bar gate (`deepseek-reasoner × refinement_minimal_edit` median ≥ 0.6) fails at 0.0 — accepted-with-notes per Wave 1 D-06-09 precedent: adapter charter delivered (5 unit + 1 conformance test pass; reasoning_content round-trips through `graph.ainvoke`); 5/5 runs hit the documented `low_similarity` critique-loop signature; decisiveness gap is downstream of state preservation per `project_deepseek_decisiveness_gap` + `project_reasoning_models_break_agent_loop` memories and carried forward to v2.1 phases 2-4. See `.planning/phases/09-per-provider-state-preservation-implementations/09-02-SUMMARY.md` "Ship rationale" section. Plan 09-01's D-09-02 BLOCKER stays CLOSED: SHIPPED-WITH-GAP per Option 3.
+None active for next-plan dispatch. Plan 09-03's PROV-03 strict gate (`claude-sonnet-4-6 × refinement_minimal_edit` median ≥ 1.0 over n=5) could NOT be empirically measured this run because the OpenAI embeddings quota exhausted DURING the retry matrix (`semantic_search` 429s on every tool call regardless of LLM provider). Billing-side blocker outside Plan 09-03 scope; n=5 anthropic measurement carried forward to Phase 10 BASE-01 baseline regen. Adapter charter delivered: live n=1 post-fix probe (after 4 PROV-03 bug fixes — max_tokens=8192, eval_agent choices, replay idempotency, temperature clamp) ran 11 tool calls + committed a 3-stop itinerary against real Claude Sonnet 4.6 with zero 400s on signed thinking blocks; 18 unit tests + 1 conformance sibling test all pass; v2.0 anchor non-regression confirmed (gpt-4o-mini commit_rate=1.0 unchanged). PROV-03 SHIPPED-WITH-GAP per Wave 1+2 D-06-09 precedent (third consecutive SHIPPED-WITH-GAP within Phase 9). See `.planning/phases/09-per-provider-state-preservation-implementations/09-03-SUMMARY.md` "Ship rationale" section. **Pre-Phase-10 prerequisite:** OpenAI quota top-up before Phase 10 BASE-01.
