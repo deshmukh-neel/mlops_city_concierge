@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 9
-status: executing
-last_updated: "2026-06-05T22:06:14.970Z"
+status: verifying
+last_updated: "2026-06-05T22:49:58.463Z"
 last_activity: 2026-06-05
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 17
   completed_plans: 17
-  percent: 47
+  percent: 60
 ---
 
 # Project State
@@ -39,7 +39,7 @@ See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 - [x] v2.1 roadmap created (phases 7-10, 2026-06-04)
 - [ ] Phase 7: Prompt/rubric decoupling
 - [ ] Phase 8: Reasoning-state thread-through (contract + harness)
-- [ ] Phase 9: Per-provider state preservation impls (gpt-5 → DeepSeek → Claude → Gemini 3)
+- [x] Phase 9: Per-provider state preservation impls (gpt-5 → DeepSeek → Claude → Gemini 3) — completed 2026-06-05
 - [ ] Phase 10: Cross-model baseline regen + matrix expansion
 
 ## Notes
@@ -57,11 +57,28 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 
 ## Current Position
 
-Phase: 09 (per-provider-state-preservation-implementations) — EXECUTING
-Plan: 4 of 5 complete (09-01 SHIPPED-WITH-GAP, 09-02 SHIPPED-WITH-GAP, 09-03 SHIPPED-WITH-GAP, 09-04 SHIPPED-STRUCTURAL). Next: Plan 09-05 (revertability-audit), Wave 5.
-Status: Ready to execute
+Phase: 09 (per-provider-state-preservation-implementations) — COMPLETE
+Plan: 5 of 5 complete (09-01 SHIPPED-WITH-GAP, 09-02 SHIPPED-WITH-GAP, 09-03 SHIPPED-WITH-GAP, 09-04 SHIPPED-STRUCTURAL, 09-05 PASS-WITH-FINDINGS).
+Status: Phase 9 ready for verification + secure-phase + code-review gates, then PR open against `main`.
 Last activity: 2026-06-05
 
 ### Blockers
 
-None active for next-plan dispatch. Plan 09-04's PROV-04 charter (state-preservation) shipped structurally per D-09-08 no-merge-gate framing — GeminiAdapter handles BOTH the Phase 8 synthetic fixture shape AND the live-probe-confirmed lcgg 4.x wire shape (`additional_kwargs["__gemini_function_call_thought_signatures__"]: dict[tc_id, base64_str]`); 13 unit tests + 1 conformance sibling pass. ADAPTERS registry consolidated to explicit literal at one site (D-09-07 Option B) — all 4 reasoning providers (openai/deepseek/anthropic/gemini) wired off NoOp; kimi (PROV-FUT-02 library-blocked) + scripted (CI-only) stay on NoOp. Empirical n=5 baseline measurement deferred to Phase 10 BASE-01 per user-approved Option B — same OpenAI embeddings quota blocker from Plan 09-03 still in effect (`semantic_search` 429s on every matrix cell regardless of LLM provider). See `.planning/phases/09-per-provider-state-preservation-implementations/09-04-SUMMARY.md` for live-probe finding + asymmetry visualization + Phase 10 BASE-01 carry-forward (re-measure anthropic n=5 + first-time gemini n=5). **Pre-Phase-10 prerequisite:** OpenAI quota top-up before Phase 10 BASE-01.
+None active for Phase 9 completion. PROV-05 atomicity audit completed (`.planning/phases/09-per-provider-state-preservation-implementations/09-05-AUDIT.md`). Phase 9 PR-ready: all 5 plans shipped, atomicity audit done, gates documented as SHIPPED-WITH-GAP / SHIPPED-STRUCTURAL / PASS-WITH-FINDINGS per Wave 1/2/3 + D-06-09 precedent. Per `feedback_user_merges_prs`: do NOT run `gh pr merge` once CI is green.
+
+**Pre-Phase-10 prerequisite carried forward from Wave 4:** OpenAI embeddings quota top-up before Phase 10 BASE-01 (re-measure anthropic n=5 + first-time gemini n=5).
+
+**PROV-05 audit findings carried into PATTERNS.md / Phase 10:**
+
+- Phase 9's additive-overlay pattern (matrix YAML + baseline JSON + cell-count test extended by every sub-phase) makes mid-stack single-PROV revert non-mechanical; cumulative reverse-pop is the realistic developer workflow.
+- PROV-02 chore commit 3800737 has a latent test-vs-data atomicity gap (added YAML entry without updating co-tracked `test_eval_matrix.py` assertion); masked at commit time by PROV-03's later bump. Future phases adopt convention: when a sub-phase appends to a shared additive data file with a co-tracked cell-count test, the same commit updates both.
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 9 P09-05 | 60m | 2 tasks | 1 files |
+
+## Decisions
+
+- [Phase ?]: Phase 9 PROV-05 atomicity audit: PASS-WITH-FINDINGS — import isolation PASS; cumulative reverse-pop revert preserves v2.0 anchor; PROV-02 chore 3800737 latent test-vs-data atomicity gap documented as note (D-06-09 precedent)
