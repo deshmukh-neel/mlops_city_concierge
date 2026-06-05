@@ -44,6 +44,20 @@ entries:
     model: deepseek-reasoner
     env:
       REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
+  # Phase 9 / D-09-12 / PROV-03: gated median ≥ 1.0 (strict; first-time
+  # Anthropic wiring). claude-sonnet-4-6 runs with thinking ENABLED + temp=1.0
+  # per D-09-06 carve-out (Sonnet with thinking disabled is just regular
+  # Sonnet — no thinking_blocks for AnthropicAdapter to round-trip).
+  # budget_tokens=4096 default via _ANTHROPIC_THINKING_BUDGET in
+  # app/llm_factory.py. The signed thinking blocks MUST round-trip
+  # byte-identical or Anthropic's API 400s; that contract is the wire-level
+  # backstop for the AnthropicAdapter unit + conformance tests. Gate-miss
+  # ships accept-with-notes per D-06-09 + Wave 1/2 precedent (D-09-02
+  # PR-blocking gate is PROV-01 only).
+  - provider: anthropic
+    model: claude-sonnet-4-6
+    env:
+      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
 
 scenarios:
   - refinement_cheaper
