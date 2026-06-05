@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 9
-status: "Phase 08 shipped — PR #102"
-last_updated: "2026-06-05T05:00:00.000Z"
-last_activity: "2026-06-05 -- Phase 9 PROV-01 D-09-02 re-scoped via Option A; Part A still fails (0.4 vs >=0.6); plan held pending ship/re-run decision"
+status: "Phase 9 — Plan 1 of 5 SHIPPED-WITH-GAP; Wave 2 unblocked"
+last_updated: "2026-06-05T22:00:00.000Z"
+last_activity: "2026-06-05 -- Plan 09-01 SHIPPED-WITH-GAP per Option 3 (accept-with-notes, D-06-09 precedent); PROV-01 complete; Wave 2 (09-02 DeepSeek) unblocked"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 17
-  completed_plans: 13
-  percent: 40
+  completed_plans: 14
+  percent: 41
 ---
 
 # Project State
@@ -57,11 +57,11 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 
 ## Current Position
 
-Phase: 08 (reasoning-state-thread-through-contract-conformance-harness) — EXECUTING
-Plan: Not started
-Status: Phase 08 shipped — PR #102
-Last activity: 2026-06-04 -- Phase 08 shipped (PR #102)
+Phase: 09 (per-provider-state-preservation-implementations) — EXECUTING
+Plan: 1 of 5 complete (09-01 openai-gpt5-adapter SHIPPED-WITH-GAP); next is 09-02 (deepseek-reasoner-adapter)
+Status: Phase 09 — Plan 1 of 5 complete (SHIPPED-WITH-GAP). Next: Plan 09-02 (deepseek-reasoner-adapter), Wave 2.
+Last activity: 2026-06-05 -- Plan 09-01 SHIPPED-WITH-GAP per Option 3 (accept-with-notes, D-06-09 precedent); PROV-01 complete; Wave 2 unblocked
 
 ### Blockers
 
-- Phase 9 PROV-01 milestone anchor gate D-09-02 RE-SCOPED 2026-06-05 per user-approved Option A from strict refinement_minimal_edit median = 1.0 to 2-part: Part A (hard) committed_itinerary_rate >= 0.6; Part B (advisory) refinement_minimal_edit median >= 0.5. Against re-scoped gate: Part A = 0.4 (2/5) STILL FAILS by 0.2; Part B = 0.0 FAILS advisory. Plan 09-01 is HELD pending user choice between (ii) re-run at n=10/20 to tighten CI [most-recommended], (i) ship-with-gap per D-06-09 precedent, (iii) Option B prompt tweak, or (iv) Option C/D mechanical tweaks. See .planning/phases/09-per-provider-state-preservation-implementations/09-PROV-01-BLOCKER.md Resolution section.
+None active. Plan 09-01's D-09-02 BLOCKER resolved 2026-06-05 as CLOSED: SHIPPED-WITH-GAP per Option 3 (accept-with-notes, D-06-09 precedent). PROV-01 charter delivered (probe→Path B→subclass+adapter+conformance tests pass, 0/5→2/5 commit-rate lift); residual Part A gap (0.4 vs 0.6) is downstream of state preservation (critique-loop on reasoning models per `project_reasoning_models_break_agent_loop`) and carried forward to v2.1 phases 2-4. See `.planning/phases/09-per-provider-state-preservation-implementations/09-PROV-01-BLOCKER.md` Resolution section and `09-01-SUMMARY.md` "Ship rationale".
