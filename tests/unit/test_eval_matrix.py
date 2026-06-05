@@ -53,7 +53,7 @@ def test_repo_eval_matrix_yaml_loads_via_load_eval_matrix() -> None:
 
 
 def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
-    """configs/eval_matrix_refinement.yaml carries the five Phase-9 provider
+    """configs/eval_matrix_refinement.yaml carries the six Phase-9 provider
     entries with a per-cell env override REFINEMENT_STRUCTURED_PLAN_ENABLED=true
     on EACH entry, and a single scenario (refinement_cheaper). The merge gate
     history:
@@ -67,9 +67,13 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
     - anthropic/claude-sonnet-4-6 — PROV-03 GATED strict median ≥ 1.0
       (D-09-06 thinking-enabled carve-out via _ANTHROPIC_THINKING_BUDGET;
       Plan 09-03 first-time Anthropic wiring)
+    - gemini/gemini-3.1-pro-preview — PROV-04 EXPERIMENTAL — no merge gate
+      per D-09-08 (Plan 09-04 first-time bytes thought_signature wiring;
+      critique-loop fix deferred per project_w10_migration_necessary_not_sufficient;
+      empirical median logged-not-gated)
     """
     matrix = load_eval_matrix(REPO_ROOT / "configs/eval_matrix_refinement.yaml")
-    assert len(matrix.entries) == 5
+    assert len(matrix.entries) == 6
     assert len(matrix.scenarios) == 1
     providers = {(e.provider, e.model) for e in matrix.entries}
     assert ("openai", "gpt-4o-mini") in providers
@@ -77,6 +81,7 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
     assert ("openai", "gpt-5-mini") in providers
     assert ("deepseek", "deepseek-reasoner") in providers
     assert ("anthropic", "claude-sonnet-4-6") in providers
+    assert ("gemini", "gemini-3.1-pro-preview") in providers
     assert matrix.scenarios == ["refinement_cheaper"]
     for entry in matrix.entries:
         assert entry.env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}, (

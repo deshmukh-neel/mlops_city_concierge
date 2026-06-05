@@ -58,6 +58,21 @@ entries:
     model: claude-sonnet-4-6
     env:
       REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
+  # Phase 9 / D-09-12 / PROV-04 EXPERIMENTAL (no merge gate per D-09-08).
+  # GeminiAdapter round-trips bytes thought_signature on additional_kwargs.
+  # Empirical refinement_minimal_edit median is LOGGED-NOT-GATED — the
+  # critique-loop fix (LOW_SIMILARITY_THRESHOLD=0.55 in app/agent/revision.py)
+  # is DEFERRED per project_w10_migration_necessary_not_sufficient, so the
+  # median may stay at 0.0 until a future v2.2 / Phase 10.5 follow-up. The
+  # PROV-04 acceptance test is the conformance sibling
+  # test_reason_02_gemini_real_adapter — empirical median is informational.
+  # Re-measurement at n=5 is deferred to Phase 10 BASE-01 (per-cell baseline
+  # regen requires OpenAI embeddings quota top-up; semantic_search is the
+  # shared retrieval path and 429s on every cell when quota is exhausted).
+  - provider: gemini
+    model: gemini-3.1-pro-preview
+    env:
+      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
 
 scenarios:
   - refinement_cheaper
