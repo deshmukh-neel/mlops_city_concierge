@@ -4,8 +4,8 @@ milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 9
 status: "Phase 08 shipped — PR #102"
-last_updated: "2026-06-05T04:11:24.803Z"
-last_activity: "2026-06-04 -- Phase 08 shipped (PR #102)"
+last_updated: "2026-06-05T05:00:00.000Z"
+last_activity: "2026-06-05 -- Phase 9 PROV-01 D-09-02 re-scoped via Option A; Part A still fails (0.4 vs >=0.6); plan held pending ship/re-run decision"
 progress:
   total_phases: 5
   completed_phases: 2
@@ -64,4 +64,4 @@ Last activity: 2026-06-04 -- Phase 08 shipped (PR #102)
 
 ### Blockers
 
-- Phase 9 PROV-01 milestone anchor gate FAILED (D-09-02): openai/gpt-5-mini × refinement_minimal_edit median = 0.0 (target 1.0). See .planning/phases/09-per-provider-state-preservation-implementations/09-PROV-01-BLOCKER.md. User decision required.
+- Phase 9 PROV-01 milestone anchor gate D-09-02 RE-SCOPED 2026-06-05 per user-approved Option A from strict refinement_minimal_edit median = 1.0 to 2-part: Part A (hard) committed_itinerary_rate >= 0.6; Part B (advisory) refinement_minimal_edit median >= 0.5. Against re-scoped gate: Part A = 0.4 (2/5) STILL FAILS by 0.2; Part B = 0.0 FAILS advisory. Plan 09-01 is HELD pending user choice between (ii) re-run at n=10/20 to tighten CI [most-recommended], (i) ship-with-gap per D-06-09 precedent, (iii) Option B prompt tweak, or (iv) Option C/D mechanical tweaks. See .planning/phases/09-per-provider-state-preservation-implementations/09-PROV-01-BLOCKER.md Resolution section.
