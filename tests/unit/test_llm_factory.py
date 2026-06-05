@@ -130,6 +130,71 @@ def test_deepseek_reasoner_enables_thinking(mocker, monkeypatch) -> None:
     assert kwargs["temperature"] == 1.0
 
 
+def test_build_chat_model_anthropic_returns_chatanthropic_with_thinking_enabled(
+    mocker, monkeypatch
+) -> None:
+    """PROV-03 / D-09-06: `build_chat_model("anthropic", "claude-sonnet-4-6", 1.0)`
+    constructs `ChatAnthropic` with `temperature=1.0`, `model="claude-sonnet-4-6"`,
+    and `thinking={"type": "enabled", "budget_tokens": 4096}` per the carve-out
+    from `feedback_temp1_reasoning_off_all_models` documented in
+    `_ANTHROPIC_THINKING_BUDGET`.
+
+    Patches `langchain_anthropic.ChatAnthropic` at its import site (the lazy
+    import inside the anthropic branch) and `resolve_llm_api_key` so the test
+    needs no real `ANTHROPIC_API_KEY`.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    # Patch at the LAZY-import site — the anthropic branch does
+    # `from langchain_anthropic import ChatAnthropic` INSIDE the branch, so
+    # patching `app.llm_factory.ChatAnthropic` wouldn't intercept anything
+    # (the name isn't bound at module level by design — that's what keeps
+    # langchain-anthropic optional for environments that never construct an
+    # Anthropic model).
+    cls = mocker.patch("langchain_anthropic.ChatAnthropic", return_value="anthropic-llm")
+
+    out = build_chat_model("anthropic", "claude-sonnet-4-6", temperature=1.0)
+
+    assert out == "anthropic-llm"
+    cls.assert_called_once()
+    _, kwargs = cls.call_args
+    assert kwargs["model"] == "claude-sonnet-4-6"
+    assert kwargs["temperature"] == 1.0
+    assert kwargs["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+
+
+def test_build_chat_model_anthropic_uses_default_budget_when_model_not_in_dict(
+    mocker, monkeypatch
+) -> None:
+    """PROV-03 / D-09-06: the `_ANTHROPIC_THINKING_BUDGET.get(chat_model, 4096)`
+    fallback applies for any Claude model not explicitly listed (e.g. a future
+    Opus / Haiku build). 4096 is the Claude's-Discretion default; Phase 10
+    baseline regen may tune this per model.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    cls = mocker.patch("langchain_anthropic.ChatAnthropic", return_value="anthropic-llm")
+
+    build_chat_model("anthropic", "claude-opus-future", temperature=1.0)
+
+    _, kwargs = cls.call_args
+    assert kwargs["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+
+
+def test_supported_providers_contains_anthropic() -> None:
+    """PROV-03 / D-09-05: `anthropic` is part of `SUPPORTED_PROVIDERS` after
+    Plan 09-03. This is the contract the dict-comp at
+    `app/agent/adapters/__init__.py:121` keys off — adding anthropic here
+    auto-extends the `ADAPTERS` registry (then the Plan 09-03 swap line
+    replaces the NoOp entry with `AnthropicAdapter()`).
+    """
+    assert "anthropic" in SUPPORTED_PROVIDERS
+
+
 def test_kimi_disables_thinking_for_tool_calls(mocker, monkeypatch) -> None:
     """Kimi has the same reasoning_content round-trip problem; LangChain's
     documented tool-use path is ChatMoonshot(thinking=False)."""
