@@ -1,10 +1,78 @@
 {
-  "closure_check_confirmed": "2026-06-04",
-  "generated_at": "2026-06-05T04-05-58Z",
-  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 5 (Phase 9 PROV-01 OpenAIReasoningAdapter milestone anchor gate measurement)",
+  "closure_check_confirmed": "2026-06-05",
+  "generated_at": "2026-06-05T18-58-23Z",
+  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 5 (Phase 9 PROV-02 DeepSeekReasonerAdapter lower-bar gate measurement; deepseek-reasoner runs 2-4 completed via direct scripts/eval_agent.py invocations after the matrix subprocess was killed at run-1 of the cell)",
   "providers": {
     "deepseek/deepseek-chat": {
-      "_observations": "Phase 9 PROV-01 reference cell (logged-not-gated). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0; committed_itinerary_rate=0.0 \u2014 DeepSeek's known decisiveness gap (project_deepseek_decisiveness_gap) persists post-Phase-7. Phase 9 PROV-01 did not change DeepSeek wiring; PROV-02 will introduce DeepSeekReasonerAdapter.",
+      "_observations": "Phase 9 PROV-02 regression-guard reference (logged-not-gated). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0, distribution=[0.0]*5. committed_itinerary_rate=0.0 (0/5) \u2014 DeepSeek's known decisiveness gap (project_deepseek_decisiveness_gap) persists, unchanged by PROV-02. deepseek-chat stays under `extra_body={'thinking': {'type': 'disabled'}}` via the _DEEPSEEK_REASONER_THINKING_ENABLED frozenset carve-out (test_deepseek_chat_keeps_thinking_disabled in tests/unit/test_llm_factory.py). T-09-02-T4 regression guard intact.",
+      "scorers": {
+        "category_compliance": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "category_compliance_strict": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "constraints_satisfied": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "geographic_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "no_hallucinated_place_ids": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "rationale_stop_alignment": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "refinement_minimal_edit": {
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "temporal_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        },
+        "walking_budget_respected": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "stdev": 0.0
+        }
+      }
+    },
+    "deepseek/deepseek-reasoner": {
+      "_observations": "Phase 9 PROV-02 GATED (lower-bar median \u2265 0.6; ACCEPT-WITH-NOTES). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, DeepSeekReasonerAdapter active, thinking ENABLED via _DEEPSEEK_REASONER_THINKING_ENABLED frozenset per D-09-04. refinement_minimal_edit median=0.0, distribution=[0.0]*5 \u2014 PROV-02 lower-bar gate (\u22650.6) FAILS at 0.0. committed_itinerary_rate=0.0 (0/5) \u2014 all 5 runs end with revision_reasons including 'low_similarity' (run-0/2/3/4) plus 'empty_results' on 2 runs; final_reply = 'I hit the planning step limit'. Diagnosis: classic critique-loop decisiveness pattern, identical signature to project_deepseek_decisiveness_gap (DeepSeek 0/9 on v2.0 real-provider matrix on the deepseek-chat path) \u2014 the adapter wires reasoning_content cross-turn correctly (unit test test_deepseek_reasoner_adapter + conformance test test_reason_02_deepseek_real_adapter both pass), but the agent-loop convergence issue on reasoning models on this codebase persists (orthogonal to state preservation). PROV-02 SHIPPED-WITH-GAP per plan's gate-miss policy and CONTEXT.md PROV-02 'exploratory' framing; D-06-09 precedent (Wave 1 PROV-01) applies. Carry-forward to v2.1 phases 2-4 (prompt-rubric refinement / critique-loop tuning). PROV-02 D-09-02 PR-block gate is PROV-01 ONLY (which is also SHIPPED-WITH-GAP); PROV-02 lower-bar miss is documented and accepted.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
@@ -72,21 +140,21 @@
       }
     },
     "openai/gpt-4o-mini": {
-      "_observations": "Phase 9 PROV-01 reference cell (v2.0 anchor; logged-not-gated). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0, max=0.5, distribution=[0.0, 0.5, 0.0, 0.0, 0.0]. Identical median to post-Phase-7 baseline (D-07-10 partial-recovery snapshot); no regression from the gpt-5 Path B subclass \u2014 confirms `_is_openai_reasoning_model` keeps gpt-4o-mini on plain ChatOpenAI per CLAUDE.md v2.0 anchor rule. committed_itinerary_rate=1.0 (5/5 commits).",
+      "_observations": "Phase 9 PROV-02 reference cell (v2.0 anchor; logged-not-gated). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0, max=1.0, distribution=[0.5, 0.0, 1.0, 0.0, 0.0]. No regression from PROV-02 (DeepSeekReasonerAdapter registered for `deepseek` provider, _DEEPSEEK_REASONER_THINKING_ENABLED frozenset added) \u2014 gpt-4o-mini is on `openai` provider which still resolves to OpenAIReasoningAdapter swap from PROV-01. committed_itinerary_rate=1.0 (5/5 commits).",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
-          "median": 0.3333333333333333,
+          "median": 0.6666666666666666,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.4346134936801766
+          "stdev": 0.408248290463863
         },
         "category_compliance_strict": {
           "max": 1.0,
-          "median": 0.3333333333333333,
+          "median": 0.6666666666666666,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.4346134936801766
+          "stdev": 0.408248290463863
         },
         "constraints_satisfied": {
           "max": 1.0,
@@ -117,11 +185,11 @@
           "stdev": 0.0
         },
         "refinement_minimal_edit": {
-          "max": 0.5,
+          "max": 1.0,
           "median": 0.0,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.22360679774997896
+          "stdev": 0.4472135954999579
         },
         "temporal_coherence": {
           "max": 1.0,
@@ -140,21 +208,21 @@
       }
     },
     "openai/gpt-5-mini": {
-      "_observations": "Phase 9 PROV-01 GATED. n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, OpenAIReasoningAdapter active via OpenAIReasoningChatModel (use_responses_api=True). Milestone anchor gate (D-09-02): refinement_minimal_edit median=0.0 \u2014 GATE FAILED (target 1.0; 5/5 runs scored 0.0). committed_itinerary_rate=0.4 (2/5 runs committed; improvement from Phase-7 falsifier baseline of 2/5, but the committed runs still produce non-minimal edits to the prior plan \u2014 edit-distance scorer returns 0.0). Diagnosis: Path B subclass DOES lift reasoning blocks into additional_kwargs and round-trip them via the Responses-API serializer, but the gpt-5-mini agent loop still hits max_steps on 3/5 runs (revision_reasons=['low_similarity']) and the 2 committed runs choose wholesale stop replacements over minimal edits. Phase 9 PR cannot ship per D-09-02 until either (a) the refinement edit-minimization is recoverable by prompt/critique-loop tuning, or (b) the milestone gate is restructured to a softer threshold + committed_rate gate. See 09-PROV-01-BLOCKER.md for triage paths.",
+      "_observations": "Phase 9 PROV-02 reference cell (PROV-01 SHIPPED-WITH-GAP; D-09-02 re-scoped). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, OpenAIReasoningAdapter active. refinement_minimal_edit median=0.0, max=1.0, distribution=[0.0, 1.0, 0.0, 0.0, 0.0] \u2014 Part B advisory below \u22650.5 threshold but max=1.0 confirms adapter wire works. committed_itinerary_rate=0.4 (2/5) \u2014 identical to PROV-01 Wave 1 measurement, no regression. Part A hard gate stays at 0.4 vs \u22650.6; PROV-01 SHIPPED-WITH-GAP verdict (Option 3, D-06-09 precedent) unchanged. Critique-loop dominates on reasoning-family models per project_reasoning_models_break_agent_loop; carry-forward to v2.1 phases 2-4.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
           "median": 1.0,
-          "min": 0.6666666666666666,
+          "min": 1.0,
           "n": 5,
-          "stdev": 0.14907119849998599
+          "stdev": 0.0
         },
         "category_compliance_strict": {
           "max": 1.0,
           "median": 1.0,
-          "min": 0.6666666666666666,
+          "min": 1.0,
           "n": 5,
-          "stdev": 0.14907119849998599
+          "stdev": 0.0
         },
         "constraints_satisfied": {
           "max": 1.0,
@@ -185,11 +253,11 @@
           "stdev": 0.0
         },
         "refinement_minimal_edit": {
-          "max": 0.0,
+          "max": 1.0,
           "median": 0.0,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.0
+          "stdev": 0.4472135954999579
         },
         "temporal_coherence": {
           "max": 1.0,
