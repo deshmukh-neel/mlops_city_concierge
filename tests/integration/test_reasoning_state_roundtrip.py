@@ -46,6 +46,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import Field
 
 from app.agent.adapters import ADAPTERS, MockReasoningAdapter
+from app.agent.adapters.deepseek import DeepSeekReasonerAdapter
 from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter
 from app.agent.graph import build_agent_graph
 from app.agent.state import ItineraryState
@@ -349,6 +350,83 @@ async def test_reason_02_openai_real_adapter(
     # walks outbound in reverse → most-recent AIMessage gets tagged.
     assert ai_messages_in_last[-1].additional_kwargs.get("reasoning_content") == "thinking...", (
         "OpenAIReasoningAdapter replay did NOT write `reasoning_content` onto "
+        "the most-recent outbound AIMessage's additional_kwargs. "
+        f"Recorded last-input AIMessage additional_kwargs: "
+        f"{[m.additional_kwargs for m in ai_messages_in_last]!r}"
+    )
+
+
+# Phase 9 / PROV-02 (D-09-04 model-level carve-out) — sibling test that swaps
+# the REAL `DeepSeekReasonerAdapter` into `ADAPTERS["scripted"]` and proves the
+# deepseek `reasoning_content` shape (matching `FOUR_SHAPE_PAYLOADS[2]`) survives
+# the `graph.ainvoke` round-trip end-to-end. Mirror of `test_reason_02_openai_real_adapter`
+# — same wire shape (additional_kwargs["reasoning_content"]) because the OpenAI
+# Path B subclass mimicked DeepSeek's documented contract on purpose. The
+# original `test_reason_02_four_shape_roundtrip[payload2]` is unchanged (D-08-13
+# + canonical_refs lock it); this is a NEW test that asserts the real adapter's
+# wire shape vs the Mock's `_reasoning_state` storage convention.
+async def test_reason_02_deepseek_real_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REASON-02 + PROV-02: real `DeepSeekReasonerAdapter` round-trips
+    `additional_kwargs["reasoning_content"]` (the provider-native key) through
+    `graph.ainvoke`.
+
+    Mechanics:
+    - `monkeypatch.setitem(ADAPTERS, "scripted", DeepSeekReasonerAdapter())` so
+      the real adapter is the one `plan()` closes over (no `MockReasoningAdapter`).
+    - The turn-1 scripted `AIMessage` carries
+      `additional_kwargs={"reasoning_content": "bar"}` — the shape `ChatDeepSeek`
+      populates natively for `deepseek-reasoner` when thinking is enabled.
+    - We assert the turn-2 input's most-recent `AIMessage` carries the same
+      `additional_kwargs["reasoning_content"]` value (NOT `_reasoning_state`;
+      graph.py stashes capture output at `_reasoning_state`, but
+      `DeepSeekReasonerAdapter.replay_reasoning_state` writes the
+      provider-native `reasoning_content` key on the most-recent AIMessage so
+      the next outbound DeepSeek API request carries it back — DeepSeek's API
+      400s with "reasoning_content must be passed back" when the field is
+      dropped between turns).
+    """
+    monkeypatch.setitem(ADAPTERS, "scripted", DeepSeekReasonerAdapter())
+
+    # Patch the underlying retrieval helper so act() succeeds without a real DB.
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    turn1_ai = AIMessage(
+        content="searching for bars",
+        tool_calls=[
+            {
+                "name": "semantic_search",
+                "args": {"query": "bar in mission", "k": 3},
+                "id": "call_test_deepseek_real",
+            },
+        ],
+        additional_kwargs={"reasoning_content": "bar"},
+    )
+    recording_llm = RecordingLLM(
+        scripted=[turn1_ai, AIMessage(content="done", tool_calls=[])],
+    )
+    graph = build_agent_graph(recording_llm, max_steps=4, provider="scripted")
+
+    await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="find a bar in mission")]),
+    )
+
+    assert len(recording_llm.recorded_inputs) >= 2, (
+        "expected ≥ 2 recorded LLM invocations across turn-1 + turn-2, "
+        f"got {len(recording_llm.recorded_inputs)}"
+    )
+
+    last_input = recording_llm.recorded_inputs[-1]
+    ai_messages_in_last = [m for m in last_input if isinstance(m, AIMessage)]
+    assert ai_messages_in_last, (
+        "expected at least one AIMessage in the most-recent LLM input; "
+        f"saw types {[type(m).__name__ for m in last_input]}"
+    )
+    # The real adapter writes the provider-native key (NOT _reasoning_state).
+    # walks outbound in reverse → most-recent AIMessage gets tagged.
+    assert ai_messages_in_last[-1].additional_kwargs.get("reasoning_content") == "bar", (
+        "DeepSeekReasonerAdapter replay did NOT write `reasoning_content` onto "
         "the most-recent outbound AIMessage's additional_kwargs. "
         f"Recorded last-input AIMessage additional_kwargs: "
         f"{[m.additional_kwargs for m in ai_messages_in_last]!r}"

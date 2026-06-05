@@ -140,9 +140,26 @@ from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter  # noqa: E402
 
 ADAPTERS["openai"] = OpenAIReasoningAdapter()
 
+# Phase 9 / PROV-02 (D-09-04): swap the deepseek entry to the real
+# DeepSeekReasonerAdapter. ``ChatDeepSeek`` for ``deepseek-reasoner``
+# populates ``additional_kwargs["reasoning_content"]`` natively (per the
+# documented ``langchain-deepseek>=1.0.0,<2.0.0`` contract), so no subclass
+# is required — the factory's model-level conditional in
+# ``_DEEPSEEK_REASONER_THINKING_ENABLED`` is what flips thinking ON so the
+# model actually emits the field. For ``deepseek-chat`` / ``deepseek-v4-pro``
+# the wrapper never populates the kwarg (thinking is disabled by policy), so
+# this adapter returns ``None`` on capture and behavior is byte-identical
+# to NoOpAdapter on the non-reasoning DeepSeek path (D-08-08 spirit
+# preserved; matches the OpenAIReasoningAdapter rule on the gpt-4o-mini
+# anchor path).
+from app.agent.adapters.deepseek import DeepSeekReasonerAdapter  # noqa: E402
+
+ADAPTERS["deepseek"] = DeepSeekReasonerAdapter()
+
 
 __all__ = [
     "ADAPTERS",
+    "DeepSeekReasonerAdapter",
     "MockReasoningAdapter",
     "NoOpAdapter",
     "OpenAIReasoningAdapter",

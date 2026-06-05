@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage
 
 from app.agent.adapters import (
     ADAPTERS,
+    DeepSeekReasonerAdapter,
     MockReasoningAdapter,
     NoOpAdapter,
     OpenAIReasoningAdapter,
@@ -90,8 +91,9 @@ def test_adapters_registry_keys_match_supported_providers() -> None:
     Phase 8 shipped every value as a NoOpAdapter — zero behavior change vs
     Phase 7. Phase 9 sub-phases swap individual entries in place:
     - PROV-01 (Plan 09-01) swaps `openai` → `OpenAIReasoningAdapter`.
-    - PROV-02..04 will swap `deepseek`, `anthropic` (newly added to
-      SUPPORTED_PROVIDERS in 09-03), `gemini` likewise.
+    - PROV-02 (Plan 09-02) swaps `deepseek` → `DeepSeekReasonerAdapter`.
+    - PROV-03..04 will swap `anthropic` (newly added to SUPPORTED_PROVIDERS
+      in 09-03) and `gemini` likewise.
     Per-provider keys not yet swapped MUST stay on `NoOpAdapter` so the
     swap discipline is auditable; this test enforces that "key set = full
     SUPPORTED_PROVIDERS coverage" + "every value is one of the known
@@ -100,14 +102,16 @@ def test_adapters_registry_keys_match_supported_providers() -> None:
     assert set(ADAPTERS.keys()) == set(SUPPORTED_PROVIDERS)
     # Phase 9 / PROV-01: openai key is now wired to OpenAIReasoningAdapter.
     assert isinstance(ADAPTERS["openai"], OpenAIReasoningAdapter)
-    # Providers that PROV-01 did NOT swap stay on NoOpAdapter (D-08-08 spirit).
+    # Phase 9 / PROV-02: deepseek key is now wired to DeepSeekReasonerAdapter.
+    assert isinstance(ADAPTERS["deepseek"], DeepSeekReasonerAdapter)
+    # Providers that PROV-01..02 did NOT swap stay on NoOpAdapter (D-08-08 spirit).
     for provider in SUPPORTED_PROVIDERS:
-        if provider == "openai":
+        if provider in ("openai", "deepseek"):
             continue
         assert isinstance(ADAPTERS[provider], NoOpAdapter), (
             f"ADAPTERS[{provider!r}] was unexpectedly swapped off NoOpAdapter "
-            f"by Plan 09-01; only `openai` should change in PROV-01. "
-            f"Got: {type(ADAPTERS[provider]).__name__}"
+            f"by Plan 09-01 or 09-02; only `openai` and `deepseek` should be "
+            f"swapped post-PROV-02. Got: {type(ADAPTERS[provider]).__name__}"
         )
 
 
