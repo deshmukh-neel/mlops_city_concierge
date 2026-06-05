@@ -76,6 +76,49 @@ def test_deepseek_disables_thinking_for_tool_calls(mocker, monkeypatch) -> None:
     assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
+def test_deepseek_chat_keeps_thinking_disabled(mocker, monkeypatch) -> None:
+    """PROV-02 / T-09-02-T4 regression guard: the model-level carve-out for
+    deepseek-reasoner must NOT spill onto deepseek-chat. The default
+    extra_body={'thinking': {'type': 'disabled'}} policy stays for every
+    DeepSeek model not in `_DEEPSEEK_REASONER_THINKING_ENABLED`.
+    """
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    cls = mocker.patch("app.llm_factory.ChatDeepSeek", return_value="ds")
+
+    build_chat_model("deepseek", "deepseek-chat", temperature=1.0)
+
+    _, kwargs = cls.call_args
+    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_deepseek_reasoner_enables_thinking(mocker, monkeypatch) -> None:
+    """PROV-02 / D-09-04: `deepseek-reasoner` is the model-level carve-out from
+    the thinking-disabled default. The factory must construct ChatDeepSeek with
+    `extra_body={'thinking': {'type': 'enabled'}}` so the API emits
+    `reasoning_content` for `DeepSeekReasonerAdapter` to round-trip.
+
+    Mirrors the `_KIMI_FORCED_TEMPERATURE` / `_GEMINI_THINKING_ONLY` per-model
+    policy pattern at `app/llm_factory.py:65-78`.
+    """
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    cls = mocker.patch("app.llm_factory.ChatDeepSeek", return_value="ds")
+
+    build_chat_model("deepseek", "deepseek-reasoner", temperature=1.0)
+
+    _, kwargs = cls.call_args
+    assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
+    # temp=1.0 stays — feedback_temp1_reasoning_off_all_models general rule
+    # is honored; the carve-out is thinking ENABLED for the reasoner family
+    # ONLY, not a temperature change.
+    assert kwargs["temperature"] == 1.0
+
+
 def test_kimi_disables_thinking_for_tool_calls(mocker, monkeypatch) -> None:
     """Kimi has the same reasoning_content round-trip problem; LangChain's
     documented tool-use path is ChatMoonshot(thinking=False)."""

@@ -173,6 +173,15 @@ _KIMI_FORCED_TEMPERATURE: dict[str, float] = {"kimi-k2.6": 0.6}
 # reasoning depth, so these participate at minimized (not off) reasoning.
 _GEMINI_THINKING_ONLY: frozenset[str] = frozenset({"gemini-3.1-pro-preview"})
 
+# PROV-02 (D-09-04): DeepSeek models that should run with thinking ENABLED
+# so they emit reasoning_content for DeepSeekReasonerAdapter to round-trip.
+# Default policy (above) is reasoning OFF; reasoner family is the carve-out
+# because the whole point of the model is its reasoning trace. The
+# carve-out is scoped to this frozenset lookup (NOT a startswith match) so
+# the existing deepseek-chat / deepseek-v4-pro paths stay on the documented
+# thinking-disabled policy that the v2.0 production agent relies on.
+_DEEPSEEK_REASONER_THINKING_ENABLED: frozenset[str] = frozenset({"deepseek-reasoner"})
+
 
 # ─── Scripted provider (EVAL-09 / P4) ────────────────────────────────────────
 #
@@ -329,11 +338,21 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
             **gemini_kwargs,
         )
     if provider == "deepseek":
+        # PROV-02 / D-09-04: model-level conditional. Default policy is
+        # thinking-disabled (the v2.0 deepseek-chat / deepseek-v4-pro path
+        # the agent loop has shipped against since W7). The reasoner family
+        # is a deliberate carve-out: DeepSeekReasonerAdapter rounds-trips
+        # reasoning_content cross-turn, so the model must actually emit
+        # reasoning state to capture — flip thinking ON only for entries in
+        # _DEEPSEEK_REASONER_THINKING_ENABLED.
+        extra_body: dict[str, Any] = {"thinking": {"type": "disabled"}}
+        if chat_model in _DEEPSEEK_REASONER_THINKING_ENABLED:
+            extra_body = {"thinking": {"type": "enabled"}}
         return ChatDeepSeek(
             model=chat_model,
             api_key=SecretStr(api_key),
             temperature=temperature,
-            extra_body={"thinking": {"type": "disabled"}},
+            extra_body=extra_body,
         )
     if provider == "kimi":
         kimi_temp = _KIMI_FORCED_TEMPERATURE.get(chat_model, temperature)
