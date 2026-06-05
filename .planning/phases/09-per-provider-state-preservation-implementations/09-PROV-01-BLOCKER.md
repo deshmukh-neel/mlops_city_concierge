@@ -2,8 +2,48 @@
 
 **Opened:** 2026-06-04
 **Plan:** 09-01 (openai-gpt5-adapter)
-**Decision driver:** D-09-02 (PR-blocking gate on PROV-01)
-**Status:** OPEN — PR cannot ship until resolved
+**Decision driver:** D-09-02 (PR-blocking gate on PROV-01) — RE-SCOPED 2026-06-05 per user-approved Option A
+**Status:** PARTIALLY RESOLVED — gate re-scoped (resolves the "gate as written is asymmetric with anchor" structural issue), but Part A (hard) of the new gate still FAILS at 0.4 vs ≥0.6 needed. Plan 09-01 is HELD pending user choice between (i) ship-with-documented-gap, (ii) re-run at higher n, or (iii)/(iv) one of the original technical mitigations below.
+
+## Resolution (2026-06-05)
+
+User reviewed Options A, B, C, D below and approved **Option A** on 2026-06-05. The D-09-02 gate has been re-scoped from strict `refinement_minimal_edit median = 1.0` to a 2-part gate:
+
+| Part | Threshold                                  | Hard/Advisory       |
+| ---- | ------------------------------------------ | ------------------- |
+| A    | `committed_itinerary_rate ≥ 0.6`           | **HARD (PR-blocking)** |
+| B    | `refinement_minimal_edit median ≥ 0.5`     | Advisory            |
+
+Re-scope commit: `b072806` (touches CONTEXT D-09-02 + D-09-12, PLAN 09-01, YAML matrix comment, ROADMAP Phase 9 SC #1).
+
+### Empirical result against the re-scoped gate
+
+| Part | Threshold | Measured (n=5) | Status                                   |
+| ---- | --------- | -------------- | ---------------------------------------- |
+| A    | ≥ 0.6     | **0.4** (2/5)  | **FAILS** by 0.2 — 1 more commit out of 5 would clear it |
+| B    | ≥ 0.5     | 0.0            | FAILS (advisory; does not block PR)      |
+
+Per the re-scoped D-09-02, Phase 9 PR still cannot ship until Part A clears.
+
+### What the user must decide
+
+Approving Option A re-shaped the gate; it did NOT bring the empirical data over the new threshold. The Part A gap is small (1 commit out of 5) and at n=5 the confidence interval is wide. Four paths forward, ordered by recommended priority:
+
+1. **(ii) Re-run at n=10 or n=20 to tighten the confidence interval.** Highest information-per-dollar before any code change. Estimated incremental spend ≈ $0.20–$0.80 for additional gpt-5-mini runs (each gpt-5-mini run is 120–335s on this matrix; n=15 incremental ≈ 30–80 min wall-clock). If the true rate is ≥0.6 the gate clears at n=15 with high probability; if the true rate is ≤0.4 the gate confirms its failure and the user moves to one of (iii)/(iv) with better data.
+2. **(i) Ship with documented Part A gap (accept-with-notes precedent from D-06-09).** Lowest cost; weakest gate. PROV-01 ships as "accept-with-notes: committed_itinerary_rate = 0.4 vs ≥0.6 target; n=5 sample, 1 commit short, CI not tightened". Mark in SUMMARY.md.
+3. **(iii) Option B prompt tweak.** Add a gpt-5-specific imperative preamble to `build_refinement_prompt_message` (analog of D-07-10's gpt-4o-mini partial-recovery). Falsifiable in one matrix re-run. Modest risk of re-coupling prompt to scorer (D-07-04's Phase-7 decoupling work).
+4. **(iv) Option C/D mechanical tweaks.** Raise `MAX_PLAN_STEPS` for gpt-5 family (Option C) or tighten `LOW_SIMILARITY_THRESHOLD` (Option D). Risk of regressing the v2.0 anchor — needs careful re-run against gpt-4o-mini cell.
+
+**No new matrix runs without orchestrator/user approval** (same spend-gate as before).
+
+### Original gate wording (preserved for archaeology)
+
+The pre-2026-06-05 strict D-09-02 wording is preserved verbatim in the **TL;DR** + **Empirical measurement** + **Triage paths** sections below. These sections are NOT updated — they record the historical state of the blocker on 2026-06-04 before the user re-scoped the gate.
+
+---
+
+## Original BLOCKER content (2026-06-04 — pre-re-scope)
+
 
 ## TL;DR
 
@@ -100,4 +140,14 @@ If the user rejects re-scoping, **Option B** is the lowest-risk technical move (
 
 ## Resume signal
 
-User to choose Option A, B, C, or D (or another path) — the gate cannot be self-resolved by the executor.
+**Updated 2026-06-05:** User chose Option A (re-scope gate); gate has been re-scoped (commit `b072806`). Against the re-scoped gate Part A (hard) still FAILS at 0.4 vs ≥0.6. User must now choose between:
+- "approved: re-run at n=10" — most-recommended next step
+- "approved: re-run at n=20" — if n=10 still indeterminate
+- "approved: ship-with-gap" — PROV-01 ships as accept-with-notes per D-06-09 precedent
+- "approved: Option B" — gpt-5-specific imperative preamble in `build_refinement_prompt_message`
+- "approved: Option C" — raise `MAX_PLAN_STEPS` for gpt-5 family
+- "approved: Option D" — tighten `LOW_SIMILARITY_THRESHOLD`
+
+The executor cannot self-resolve. No matrix runs without user approval.
+
+**Original signal (pre-2026-06-05):** User to choose Option A, B, C, or D (or another path) — the gate cannot be self-resolved by the executor.
