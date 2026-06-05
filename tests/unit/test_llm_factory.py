@@ -201,6 +201,38 @@ def test_anthropic_branch_sets_max_tokens_above_thinking_budget(mocker, monkeypa
     )
 
 
+def test_anthropic_branch_clamps_temperature_to_1_0_when_thinking_enabled(
+    mocker, monkeypatch
+) -> None:
+    """PROV-03 live-run matrix correction (2026-06-05): when thinking is
+    enabled, Anthropic's API rejects any temperature != 1.0 with
+    `temperature may only be set to 1 when thinking is enabled`
+    (observed request_id req_011CbkpXMhQfXXSArRAzgVMP). The eval matrix
+    runner does not pass --temperature for refinement cells, so it
+    defaults to 0.0 — every anthropic cell in the local empirical gate
+    400'd. Factory must clamp temperature to 1.0 unconditionally on the
+    anthropic branch (D-09-06 already mandates temp=1.0; this enforces it
+    mechanically so callers don't have to know the API constraint).
+
+    Mirrors the `_KIMI_FORCED_TEMPERATURE` clamp pattern at
+    `app/llm_factory.py:_KIMI_FORCED_TEMPERATURE`.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    cls = mocker.patch("langchain_anthropic.ChatAnthropic", return_value="anthropic-llm")
+
+    # Caller passes temperature=0.0 (e.g. eval_matrix default); factory clamps to 1.0.
+    build_chat_model("anthropic", "claude-sonnet-4-6", temperature=0.0)
+
+    _, kwargs = cls.call_args
+    assert kwargs["temperature"] == 1.0, (
+        "Anthropic branch must clamp temperature to 1.0 when thinking is "
+        "enabled — the API rejects any other value with a 400."
+    )
+
+
 def test_anthropic_branch_max_tokens_falls_back_for_unknown_model(mocker, monkeypatch) -> None:
     """The `_ANTHROPIC_MAX_TOKENS.get(chat_model, 8192)` fallback applies for any
     Claude model not explicitly listed (e.g. a future Opus / Haiku build) so

@@ -389,6 +389,15 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
         # See _ANTHROPIC_MAX_TOKENS comment above for the live-probe story.
         budget_tokens = _ANTHROPIC_THINKING_BUDGET.get(chat_model, 4096)
         max_tokens = _ANTHROPIC_MAX_TOKENS.get(chat_model, 8192)
+        # PROV-03 live-run matrix correction (2026-06-05): when thinking is
+        # enabled, Anthropic REQUIRES temperature=1.0. Caller-supplied values
+        # like 0.0 (the eval_matrix runner default) trigger:
+        #   400 — `temperature` may only be set to 1 when thinking is enabled.
+        #   (request_id req_011CbkpXMhQfXXSArRAzgVMP — live empirical run)
+        # Clamp here (same pattern as `_KIMI_FORCED_TEMPERATURE`) so callers
+        # don't have to know the API constraint. D-09-06 already mandates
+        # temp=1.0 for the Claude carve-out — this enforces it mechanically.
+        anthropic_temperature = 1.0
         anthropic_kwargs: dict[str, object] = {
             "thinking": {
                 "type": "enabled",
@@ -399,7 +408,7 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
         return ChatAnthropic(
             model=chat_model,
             api_key=SecretStr(api_key),
-            temperature=temperature,
+            temperature=anthropic_temperature,
             **anthropic_kwargs,
         )
     if provider == "deepseek":
