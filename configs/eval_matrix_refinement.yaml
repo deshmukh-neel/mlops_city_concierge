@@ -32,6 +32,18 @@ entries:
     model: gpt-5-mini
     env:
       REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
+  # Phase 9 / D-09-12 / PROV-02: gated median ≥ 0.6 (lower bar; intentional).
+  # DeepSeek reasoner has a known decisiveness gap on this codebase
+  # (memory project_deepseek_decisiveness_gap), so the gate is calibrated
+  # below the v2.0 anchor's 1.0 strict target. Thinking is ENABLED via
+  # _DEEPSEEK_REASONER_THINKING_ENABLED in app/llm_factory.py so the model
+  # emits reasoning_content for DeepSeekReasonerAdapter to round-trip;
+  # the existing deepseek-chat cell stays at thinking-disabled (regression
+  # guard test_deepseek_chat_keeps_thinking_disabled in tests/unit/test_llm_factory.py).
+  - provider: deepseek
+    model: deepseek-reasoner
+    env:
+      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
 
 scenarios:
   - refinement_cheaper
