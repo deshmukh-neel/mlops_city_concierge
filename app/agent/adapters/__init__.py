@@ -156,9 +156,29 @@ from app.agent.adapters.deepseek import DeepSeekReasonerAdapter  # noqa: E402
 
 ADAPTERS["deepseek"] = DeepSeekReasonerAdapter()
 
+# Phase 9 / PROV-03 (D-09-05 + D-09-06): swap the anthropic entry to the real
+# ``AnthropicAdapter``. ``anthropic`` joined ``SUPPORTED_PROVIDERS`` in
+# Plan 09-03 (PROV-03 first-time wiring); the dict-comp above auto-extends
+# the registry with a NoOp entry, and this line replaces it.
+#
+# ASYMMETRY vs the other Phase-9 adapters: ``AnthropicAdapter`` reads + writes
+# ``message.content`` (heterogeneous block list including signed
+# ``thinking_blocks``), NOT ``message.additional_kwargs``. See
+# ``app/agent/adapters/anthropic.py`` top-of-file docstring for the rationale
+# (Anthropic surfaces reasoning state on the content block list directly per
+# the Claude messages API + ``langchain-anthropic`` passthrough). The signed
+# blocks MUST round-trip byte-identical or the API 400s — the unit test
+# ``test_anthropic_adapter_replay_prepends_thinking_blocks_to_list_content``
+# asserts the signature equality, and Anthropic's API enforces it on the
+# wire as a second layer of defense.
+from app.agent.adapters.anthropic import AnthropicAdapter  # noqa: E402
+
+ADAPTERS["anthropic"] = AnthropicAdapter()
+
 
 __all__ = [
     "ADAPTERS",
+    "AnthropicAdapter",
     "DeepSeekReasonerAdapter",
     "MockReasoningAdapter",
     "NoOpAdapter",

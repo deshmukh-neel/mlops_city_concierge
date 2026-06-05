@@ -63,12 +63,16 @@ def test_build_rag_chain_supports_gemini(mocker) -> None:
 
 
 def test_build_rag_chain_rejects_invalid_provider() -> None:
+    # PROV-03 (Phase 9 / Plan 09-03) added "anthropic" to SUPPORTED_PROVIDERS,
+    # so the original unknown-provider sentinel (anthropic) is now supported.
+    # Use a still-unsupported provider name to keep the test exercising the
+    # "factory enforces its own contract" path.
     with pytest.raises(ValueError, match="Unsupported llm_provider"):
         build_rag_chain(
             connection_string="postgresql://example",
             api_key="unused",
-            llm_provider="anthropic",
-            chat_model="claude",
+            llm_provider="definitely-not-a-provider",
+            chat_model="x",
             k=3,
         )
 

@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage
 
 from app.agent.adapters import (
     ADAPTERS,
+    AnthropicAdapter,
     DeepSeekReasonerAdapter,
     MockReasoningAdapter,
     NoOpAdapter,
@@ -104,14 +105,19 @@ def test_adapters_registry_keys_match_supported_providers() -> None:
     assert isinstance(ADAPTERS["openai"], OpenAIReasoningAdapter)
     # Phase 9 / PROV-02: deepseek key is now wired to DeepSeekReasonerAdapter.
     assert isinstance(ADAPTERS["deepseek"], DeepSeekReasonerAdapter)
-    # Providers that PROV-01..02 did NOT swap stay on NoOpAdapter (D-08-08 spirit).
+    # Phase 9 / PROV-03: anthropic was added to SUPPORTED_PROVIDERS by Plan
+    # 09-03 (first-time wiring per D-09-05) and immediately swapped to the
+    # real AnthropicAdapter (D-09-06 carve-out: thinking ENABLED + temp=1.0).
+    assert isinstance(ADAPTERS["anthropic"], AnthropicAdapter)
+    # Providers that PROV-01..03 did NOT swap stay on NoOpAdapter (D-08-08 spirit).
     for provider in SUPPORTED_PROVIDERS:
-        if provider in ("openai", "deepseek"):
+        if provider in ("openai", "deepseek", "anthropic"):
             continue
         assert isinstance(ADAPTERS[provider], NoOpAdapter), (
             f"ADAPTERS[{provider!r}] was unexpectedly swapped off NoOpAdapter "
-            f"by Plan 09-01 or 09-02; only `openai` and `deepseek` should be "
-            f"swapped post-PROV-02. Got: {type(ADAPTERS[provider]).__name__}"
+            f"by Plan 09-01, 09-02, or 09-03; only `openai`, `deepseek`, and "
+            f"`anthropic` should be swapped post-PROV-03. Got: "
+            f"{type(ADAPTERS[provider]).__name__}"
         )
 
 

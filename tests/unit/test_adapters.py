@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app.agent.adapters.anthropic import AnthropicAdapter
 from app.agent.adapters.deepseek import DeepSeekReasonerAdapter
 from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter
 
@@ -214,3 +215,166 @@ def test_deepseek_reasoner_adapter_capture_does_not_mutate_input_message() -> No
     )
     # Sanity: the original kwarg untouched even after we tampered with payload.
     assert msg.additional_kwargs["reasoning_content"] == "bar"
+
+
+# ─── AnthropicAdapter — PROV-03 (D-09-06 + PATTERNS.md ASYMMETRY CALLOUT) ─────
+#
+# Critical asymmetry: AnthropicAdapter reads + writes `message.content` (a
+# heterogeneous list of blocks including signed `thinking_blocks`), NOT
+# `message.additional_kwargs`. The signature inside each thinking block MUST
+# round-trip byte-identical or Anthropic's API returns 400 on the next request
+# — that contract is what these tests defend.
+
+
+def test_anthropic_adapter_capture_returns_payload_from_thinking_blocks_in_content() -> None:
+    """PROV-03 Test 1 (capture, list content with thinking blocks):
+    ``capture_reasoning_state`` filters ``message.content`` for blocks where
+    ``type == "thinking"`` and wraps the surviving blocks in the canonical
+    ``FOUR_SHAPE_PAYLOADS[1]`` shape — matches
+    ``{"provider": "anthropic", "thinking_blocks": [...]}`` exactly.
+    """
+    adapter = AnthropicAdapter()
+    msg = AIMessage(
+        content=[
+            {"type": "thinking", "signature": "abc", "thinking": "..."},
+            {"type": "text", "text": "the visible reply"},
+        ],
+    )
+
+    payload = adapter.capture_reasoning_state(msg)
+
+    assert payload == {
+        "provider": "anthropic",
+        "thinking_blocks": [{"type": "thinking", "signature": "abc", "thinking": "..."}],
+    }
+
+
+def test_anthropic_adapter_capture_returns_none_when_content_is_str() -> None:
+    """PROV-03 Test 2 (capture, str content): ``capture_reasoning_state``
+    returns ``None`` when ``message.content`` is a plain string — non-reasoning
+    Anthropic responses (or fallback shapes) surface as str content, not block
+    lists, and there are no ``thinking_blocks`` to round-trip.
+    """
+    adapter = AnthropicAdapter()
+    msg = AIMessage(content="just a string reply")
+
+    assert adapter.capture_reasoning_state(msg) is None
+
+
+def test_anthropic_adapter_capture_returns_none_when_no_thinking_blocks_in_list() -> None:
+    """PROV-03 Test 3 (capture, list content without thinking blocks):
+    ``capture_reasoning_state`` returns ``None`` when the content list has only
+    non-thinking blocks (text-only Anthropic responses, or any block-list
+    response with thinking disabled).
+    """
+    adapter = AnthropicAdapter()
+    msg = AIMessage(content=[{"type": "text", "text": "no thinking here"}])
+
+    assert adapter.capture_reasoning_state(msg) is None
+
+
+def test_anthropic_adapter_replay_prepends_thinking_blocks_to_list_content() -> None:
+    """PROV-03 Test 4 (replay onto list content): ``replay_reasoning_state``
+    walks ``outbound`` in reverse and PREPENDS the captured ``thinking_blocks``
+    to the most-recent AIMessage's ``content`` list. Per Anthropic's API
+    contract the signature field MUST round-trip byte-identical — this test
+    asserts the prepended block's signature equals what was captured.
+    """
+    adapter = AnthropicAdapter()
+    outbound = [
+        HumanMessage(content="h"),
+        AIMessage(content=[{"type": "text", "text": "old reply"}]),
+    ]
+    state = {
+        "provider": "anthropic",
+        "thinking_blocks": [{"type": "thinking", "signature": "abc", "thinking": "..."}],
+    }
+
+    result = adapter.replay_reasoning_state(outbound, state)
+
+    # Same list spine.
+    assert result is outbound
+    # Most-recent AIMessage now carries the thinking block PREPENDED.
+    msg_content = outbound[-1].content
+    assert isinstance(msg_content, list)
+    assert len(msg_content) == 2
+    assert msg_content[0] == {"type": "thinking", "signature": "abc", "thinking": "..."}
+    assert msg_content[1] == {"type": "text", "text": "old reply"}
+    # Byte-identical signature round-trip (the Anthropic-API-enforced contract).
+    assert msg_content[0]["signature"] == "abc"
+
+
+def test_anthropic_adapter_replay_promotes_str_content_to_list_with_thinking_blocks() -> None:
+    """PROV-03 Test 5 (replay onto str content): when the most-recent
+    AIMessage's ``content`` is a string (e.g. earlier non-thinking turn),
+    ``replay_reasoning_state`` PROMOTES it to a list: ``[<thinking_block>,
+    {"type": "text", "text": <existing str>}]``. This keeps the outbound
+    payload in the block-list shape Anthropic expects when thinking_blocks
+    are present.
+    """
+    adapter = AnthropicAdapter()
+    outbound = [
+        HumanMessage(content="h"),
+        AIMessage(content="str reply"),
+    ]
+    state = {
+        "provider": "anthropic",
+        "thinking_blocks": [{"type": "thinking", "signature": "abc", "thinking": "..."}],
+    }
+
+    adapter.replay_reasoning_state(outbound, state)
+
+    msg_content = outbound[-1].content
+    assert isinstance(msg_content, list)
+    assert len(msg_content) == 2
+    assert msg_content[0] == {"type": "thinking", "signature": "abc", "thinking": "..."}
+    assert msg_content[1] == {"type": "text", "text": "str reply"}
+
+
+def test_anthropic_adapter_replay_returns_outbound_unchanged_when_state_none() -> None:
+    """PROV-03 Test 6: ``replay_reasoning_state`` returns ``outbound``
+    byte-identical when ``state is None`` (D-08-02 contract — no mutation when
+    nothing to replay).
+    """
+    adapter = AnthropicAdapter()
+    outbound = [
+        HumanMessage(content="h"),
+        AIMessage(content="unchanged"),
+    ]
+
+    result = adapter.replay_reasoning_state(outbound, None)
+
+    assert result is outbound
+    assert outbound[-1].content == "unchanged"
+
+
+def test_anthropic_adapter_capture_does_not_mutate_input_message_content() -> None:
+    """PROV-03 Test 7 (T-09-03-T3 mutation safety): ``capture_reasoning_state``
+    returns a NEW dict whose ``thinking_blocks`` value is a fresh list of
+    shallow-copied dicts. Mutating the returned payload MUST NOT reach back
+    into the input ``message.content`` (which would otherwise be a shared
+    reference into the same provider message — fatal because Anthropic
+    enforces signature byte-identity on the wire).
+    """
+    adapter = AnthropicAdapter()
+    original_content = [
+        {"type": "thinking", "signature": "abc", "thinking": "..."},
+        {"type": "text", "text": "visible"},
+    ]
+    msg = AIMessage(content=list(original_content))
+    before_content = list(msg.content)
+
+    payload = adapter.capture_reasoning_state(msg)
+    assert payload is not None
+    # Tamper with the returned thinking_blocks — the input's content list
+    # MUST remain byte-identical to before the call.
+    payload["thinking_blocks"][0]["signature"] = "TAMPERED"
+
+    after_content = list(msg.content)
+    assert after_content == before_content, (
+        "capture_reasoning_state leaked a shared reference into the input "
+        f"message.content list (T3 mitigation failed): "
+        f"before={before_content!r}, after={after_content!r}"
+    )
+    # And the original signature on the message stays "abc" (NOT "TAMPERED").
+    assert msg.content[0]["signature"] == "abc"

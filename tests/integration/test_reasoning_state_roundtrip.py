@@ -46,6 +46,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import Field
 
 from app.agent.adapters import ADAPTERS, MockReasoningAdapter
+from app.agent.adapters.anthropic import AnthropicAdapter
 from app.agent.adapters.deepseek import DeepSeekReasonerAdapter
 from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter
 from app.agent.graph import build_agent_graph
@@ -430,4 +431,97 @@ async def test_reason_02_deepseek_real_adapter(
         "the most-recent outbound AIMessage's additional_kwargs. "
         f"Recorded last-input AIMessage additional_kwargs: "
         f"{[m.additional_kwargs for m in ai_messages_in_last]!r}"
+    )
+
+
+# Phase 9 / PROV-03 (D-09-05 + D-09-06) — sibling test that swaps the REAL
+# `AnthropicAdapter` into `ADAPTERS["scripted"]` and proves the anthropic
+# `thinking_blocks` shape (matching `FOUR_SHAPE_PAYLOADS[1]`) survives the
+# `graph.ainvoke` round-trip end-to-end. ASYMMETRY callout: unlike PROV-01 /
+# PROV-02 sibling tests above which assert on `additional_kwargs["reasoning_content"]`,
+# this test asserts on `message.content` — Anthropic surfaces reasoning state
+# on the content block list, not on additional_kwargs (PATTERNS.md §ASYMMETRY
+# CALLOUT). The signed thinking block's `signature` field MUST survive
+# byte-identical or the next live request 400s; the assertion explicitly
+# checks signature equality.
+async def test_reason_02_anthropic_real_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REASON-02 + PROV-03: real `AnthropicAdapter` round-trips signed
+    `thinking_blocks` on `message.content` (NOT `additional_kwargs`) through
+    `graph.ainvoke`.
+
+    Mechanics:
+    - `monkeypatch.setitem(ADAPTERS, "scripted", AnthropicAdapter())` so the
+      real adapter is the one `plan()` closes over (no `MockReasoningAdapter`).
+    - The turn-1 scripted `AIMessage` carries
+      `content=[{"type": "thinking", "signature": "abc", "thinking": "..."},
+                {"type": "text", "text": "searching for bars"}]` — the shape
+      `ChatAnthropic` returns for `claude-sonnet-4-6` with thinking enabled.
+    - We assert the turn-2 input's most-recent `AIMessage` has its content
+      promoted/prepended to a list whose first block is the signed thinking
+      block, AND the signature equals "abc" byte-identical (the contract
+      Anthropic's API enforces on the wire).
+    """
+    monkeypatch.setitem(ADAPTERS, "scripted", AnthropicAdapter())
+
+    # Patch the underlying retrieval helper so act() succeeds without a real DB.
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    turn1_ai = AIMessage(
+        content=[
+            {"type": "thinking", "signature": "abc", "thinking": "..."},
+            {"type": "text", "text": "searching for bars"},
+        ],
+        tool_calls=[
+            {
+                "name": "semantic_search",
+                "args": {"query": "bar in mission", "k": 3},
+                "id": "call_test_anthropic_real",
+            },
+        ],
+    )
+    recording_llm = RecordingLLM(
+        scripted=[turn1_ai, AIMessage(content="done", tool_calls=[])],
+    )
+    graph = build_agent_graph(recording_llm, max_steps=4, provider="scripted")
+
+    await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="find a bar in mission")]),
+    )
+
+    assert len(recording_llm.recorded_inputs) >= 2, (
+        "expected ≥ 2 recorded LLM invocations across turn-1 + turn-2, "
+        f"got {len(recording_llm.recorded_inputs)}"
+    )
+
+    last_input = recording_llm.recorded_inputs[-1]
+    ai_messages_in_last = [m for m in last_input if isinstance(m, AIMessage)]
+    assert ai_messages_in_last, (
+        "expected at least one AIMessage in the most-recent LLM input; "
+        f"saw types {[type(m).__name__ for m in last_input]}"
+    )
+    # The real AnthropicAdapter writes the signed thinking block back onto
+    # `message.content` (NOT `additional_kwargs`). The most-recent AIMessage
+    # in turn-2's input has its content as a list whose first block is the
+    # captured thinking block — with the signature field byte-identical to
+    # what was captured ("abc").
+    final_content = ai_messages_in_last[-1].content
+    assert isinstance(final_content, list), (
+        "AnthropicAdapter replay did NOT keep `message.content` as a list "
+        "of blocks on the most-recent outbound AIMessage. "
+        f"Got type={type(final_content).__name__}; value={final_content!r}"
+    )
+    assert final_content, "expected at least one block in the replayed content list"
+    first_block = final_content[0]
+    assert isinstance(first_block, dict) and first_block.get("type") == "thinking", (
+        "AnthropicAdapter replay did NOT prepend a thinking block onto the "
+        f"most-recent outbound AIMessage's content. Got first block={first_block!r}"
+    )
+    # Byte-identical signature contract — Anthropic's API enforces this on
+    # the wire; the test enforces it before the wire.
+    assert first_block.get("signature") == "abc", (
+        "AnthropicAdapter replay did NOT preserve the byte-identical "
+        f"signature on the round-tripped thinking block. Expected 'abc', "
+        f"got {first_block.get('signature')!r}"
     )
