@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
@@ -56,7 +56,107 @@ class _ToolLoopChatMoonshot(ChatMoonshot):
         return payload
 
 
+class OpenAIReasoningChatModel(ChatOpenAI):
+    """`ChatOpenAI` subclass for the gpt-5 family that surfaces reasoning state
+    on `AIMessage.additional_kwargs["reasoning_content"]` so the Phase 9
+    `OpenAIReasoningAdapter` (and the Phase 8 ProviderAdapter contract more
+    broadly) can round-trip it across agent turns.
+
+    **Why a subclass exists (Phase 9 / PROV-01 / D-09-03 Path B):**
+
+    The probe at `.planning/phases/09-.../09-PROV-01-PROBE.md` confirmed that
+    against `langchain-openai==1.2.2`'s **Chat Completions** wrapper,
+    `gpt-5-mini` returns ONLY a `reasoning_tokens` counter in `usage` — the
+    `additional_kwargs` field is bare (only `refusal`), and the reasoning
+    text never reaches `AIMessage`. This matches the historical diagnosis in
+    memory `project_agent_loses_reasoning_state_all_providers` (the
+    pre-Phase-9 architectural bug Phase 8 contract + Phase 9 impls fix).
+
+    The fix is to switch the gpt-5 family onto OpenAI's **Responses API**
+    (`use_responses_api=True`), which DOES expose reasoning items as content
+    blocks of `type: "reasoning"`. LangChain's Responses-API serializer
+    (`_construct_responses_api_input`) round-trips reasoning blocks natively
+    on the wire when they remain in `AIMessage.content`. Concurrently we
+    surface a copy of those blocks on `additional_kwargs["reasoning_content"]`
+    so the Phase 8 adapter contract (which reads `additional_kwargs`) sees
+    them through the documented interface — that copy is what
+    `OpenAIReasoningAdapter.capture_reasoning_state` reads.
+
+    **gpt-4o-mini stays out (CLAUDE.md / v2.0 anchor):** dispatch in
+    `build_chat_model` only routes `chat_model.startswith("gpt-5")` here.
+    `gpt-4o-mini` continues to use plain `ChatOpenAI` — its
+    Chat-Completions/str-content shape is what the v2.0 production anchor
+    runs and must not regress.
+    """
+
+    @staticmethod
+    def _lift_reasoning_blocks(result: ChatResult) -> ChatResult:
+        """Copy any `{"type": "reasoning", ...}` content blocks into
+        `AIMessage.additional_kwargs["reasoning_content"]`.
+
+        We COPY rather than move so LangChain's Responses-API outbound
+        serializer (which round-trips reasoning blocks in `content`) keeps
+        working on the wire while the adapter contract still has access via
+        the documented `additional_kwargs` path. The list is shallow-copied
+        so downstream mutation of the additional_kwargs entry cannot reach
+        back into `content`.
+        """
+        for gen in result.generations:
+            msg = gen.message
+            if not isinstance(msg, AIMessage):
+                continue
+            content = msg.content
+            if not isinstance(content, list):
+                continue
+            reasoning_blocks = [
+                block
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "reasoning"
+            ]
+            if reasoning_blocks:
+                msg.additional_kwargs["reasoning_content"] = list(reasoning_blocks)
+        return result
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        result = super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+        return self._lift_reasoning_blocks(result)
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        result = await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+        return self._lift_reasoning_blocks(result)
+
+
 SUPPORTED_PROVIDERS: tuple[str, ...] = ("openai", "gemini", "deepseek", "kimi", "scripted")
+
+# Phase 9 / PROV-01 (D-09-03): OpenAI model families that should be wired
+# through `OpenAIReasoningChatModel` so reasoning content survives the agent's
+# tool loop. The v2.0 anchor `gpt-4o-mini` is intentionally EXCLUDED — it is
+# not a reasoning model and routing it through the Responses-API subclass
+# would change content shape on the prod anchor path. Currently scoped to
+# names starting with "gpt-5"; extend explicitly here if future gpt-5
+# sibling models (mini, nano, etc.) need the same wiring.
+
+
+def _is_openai_reasoning_model(chat_model: str) -> bool:
+    """Return True when `chat_model` needs the OpenAIReasoningChatModel subclass.
+
+    Phase 9 / PROV-01 scope: gpt-5 family only. CLAUDE.md locked v2.0 anchor
+    rule — gpt-4o-mini MUST keep plain ChatOpenAI (no Responses-API switch).
+    """
+    return chat_model.startswith("gpt-5")
+
 
 # Hard vendor constraints discovered against the live APIs (2026-05-17).
 # Default policy is temp=1.0 + reasoning OFF for an apples-to-apples agent
@@ -203,6 +303,18 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
         return _build_scripted_chat_model(chat_model, temperature)
     api_key = resolve_llm_api_key(provider)
     if provider == "openai":
+        if _is_openai_reasoning_model(chat_model):
+            # Phase 9 / PROV-01 (D-09-03 Path B): gpt-5 family routes through
+            # the Responses API so reasoning blocks survive the agent's tool
+            # loop. gpt-4o-mini intentionally skips this branch — keeping it
+            # on plain ChatOpenAI / Chat Completions preserves the v2.0
+            # production anchor path byte-for-byte (CLAUDE.md).
+            return OpenAIReasoningChatModel(
+                model=chat_model,
+                api_key=SecretStr(api_key),
+                temperature=temperature,
+                use_responses_api=True,
+            )
         return ChatOpenAI(model=chat_model, api_key=SecretStr(api_key), temperature=temperature)
     if provider == "gemini":
         gemini_kwargs: dict[str, object] = {}

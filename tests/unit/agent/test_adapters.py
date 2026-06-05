@@ -14,6 +14,7 @@ from app.agent.adapters import (
     ADAPTERS,
     MockReasoningAdapter,
     NoOpAdapter,
+    OpenAIReasoningAdapter,
     ProviderAdapter,
     StatePayload,
 )
@@ -86,11 +87,28 @@ def test_noop_adapter_replay_with_none_state_returns_outbound_unchanged() -> Non
 def test_adapters_registry_keys_match_supported_providers() -> None:
     """D-08-08: ADAPTERS keys MUST equal SUPPORTED_PROVIDERS, no drift.
 
-    Every value in Phase 8 is a NoOpAdapter — zero behavior change vs
-    Phase 7. Phase 9 sub-phases swap individual entries.
+    Phase 8 shipped every value as a NoOpAdapter — zero behavior change vs
+    Phase 7. Phase 9 sub-phases swap individual entries in place:
+    - PROV-01 (Plan 09-01) swaps `openai` → `OpenAIReasoningAdapter`.
+    - PROV-02..04 will swap `deepseek`, `anthropic` (newly added to
+      SUPPORTED_PROVIDERS in 09-03), `gemini` likewise.
+    Per-provider keys not yet swapped MUST stay on `NoOpAdapter` so the
+    swap discipline is auditable; this test enforces that "key set = full
+    SUPPORTED_PROVIDERS coverage" + "every value is one of the known
+    adapter classes (NoOp or a Phase-9 real adapter)".
     """
     assert set(ADAPTERS.keys()) == set(SUPPORTED_PROVIDERS)
-    assert all(isinstance(v, NoOpAdapter) for v in ADAPTERS.values())
+    # Phase 9 / PROV-01: openai key is now wired to OpenAIReasoningAdapter.
+    assert isinstance(ADAPTERS["openai"], OpenAIReasoningAdapter)
+    # Providers that PROV-01 did NOT swap stay on NoOpAdapter (D-08-08 spirit).
+    for provider in SUPPORTED_PROVIDERS:
+        if provider == "openai":
+            continue
+        assert isinstance(ADAPTERS[provider], NoOpAdapter), (
+            f"ADAPTERS[{provider!r}] was unexpectedly swapped off NoOpAdapter "
+            f"by Plan 09-01; only `openai` should change in PROV-01. "
+            f"Got: {type(ADAPTERS[provider]).__name__}"
+        )
 
 
 def test_mock_reasoning_adapter_captures_stored_payload() -> None:

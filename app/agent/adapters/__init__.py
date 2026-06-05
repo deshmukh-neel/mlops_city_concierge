@@ -120,11 +120,32 @@ class MockReasoningAdapter(ProviderAdapter):
 # (D-08-08; mirrors `llm_factory.py` register-then-dispatch shape per D-08-04.)
 ADAPTERS: dict[str, ProviderAdapter] = {p: NoOpAdapter() for p in SUPPORTED_PROVIDERS}
 
+# Phase 9 / PROV-01 (D-09-03 Path B): swap the openai entry to the real
+# OpenAIReasoningAdapter. Import is deferred to AFTER the ABC + registry are
+# defined to avoid a circular-import deadlock (openai_gpt5.py does
+# ``from app.agent.adapters import ProviderAdapter, StatePayload``). The
+# dispatch decision for which OpenAI models actually benefit from the
+# adapter lives in ``app/llm_factory.py`` (only ``chat_model.startswith("gpt-5")``
+# wires up ``OpenAIReasoningChatModel``; gpt-4o-mini stays on plain ChatOpenAI
+# so the v2.0 anchor cannot regress per CLAUDE.md). For gpt-4o-mini the
+# adapter is a kwarg-reader: it returns None because plain ChatOpenAI never
+# populates ``additional_kwargs["reasoning_content"]``, so behavior on the
+# anchor path is byte-identical to NoOpAdapter (D-08-08 spirit preserved).
+#
+# D-09-07 PROV-05 Option A — cell-by-cell mutation (not the explicit-literal
+# Option B). Plan 09-03 will add "anthropic" to SUPPORTED_PROVIDERS; a
+# hard-coded literal here would KeyError before that change lands. Plan 09-04
+# is the right moment to consolidate to Option B.
+from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter  # noqa: E402
+
+ADAPTERS["openai"] = OpenAIReasoningAdapter()
+
 
 __all__ = [
     "ADAPTERS",
     "MockReasoningAdapter",
     "NoOpAdapter",
+    "OpenAIReasoningAdapter",
     "ProviderAdapter",
     "StatePayload",
 ]
