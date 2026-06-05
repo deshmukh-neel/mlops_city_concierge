@@ -43,30 +43,54 @@ key-decisions:
   - "Probe verdict was Path B (subclass required) — langchain-openai 1.2.2 Chat-Completions wrapper for gpt-5-mini surfaces only reasoning_tokens counter, never the text. Switched gpt-5 family onto Responses API via use_responses_api=True."
   - "_is_openai_reasoning_model() predicate scopes the subclass to chat_model.startswith('gpt-5') only — gpt-4o-mini stays on plain ChatOpenAI to honor CLAUDE.md v2.0 anchor rule. Empirically confirmed no regression on gpt-4o-mini cell."
   - "ADAPTERS registry mutated cell-by-cell (Option A) — Option B explicit literal would KeyError on 'anthropic' before PROV-03 lands."
-  - "Milestone anchor gate D-09-02 RE-SCOPED 2026-06-05 per user-approved Option A: original strict `refinement_minimal_edit median = 1.0` (was a Phase-6 baseline-saturation artifact) became 2-part gate — Part A (hard) `committed_itinerary_rate ≥ 0.6`; Part B (advisory) `refinement_minimal_edit median ≥ 0.5`. Empirical n=5 against re-scoped gate: Part A = 0.4 (2/5) STILL FAILS by 0.2; Part B = 0.0 STILL FAILS but advisory. Phase 9 PR remains blocked pending user ship/re-run decision."
+  - "Milestone anchor gate D-09-02 RE-SCOPED 2026-06-05 per user-approved Option A: original strict `refinement_minimal_edit median = 1.0` (was a Phase-6 baseline-saturation artifact) became 2-part gate — Part A (hard) `committed_itinerary_rate ≥ 0.6`; Part B (advisory) `refinement_minimal_edit median ≥ 0.5`. Empirical n=5 against re-scoped gate: Part A = 0.4 (2/5) FAILS by 0.2; Part B = 0.0 FAILS advisory."
+  - "PROV-01 SHIPPED-WITH-GAP 2026-06-05 per user-approved Option 3 (accept-with-notes, D-06-09 precedent): adapter charter (provider reasoning state preserved cross-turn) delivered (probe→Path B→subclass+adapter+conformance tests pass→0/5→2/5 commit-rate lift). Part A gap is downstream of state preservation (critique-loop on reasoning models per `project_reasoning_models_break_agent_loop`), below n=5 statistical resolution (95% Wilson CI at 2/5 ≈ [0.12, 0.74]), and carried forward to v2.1 phases 2-4."
 
 patterns-established:
   - "Responses-API reasoning lift pattern: subclass overrides _generate/_agenerate, scans content for {'type': 'reasoning'} blocks, shallow-copies into additional_kwargs['reasoning_content']. Sibling providers (DeepSeek-reasoner, Gemini thought_signature) reuse this shape."
   - "Conformance harness extension pattern: new sibling test test_reason_02_openai_real_adapter swaps OpenAIReasoningAdapter into ADAPTERS['scripted'] and scripts an AIMessage with the provider-native key — does NOT modify the locked test_reason_02_four_shape_roundtrip body (D-08-13 / canonical_refs lock)."
   - "Local-only empirical gate: matrix run is LOCAL (D-09-10) — no GitHub Actions surface added. CI continues with structural-check + check_baselines_fresh.py only."
 
-requirements-completed: []  # PROV-01 NOT marked complete — re-scoped D-09-02 (2026-06-05 Option A) Part A (hard) still fails at 0.4 vs ≥0.6 needed. Will be set once Part A clears (either via re-run with tighter CI or via additional triage path).
+requirements-completed: [PROV-01]  # SHIPPED-WITH-GAP 2026-06-05 per user-approved Option 3 (accept-with-notes, D-06-09 precedent). PROV-01 adapter charter delivered; the residual Part A gap (0.4 vs 0.6) is downstream of state preservation and carried forward to v2.1 phases 2-4 (critique-loop / reasoning-model decisiveness scope).
 
 # Metrics
-duration: ~30min (Task 3 / eval matrix wall-clock; plan total ~60min including Tasks 1+2 from prior conversation; +~10min for the 2026-06-05 re-scope pass)
-completed: 2026-06-04 (mechanical execution); 2026-06-05 (D-09-02 re-scope landed); plan still HELD pending user ship/re-run decision against re-scoped gate
+duration: ~30min (Task 3 / eval matrix wall-clock; plan total ~60min including Tasks 1+2 from prior conversation; +~10min for the 2026-06-05 re-scope pass; +~5min for ship-with-gap finalize)
+completed: 2026-06-05 — SHIPPED-WITH-GAP per Option 3 (accept-with-notes, D-06-09 precedent); PROV-01 charter delivered, residual Part A gap (0.4 vs 0.6) is downstream of state preservation and carried forward to v2.1 phases 2-4
 ---
 
 # Phase 9 Plan 01: OpenAI GPT-5 Adapter Summary
 
-**OpenAIReasoningAdapter + OpenAIReasoningChatModel ship cleanly via Path B (Responses API + reasoning-block lift). D-09-02 milestone anchor gate was re-scoped 2026-06-05 per user-approved Option A from strict `refinement_minimal_edit median = 1.0` to a 2-part gate (Part A hard `committed_itinerary_rate ≥ 0.6`; Part B advisory `refinement_minimal_edit median ≥ 0.5`). Against the re-scoped gate the n=5 result is Part A = 0.4 (FAILS by 0.2, i.e. 1 more commit out of 5 would clear it) and Part B = 0.0 (FAILS advisory). Phase 9 PR remains held pending user decision: (1) ship with documented Part A gap, (2) re-run at higher n to tighten the confidence interval, or (3) apply a separate technical mitigation (Option B/C/D in BLOCKER.md).**
+**Verdict: SHIPPED — accept-with-notes per D-06-09 precedent and user-approved Option 3 on 2026-06-05.**
+
+OpenAIReasoningAdapter + OpenAIReasoningChatModel ship cleanly via Path B (Responses API + reasoning-block lift). D-09-02 milestone anchor gate was re-scoped 2026-06-05 per user-approved Option A from strict `refinement_minimal_edit median = 1.0` to a 2-part gate (Part A hard `committed_itinerary_rate ≥ 0.6`; Part B advisory `refinement_minimal_edit median ≥ 0.5`). Against the re-scoped gate the n=5 result is Part A = 0.4 (FAILS by 0.2 — 1 more commit out of 5 would clear it) and Part B = 0.0 (FAILS advisory). v2.0 anchor (gpt-4o-mini) `committed_itinerary_rate` = 1.0 — no regression.
+
+PROV-01 ships as accept-with-notes because the adapter charter ("provider reasoning state preserved cross-turn") is empirically delivered and the residual gap is downstream of state preservation (critique-loop behavior on reasoning models, scope of v2.1 phases 2-4). See **Ship rationale** below.
+
+## Ship rationale (Option 3, accept-with-notes)
+
+User-approved Option 3 on 2026-06-05 — PROV-01 ships with the documented Part A gap rather than re-running at higher n or pursuing one of Options B/C/D from the BLOCKER. Four reasons:
+
+1. **PROV-01's charter — "provider reasoning state preserved cross-turn" — is delivered by Path B.** Probe verified that langchain-openai 1.2.2's Chat-Completions path never surfaces gpt-5 reasoning text (only a `reasoning_tokens` counter); the OpenAIReasoningChatModel subclass lifts Responses-API reasoning blocks into `additional_kwargs["reasoning_content"]`; the OpenAIReasoningAdapter captures and replays via that documented path; the 5 unit tests + 6 conformance tests (including the new `test_reason_02_openai_real_adapter` sibling) pass; and the 0/5→2/5 commit-rate lift vs the Phase-7 falsifier is empirical evidence that the plumbing works on the wire.
+2. **The 3 step-limited failures are critique-loop, not state-loss.** Every step-limited run (run-0, run-1, run-3) ends with `revision_reasons=['low_similarity']` and `final_reply` = "I hit the planning step limit." Memory `project_reasoning_models_break_agent_loop` documents this exact pattern across reasoning models on this codebase: the agent loop's interaction between the `low_similarity` critique branch and `commit_itinerary`'s "commit decisively" instruction blocks convergence on reasoning models, regardless of whether their state is preserved. That conflict is scope of v2.1 phases 2-4 (prompt-rubric refinement + critique-loop tuning), not PROV-01.
+3. **The 0.4-vs-0.6 gap is below n=5 statistical resolution.** A 95% Wilson confidence interval for 2 commits out of 5 is approximately [0.12, 0.74] — wide enough that "the true rate is 0.4" and "the true rate is ≥0.6" are both inside the interval. Distinguishing them requires n≈20 (incremental spend ≈$0.60, ≈1h wall-clock), and the most likely outcome of that re-run is confirmation of 0.4. The information value of a re-run is low relative to its cost when the gap is already explained by a known scope-out architectural pattern.
+4. **D-06-09 set the accept-with-notes precedent.** v2.0 closed with one accepted-with-notes gate (D-06-09 part 2: pre-Phase-6 1.0 baselines were Phase-4 fail-open false positives, so the "no regression" half of the gate was mechanically unsatisfiable). The precedent: when the failure is downstream of the plan's actual deliverable scope, ship with documented gap and carry forward to the phase that actually owns the gap. PROV-01 fits exactly.
+
+## Carry-forward to v2.1 phases 2-4
+
+The Part A gap (`committed_itinerary_rate` = 0.4 on gpt-5-mini × refinement_cheaper) is **explicitly carried forward** to subsequent v2.1 phases and is NOT in scope for PROV-01 (or PROV-02/03/04, which all share the same adapter pattern). The relevant carry-forward scope:
+
+- **v2.1 phase 2** (prompt-rubric refinement): decouple the `low_similarity` critique branch from `commit_itinerary`'s commit-decisively instruction; remove the prompt-coupled retry shape that makes reasoning models loop on weak-search.
+- **v2.1 phase 3** (critique-loop tuning per provider family): provider-specific `LOW_SIMILARITY_THRESHOLD` and `MAX_PLAN_STEPS` calibration so reasoning models can complete their critique branch within the step budget.
+- **v2.1 phase 4** (cross-provider baseline regen + matrix anchors): regenerate honest baselines under the post-fix loop and lock per-family merge gates including a re-validated `gpt-5-mini × refinement_cheaper` anchor.
+
+Until those phases land, gpt-5-mini's commit rate on refinement_cheaper is expected to remain at ~0.4 and is **not** a regression on PROV-01. Memory entries that frame this scope: `project_reasoning_models_break_agent_loop`, `project_critique_commit_conflict`, `project_v2_1_reasoning_compat_scope`.
 
 ## Performance
 
 - **Duration (Task 3 only):** ~30 min (matrix wall-clock)
 - **Started (Task 3):** 2026-06-04T20:35Z (matrix kickoff)
 - **Completed (Task 3):** 2026-06-04T21:06Z (last gpt-5-mini run wrote)
-- **Tasks:** 3/3 mechanically executed (Tasks 1, 2, 3a, 3b committed atomically); post-execution D-09-02 re-scope applied 2026-06-05 per user-approved Option A; against re-scoped gate Part A (hard) still fails at 0.4 vs ≥0.6; plan NOT scope-complete (HELD pending user decision)
+- **Tasks:** 3/3 mechanically executed (Tasks 1, 2, 3a, 3b committed atomically); post-execution D-09-02 re-scope applied 2026-06-05 per user-approved Option A; against re-scoped gate Part A measures 0.4 vs ≥0.6; PROV-01 SHIPPED-WITH-GAP 2026-06-05 per user-approved Option 3 (accept-with-notes, D-06-09 precedent)
 - **Files modified:** 10 (5 new, 5 edited — see key-files)
 
 ## Accomplishments
@@ -91,7 +115,11 @@ Each task was committed atomically per `feedback_small_focused_commits`:
 5. **Original SUMMARY + BLOCKER draft** — `4333407` (docs)
 6. **STATE.md blocker note** — `f27d352` (docs)
 7. **D-09-02 re-scope (CONTEXT, PLAN, YAML, ROADMAP)** — `b072806` (docs; user-approved Option A on 2026-06-05)
-8. **SUMMARY + BLOCKER updated for re-scoped gate** — pending commit at end of this executor run.
+8. **SUMMARY + BLOCKER updated for re-scoped gate** — `3f0aef7` + `b88a04f` (docs; 2026-06-05)
+9. **STATE.md re-scope blocker note** — `92afcde` (docs; 2026-06-05)
+10. **SUMMARY ship-with-gap verdict (Option 3 / D-06-09 precedent)** — committed as part of this executor run.
+11. **BLOCKER closed (SHIPPED-WITH-GAP, Option 3)** — committed as part of this executor run.
+12. **STATE.md + ROADMAP.md + REQUIREMENTS.md advance (plan complete; PROV-01 done)** — committed as part of this executor run.
 
 ## Files Created/Modified
 
@@ -176,11 +204,11 @@ The PLAN's Task 3 action (now updated to reflect the re-scope) explicitly handle
 ---
 
 **Total deviations:** 0 from PLAN execution; the gate-restructure is a post-execution decision recorded as a calibrated reading of the empirical data.
-**Impact on plan:** Mechanical scope delivered; empirical gate (re-scoped) Part A still fails at 0.4 vs ≥0.6 needed. Plan NOT marked requirements-complete pending user choice between (i) ship-with-gap, (ii) re-run at higher n, (iii) Option B prompt tweak, or (iv) Option C/D mechanical tweaks.
+**Impact on plan:** Mechanical scope delivered; empirical gate (re-scoped) Part A measures at 0.4 vs ≥0.6. PROV-01 SHIPPED-WITH-GAP per user-approved Option 3 (accept-with-notes, D-06-09 precedent) — see **Ship rationale** above. PROV-01 marked complete in REQUIREMENTS.md / STATE.md. Residual gap carried forward to v2.1 phases 2-4.
 
 ## Issues Encountered
 
-The Part A gap (0.4 vs ≥0.6) is the headline issue. See BLOCKER Resolution for the four user options. Summary: provider state preservation works — Path B subclass + adapter wire correctly, 2/5 commits succeed where Phase-7 had 0/5 — but the agent-loop convergence rate on gpt-5-mini sits at 0.4 (mean of 5 binary outcomes: 0, 0, 1, 0, 1) which is short of the re-scoped Part A threshold by exactly 1 commit out of 5. At n=5 the confidence interval is wide enough that "0.4 is real" vs "0.4 is variance and the true rate is ≥0.6" cannot be distinguished without more data. Part B at 0.0 is documented as advisory because the v2.0 anchor itself sits at median 0.0 / max 0.5 under the same scorer — holding gpt-5-mini to a higher bar than the anchor would be asymmetric.
+The Part A gap (0.4 vs ≥0.6) is the headline issue and resolves as SHIPPED-WITH-GAP. Provider state preservation works — Path B subclass + adapter wire correctly, 2/5 commits succeed where Phase-7 had 0/5 — but the agent-loop convergence rate on gpt-5-mini sits at 0.4 (mean of 5 binary outcomes: 0, 0, 1, 0, 1), short of the re-scoped Part A threshold by exactly 1 commit out of 5. The 95% Wilson CI at 2/5 is approximately [0.12, 0.74], so "0.4 is real" vs "0.4 is variance and the true rate is ≥0.6" cannot be distinguished at n=5; an n=20 re-run would tighten the CI but is not pursued because the underlying mechanism is already explained by `project_reasoning_models_break_agent_loop` (critique-loop / `commit_itinerary` conflict on reasoning models) and that scope sits in v2.1 phases 2-4, not PROV-01. Part B at 0.0 is documented as advisory because the v2.0 anchor itself sits at median 0.0 / max 0.5 under the same scorer — holding gpt-5-mini to a higher bar than the anchor would be asymmetric.
 
 ## Test results (n=5 unit + 6 conformance + 47 graph)
 
@@ -196,16 +224,11 @@ None — `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, and `cloud-sql-proxy --port 5433`
 
 ## Next Phase Readiness
 
-**STILL BLOCKED — but at a calibrated bar.** User approved Option A on 2026-06-05 and the D-09-02 gate was re-scoped to the 2-part shape above. Against the re-scoped gate, Part A (hard, `committed_itinerary_rate ≥ 0.6`) still fails at 0.4 (2/5 commits), short by 0.2 — the equivalent of 1 more committed run out of 5. Part B (advisory, `refinement_minimal_edit median ≥ 0.5`) still fails at 0.0 but does not block. The OpenAIReasoningAdapter is technically complete and correct; the gap is in agent-loop convergence, not provider state preservation.
+**READY — PROV-01 SHIPPED-WITH-GAP.** User approved Option 3 (ship-with-gap, accept-with-notes per D-06-09 precedent) on 2026-06-05. PROV-01's charter is delivered (probe-then-Path-B-adapter wires gpt-5 reasoning state cross-turn; 0/5→2/5 commit-rate lift is empirical evidence the plumbing works); the residual Part A gap (0.4 vs 0.6) is downstream of state preservation and carried forward to v2.1 phases 2-4. Plan 09-02 (DeepSeek), 09-03 (Anthropic), and 09-04 (Gemini) are unblocked.
 
-Per D-09-02 the Phase 9 PR cannot ship until Part A clears. Plan 09-02 (DeepSeek), 09-03 (Anthropic), and 09-04 (Gemini) should NOT start until the user picks a path forward:
+**Wave 2 dispatch:** orchestrator can now spawn Plan 09-02 (deepseek-reasoner-adapter). The OpenAIReasoningAdapter and Path B subclass pattern are the templates that 09-02/03/04 reuse.
 
-- **(i) Ship with documented Part A gap:** accept 0.4 vs 0.6 as the empirical reality; relax Part A further or note PROV-01 as accept-with-notes per D-06-09 precedent. Lowest cost; weakest gate.
-- **(ii) Re-run at n=10 or n=20:** tighten the confidence interval to test whether 0.4 is real or n=5 variance. Estimated incremental spend ≈ $0.20–$0.80 for additional gpt-5-mini runs. Highest information-per-dollar before any code change. Recommended.
-- **(iii) Option B prompt tweak:** add a gpt-5-specific imperative preamble to `build_refinement_prompt_message` (analog of D-07-10's gpt-4o-mini partial-recovery). Falsifiable in one matrix re-run. Modest risk of re-coupling prompt to scorer.
-- **(iv) Option C/D mechanical tweaks:** raise `MAX_PLAN_STEPS` for gpt-5 family, or tighten `LOW_SIMILARITY_THRESHOLD`. Risk of regressing the v2.0 anchor — needs careful matrix run against gpt-4o-mini cell.
-
-Full discussion + original strict gate wording preserved in `09-PROV-01-BLOCKER.md`.
+Full archaeology of the user's decision tree (including the Options A/B/C/D the user rejected on the way to Option 3) is preserved in `09-PROV-01-BLOCKER.md` Resolution section, now marked CLOSED: SHIPPED-WITH-GAP.
 
 ## Self-Check: PASSED
 
@@ -224,4 +247,4 @@ Full discussion + original strict gate wording preserved in `09-PROV-01-BLOCKER.
 ---
 *Phase: 09-per-provider-state-preservation-implementations*
 *Plan: 09-01*
-*Completed (mechanical): 2026-06-04 — milestone gate FAILED; awaiting user triage*
+*Completed: 2026-06-05 — SHIPPED-WITH-GAP per Option 3 (accept-with-notes, D-06-09 precedent); PROV-01 charter delivered; residual Part A gap carried forward to v2.1 phases 2-4*
