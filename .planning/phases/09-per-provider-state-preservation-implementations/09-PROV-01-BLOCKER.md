@@ -1,11 +1,27 @@
 # Phase 9 / PROV-01 — Milestone Anchor Gate BLOCKER
 
 **Opened:** 2026-06-04
+**Closed:** 2026-06-05
 **Plan:** 09-01 (openai-gpt5-adapter)
-**Decision driver:** D-09-02 (PR-blocking gate on PROV-01) — RE-SCOPED 2026-06-05 per user-approved Option A
-**Status:** PARTIALLY RESOLVED — gate re-scoped (resolves the "gate as written is asymmetric with anchor" structural issue), but Part A (hard) of the new gate still FAILS at 0.4 vs ≥0.6 needed. Plan 09-01 is HELD pending user choice between (i) ship-with-documented-gap, (ii) re-run at higher n, or (iii)/(iv) one of the original technical mitigations below.
+**Decision driver:** D-09-02 (PR-blocking gate on PROV-01) — RE-SCOPED 2026-06-05 per user-approved Option A; SHIPPED-WITH-GAP 2026-06-05 per user-approved Option 3
+**Status:** **CLOSED: SHIPPED-WITH-GAP.** Resolution: Option 3 (ship-with-gap) approved by user 2026-06-05 after Option A re-scope landed but Part A (0.4 vs 0.6) remained inconclusive at n=5. PROV-01 ships as accept-with-notes per D-06-09 precedent; residual Part A gap is downstream of state preservation (critique-loop scope per `project_reasoning_models_break_agent_loop`) and carried forward to v2.1 phases 2-4. See SUMMARY.md **Ship rationale** for the four-point justification. Plan 09-01 marked complete; Wave 2 (09-02 DeepSeek) unblocked.
 
 ## Resolution (2026-06-05)
+
+**Final resolution: CLOSED — SHIPPED-WITH-GAP per Option 3.** PROV-01 ships as accept-with-notes per D-06-09 precedent. Residual Part A gap (0.4 vs 0.6) carried forward to v2.1 phases 2-4 (critique-loop / reasoning-model decisiveness scope, per `project_reasoning_models_break_agent_loop`). PROV-01 marked complete in REQUIREMENTS.md / STATE.md.
+
+Resolution path (chronological):
+
+1. **2026-06-04** — Original BLOCKER filed: strict D-09-02 gate (`refinement_minimal_edit median = 1.0`) failed empirically (median 0.0, committed_rate 0.4). 4 user options (A re-scope / B prompt / C max_steps / D similarity threshold) documented below.
+2. **2026-06-05 morning** — User reviewed Options A-D and approved **Option A** (re-scope gate to 2-part shape: Part A hard `committed_itinerary_rate ≥ 0.6`, Part B advisory `refinement_minimal_edit median ≥ 0.5`). Re-scope landed in commit `b072806`.
+3. **2026-06-05 afternoon** — Empirical n=5 against re-scoped gate: Part A = 0.4 (FAILS by 0.2), Part B = 0.0 (FAILS advisory). User presented with secondary choice: (i) ship-with-gap, (ii) re-run at n=10/20, (iii) Option B prompt, (iv) Option C/D mechanical.
+4. **2026-06-05 evening** — User approved **Option 3 (ship-with-gap, accept-with-notes per D-06-09 precedent)**. Justification: PROV-01 charter delivered; gap is downstream of state preservation; n=5 below statistical resolution; D-06-09 precedent applies. See SUMMARY.md "Ship rationale" for the four-point write-up.
+
+The 2026-06-05 morning re-scope (Option A) is preserved below for archaeology — it changed the gate shape but the residual gap remained, which is what triggered the ship-with-gap decision.
+
+---
+
+## Earlier resolution (2026-06-05 morning — Option A re-scope, superseded by Option 3 ship)
 
 User reviewed Options A, B, C, D below and approved **Option A** on 2026-06-05. The D-09-02 gate has been re-scoped from strict `refinement_minimal_edit median = 1.0` to a 2-part gate:
 
@@ -140,14 +156,8 @@ If the user rejects re-scoping, **Option B** is the lowest-risk technical move (
 
 ## Resume signal
 
-**Updated 2026-06-05:** User chose Option A (re-scope gate); gate has been re-scoped (commit `b072806`). Against the re-scoped gate Part A (hard) still FAILS at 0.4 vs ≥0.6. User must now choose between:
-- "approved: re-run at n=10" — most-recommended next step
-- "approved: re-run at n=20" — if n=10 still indeterminate
-- "approved: ship-with-gap" — PROV-01 ships as accept-with-notes per D-06-09 precedent
-- "approved: Option B" — gpt-5-specific imperative preamble in `build_refinement_prompt_message`
-- "approved: Option C" — raise `MAX_PLAN_STEPS` for gpt-5 family
-- "approved: Option D" — tighten `LOW_SIMILARITY_THRESHOLD`
+**CLOSED 2026-06-05:** User chose "approved: ship-with-gap" — PROV-01 ships as accept-with-notes per D-06-09 precedent. BLOCKER closed; Plan 09-01 marked complete; Wave 2 (09-02 DeepSeek) unblocked. No further resume signal needed.
 
-The executor cannot self-resolve. No matrix runs without user approval.
+**Earlier signal (2026-06-05 mid-day, between Option A re-scope and Option 3 ship):** User had been asked to choose between (i) re-run at n=10/20, (ii) ship-with-gap, (iii) Option B prompt, (iv) Option C/D mechanical. User picked (ii).
 
-**Original signal (pre-2026-06-05):** User to choose Option A, B, C, or D (or another path) — the gate cannot be self-resolved by the executor.
+**Original signal (2026-06-04):** User to choose Option A, B, C, or D (or another path) — the gate cannot be self-resolved by the executor. User picked Option A first (re-scope gate), then Option 3 (ship-with-gap) after the re-scope was insufficient.
