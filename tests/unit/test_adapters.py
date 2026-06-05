@@ -17,6 +17,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agent.adapters.anthropic import AnthropicAdapter
 from app.agent.adapters.deepseek import DeepSeekReasonerAdapter
+from app.agent.adapters.gemini import GeminiAdapter
 from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter
 
 # ─── OpenAIReasoningAdapter — PROV-01 (D-09-03 Path B per probe verdict) ─────
@@ -436,3 +437,204 @@ def test_anthropic_adapter_capture_does_not_mutate_input_message_content() -> No
     )
     # And the original signature on the message stays "abc" (NOT "TAMPERED").
     assert msg.content[0]["signature"] == "abc"
+
+
+# ─── GeminiAdapter — PROV-04 (D-09-08 EXPERIMENTAL — no merge gate) ──────────
+#
+# Critical asymmetry vs PROV-01 / PROV-02 / PROV-03: the Gemini reasoning
+# payload is `bytes` (an opaque `thought_signature`), NOT a `str`
+# `reasoning_content` (PROV-01, PROV-02) and NOT a heterogeneous block list
+# (PROV-03). The capture path tries `additional_kwargs["thought_signature"]`
+# FIRST (matching the Phase 8 fixture FOUR_SHAPE_PAYLOADS[3] and the
+# MockReasoningAdapter conformance harness) and falls back to scanning
+# `AIMessage.tool_calls[i]` per CONTEXT.md <specifics> PROV-04 (lcgg 4.x
+# library-version surfacing uncertainty). The bytes payload MUST round-trip
+# byte-identical or Gemini's next request loses its reasoning anchor —
+# this file's tests defend that contract.
+
+
+def test_gemini_adapter_capture_returns_payload_when_additional_kwargs_signature_present() -> None:
+    """PROV-04 Test 1 (capture, additional_kwargs primary path): ``capture_reasoning_state``
+    reads ``additional_kwargs["thought_signature"]`` (bytes) and wraps it in
+    the canonical ``FOUR_SHAPE_PAYLOADS[3]`` shape — matches
+    ``{"provider": "gemini", "thought_signature": b"\\x00\\x01\\x02"}`` exactly.
+    """
+    adapter = GeminiAdapter()
+    msg = AIMessage(
+        content="x",
+        additional_kwargs={"thought_signature": b"\x00\x01\x02"},
+    )
+
+    payload = adapter.capture_reasoning_state(msg)
+
+    assert payload == {"provider": "gemini", "thought_signature": b"\x00\x01\x02"}
+
+
+def test_gemini_adapter_capture_returns_payload_when_tool_calls_carry_signature() -> None:
+    """PROV-04 Test 2 (capture, tool_calls fallback path): when
+    ``additional_kwargs`` lacks ``thought_signature`` but a tool_call carries
+    it, ``capture_reasoning_state`` STILL captures the bytes — falls back to
+    scanning ``message.tool_calls`` (CONTEXT.md <specifics> PROV-04: lcgg 4.x
+    might surface the field on individual tool_calls rather than at the
+    top-level kwarg).
+
+    Note: langchain_core's ``AIMessage`` constructor coerces ``tool_calls`` via
+    a strict ``ToolCall`` TypedDict that rejects extra keys (``thought_signature``).
+    We bypass the constructor coercion by building the message with a valid
+    base tool_call and then assigning the augmented list directly to the
+    attribute, mirroring how ``langchain-google-genai`` 4.x would populate
+    the field if it chose the per-tool-call surfacing path.
+    """
+    adapter = GeminiAdapter()
+    msg = AIMessage(content="x")
+    # Direct attribute assignment bypasses TypedDict coercion — this matches
+    # the runtime shape lcgg 4.x produces when it surfaces thought_signature
+    # at the per-tool-call level rather than on additional_kwargs.
+    msg.tool_calls = [
+        {
+            "name": "search",
+            "args": {"query": "x"},
+            "id": "tc_1",
+            "thought_signature": b"\xaa\xbb",
+        },
+    ]
+
+    payload = adapter.capture_reasoning_state(msg)
+
+    # First bytes signature found in tool_calls; PROV-04 ships single-signature
+    # (per-call alignment deferred to a future v2.2 / Phase 10 follow-up).
+    assert payload == {"provider": "gemini", "thought_signature": b"\xaa\xbb"}
+
+
+def test_gemini_adapter_capture_returns_none_when_no_signature_present() -> None:
+    """PROV-04 Test 3 (capture, no signature anywhere): ``capture_reasoning_state``
+    returns ``None`` when neither ``additional_kwargs`` nor any tool_call
+    carries a bytes ``thought_signature`` — the D-08-02 contract default.
+    Covers non-reasoning Gemini responses (or fallback shapes from any
+    Gemini model where thinking is disabled).
+    """
+    adapter = GeminiAdapter()
+    msg = AIMessage(content="x")
+
+    assert adapter.capture_reasoning_state(msg) is None
+
+
+def test_gemini_adapter_capture_returns_none_when_signature_is_not_bytes() -> None:
+    """PROV-04 Test 3b (capture, non-bytes type guard): ``capture_reasoning_state``
+    returns ``None`` when the kwarg is present but the value is NOT bytes
+    (e.g. somebody base64-decoded it to str upstream — the documented
+    foot-gun in memory ``project_gemini3_thought_signatures``). Defensive
+    isinstance check; bytes-only is the wire contract.
+    """
+    adapter = GeminiAdapter()
+    msg = AIMessage(
+        content="x",
+        additional_kwargs={"thought_signature": "not-bytes-str"},
+    )
+
+    assert adapter.capture_reasoning_state(msg) is None
+
+
+def test_gemini_adapter_replay_writes_signature_on_most_recent_ai_message() -> None:
+    """PROV-04 Test 4 (replay): ``replay_reasoning_state`` walks ``outbound``
+    in reverse and writes ``additional_kwargs["thought_signature"]`` (the
+    provider-native key — NOT the ``_reasoning_state`` key, which graph.py
+    owns per PATTERNS.md §Shared Patterns) on the most-recent ``AIMessage``.
+    This is what makes the next outbound Gemini request carry the
+    thought_signature back to the API.
+    """
+    adapter = GeminiAdapter()
+    outbound = [
+        HumanMessage(content="h"),
+        AIMessage(content="a"),
+        AIMessage(content="b"),
+    ]
+    state = {"provider": "gemini", "thought_signature": b"\x00\x01\x02"}
+
+    result = adapter.replay_reasoning_state(outbound, state)
+
+    # Same list spine.
+    assert result is outbound
+    # Most-recent AIMessage (the last one in the list) got tagged with bytes.
+    assert outbound[-1].additional_kwargs.get("thought_signature") == b"\x00\x01\x02"
+    # The earlier AIMessage was NOT tagged (walks in reverse, breaks on first
+    # AIMessage encountered).
+    assert outbound[1].additional_kwargs.get("thought_signature") is None
+
+
+def test_gemini_adapter_replay_returns_outbound_unchanged_when_state_none() -> None:
+    """PROV-04 Test 5 (replay, None state): ``replay_reasoning_state`` returns
+    ``outbound`` byte-identical when ``state is None`` (D-08-02 contract —
+    no mutation when nothing to replay).
+    """
+    adapter = GeminiAdapter()
+    outbound = [
+        HumanMessage(content="h"),
+        AIMessage(content="a", additional_kwargs={"existing": "kept"}),
+    ]
+
+    result = adapter.replay_reasoning_state(outbound, None)
+
+    assert result is outbound
+    assert outbound[-1].additional_kwargs == {"existing": "kept"}
+
+
+def test_gemini_adapter_capture_does_not_mutate_input_message() -> None:
+    """PROV-04 Test 6 (T-09-04-T3 mutation safety): ``capture_reasoning_state``
+    returns a NEW dict and does NOT mutate the input ``AIMessage``'s
+    ``additional_kwargs``. Mutating the returned payload's bytes reference
+    is impossible (bytes is immutable in Python) but mutating the payload
+    dict itself (e.g. replacing the signature) MUST NOT reach back into the
+    originating message.
+    """
+    adapter = GeminiAdapter()
+    original_signature = b"\x00\x01\x02"
+    original_kwargs = {"thought_signature": original_signature}
+    msg = AIMessage(content="x", additional_kwargs=original_kwargs)
+    before = dict(msg.additional_kwargs)
+
+    payload = adapter.capture_reasoning_state(msg)
+    # Tamper with the returned payload — the input's additional_kwargs MUST
+    # remain byte-identical to before the call.
+    assert payload is not None
+    payload["thought_signature"] = b"\xff\xff"
+
+    after = dict(msg.additional_kwargs)
+    assert after == before, (
+        "capture_reasoning_state mutated the input message's additional_kwargs "
+        f"(T3 mitigation failed): before={before!r}, after={after!r}"
+    )
+    # Sanity: the original kwarg untouched even after we tampered with payload.
+    assert msg.additional_kwargs["thought_signature"] == b"\x00\x01\x02"
+
+
+def test_gemini_adapter_capture_to_replay_round_trip_preserves_bytes_byte_for_byte() -> None:
+    """PROV-04 Test 7 (T-09-04-T7 bytes round-trip): the captured + replayed
+    bytes payload survives byte-identical through the adapter contract.
+
+    Mechanics: capture from a fresh AIMessage carrying a bytes signature;
+    replay the captured payload onto a fresh outbound list; confirm the
+    written bytes match the original byte-for-byte (NOT just value-equal —
+    `isinstance(written, bytes) and written == original`). This guards
+    against any accidental base64-encoding-as-str regression.
+    """
+    adapter = GeminiAdapter()
+    original = b"\x00\x01\x02\x03\xff\xfe"
+    source = AIMessage(content="x", additional_kwargs={"thought_signature": original})
+
+    payload = adapter.capture_reasoning_state(source)
+    assert payload is not None
+    assert isinstance(payload["thought_signature"], bytes)
+    assert payload["thought_signature"] == original
+
+    outbound = [HumanMessage(content="h"), AIMessage(content="next")]
+    adapter.replay_reasoning_state(outbound, payload)
+
+    replayed = outbound[-1].additional_kwargs.get("thought_signature")
+    assert isinstance(replayed, bytes), (
+        f"replayed thought_signature MUST be bytes (not str / base64-decoded); "
+        f"got type={type(replayed).__name__}"
+    )
+    assert replayed == original, (
+        f"bytes round-trip drifted: original={original!r}, replayed={replayed!r}"
+    )

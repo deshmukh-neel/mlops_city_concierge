@@ -48,6 +48,7 @@ from pydantic import Field
 from app.agent.adapters import ADAPTERS, MockReasoningAdapter
 from app.agent.adapters.anthropic import AnthropicAdapter
 from app.agent.adapters.deepseek import DeepSeekReasonerAdapter
+from app.agent.adapters.gemini import GeminiAdapter
 from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter
 from app.agent.graph import build_agent_graph
 from app.agent.state import ItineraryState
@@ -524,4 +525,94 @@ async def test_reason_02_anthropic_real_adapter(
         "AnthropicAdapter replay did NOT preserve the byte-identical "
         f"signature on the round-tripped thinking block. Expected 'abc', "
         f"got {first_block.get('signature')!r}"
+    )
+
+
+# Phase 9 / PROV-04 (D-09-08 / D-09-09) — sibling test that swaps the REAL
+# `GeminiAdapter` into `ADAPTERS["scripted"]` and proves the gemini
+# `thought_signature` bytes shape (matching `FOUR_SHAPE_PAYLOADS[3]`) survives
+# the `graph.ainvoke` round-trip end-to-end. ASYMMETRY callout: the payload is
+# `bytes` — NOT `str` (PROV-01 / PROV-02 `reasoning_content`) and NOT a
+# heterogeneous block list (PROV-03 `thinking_blocks`). The bytes MUST
+# round-trip byte-identical or the next live Gemini request loses its
+# reasoning anchor (no documented 400, but the model loses the prior
+# turn's chain-of-thought). PROV-04 is EXPERIMENTAL — no merge gate per
+# D-09-08; this conformance test is the PR-blocking acceptance for
+# state-preservation correctness while the empirical median is logged-only.
+async def test_reason_02_gemini_real_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REASON-02 + PROV-04: real `GeminiAdapter` round-trips bytes
+    `thought_signature` on `additional_kwargs` (NOT `_reasoning_state`)
+    through `graph.ainvoke`.
+
+    Mechanics:
+    - `monkeypatch.setitem(ADAPTERS, "scripted", GeminiAdapter())` so the
+      real adapter is the one `plan()` closes over (no `MockReasoningAdapter`).
+    - The turn-1 scripted `AIMessage` carries
+      `additional_kwargs={"thought_signature": b"\\x00\\x01\\x02"}` — the
+      shape `langchain-google-genai>=4.2.0` would emit for
+      `gemini-3.1-pro-preview` with thinking enabled (the primary capture
+      path; the tool_calls fallback covered in the unit tests).
+    - We assert the turn-2 input's most-recent `AIMessage` carries the same
+      `additional_kwargs["thought_signature"]` bytes value (NOT
+      `_reasoning_state`; graph.py stashes capture output at
+      `_reasoning_state`, but `GeminiAdapter.replay_reasoning_state` writes
+      the provider-native `thought_signature` key on the most-recent
+      AIMessage so the next outbound Gemini API request carries it back).
+    - **Bytes byte-identity assertion** — the contract is bytes-in / bytes-out
+      with no encoding drift (memory `project_gemini3_thought_signatures`
+      documents the base64-as-str foot-gun; this test guards against it).
+    """
+    monkeypatch.setitem(ADAPTERS, "scripted", GeminiAdapter())
+
+    # Patch the underlying retrieval helper so act() succeeds without a real DB.
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    turn1_ai = AIMessage(
+        content="searching for bars",
+        tool_calls=[
+            {
+                "name": "semantic_search",
+                "args": {"query": "bar in mission", "k": 3},
+                "id": "call_test_gemini_real",
+            },
+        ],
+        additional_kwargs={"thought_signature": b"\x00\x01\x02"},
+    )
+    recording_llm = RecordingLLM(
+        scripted=[turn1_ai, AIMessage(content="done", tool_calls=[])],
+    )
+    graph = build_agent_graph(recording_llm, max_steps=4, provider="scripted")
+
+    await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="find a bar in mission")]),
+    )
+
+    assert len(recording_llm.recorded_inputs) >= 2, (
+        "expected ≥ 2 recorded LLM invocations across turn-1 + turn-2, "
+        f"got {len(recording_llm.recorded_inputs)}"
+    )
+
+    last_input = recording_llm.recorded_inputs[-1]
+    ai_messages_in_last = [m for m in last_input if isinstance(m, AIMessage)]
+    assert ai_messages_in_last, (
+        "expected at least one AIMessage in the most-recent LLM input; "
+        f"saw types {[type(m).__name__ for m in last_input]}"
+    )
+    # The real adapter writes the provider-native key (NOT _reasoning_state).
+    # walks outbound in reverse → most-recent AIMessage gets tagged.
+    replayed = ai_messages_in_last[-1].additional_kwargs.get("thought_signature")
+    # Bytes-only type assertion — the wire contract is bytes-in / bytes-out.
+    assert isinstance(replayed, bytes), (
+        "GeminiAdapter replay did NOT write bytes to `thought_signature` on "
+        f"the most-recent outbound AIMessage. Got type={type(replayed).__name__}; "
+        f"value={replayed!r}. Recorded last-input AIMessage additional_kwargs: "
+        f"{[m.additional_kwargs for m in ai_messages_in_last]!r}"
+    )
+    # Byte-identical round-trip — no encoding drift (the documented foot-gun).
+    assert replayed == b"\x00\x01\x02", (
+        "GeminiAdapter replay did NOT preserve the byte-identical "
+        f"thought_signature on round-trip. Expected b'\\x00\\x01\\x02', "
+        f"got {replayed!r}"
     )
