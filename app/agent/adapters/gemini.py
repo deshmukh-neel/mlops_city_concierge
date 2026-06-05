@@ -1,45 +1,61 @@
 """Gemini 3 reasoning-state adapter (Phase 9 / PROV-04, EXPERIMENTAL).
 
-Round-trips Gemini 3's opaque ``thought_signature`` bytes across agent turns so
-the model does NOT lose its reasoning trace between tool-call rounds.
+Round-trips Gemini 3's opaque function-call ``thought_signature`` payload
+across agent turns so the model does NOT lose its reasoning trace between
+tool-call rounds.
 
-**D-09-08 / D-09-09 design points**
+**D-09-08 / D-09-09 design points (post-live-probe update 2026-06-05)**
 
-PROV-04 is EXPERIMENTAL — no merge gate. The adapter is built against the
-Phase 8 fixture payload ``{"provider": "gemini", "thought_signature":
+PROV-04 is EXPERIMENTAL — no merge gate. The adapter was DESIGNED against
+the Phase 8 fixture payload ``{"provider": "gemini", "thought_signature":
 b"\\x00\\x01\\x02"}`` (``FOUR_SHAPE_PAYLOADS[3]`` in
-``tests/integration/test_reasoning_state_roundtrip.py``). The bytes payload
-asymmetry vs PROV-01 / PROV-02 (str ``reasoning_content``) and PROV-03 (list
-of signed ``thinking_blocks``) is what validates that the Phase 8 contract
-scales to a fourth shape with zero ABC churn (REASON-02 acceptance).
+``tests/integration/test_reasoning_state_roundtrip.py``) — but a live
+``gemini-3.1-pro-preview`` probe via ``langchain-google-genai==4.x``
+surfaced a SECOND wire shape that the synthetic fixture does NOT cover:
 
-**Capture path (primary + fallback)**
+::
 
-CONTEXT.md §``<specifics>`` PROV-04 flags a library-version uncertainty: in
-``langchain-google-genai>=4.2.0`` the ``thought_signature`` MAY surface on
-``AIMessage.additional_kwargs`` (matching the Phase 8 fixture) OR on
-individual ``AIMessage.tool_calls[i]`` items. The adapter handles BOTH:
+    additional_kwargs["__gemini_function_call_thought_signatures__"]
+        : dict[tool_call_id_str, base64_signature_str]
 
-1. **Primary:** ``message.additional_kwargs.get("thought_signature")``. If
-   that returns ``bytes``, wrap it in the canonical payload and return.
-2. **Fallback:** scan ``message.tool_calls`` (if present) for the first
-   ``tool_call`` dict carrying a bytes ``thought_signature`` key. PROV-04
-   ships single-signature; if Gemini 3 ever emits per-tool-call signatures
-   and per-call replay matters for the next request, a future v2.2 / Phase
-   10 follow-up extends the payload to a list of signatures with index
-   alignment. The fallback is in place so the adapter works under either
-   library surfacing without iteration cost.
+This is the REAL on-the-wire shape lcgg 4.x stores function-call signatures
+in (see ``langchain_google_genai/chat_models.py:127`` —
+``_FUNCTION_CALL_THOUGHT_SIGNATURES_MAP_KEY``). The signatures are stored
+as **base64-encoded strings** (lcgg decodes them to bytes only at the
+``FunctionCall(thought_signature=...)`` serialization boundary, ~ line 731).
+The Phase 8 fixture's bytes-at-top-level shape is the IDEALIZED shape and
+still gates REASON-02 conformance via the synthetic harness; the
+real-wire shape is what production traffic carries.
 
-**Replay path**
+PROV-04 supports BOTH:
 
-Walk ``outbound`` in reverse, find the most-recent ``AIMessage``, and write
-the captured bytes back to its ``additional_kwargs["thought_signature"]``.
-We do NOT attempt to redistribute the signature back across ``tool_calls`` —
-the ``additional_kwargs`` round-trip is what the Phase 8 fixture asserts,
-and ``langchain-google-genai`` reads from ``additional_kwargs`` at the
-outbound boundary via the same library passthrough that surfaced the
-signature on capture. Bytes stay bytes; no base64 encoding (a documented
-foot-gun from prior W10-era exploration — ``project_gemini3_thought_signatures``).
+1. **Primary capture path (real lcgg 4.x):**
+   ``additional_kwargs["__gemini_function_call_thought_signatures__"]``
+   dict. Per-tool-call base64 strings keyed by tool_call ID. Captured as
+   ``{"provider": "gemini", "function_call_thought_signatures": <dict>}``.
+   On replay, the dict is written back to the same key on the most-recent
+   outbound AIMessage so lcgg 4.x's serializer re-attaches each signature
+   to its corresponding outgoing FunctionCall.
+
+2. **Synthetic fixture / Phase 8 conformance path:**
+   ``additional_kwargs["thought_signature"]`` bytes (D-09-09 fixture).
+   Captured as ``{"provider": "gemini", "thought_signature": <bytes>}``
+   matching ``FOUR_SHAPE_PAYLOADS[3]``. On replay, the bytes are written
+   back to the same key on the most-recent outbound AIMessage. This path
+   keeps the REASON-02 conformance harness passing byte-for-byte while
+   the primary path handles real wire traffic.
+
+3. **Per-tool-call fallback (lcgg surfacing variant):** scan
+   ``message.tool_calls`` for any dict carrying a ``thought_signature``
+   key — CONTEXT.md ``<specifics>`` PROV-04 flagged this as a possible
+   lcgg-version surfacing. Captured as the synthetic-shape bytes payload
+   when found.
+
+The three capture paths are tried in priority order; the FIRST one that
+yields a non-empty payload wins. Replay symmetrically writes back to
+whichever key the captured payload identifies (function-call map dict OR
+thought_signature bytes), so a captured payload always round-trips back
+to the same wire shape.
 
 **Critique-loop deferral (D-09-08 + memory cross-link)**
 
@@ -49,18 +65,18 @@ because the Gemini 3 critique-loop fix (``LOW_SIMILARITY_THRESHOLD=0.55`` in
 ``project_w10_migration_necessary_not_sufficient``. The adapter delivers the
 state-preservation half of the PROV-04 charter; the decisiveness half is a
 prompt/critique change that cross-cuts every provider and is owned by a
-future critique-loop phase (v2.2 or Phase 10.5). The PROV-04 SUMMARY.md
-carries this forward for the milestone-archive audit.
+future critique-loop phase (v2.2 or Phase 10.5).
 
 **T-09-04-T3 / T-09-04-T7 mutation safety**
 
-``capture_reasoning_state`` returns a FRESH dict; the original message's
-``additional_kwargs`` / ``tool_calls`` are never mutated. Python's ``bytes``
-is immutable, so reference-identity preservation is the same as
-byte-identity preservation — but the defensive copy ``bytes(...)`` is
-applied anyway so callers cannot inadvertently alias an internal payload.
-The unit test asserts captured bytes match replayed bytes byte-for-byte
-end-to-end through the conformance harness (REASON-02 acceptance).
+``capture_reasoning_state`` returns a FRESH dict. For the real lcgg-shape
+path, the captured dict is a shallow copy of the message's
+``__gemini_function_call_thought_signatures__`` mapping (so downstream
+mutation cannot reach back into the message's own kwargs). For the
+synthetic-shape path, ``bytes(...)`` defensive copy makes T-09-04-T3
+mechanically obvious to a reviewer (bytes is immutable so identity ==
+equality, but the explicit copy documents intent). Round-trip
+byte-identity is asserted by the unit + conformance tests.
 
 **PROV-05 / D-09-07 isolation rule**
 
@@ -77,63 +93,104 @@ from langchain_core.messages import AIMessage, BaseMessage
 
 from app.agent.adapters import ProviderAdapter, StatePayload
 
+# Mirror lcgg 4.x's internal key
+# (langchain_google_genai/chat_models.py:127 — `_FUNCTION_CALL_THOUGHT_SIGNATURES_MAP_KEY`)
+# WITHOUT importing the library (D-09-07 isolation rule). String-literal pin
+# is acceptable because the key is part of lcgg's stable public-ish wire
+# format — changing it would be a breaking change for any consumer that
+# already rounds-trips signatures (which is what this adapter does).
+_FUNCTION_CALL_THOUGHT_SIGNATURES_KEY = "__gemini_function_call_thought_signatures__"
+
+# Phase 8 fixture key (D-09-09) — the synthetic-shape path that gates
+# REASON-02 conformance. The fixture-payload bytes never appear in real
+# lcgg 4.x output, but the harness drives the adapter through this key
+# end-to-end to assert shape-agnostic survival through the LangGraph
+# reducer.
+_SYNTHETIC_FIXTURE_KEY = "thought_signature"
+
 
 class GeminiAdapter(ProviderAdapter):
     """``ProviderAdapter`` for the Gemini 3 family (D-09-08 / D-09-09).
 
-    ``capture_reasoning_state`` reads
-    ``message.additional_kwargs.get("thought_signature")`` first; if absent,
-    falls back to scanning ``message.tool_calls`` for a bytes
-    ``thought_signature`` (per CONTEXT.md ``<specifics>`` PROV-04 library
-    surfacing uncertainty). Returns the canonical
-    ``{"provider": "gemini", "thought_signature": <bytes>}`` shape that
-    matches ``FOUR_SHAPE_PAYLOADS[3]`` in the Phase 8 conformance harness.
+    Three capture paths in priority order:
 
-    ``replay_reasoning_state`` walks ``outbound`` in reverse to find the
-    most-recent ``AIMessage`` and writes the captured bytes back onto its
-    ``additional_kwargs["thought_signature"]`` so the next outbound Gemini
-    request carries the signature back to the API. PROV-04 ships
-    single-signature replay; per-tool-call alignment is a future
-    extension if/when the library surface demands it.
+    1. **Real lcgg 4.x wire shape:**
+       ``additional_kwargs["__gemini_function_call_thought_signatures__"]``
+       — ``dict[tool_call_id_str, base64_signature_str]``. lcgg's
+       outbound serializer reads from this key to re-attach signatures to
+       outgoing FunctionCalls. Captured as
+       ``{"provider": "gemini", "function_call_thought_signatures": <dict>}``.
 
-    PROV-04 is EXPERIMENTAL — empirical median is logged-not-gated (D-09-08).
-    Decisiveness / critique-loop fix is deferred per memory
-    ``project_w10_migration_necessary_not_sufficient``; this adapter delivers
-    the state-preservation half of the PROV-04 charter.
+    2. **Phase 8 fixture / synthetic shape:**
+       ``additional_kwargs["thought_signature"]`` — ``bytes`` (D-09-09).
+       Captured as ``{"provider": "gemini", "thought_signature": <bytes>}``
+       matching ``FOUR_SHAPE_PAYLOADS[3]``.
+
+    3. **Per-tool-call surfacing variant:** scan ``message.tool_calls``
+       for any dict carrying a ``thought_signature`` key with bytes
+       value. Captured as the synthetic-shape bytes payload.
+
+    Replay re-attaches the captured payload to the most-recent outbound
+    ``AIMessage`` at the SAME wire-shape key that the capture identified —
+    so the round-trip wire shape is preserved exactly. No base64
+    encoding / decoding inside the adapter — strings stay strings and
+    bytes stay bytes; lcgg 4.x owns the base64 ↔ raw-bytes conversion at
+    its own serialization boundary.
+
+    PROV-04 is EXPERIMENTAL — empirical median is logged-not-gated
+    (D-09-08). Decisiveness / critique-loop fix is deferred per memory
+    ``project_w10_migration_necessary_not_sufficient``; this adapter
+    delivers the state-preservation half of the PROV-04 charter.
     """
 
     PROVIDER_KEY = "gemini"
 
     def capture_reasoning_state(self, message: AIMessage) -> StatePayload | None:
-        # ── Primary path: additional_kwargs["thought_signature"] ────────────
-        # The Phase 8 fixture (D-09-09) is shaped this way; the
-        # MockReasoningAdapter conformance harness asserts the
-        # additional_kwargs path end-to-end. Most likely the
-        # langchain-google-genai 4.x wrapper surfaces it here too.
-        signature = message.additional_kwargs.get("thought_signature")
+        # ── Path 1: real lcgg 4.x wire shape (live-probe-confirmed) ─────────
+        # `__gemini_function_call_thought_signatures__` is a dict of
+        # per-tool-call base64 signature strings. lcgg's outbound
+        # serializer reads from this key when re-emitting FunctionCalls.
+        # The live `gemini-3.1-pro-preview` probe (2026-06-05) surfaced
+        # this as the real wire shape — the Phase 8 fixture bytes-shape
+        # never appears in production traffic.
+        fc_signatures = message.additional_kwargs.get(_FUNCTION_CALL_THOUGHT_SIGNATURES_KEY)
+        if isinstance(fc_signatures, dict) and fc_signatures:
+            # Shallow-copy the dict and its values (values are str, already
+            # immutable) so downstream mutation of the captured payload
+            # cannot reach back into the message's own kwargs container
+            # (T-09-04-T3 mutation safety).
+            return {
+                "provider": self.PROVIDER_KEY,
+                "function_call_thought_signatures": dict(fc_signatures),
+            }
+
+        # ── Path 2: Phase 8 fixture / synthetic shape ───────────────────────
+        # The conformance harness drives the adapter through this key. Real
+        # lcgg 4.x never populates `additional_kwargs["thought_signature"]`
+        # at the top level (signatures live on the function-call map or on
+        # content-block `extras` — not at the AIMessage kwarg root). This
+        # path keeps REASON-02 conformance asserting byte-for-byte
+        # survival through the reducer while Path 1 handles real traffic.
+        signature = message.additional_kwargs.get(_SYNTHETIC_FIXTURE_KEY)
         if isinstance(signature, bytes):
             # Defensive copy: bytes is immutable so identity == equality, but
-            # the defensive bytes(signature) makes T-09-04-T3 mutation safety
-            # mechanically obvious to a reviewer — the captured payload is
-            # never aliased to the message's own kwargs container.
+            # the explicit bytes(signature) makes T-09-04-T3 mutation safety
+            # mechanically obvious to a reviewer.
             return {
                 "provider": self.PROVIDER_KEY,
                 "thought_signature": bytes(signature),
             }
 
-        # ── Fallback path: AIMessage.tool_calls[i]["thought_signature"] ─────
-        # CONTEXT.md <specifics> PROV-04: lcgg 4.x might surface the field
-        # on individual tool_calls rather than additional_kwargs. Scan in
-        # order and capture the FIRST bytes signature found. PROV-04 ships
-        # single-signature; per-call alignment is a future extension if
-        # the library actually emits per-call signatures whose order matters
-        # for the next request (today's contract is single-signature per
-        # turn).
+        # ── Path 3: per-tool-call surfacing variant ─────────────────────────
+        # CONTEXT.md <specifics> PROV-04 flagged this as a possible lcgg
+        # version-specific surfacing. Scan tool_calls for the first bytes
+        # signature found. PROV-04 ships single-signature; per-call
+        # alignment is deferred to a future v2.2 / Phase 10 follow-up.
         tool_calls = getattr(message, "tool_calls", None) or []
         for tc in tool_calls:
             if not isinstance(tc, dict):
                 continue
-            sig = tc.get("thought_signature")
+            sig = tc.get(_SYNTHETIC_FIXTURE_KEY)
             if isinstance(sig, bytes):
                 return {
                     "provider": self.PROVIDER_KEY,
@@ -147,19 +204,34 @@ class GeminiAdapter(ProviderAdapter):
     ) -> list[BaseMessage]:
         if state is None:
             return outbound
+        # Determine which wire shape the payload identifies. Prefer the
+        # real-wire function-call map (Path 1) over the synthetic bytes
+        # (Path 2) when both are present in the payload — defensive
+        # ordering for future payload-shape evolution.
+        fc_signatures = state.get("function_call_thought_signatures")
         signature = state.get("thought_signature")
-        if not isinstance(signature, bytes):
+        if not isinstance(fc_signatures, dict) and not isinstance(signature, bytes):
             return outbound
-        # Walk in reverse to find the most-recent AIMessage. The replay target
-        # is whatever the next outbound LLM call will see as the LAST
-        # assistant turn — that's the message that needs to carry the
-        # thought_signature forward so Gemini's API does not reject the next
-        # request as missing the prior reasoning anchor. Bytes stay bytes
-        # (no base64 encoding — historical foot-gun documented in memory
-        # project_gemini3_thought_signatures).
+
+        # Walk in reverse to find the most-recent AIMessage. The replay
+        # target is whatever the next outbound LLM call will see as the
+        # LAST assistant turn — that's the message that needs to carry the
+        # signature(s) forward so Gemini's API does not lose its prior
+        # reasoning anchor on the next request.
         for msg in reversed(outbound):
             if isinstance(msg, AIMessage):
-                msg.additional_kwargs["thought_signature"] = signature
+                if isinstance(fc_signatures, dict):
+                    # Real-wire path: write back to lcgg's internal map key
+                    # so its outbound serializer re-attaches each signature
+                    # to its corresponding FunctionCall.
+                    msg.additional_kwargs[_FUNCTION_CALL_THOUGHT_SIGNATURES_KEY] = dict(
+                        fc_signatures
+                    )
+                if isinstance(signature, bytes):
+                    # Synthetic-shape path: write back to the Phase 8 fixture
+                    # key. Bytes stay bytes — no base64 encoding (historical
+                    # foot-gun per memory project_gemini3_thought_signatures).
+                    msg.additional_kwargs[_SYNTHETIC_FIXTURE_KEY] = signature
                 break
         return outbound
 

@@ -638,3 +638,160 @@ def test_gemini_adapter_capture_to_replay_round_trip_preserves_bytes_byte_for_by
     assert replayed == original, (
         f"bytes round-trip drifted: original={original!r}, replayed={replayed!r}"
     )
+
+
+# ─── GeminiAdapter — live-wire shape coverage (post-probe 2026-06-05) ────────
+#
+# The live `gemini-3.1-pro-preview` probe via `langchain-google-genai==4.x`
+# surfaced the REAL wire shape for function-call thought signatures:
+#
+#     additional_kwargs["__gemini_function_call_thought_signatures__"]
+#         : dict[tool_call_id_str, base64_signature_str]
+#
+# This is the path real Gemini traffic flows through; the bytes-at-top-level
+# shape from the Phase 8 fixture never appears in production. The adapter
+# handles BOTH (the Phase 8 fixture path gates REASON-02 conformance) — the
+# tests below cover the real-wire path explicitly.
+
+
+def test_gemini_adapter_capture_returns_payload_for_real_lcgg_function_call_map() -> None:
+    """PROV-04 Test 8 (live-wire capture path): when ``additional_kwargs``
+    carries ``__gemini_function_call_thought_signatures__`` as a dict mapping
+    tool_call IDs to base64 signature strings (the real lcgg 4.x wire
+    shape, as confirmed by a 2026-06-05 live probe against
+    ``gemini-3.1-pro-preview``), ``capture_reasoning_state`` extracts the
+    map verbatim and wraps it in
+    ``{"provider": "gemini", "function_call_thought_signatures": <dict>}``.
+    """
+    adapter = GeminiAdapter()
+    fc_map = {
+        "tc_abc": "EtMCCtACAQw51sf3BTHReBemRCHD6WOWV43KPXSO==",
+        "tc_def": "ErICCq8CAQw51scjOGUwKROU3m3IFKNMqErMqrETCQ==",
+    }
+    msg = AIMessage(
+        content="x",
+        additional_kwargs={"__gemini_function_call_thought_signatures__": fc_map},
+    )
+
+    payload = adapter.capture_reasoning_state(msg)
+
+    assert payload is not None
+    assert payload["provider"] == "gemini"
+    assert payload["function_call_thought_signatures"] == fc_map
+
+
+def test_gemini_adapter_capture_does_not_mutate_real_lcgg_function_call_map() -> None:
+    """PROV-04 Test 9 (T-09-04-T3 mutation safety on live-wire path): mutating
+    the captured ``function_call_thought_signatures`` payload MUST NOT reach
+    back into the input ``message.additional_kwargs`` map. The shallow-copy
+    in capture is what defends this contract.
+    """
+    adapter = GeminiAdapter()
+    original_map = {"tc_abc": "sig_str"}
+    msg = AIMessage(
+        content="x",
+        additional_kwargs={"__gemini_function_call_thought_signatures__": original_map},
+    )
+    before = dict(msg.additional_kwargs["__gemini_function_call_thought_signatures__"])
+
+    payload = adapter.capture_reasoning_state(msg)
+    assert payload is not None
+    # Tamper with the captured map; the input's map MUST remain unchanged.
+    payload["function_call_thought_signatures"]["tc_abc"] = "TAMPERED"
+    payload["function_call_thought_signatures"]["tc_new"] = "INJECTED"
+
+    after = dict(msg.additional_kwargs["__gemini_function_call_thought_signatures__"])
+    assert after == before, (
+        f"capture leaked a shared reference into the input message's "
+        f"function_call_thought_signatures map (T3 mitigation failed): "
+        f"before={before!r}, after={after!r}"
+    )
+
+
+def test_gemini_adapter_replay_writes_real_lcgg_function_call_map_on_most_recent_ai() -> None:
+    """PROV-04 Test 10 (live-wire replay path): when the captured payload
+    carries ``function_call_thought_signatures``, ``replay_reasoning_state``
+    writes the dict back to ``additional_kwargs[
+    "__gemini_function_call_thought_signatures__"]`` on the most-recent
+    outbound AIMessage. lcgg 4.x's outbound serializer reads from this key
+    and re-attaches each base64 signature to its corresponding FunctionCall
+    so the next live Gemini request preserves the reasoning anchor.
+    """
+    adapter = GeminiAdapter()
+    outbound = [
+        HumanMessage(content="h"),
+        AIMessage(content="a"),
+        AIMessage(content="b"),
+    ]
+    fc_map = {"tc_xyz": "base64_sig_str"}
+    state = {"provider": "gemini", "function_call_thought_signatures": fc_map}
+
+    result = adapter.replay_reasoning_state(outbound, state)
+
+    assert result is outbound
+    # Most-recent AIMessage carries the function-call map at the lcgg key.
+    assert (
+        outbound[-1].additional_kwargs.get("__gemini_function_call_thought_signatures__") == fc_map
+    )
+    # Earlier AIMessage was NOT tagged.
+    assert outbound[1].additional_kwargs.get("__gemini_function_call_thought_signatures__") is None
+
+
+def test_gemini_adapter_real_lcgg_path_takes_priority_over_synthetic_path() -> None:
+    """PROV-04 Test 11 (priority ordering): when BOTH wire shapes are present
+    on the same AIMessage (synthetic edge case — unlikely in production but
+    possible if a synthetic test path leaks the fixture key through), the
+    real-wire ``function_call_thought_signatures`` dict captures first.
+    Real traffic should never carry both; this test documents the
+    deterministic priority for future maintainers.
+    """
+    adapter = GeminiAdapter()
+    msg = AIMessage(
+        content="x",
+        additional_kwargs={
+            "__gemini_function_call_thought_signatures__": {"tc_1": "sig_str"},
+            "thought_signature": b"\x00\x01\x02",
+        },
+    )
+
+    payload = adapter.capture_reasoning_state(msg)
+
+    assert payload is not None
+    # Real-wire path wins: payload carries the dict, NOT the bytes.
+    assert "function_call_thought_signatures" in payload
+    assert payload["function_call_thought_signatures"] == {"tc_1": "sig_str"}
+    assert "thought_signature" not in payload
+
+
+def test_gemini_adapter_real_lcgg_round_trip_preserves_dict_keys_and_values() -> None:
+    """PROV-04 Test 12 (live-wire round-trip): the captured + replayed
+    ``function_call_thought_signatures`` dict survives equal through the
+    adapter contract. Keys (tool_call IDs) and values (base64 strings) MUST
+    be preserved exactly so lcgg's outbound serializer can re-align each
+    signature with its corresponding FunctionCall.
+    """
+    adapter = GeminiAdapter()
+    original_map = {
+        "tc_aaa": "ErICCq8CAQw51scjOGUwKROU3m3IFKNMqErMqrETCQ==",
+        "tc_bbb": "EtMCCtACAQw51sf3BTHReBemRCHD6WOWV43KPXSO==",
+        "tc_ccc": "EtACAQw5xyzABC123==",
+    }
+    source = AIMessage(
+        content="x",
+        additional_kwargs={"__gemini_function_call_thought_signatures__": original_map},
+    )
+    payload = adapter.capture_reasoning_state(source)
+    assert payload is not None
+
+    outbound = [HumanMessage(content="h"), AIMessage(content="next")]
+    adapter.replay_reasoning_state(outbound, payload)
+
+    replayed = outbound[-1].additional_kwargs.get("__gemini_function_call_thought_signatures__")
+    assert isinstance(replayed, dict), (
+        "replayed function_call_thought_signatures MUST be a dict (lcgg's "
+        f"outbound serializer reads it as a mapping); got type={type(replayed).__name__}"
+    )
+    assert replayed == original_map, (
+        f"function_call_thought_signatures round-trip drifted: "
+        f"original={original_map!r}, replayed={replayed!r}"
+    )
