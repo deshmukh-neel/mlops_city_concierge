@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 9
-status: "Phase 9 — Plan 1 of 5 SHIPPED-WITH-GAP; Wave 2 unblocked"
-last_updated: "2026-06-05T22:00:00.000Z"
-last_activity: "2026-06-05 -- Plan 09-01 SHIPPED-WITH-GAP per Option 3 (accept-with-notes, D-06-09 precedent); PROV-01 complete; Wave 2 (09-02 DeepSeek) unblocked"
+status: "Phase 9 — Plan 2 of 5 SHIPPED-WITH-GAP; Wave 3 unblocked"
+last_updated: "2026-06-05T19:08:17.347Z"
+last_activity: "2026-06-05 -- Plan 09-02 SHIPPED-WITH-GAP per Wave 1 D-06-09 precedent; PROV-02 complete; Wave 3 (09-03 Anthropic Claude) unblocked"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 17
-  completed_plans: 14
-  percent: 41
+  completed_plans: 15
+  percent: 44
 ---
 
 # Project State
@@ -58,10 +58,10 @@ Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
 ## Current Position
 
 Phase: 09 (per-provider-state-preservation-implementations) — EXECUTING
-Plan: 1 of 5 complete (09-01 openai-gpt5-adapter SHIPPED-WITH-GAP); next is 09-02 (deepseek-reasoner-adapter)
-Status: Phase 09 — Plan 1 of 5 complete (SHIPPED-WITH-GAP). Next: Plan 09-02 (deepseek-reasoner-adapter), Wave 2.
-Last activity: 2026-06-05 -- Plan 09-01 SHIPPED-WITH-GAP per Option 3 (accept-with-notes, D-06-09 precedent); PROV-01 complete; Wave 2 unblocked
+Plan: 2 of 5 complete (09-01 SHIPPED-WITH-GAP, 09-02 SHIPPED-WITH-GAP). Next: Plan 09-03 (anthropic-claude-wiring), Wave 3.
+Status: Phase 09 — Plan 2 of 5 complete (SHIPPED-WITH-GAP). Next: Plan 09-03 (anthropic-claude-wiring), Wave 3.
+Last activity: 2026-06-05 -- Plan 09-02 SHIPPED-WITH-GAP per Wave 1 D-06-09 precedent; PROV-02 complete; Wave 3 (09-03 Anthropic Claude) unblocked
 
 ### Blockers
 
-None active. Plan 09-01's D-09-02 BLOCKER resolved 2026-06-05 as CLOSED: SHIPPED-WITH-GAP per Option 3 (accept-with-notes, D-06-09 precedent). PROV-01 charter delivered (probe→Path B→subclass+adapter+conformance tests pass, 0/5→2/5 commit-rate lift); residual Part A gap (0.4 vs 0.6) is downstream of state preservation (critique-loop on reasoning models per `project_reasoning_models_break_agent_loop`) and carried forward to v2.1 phases 2-4. See `.planning/phases/09-per-provider-state-preservation-implementations/09-PROV-01-BLOCKER.md` Resolution section and `09-01-SUMMARY.md` "Ship rationale".
+None active. Plan 09-02's PROV-02 lower-bar gate (`deepseek-reasoner × refinement_minimal_edit` median ≥ 0.6) fails at 0.0 — accepted-with-notes per Wave 1 D-06-09 precedent: adapter charter delivered (5 unit + 1 conformance test pass; reasoning_content round-trips through `graph.ainvoke`); 5/5 runs hit the documented `low_similarity` critique-loop signature; decisiveness gap is downstream of state preservation per `project_deepseek_decisiveness_gap` + `project_reasoning_models_break_agent_loop` memories and carried forward to v2.1 phases 2-4. See `.planning/phases/09-per-provider-state-preservation-implementations/09-02-SUMMARY.md` "Ship rationale" section. Plan 09-01's D-09-02 BLOCKER stays CLOSED: SHIPPED-WITH-GAP per Option 3.
