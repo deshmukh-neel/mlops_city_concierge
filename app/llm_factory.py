@@ -196,6 +196,20 @@ _DEEPSEEK_REASONER_THINKING_ENABLED: frozenset[str] = frozenset({"deepseek-reaso
 # (4096 default; Phase 10 baseline regen may tune).
 _ANTHROPIC_THINKING_BUDGET: dict[str, int] = {"claude-sonnet-4-6": 4096}
 
+# PROV-03 (Plan 09-03 live-probe correction 2026-06-05): the Anthropic Messages
+# API REQUIRES `max_tokens > thinking.budget_tokens`; without an explicit
+# `max_tokens` on `ChatAnthropic`, langchain-anthropic falls back to a small
+# default (1024) which is ≤ our 4096 thinking budget, and every live call 400s
+# with `max_tokens must be greater than thinking.budget_tokens` (request_id
+# observed: req_011CbkjwQB58bHtNcShLSV59). Unit + conformance tests passed
+# without this because they construct synthetic AIMessages and never reach the
+# real API. We pin `max_tokens` at 2× the thinking budget (8192 default for
+# claude-sonnet-4-6) so ~4096 tokens stay available for the visible reply text
+# after the thinking budget is consumed. Sonnet 4.x supports up to 64K output
+# tokens, so 8192 is well within model limits. Symmetric dict shape with
+# `_ANTHROPIC_THINKING_BUDGET` keeps the per-model tuning surface uniform.
+_ANTHROPIC_MAX_TOKENS: dict[str, int] = {"claude-sonnet-4-6": 8192}
+
 
 # ─── Scripted provider (EVAL-09 / P4) ────────────────────────────────────────
 #
@@ -369,11 +383,18 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
         # never construct an Anthropic model (CI scripted runs, tests).
         from langchain_anthropic import ChatAnthropic
 
+        # max_tokens MUST be > thinking.budget_tokens or Anthropic returns 400
+        # ("max_tokens must be greater than thinking.budget_tokens"). The
+        # langchain-anthropic default is too low (1024); pin explicitly here.
+        # See _ANTHROPIC_MAX_TOKENS comment above for the live-probe story.
+        budget_tokens = _ANTHROPIC_THINKING_BUDGET.get(chat_model, 4096)
+        max_tokens = _ANTHROPIC_MAX_TOKENS.get(chat_model, 8192)
         anthropic_kwargs: dict[str, object] = {
             "thinking": {
                 "type": "enabled",
-                "budget_tokens": _ANTHROPIC_THINKING_BUDGET.get(chat_model, 4096),
+                "budget_tokens": budget_tokens,
             },
+            "max_tokens": max_tokens,
         }
         return ChatAnthropic(
             model=chat_model,

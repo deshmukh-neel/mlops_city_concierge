@@ -165,6 +165,62 @@ def test_build_chat_model_anthropic_returns_chatanthropic_with_thinking_enabled(
     assert kwargs["thinking"] == {"type": "enabled", "budget_tokens": 4096}
 
 
+def test_anthropic_branch_sets_max_tokens_above_thinking_budget(mocker, monkeypatch) -> None:
+    """PROV-03 live-probe correction (2026-06-05): the Anthropic Messages API
+    requires `max_tokens > thinking.budget_tokens`. Without an explicit
+    `max_tokens`, langchain-anthropic's default (1024) is ≤ the 4096 thinking
+    budget and every live call 400s with `max_tokens must be greater than
+    thinking.budget_tokens` (observed request_id req_011CbkjwQB58bHtNcShLSV59).
+
+    Factory MUST pass `max_tokens` explicitly, MUST default to 8192 for
+    claude-sonnet-4-6 (2× the 4096 budget, leaves 4096 for visible reply
+    text), and MUST be strictly > the thinking budget.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    cls = mocker.patch("langchain_anthropic.ChatAnthropic", return_value="anthropic-llm")
+
+    build_chat_model("anthropic", "claude-sonnet-4-6", temperature=1.0)
+
+    _, kwargs = cls.call_args
+    # max_tokens is passed (not relying on langchain-anthropic default).
+    assert "max_tokens" in kwargs, (
+        "anthropic branch must set max_tokens explicitly — without it, "
+        "langchain-anthropic's default (1024) is ≤ the 4096 thinking budget "
+        "and the API 400s with `max_tokens must be greater than "
+        "thinking.budget_tokens` on every call."
+    )
+    # Default matches the _ANTHROPIC_MAX_TOKENS dict for claude-sonnet-4-6.
+    assert kwargs["max_tokens"] == 8192
+    # Strictly > thinking.budget_tokens — the Anthropic API constraint.
+    assert kwargs["max_tokens"] > kwargs["thinking"]["budget_tokens"], (
+        "max_tokens must be strictly greater than thinking.budget_tokens "
+        "(Anthropic API constraint)."
+    )
+
+
+def test_anthropic_branch_max_tokens_falls_back_for_unknown_model(mocker, monkeypatch) -> None:
+    """The `_ANTHROPIC_MAX_TOKENS.get(chat_model, 8192)` fallback applies for any
+    Claude model not explicitly listed (e.g. a future Opus / Haiku build) so
+    new model strings don't silently regress to langchain-anthropic's too-low
+    default. 8192 (2× the default 4096 budget) keeps the API invariant
+    satisfied for any model that also falls through `_ANTHROPIC_THINKING_BUDGET`.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    cls = mocker.patch("langchain_anthropic.ChatAnthropic", return_value="anthropic-llm")
+
+    build_chat_model("anthropic", "claude-opus-future", temperature=1.0)
+
+    _, kwargs = cls.call_args
+    assert kwargs["max_tokens"] == 8192
+    assert kwargs["max_tokens"] > kwargs["thinking"]["budget_tokens"]
+
+
 def test_build_chat_model_anthropic_uses_default_budget_when_model_not_in_dict(
     mocker, monkeypatch
 ) -> None:
