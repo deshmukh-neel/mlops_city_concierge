@@ -573,3 +573,192 @@ def test_scripted_chat_model_default_scripted_list_is_per_instance() -> None:
         "ScriptedChatModel.scripted must be per-instance; a shared default "
         "would leak pop()s across the matrix runner's parallel cells."
     )
+
+
+# ─── Phase 9 / WR-01: OpenAIReasoningChatModel._lift_reasoning_blocks ────────
+#
+# The lift is the sole bridge between the OpenAI Responses-API content-block
+# shape and the documented additional_kwargs["reasoning_content"] contract
+# that OpenAIReasoningAdapter reads. PROV-01 SHIPPED-WITH-GAP at 0.4 vs ≥ 0.6
+# because the conformance harness only planted additional_kwargs directly —
+# the actual lift path was never asserted. These tests close that gap so a
+# future langchain-openai version bump that changes content shape will
+# fail loudly in unit tests instead of silently no-op'ing in production.
+
+
+def test_openai_reasoning_chat_model_lifts_reasoning_blocks_into_kwargs() -> None:
+    """WR-01 Test 1: `_lift_reasoning_blocks` copies `{"type": "reasoning"}`
+    blocks from `AIMessage.content` to `additional_kwargs["reasoning_content"]`
+    when content is a list. This is the path the gpt-5 family Responses-API
+    response goes through to surface reasoning state on the documented
+    adapter-contract key.
+    """
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.llm_factory import OpenAIReasoningChatModel
+
+    msg = AIMessage(
+        content=[
+            {"type": "reasoning", "summary": "thought process"},
+            {"type": "text", "text": "the answer"},
+        ]
+    )
+    result = ChatResult(generations=[ChatGeneration(message=msg)])
+    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    out_msg = lifted.generations[0].message
+    # Only the reasoning block is lifted — the text block stays in content.
+    assert out_msg.additional_kwargs["reasoning_content"] == [
+        {"type": "reasoning", "summary": "thought process"},
+    ]
+
+
+def test_openai_reasoning_chat_model_lift_is_noop_on_str_content() -> None:
+    """WR-01 Test 2: tool-call responses, refusals, and the Chat-Completions
+    fallback shape all carry `str` content. The lift must NOT crash on this
+    path — `isinstance(content, list)` short-circuits before the dict scan.
+    No reasoning_content is added when none exists.
+    """
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.llm_factory import OpenAIReasoningChatModel
+
+    msg = AIMessage(content="plain string response")
+    result = ChatResult(generations=[ChatGeneration(message=msg)])
+    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    assert "reasoning_content" not in lifted.generations[0].message.additional_kwargs
+
+
+def test_openai_reasoning_chat_model_lift_isolates_inner_block_dicts() -> None:
+    """WR-01 Test 3 + WR-05 contract: the docstring promises "downstream
+    mutation of the additional_kwargs entry cannot reach back into `content`".
+    Plain `list(...)` copy of the outer list is NOT enough — the inner block
+    dicts must also be copied, otherwise mutating
+    `additional_kwargs["reasoning_content"][0]["summary"]` mutates the same
+    dict still aliased in `msg.content`. Mirrors the per-block-dict copy in
+    `AnthropicAdapter.capture_reasoning_state`.
+    """
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.llm_factory import OpenAIReasoningChatModel
+
+    msg = AIMessage(content=[{"type": "reasoning", "summary": "original"}])
+    result = ChatResult(generations=[ChatGeneration(message=msg)])
+    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    out_msg = lifted.generations[0].message
+    # Mutate the lifted inner-dict — content's inner dict must NOT be aliased.
+    out_msg.additional_kwargs["reasoning_content"][0]["summary"] = "TAMPERED"
+    assert msg.content[0]["summary"] == "original", (
+        "inner-dict alias leaked into msg.content — WR-05 mitigation broke. "
+        f"Got: {msg.content[0]!r}"
+    )
+
+
+def test_openai_reasoning_chat_model_lift_noop_when_no_reasoning_blocks() -> None:
+    """WR-01 Test 4: list content with only text/tool_use blocks (no
+    `{"type": "reasoning"}` entry) yields no `reasoning_content` kwarg —
+    matches the D-08-02 contract default for non-reasoning responses.
+    """
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.llm_factory import OpenAIReasoningChatModel
+
+    msg = AIMessage(content=[{"type": "text", "text": "answer"}])
+    result = ChatResult(generations=[ChatGeneration(message=msg)])
+    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    assert "reasoning_content" not in lifted.generations[0].message.additional_kwargs
+
+
+def test_openai_reasoning_chat_model_lift_handles_non_aimessage_generations() -> None:
+    """WR-01 Test 5: defensive `isinstance(msg, AIMessage)` guard skips
+    non-AIMessage generations without crashing. langchain-openai always
+    yields AIMessage today; the guard documents the contract.
+    """
+    from langchain_core.messages import HumanMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.llm_factory import OpenAIReasoningChatModel
+
+    # HumanMessage is not an AIMessage — lift should skip it without raising.
+    msg = HumanMessage(content="not an AI message")
+    result = ChatResult(generations=[ChatGeneration(message=msg)])
+    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    # Returned unchanged (identity preserved).
+    assert lifted is result
+
+
+def test_openai_reasoning_chat_model_generate_wires_through_lift(mocker) -> None:
+    """WR-01 Test 6 (sync parity): `_generate` calls `_lift_reasoning_blocks`
+    on the result returned by the parent `ChatOpenAI._generate`. Verifies
+    the gpt-5 lift hook is wired into the sync codepath.
+    """
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.llm_factory import OpenAIReasoningChatModel
+
+    parent_result = ChatResult(
+        generations=[
+            ChatGeneration(
+                message=AIMessage(
+                    content=[
+                        {"type": "reasoning", "summary": "lifted"},
+                        {"type": "text", "text": "ok"},
+                    ]
+                )
+            )
+        ]
+    )
+    mocker.patch(
+        "langchain_openai.ChatOpenAI._generate",
+        return_value=parent_result,
+    )
+    model = OpenAIReasoningChatModel(model="gpt-5-mini", api_key="test")
+    out = model._generate(messages=[])
+    out_msg = out.generations[0].message
+    assert out_msg.additional_kwargs["reasoning_content"] == [
+        {"type": "reasoning", "summary": "lifted"},
+    ]
+
+
+async def test_openai_reasoning_chat_model_agenerate_wires_through_lift(mocker) -> None:
+    """WR-01 Test 7 (async parity): `_agenerate` calls `_lift_reasoning_blocks`
+    on the result returned by the parent `ChatOpenAI._agenerate`. Without
+    this wire, async tool-loop traffic would silently drop reasoning state
+    while sync traffic preserved it — exactly the asymmetric-coverage
+    failure mode that bit Anthropic in 09-03.
+    """
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.llm_factory import OpenAIReasoningChatModel
+
+    parent_result = ChatResult(
+        generations=[
+            ChatGeneration(
+                message=AIMessage(
+                    content=[
+                        {"type": "reasoning", "summary": "lifted-async"},
+                        {"type": "text", "text": "ok"},
+                    ]
+                )
+            )
+        ]
+    )
+
+    async def _fake_agenerate(self, *args, **kwargs):  # noqa: ANN001
+        return parent_result
+
+    mocker.patch(
+        "langchain_openai.ChatOpenAI._agenerate",
+        _fake_agenerate,
+    )
+    model = OpenAIReasoningChatModel(model="gpt-5-mini", api_key="test")
+    out = await model._agenerate(messages=[])
+    out_msg = out.generations[0].message
+    assert out_msg.additional_kwargs["reasoning_content"] == [
+        {"type": "reasoning", "summary": "lifted-async"},
+    ]

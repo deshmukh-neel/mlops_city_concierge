@@ -97,9 +97,16 @@ class OpenAIReasoningChatModel(ChatOpenAI):
         We COPY rather than move so LangChain's Responses-API outbound
         serializer (which round-trips reasoning blocks in `content`) keeps
         working on the wire while the adapter contract still has access via
-        the documented `additional_kwargs` path. The list is shallow-copied
-        so downstream mutation of the additional_kwargs entry cannot reach
-        back into `content`.
+        the documented `additional_kwargs` path.
+
+        Per-block dict copy (WR-05 mitigation): `[dict(b) for b in ...]`
+        instead of `list(...)`. Plain list-copy preserves inner-dict aliasing
+        — a downstream consumer that mutates
+        `msg.additional_kwargs["reasoning_content"][0]["summary"]` would
+        mutate the same dict still living in `msg.content`. Per-block
+        shallow copy matches the documented isolation contract and mirrors
+        the AnthropicAdapter.capture_reasoning_state pattern (`[dict(b) for
+        b in thinking_blocks]`).
         """
         for gen in result.generations:
             msg = gen.message
@@ -109,12 +116,12 @@ class OpenAIReasoningChatModel(ChatOpenAI):
             if not isinstance(content, list):
                 continue
             reasoning_blocks = [
-                block
+                dict(block)
                 for block in content
                 if isinstance(block, dict) and block.get("type") == "reasoning"
             ]
             if reasoning_blocks:
-                msg.additional_kwargs["reasoning_content"] = list(reasoning_blocks)
+                msg.additional_kwargs["reasoning_content"] = reasoning_blocks
         return result
 
     def _generate(
