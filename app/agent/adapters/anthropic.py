@@ -111,15 +111,56 @@ class AnthropicAdapter(ProviderAdapter):
         for msg in reversed(outbound):
             if isinstance(msg, AIMessage):
                 existing = msg.content
+                # ─────────────────────────────────────────────────────────────
+                # PROV-03 live-run idempotency fix (2026-06-05): Anthropic
+                # returns AIMessages with thinking_blocks ALREADY ON .content
+                # (langchain-anthropic surfaces them as content blocks, not
+                # additional_kwargs — that's the documented asymmetry). The
+                # graph's plan() loop calls `capture` after each ainvoke and
+                # `replay` BEFORE each ainvoke. Inside a single agent turn,
+                # the same AIMessage gets seen by both — capture stashes its
+                # thinking_blocks on additional_kwargs["_reasoning_state"];
+                # replay was unconditionally prepending them back onto
+                # .content, DUPLICATING the blocks (`content` became
+                # [thinking, thinking, text, tool_use]). Anthropic's API
+                # then 400s on the next request:
+                #
+                #   400 — messages.1.content.1: `thinking` or
+                #   `redacted_thinking` blocks in the latest assistant message
+                #   cannot be modified. These blocks must remain as they were
+                #   in the original response.
+                #   (request_id req_011CbkoAUyWgQkkoYCe3D5yj)
+                #
+                # The fix: skip the prepend when the target AIMessage already
+                # carries thinking blocks in its content list — they are
+                # already the wire-correct, byte-identical signed blocks from
+                # the original Anthropic response, so no replay is needed.
+                # When content has no thinking blocks (str shape from a pruned
+                # AIMessage outside the keep-window, or a list with only
+                # text/tool_use blocks), the original replay logic applies so
+                # the signature survives the prune cutoff.
+                # ─────────────────────────────────────────────────────────────
                 if isinstance(existing, list):
+                    already_has_thinking = any(
+                        isinstance(b, dict) and b.get("type") == "thinking" for b in existing
+                    )
+                    if already_has_thinking:
+                        # Wire-correct blocks already present; do NOT prepend
+                        # duplicates. Anthropic's signature contract is
+                        # satisfied by the original response's blocks.
+                        break
                     # Prepend the captured blocks; preserve any non-thinking
                     # blocks already in the list (e.g. tool_use blocks the
-                    # graph appended for the agent loop).
+                    # graph appended for the agent loop). This branch fires
+                    # when prune dropped the thinking blocks but
+                    # additional_kwargs survived.
                     msg.content = list(blocks) + existing
                 elif isinstance(existing, str):
                     # Promote str content to a list-of-blocks shape so the
                     # outbound payload matches Anthropic's expected wire
-                    # format when thinking_blocks are present.
+                    # format when thinking_blocks are present. Common after
+                    # _prune_for_llm converts an older AIMessage's list
+                    # content to str via str(m.content).
                     msg.content = list(blocks) + [{"type": "text", "text": existing}]
                 else:
                     # Unexpected content shape (None, dict, etc.) — set to

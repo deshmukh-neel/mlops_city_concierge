@@ -304,6 +304,64 @@ def test_anthropic_adapter_replay_prepends_thinking_blocks_to_list_content() -> 
     assert msg_content[0]["signature"] == "abc"
 
 
+def test_anthropic_adapter_replay_is_idempotent_when_thinking_blocks_already_present() -> None:
+    """PROV-03 live-run idempotency fix (2026-06-05): when the target AIMessage
+    ALREADY has thinking blocks in its content list (the normal case for
+    Anthropic — langchain-anthropic surfaces them on .content directly), the
+    replay MUST NOT prepend duplicates. Inside the agent's plan() loop,
+    `capture` runs after each ainvoke (stashes blocks on additional_kwargs)
+    and `replay` runs before the NEXT ainvoke — so within a single agent
+    turn that AIMessage is seen by both. Unconditional prepending produced
+    `content=[thinking, thinking, text, tool_use]` and Anthropic 400'd with
+    'thinking or redacted_thinking blocks in the latest assistant message
+    cannot be modified' (request_id req_011CbkoAUyWgQkkoYCe3D5yj).
+
+    The fix: detect that thinking blocks are already present in content and
+    leave the message untouched — the existing blocks are the wire-correct
+    signed originals from Anthropic's response.
+    """
+    adapter = AnthropicAdapter()
+    original_thinking = {"type": "thinking", "signature": "abc", "thinking": "..."}
+    text_block = {"type": "text", "text": "the visible reply"}
+    tool_use_block = {"type": "tool_use", "id": "tu_1", "name": "search", "input": {}}
+    outbound = [
+        HumanMessage(content="h"),
+        AIMessage(content=[original_thinking, text_block, tool_use_block]),
+    ]
+    state = {
+        "provider": "anthropic",
+        "thinking_blocks": [{"type": "thinking", "signature": "abc", "thinking": "..."}],
+    }
+
+    adapter.replay_reasoning_state(outbound, state)
+
+    msg_content = outbound[-1].content
+    assert isinstance(msg_content, list)
+    # Length unchanged — no duplicate prepended.
+    assert len(msg_content) == 3, (
+        f"replay duplicated thinking blocks; content has {len(msg_content)} "
+        f"blocks but should still have 3 (the original Anthropic response). "
+        "This is the PROV-03 live-run 400 root cause."
+    )
+    # Original blocks intact in original order (value-equality; the adapter
+    # MAY leave the list spine untouched or rebind it — either is acceptable
+    # provided the content remains the wire-correct original).
+    assert msg_content[0] == original_thinking
+    assert msg_content[1] == text_block
+    assert msg_content[2] == tool_use_block
+    # Critical wire-contract assertion: the signature on the (only) thinking
+    # block is byte-identical to the original. Anthropic's API rejects any
+    # mutation, so even a duplicate-and-restore round-trip would 400.
+    assert msg_content[0]["signature"] == "abc"
+    # No "thinking" block appears more than once.
+    thinking_count = sum(
+        1 for b in msg_content if isinstance(b, dict) and b.get("type") == "thinking"
+    )
+    assert thinking_count == 1, (
+        f"expected exactly 1 thinking block in content, found {thinking_count}"
+    )
+
+
 def test_anthropic_adapter_replay_promotes_str_content_to_list_with_thinking_blocks() -> None:
     """PROV-03 Test 5 (replay onto str content): when the most-recent
     AIMessage's ``content`` is a string (e.g. earlier non-thinking turn),
