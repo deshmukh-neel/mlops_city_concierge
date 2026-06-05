@@ -22,9 +22,12 @@ entries:
     model: deepseek-chat
     env:
       REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
-  # Phase 9 / D-09-12 / PROV-01: GATED. Milestone anchor gate — median 5/5
-  # commits at temp=1.0 with OpenAIReasoningAdapter. Gate enforced by
-  # make eval-matrix-refinement (local) and scripts/check_baselines_fresh.py (CI).
+  # Phase 9 / D-09-12 / PROV-01: GATED. Milestone anchor gate (D-09-02 re-scoped
+  # 2026-06-05 per user-approved Option A — see 09-PROV-01-BLOCKER.md Resolution):
+  # 2-part — Part A (hard): committed_itinerary_rate ≥ 0.6 on temp=1.0 with
+  # OpenAIReasoningAdapter; Part B (advisory): refinement_minimal_edit median ≥ 0.5.
+  # Gate enforced by make eval-matrix-refinement (local) and
+  # scripts/check_baselines_fresh.py (CI).
   - provider: openai
     model: gpt-5-mini
     env:
