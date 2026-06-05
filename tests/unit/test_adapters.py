@@ -470,26 +470,24 @@ def test_gemini_adapter_capture_returns_payload_when_additional_kwargs_signature
     assert payload == {"provider": "gemini", "thought_signature": b"\x00\x01\x02"}
 
 
-def test_gemini_adapter_capture_returns_payload_when_tool_calls_carry_signature() -> None:
-    """PROV-04 Test 2 (capture, tool_calls fallback path): when
-    ``additional_kwargs`` lacks ``thought_signature`` but a tool_call carries
-    it, ``capture_reasoning_state`` STILL captures the bytes — falls back to
-    scanning ``message.tool_calls`` (CONTEXT.md <specifics> PROV-04: lcgg 4.x
-    might surface the field on individual tool_calls rather than at the
-    top-level kwarg).
-
-    Note: langchain_core's ``AIMessage`` constructor coerces ``tool_calls`` via
-    a strict ``ToolCall`` TypedDict that rejects extra keys (``thought_signature``).
-    We bypass the constructor coercion by building the message with a valid
-    base tool_call and then assigning the augmented list directly to the
-    attribute, mirroring how ``langchain-google-genai`` 4.x would populate
-    the field if it chose the per-tool-call surfacing path.
+def test_gemini_adapter_capture_returns_none_when_tool_calls_carry_signature() -> None:
+    """PROV-04 Test 2 (WR-02 regression guard, 2026-06-05): the obsolete
+    Path 3 scanned ``message.tool_calls`` for a bytes ``thought_signature``
+    key and captured it under the synthetic-shape payload. The Wave 4 live
+    probe confirmed lcgg 4.x surfaces per-call signatures EXCLUSIVELY at
+    ``additional_kwargs[_FUNCTION_CALL_THOUGHT_SIGNATURES_KEY]`` (Path 1),
+    never on individual tool_call dicts. Path 3 was dead code with an
+    asymmetric round-trip (captured from tool_calls but replayed to
+    additional_kwargs), so WR-02 removed it. This test pins the new
+    behavior: a per-call tool_call signature is IGNORED on capture, so
+    Path 1 / Path 2 are the only paths in play.
     """
     adapter = GeminiAdapter()
     msg = AIMessage(content="x")
     # Direct attribute assignment bypasses TypedDict coercion — this matches
-    # the runtime shape lcgg 4.x produces when it surfaces thought_signature
-    # at the per-tool-call level rather than on additional_kwargs.
+    # the runtime shape lcgg 4.x produces. After WR-02, this signature is
+    # ignored because the live probe confirmed lcgg does not place
+    # signatures here.
     msg.tool_calls = [
         {
             "name": "search",
@@ -501,9 +499,7 @@ def test_gemini_adapter_capture_returns_payload_when_tool_calls_carry_signature(
 
     payload = adapter.capture_reasoning_state(msg)
 
-    # First bytes signature found in tool_calls; PROV-04 ships single-signature
-    # (per-call alignment deferred to a future v2.2 / Phase 10 follow-up).
-    assert payload == {"provider": "gemini", "thought_signature": b"\xaa\xbb"}
+    assert payload is None
 
 
 def test_gemini_adapter_capture_returns_none_when_no_signature_present() -> None:

@@ -27,7 +27,7 @@ The Phase 8 fixture's bytes-at-top-level shape is the IDEALIZED shape and
 still gates REASON-02 conformance via the synthetic harness; the
 real-wire shape is what production traffic carries.
 
-PROV-04 supports BOTH:
+PROV-04 supports TWO capture paths:
 
 1. **Primary capture path (real lcgg 4.x):**
    ``additional_kwargs["__gemini_function_call_thought_signatures__"]``
@@ -45,13 +45,13 @@ PROV-04 supports BOTH:
    keeps the REASON-02 conformance harness passing byte-for-byte while
    the primary path handles real wire traffic.
 
-3. **Per-tool-call fallback (lcgg surfacing variant):** scan
-   ``message.tool_calls`` for any dict carrying a ``thought_signature``
-   key — CONTEXT.md ``<specifics>`` PROV-04 flagged this as a possible
-   lcgg-version surfacing. Captured as the synthetic-shape bytes payload
-   when found.
+A prior Path 3 scanned ``message.tool_calls`` for per-call bytes signatures
+as a speculative lcgg surfacing variant. The Wave 4 live probe confirmed
+lcgg surfaces per-call signatures EXCLUSIVELY at Path 1's key — Path 3 was
+dead code and its replay was asymmetric (captured from tool_calls but
+written back to additional_kwargs), so WR-02 removed it 2026-06-05.
 
-The three capture paths are tried in priority order; the FIRST one that
+The two capture paths are tried in priority order; the FIRST one that
 yields a non-empty payload wins. Replay symmetrically writes back to
 whichever key the captured payload identifies (function-call map dict OR
 thought_signature bytes), so a captured payload always round-trips back
@@ -112,7 +112,7 @@ _SYNTHETIC_FIXTURE_KEY = "thought_signature"
 class GeminiAdapter(ProviderAdapter):
     """``ProviderAdapter`` for the Gemini 3 family (D-09-08 / D-09-09).
 
-    Three capture paths in priority order:
+    Two capture paths in priority order:
 
     1. **Real lcgg 4.x wire shape:**
        ``additional_kwargs["__gemini_function_call_thought_signatures__"]``
@@ -126,9 +126,10 @@ class GeminiAdapter(ProviderAdapter):
        Captured as ``{"provider": "gemini", "thought_signature": <bytes>}``
        matching ``FOUR_SHAPE_PAYLOADS[3]``.
 
-    3. **Per-tool-call surfacing variant:** scan ``message.tool_calls``
-       for any dict carrying a ``thought_signature`` key with bytes
-       value. Captured as the synthetic-shape bytes payload.
+    (A previous Path 3 scanned ``message.tool_calls`` for per-call bytes
+    signatures; WR-02 removed it 2026-06-05 after the Wave 4 live probe
+    confirmed lcgg never surfaces signatures there — it was dead code with
+    an asymmetric capture-vs-replay round-trip.)
 
     Replay re-attaches the captured payload to the most-recent outbound
     ``AIMessage`` at the SAME wire-shape key that the capture identified —
@@ -181,21 +182,17 @@ class GeminiAdapter(ProviderAdapter):
                 "thought_signature": bytes(signature),
             }
 
-        # ── Path 3: per-tool-call surfacing variant ─────────────────────────
-        # CONTEXT.md <specifics> PROV-04 flagged this as a possible lcgg
-        # version-specific surfacing. Scan tool_calls for the first bytes
-        # signature found. PROV-04 ships single-signature; per-call
-        # alignment is deferred to a future v2.2 / Phase 10 follow-up.
-        tool_calls = getattr(message, "tool_calls", None) or []
-        for tc in tool_calls:
-            if not isinstance(tc, dict):
-                continue
-            sig = tc.get(_SYNTHETIC_FIXTURE_KEY)
-            if isinstance(sig, bytes):
-                return {
-                    "provider": self.PROVIDER_KEY,
-                    "thought_signature": bytes(sig),
-                }
+        # ── Path 3 (REMOVED 2026-06-05, WR-02) ──────────────────────────────
+        # A previous Path 3 scanned `message.tool_calls` for a `thought_signature`
+        # bytes value and captured it under the synthetic-shape key. The Wave 4
+        # live probe against the pinned `langchain-google-genai>=4.0.0,<5.0.0`
+        # confirmed lcgg surfaces per-call signatures EXCLUSIVELY at
+        # `additional_kwargs[_FUNCTION_CALL_THOUGHT_SIGNATURES_KEY]` (Path 1),
+        # never on individual tool_call dicts. Capture-from-tool_calls + replay-
+        # to-additional_kwargs was an asymmetric round-trip that would silently
+        # drop the signature on the wire — dead code in a security-adjacent
+        # context (state round-trip drives provider 400s) is a regression
+        # hazard. Path 1 (real lcgg) + Path 2 (synthetic fixture) suffice.
 
         return None
 
