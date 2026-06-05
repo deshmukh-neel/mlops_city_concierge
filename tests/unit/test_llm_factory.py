@@ -36,10 +36,12 @@ def test_build_chat_model_dispatches_per_provider(
 
 
 def test_build_chat_model_rejects_unknown_provider(mocker, monkeypatch) -> None:
-    # anthropic is a provider resolve_llm_api_key KNOWS but the factory does
-    # NOT support. Null every key so the contract is enforced by
-    # SUPPORTED_PROVIDERS, not incidentally by a missing key (the bug: passed
-    # locally with a .env anthropic key, failed in CI without one).
+    # PROV-03 (Phase 9 / Plan 09-03) added "anthropic" to SUPPORTED_PROVIDERS,
+    # so the original unknown-provider sentinel (anthropic) is now supported.
+    # Use a still-unsupported provider name to keep the test exercising the
+    # "factory enforces its own contract before resolve_llm_api_key" path that
+    # the original CI-vs-local regression (passed locally with a .env key,
+    # failed in CI without one) was about.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     # If the factory ever calls resolve_llm_api_key for an unsupported
     # provider, that's the bug — it must reject via SUPPORTED_PROVIDERS first.
@@ -48,15 +50,24 @@ def test_build_chat_model_rejects_unknown_provider(mocker, monkeypatch) -> None:
         side_effect=AssertionError("must reject before key resolution"),
     )
     with pytest.raises(ValueError, match="Unsupported llm_provider"):
-        build_chat_model("anthropic", "claude", temperature=0.0)
+        build_chat_model("definitely-not-a-provider", "x", temperature=0.0)
 
 
 def test_supported_providers_is_the_contract() -> None:
     # Plan 03-05 extends the contract with 'scripted' (EVAL-09 / P4) — the
     # CI-safe deterministic branch that needs no API key and makes no network
-    # calls. See test_supported_providers_includes_scripted for the explicit
-    # named guard.
-    assert SUPPORTED_PROVIDERS == ("openai", "gemini", "deepseek", "kimi", "scripted")
+    # calls. Plan 09-03 / PROV-03 appends 'anthropic' for the first-time
+    # Claude wiring; both anthropic_api_key Setting + resolve_llm_api_key
+    # branch were pre-existing per D-09-05, so this is a one-line tuple
+    # append (no app/config.py edit needed).
+    assert SUPPORTED_PROVIDERS == (
+        "openai",
+        "gemini",
+        "deepseek",
+        "kimi",
+        "anthropic",
+        "scripted",
+    )
 
 
 def test_deepseek_disables_thinking_for_tool_calls(mocker, monkeypatch) -> None:
@@ -321,10 +332,17 @@ def test_scripted_scenarios_dict_exposed() -> None:
 
 
 def test_supported_providers_includes_scripted() -> None:
-    """SUPPORTED_PROVIDERS contract update."""
+    """SUPPORTED_PROVIDERS contract update — Plan 09-03 also adds 'anthropic'."""
     from app.llm_factory import SUPPORTED_PROVIDERS
 
-    assert SUPPORTED_PROVIDERS == ("openai", "gemini", "deepseek", "kimi", "scripted")
+    assert SUPPORTED_PROVIDERS == (
+        "openai",
+        "gemini",
+        "deepseek",
+        "kimi",
+        "anthropic",
+        "scripted",
+    )
 
 
 # ─── Plan 03-09 Task 1: CR-02 (fresh AIMessage) + IN-05 (self-documenting) ──

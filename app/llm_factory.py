@@ -138,7 +138,14 @@ class OpenAIReasoningChatModel(ChatOpenAI):
         return self._lift_reasoning_blocks(result)
 
 
-SUPPORTED_PROVIDERS: tuple[str, ...] = ("openai", "gemini", "deepseek", "kimi", "scripted")
+SUPPORTED_PROVIDERS: tuple[str, ...] = (
+    "openai",
+    "gemini",
+    "deepseek",
+    "kimi",
+    "anthropic",
+    "scripted",
+)
 
 # Phase 9 / PROV-01 (D-09-03): OpenAI model families that should be wired
 # through `OpenAIReasoningChatModel` so reasoning content survives the agent's
@@ -181,6 +188,13 @@ _GEMINI_THINKING_ONLY: frozenset[str] = frozenset({"gemini-3.1-pro-preview"})
 # the existing deepseek-chat / deepseek-v4-pro paths stay on the documented
 # thinking-disabled policy that the v2.0 production agent relies on.
 _DEEPSEEK_REASONER_THINKING_ENABLED: frozenset[str] = frozenset({"deepseek-reasoner"})
+
+# PROV-03 (D-09-06): Claude models that run with thinking ENABLED + temp=1.0
+# despite feedback_temp1_reasoning_off_all_models. Rationale: Sonnet 4.6 with
+# thinking disabled is just regular Sonnet — no thinking_blocks to round-trip
+# means no AnthropicAdapter signal at all. budget_tokens is Claude's Discretion
+# (4096 default; Phase 10 baseline regen may tune).
+_ANTHROPIC_THINKING_BUDGET: dict[str, int] = {"claude-sonnet-4-6": 4096}
 
 
 # ─── Scripted provider (EVAL-09 / P4) ────────────────────────────────────────
@@ -336,6 +350,36 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
             google_api_key=SecretStr(api_key),
             temperature=temperature,
             **gemini_kwargs,
+        )
+    if provider == "anthropic":
+        # PROV-03 (D-09-05 + D-09-06): first-time Anthropic wiring. ``anthropic``
+        # joined ``SUPPORTED_PROVIDERS`` in Phase 9 / PROV-03; ``app/config.py``
+        # already shipped the ``anthropic_api_key`` Setting + ``resolve_llm_api_key``
+        # branch pre-Phase-9 (verified by re-grep, no edits needed here).
+        #
+        # Carve-out: thinking ENABLED + temp=1.0 even though
+        # ``feedback_temp1_reasoning_off_all_models`` says otherwise — Claude
+        # Sonnet 4.6 with thinking disabled is just regular Sonnet and emits
+        # NO ``thinking_blocks``, so ``AnthropicAdapter.capture_reasoning_state``
+        # has nothing to round-trip. The signed thinking blocks Anthropic emits
+        # MUST round-trip byte-identical on the next request or the API 400s,
+        # which is exactly the wire contract Phase 9 PROV-03 exercises.
+        #
+        # Lazy import: keeps the dependency optional for environments that
+        # never construct an Anthropic model (CI scripted runs, tests).
+        from langchain_anthropic import ChatAnthropic
+
+        anthropic_kwargs: dict[str, object] = {
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": _ANTHROPIC_THINKING_BUDGET.get(chat_model, 4096),
+            },
+        }
+        return ChatAnthropic(
+            model=chat_model,
+            api_key=SecretStr(api_key),
+            temperature=temperature,
+            **anthropic_kwargs,
         )
     if provider == "deepseek":
         # PROV-02 / D-09-04: model-level conditional. Default policy is
