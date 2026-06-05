@@ -363,6 +363,96 @@ def test_anthropic_adapter_replay_is_idempotent_when_thinking_blocks_already_pre
     )
 
 
+def test_anthropic_adapter_replay_logs_when_target_signature_differs_from_captured(
+    caplog,
+) -> None:
+    """WR-04 observability (2026-06-05): when the idempotency guard skips
+    replay because the target AIMessage already has thinking blocks BUT
+    the existing block signatures DIFFER from the captured payload's
+    signatures, the silent-discard path emits a debug log. Behavior is
+    unchanged — target wins, captured payload is discarded — but the log
+    surfaces "signature-set mismatch" so a future bug-hunt has telemetry.
+
+    Real-world trigger: a revision step or graph reducer mis-order
+    replaces the latest AIMessage with one carrying different signed
+    blocks between capture and replay. Without the log, the captured
+    payload vanishes with no observable signal.
+    """
+    import logging
+
+    adapter = AnthropicAdapter()
+    target_thinking = {"type": "thinking", "signature": "TARGET_SIG", "thinking": "t"}
+    outbound = [
+        HumanMessage(content="h"),
+        AIMessage(content=[target_thinking, {"type": "text", "text": "reply"}]),
+    ]
+    # Captured payload carries a DIFFERENT signature than the target's
+    # existing thinking block.
+    state = {
+        "provider": "anthropic",
+        "thinking_blocks": [
+            {"type": "thinking", "signature": "CAPTURED_SIG", "thinking": "c"},
+        ],
+    }
+
+    with caplog.at_level(logging.DEBUG, logger="app.agent.adapters.anthropic"):
+        adapter.replay_reasoning_state(outbound, state)
+
+    # Behavior contract: target wins — content unchanged (no prepend, no
+    # mutation of the target's wire-correct signed block).
+    msg_content = outbound[-1].content
+    assert isinstance(msg_content, list)
+    assert msg_content[0]["signature"] == "TARGET_SIG"
+    # Observability contract: the debug log surfaces both signature sets.
+    debug_messages = [
+        rec.getMessage()
+        for rec in caplog.records
+        if rec.name == "app.agent.adapters.anthropic" and rec.levelno == logging.DEBUG
+    ]
+    assert any("TARGET_SIG" in m and "CAPTURED_SIG" in m for m in debug_messages), (
+        "WR-04 debug log missing: expected a record naming both "
+        "TARGET_SIG (existing) and CAPTURED_SIG (discarded). "
+        f"Got debug records: {debug_messages!r}"
+    )
+
+
+def test_anthropic_adapter_replay_does_not_log_when_signatures_match(
+    caplog,
+) -> None:
+    """WR-04 false-positive guard (2026-06-05): when the target's existing
+    thinking-block signatures MATCH the captured payload's signatures
+    (the normal in-loop case where capture-then-replay sees the same
+    AIMessage), the idempotency skip is benign and the debug log MUST
+    NOT fire — otherwise prod logs would fill with spurious "discarded"
+    messages every agent turn.
+    """
+    import logging
+
+    adapter = AnthropicAdapter()
+    same_thinking = {"type": "thinking", "signature": "SAME_SIG", "thinking": "t"}
+    outbound = [
+        HumanMessage(content="h"),
+        AIMessage(content=[same_thinking, {"type": "text", "text": "reply"}]),
+    ]
+    state = {
+        "provider": "anthropic",
+        "thinking_blocks": [{"type": "thinking", "signature": "SAME_SIG", "thinking": "t"}],
+    }
+
+    with caplog.at_level(logging.DEBUG, logger="app.agent.adapters.anthropic"):
+        adapter.replay_reasoning_state(outbound, state)
+
+    discard_records = [
+        rec
+        for rec in caplog.records
+        if rec.name == "app.agent.adapters.anthropic" and "discarded" in rec.getMessage().lower()
+    ]
+    assert not discard_records, (
+        "WR-04 debug log fired for matching-signature replay (false positive). "
+        f"Got: {[r.getMessage() for r in discard_records]!r}"
+    )
+
+
 def test_anthropic_adapter_replay_promotes_str_content_to_list_with_thinking_blocks() -> None:
     """PROV-03 Test 5 (replay onto str content): when the most-recent
     AIMessage's ``content`` is a string (e.g. earlier non-thinking turn),

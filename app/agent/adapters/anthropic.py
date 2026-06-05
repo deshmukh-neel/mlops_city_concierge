@@ -42,9 +42,13 @@ sibling adapter file (e.g. ``openai_gpt5.py``, ``deepseek.py``,
 
 from __future__ import annotations
 
+import logging
+
 from langchain_core.messages import AIMessage, BaseMessage
 
 from app.agent.adapters import ProviderAdapter, StatePayload
+
+_log = logging.getLogger(__name__)
 
 
 class AnthropicAdapter(ProviderAdapter):
@@ -145,6 +149,36 @@ class AnthropicAdapter(ProviderAdapter):
                         isinstance(b, dict) and b.get("type") == "thinking" for b in existing
                     )
                     if already_has_thinking:
+                        # WR-04 observability: under normal agent-loop flow,
+                        # the target's existing thinking blocks ARE the
+                        # captured ones (capture stashes additional_kwargs;
+                        # the wire blocks remain on content unchanged). If
+                        # the signature sets differ, something between
+                        # capture and replay rewrote the AIMessage (e.g. a
+                        # revision step replaced content with a different
+                        # signed reply, or the graph reducer mis-ordered
+                        # turns). Behavior is unchanged — target wins — but
+                        # a debug log gives future bug-hunts telemetry to
+                        # spot silent payload-discard.
+                        existing_sigs = sorted(
+                            b.get("signature")
+                            for b in existing
+                            if isinstance(b, dict) and b.get("type") == "thinking"
+                        )
+                        captured_sigs = sorted(
+                            b.get("signature") for b in blocks if isinstance(b, dict)
+                        )
+                        if existing_sigs != captured_sigs:
+                            _log.debug(
+                                "AnthropicAdapter.replay: target AIMessage already has "
+                                "thinking blocks with signatures %r but captured payload "
+                                "carried %r — skipping replay (target wins; captured "
+                                "payload discarded). If you see this in production, the "
+                                "agent loop rewrote an AIMessage between capture and "
+                                "replay — verify the graph reducer ordering.",
+                                existing_sigs,
+                                captured_sigs,
+                            )
                         # Wire-correct blocks already present; do NOT prepend
                         # duplicates. Anthropic's signature contract is
                         # satisfied by the original response's blocks.
