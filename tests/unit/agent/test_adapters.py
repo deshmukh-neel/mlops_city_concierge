@@ -87,6 +87,27 @@ def test_noop_adapter_replay_with_none_state_returns_outbound_unchanged() -> Non
     assert replayed[-1].additional_kwargs == {}
 
 
+# WR-03 single source of truth: the expected (provider, adapter-class)
+# mapping for the post-PROV-04 invariant. Driving the registry assertion
+# off this dict (rather than the previous hardcoded "skip if in this tuple"
+# pattern) catches BOTH failure modes:
+#   1. New provider added to SUPPORTED_PROVIDERS without an ADAPTERS entry
+#      — set-equality fails AND this dict misses the new key (forces an
+#      explicit decision: real adapter or stay on NoOp?).
+#   2. Typo'd ADAPTERS key (e.g. "openai2") — set-equality fails because
+#      SUPPORTED_PROVIDERS has the canonical name.
+# When PROV-FUT-* adds a new provider, this mapping is the one edit-site
+# that pins the expected wiring.
+_EXPECTED_REGISTRY_MAPPING: dict[str, type] = {
+    "openai": OpenAIReasoningAdapter,
+    "deepseek": DeepSeekReasonerAdapter,
+    "anthropic": AnthropicAdapter,
+    "gemini": GeminiAdapter,
+    "kimi": NoOpAdapter,
+    "scripted": NoOpAdapter,
+}
+
+
 def test_adapters_registry_keys_match_supported_providers() -> None:
     """D-08-08: ADAPTERS keys MUST equal SUPPORTED_PROVIDERS, no drift.
 
@@ -103,34 +124,39 @@ def test_adapters_registry_keys_match_supported_providers() -> None:
     anthropic, gemini) are wired to their real adapters; the remaining
     entries (`kimi` PROV-FUT-02 library-blocked, `scripted` CI/test-only)
     stay on NoOpAdapter. This test enforces that "key set = full
-    SUPPORTED_PROVIDERS coverage" + "every reasoning-capable provider is
-    wired off NoOp + every non-reasoning provider stays on NoOp".
+    SUPPORTED_PROVIDERS coverage" + "every provider is wired to the
+    expected adapter class".
+
+    WR-03 (2026-06-05): refactored to iterate `_EXPECTED_REGISTRY_MAPPING`
+    instead of a hardcoded skip-list tuple. The previous shape silently
+    accepted typo'd ADAPTERS entries that matched SUPPORTED_PROVIDERS via
+    set-equality but then `continue`'d past the per-provider check; it
+    also misclassified new reasoning-capable providers as "should stay
+    NoOp" until the skip-tuple was manually extended. The dict-driven
+    version surfaces both failure modes loudly.
     """
+    # Set-equality catches "missing key" and "extra key" in ADAPTERS vs
+    # SUPPORTED_PROVIDERS — the D-08-08 invariant.
     assert set(ADAPTERS.keys()) == set(SUPPORTED_PROVIDERS)
-    # Phase 9 / PROV-01: openai key is now wired to OpenAIReasoningAdapter.
-    assert isinstance(ADAPTERS["openai"], OpenAIReasoningAdapter)
-    # Phase 9 / PROV-02: deepseek key is now wired to DeepSeekReasonerAdapter.
-    assert isinstance(ADAPTERS["deepseek"], DeepSeekReasonerAdapter)
-    # Phase 9 / PROV-03: anthropic was added to SUPPORTED_PROVIDERS by Plan
-    # 09-03 (first-time wiring per D-09-05) and immediately swapped to the
-    # real AnthropicAdapter (D-09-06 carve-out: thinking ENABLED + temp=1.0).
-    assert isinstance(ADAPTERS["anthropic"], AnthropicAdapter)
-    # Phase 9 / PROV-04 (Plan 09-04): gemini key is now wired to the real
-    # GeminiAdapter (EXPERIMENTAL — no merge gate per D-09-08; the bytes
-    # `thought_signature` payload round-trips through `additional_kwargs`
-    # mirroring `FOUR_SHAPE_PAYLOADS[3]` in the conformance harness).
-    assert isinstance(ADAPTERS["gemini"], GeminiAdapter)
-    # Providers that PROV-01..04 did NOT swap stay on NoOpAdapter (D-08-08
-    # spirit). After PROV-04 lands, that's `kimi` (PROV-FUT-02 library-blocked)
-    # and `scripted` (CI/test only — never has reasoning state).
-    for provider in SUPPORTED_PROVIDERS:
-        if provider in ("openai", "deepseek", "anthropic", "gemini"):
-            continue
-        assert isinstance(ADAPTERS[provider], NoOpAdapter), (
-            f"ADAPTERS[{provider!r}] was unexpectedly swapped off NoOpAdapter "
-            f"by Plan 09-01..09-04; only `openai`, `deepseek`, `anthropic`, "
-            f"and `gemini` should be swapped post-PROV-04. Got: "
-            f"{type(ADAPTERS[provider]).__name__}"
+    # Cross-check: the expected mapping table mirrors SUPPORTED_PROVIDERS.
+    # If a Phase 9.5/10 PR adds a provider to SUPPORTED_PROVIDERS without
+    # updating _EXPECTED_REGISTRY_MAPPING, this fails — forcing an explicit
+    # wiring decision rather than silent NoOp drift.
+    assert set(_EXPECTED_REGISTRY_MAPPING.keys()) == set(SUPPORTED_PROVIDERS), (
+        "_EXPECTED_REGISTRY_MAPPING is out of sync with SUPPORTED_PROVIDERS. "
+        "When adding a new provider, also add it here with its expected "
+        "adapter class (NoOpAdapter is a valid choice when intentionally "
+        "deferred). "
+        f"Missing from mapping: {set(SUPPORTED_PROVIDERS) - set(_EXPECTED_REGISTRY_MAPPING)}, "
+        f"extra in mapping: {set(_EXPECTED_REGISTRY_MAPPING) - set(SUPPORTED_PROVIDERS)}."
+    )
+    # Per-provider class check: every entry must match the expected class.
+    # Catches "ADAPTERS entry typo'd or accidentally swapped to wrong class"
+    # AND "expected mapping forgot a new provider".
+    for provider, expected_cls in _EXPECTED_REGISTRY_MAPPING.items():
+        assert isinstance(ADAPTERS[provider], expected_cls), (
+            f"ADAPTERS[{provider!r}] expected {expected_cls.__name__}, "
+            f"got {type(ADAPTERS[provider]).__name__}"
         )
 
 
