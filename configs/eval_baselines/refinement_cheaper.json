@@ -1,10 +1,10 @@
 {
   "closure_check_confirmed": "2026-06-04",
-  "generated_at": "2026-06-04T06-25-39Z",
-  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 5 (Phase 7 re-baseline after prompt decoupling + scorer category extension + gpt-5-mini matrix entry + D-07-10 preamble-tightening iteration)",
+  "generated_at": "2026-06-05T04-05-58Z",
+  "generated_by": "APP_ENV=eval poetry run python -m scripts.eval_matrix --matrix-config configs/eval_matrix_refinement.yaml --runs 5 (Phase 9 PROV-01 OpenAIReasoningAdapter milestone anchor gate measurement)",
   "providers": {
     "deepseek/deepseek-chat": {
-      "_observations": "Phase 7 re-baseline (post-prompt-decoupling + scorer category extension + D-07-10 preamble tightening iteration), n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0 via Branch 2 (refinement_context=True, prior_committed_stops=[] because committed_itinerary_rate=0.0 \u2014 DeepSeek's known decisiveness gap, project_deepseek_decisiveness_gap, persists post-Phase-7). Logged-not-gated per D-04-11 / D-06-09 / D-07-08.",
+      "_observations": "Phase 9 PROV-01 reference cell (logged-not-gated). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0; committed_itinerary_rate=0.0 \u2014 DeepSeek's known decisiveness gap (project_deepseek_decisiveness_gap) persists post-Phase-7. Phase 9 PROV-01 did not change DeepSeek wiring; PROV-02 will introduce DeepSeekReasonerAdapter.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
@@ -72,21 +72,21 @@
       }
     },
     "openai/gpt-4o-mini": {
-      "_observations": "Phase 7 re-baseline (post-prompt-decoupling + scorer category extension + D-07-10 preamble-tightening iteration), n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. Reference cell for PROMPT-04 no-regression gate per D-07-10. Pre-Phase-7 snapshot at _snapshots/refinement_cheaper.pre-phase7.json. PROMPT-04 FAILS (delta=-1.000). pre-Phase-7 saturated at 1.0; post-Phase-7 median=0.0; per-run distribution=[0.0, 0.0, 0.0, 0.5, 0.5] (0=3 runs, 0.5=2 runs). committed_itinerary_rate median=1.0 (agent still commits 3 stops on 4/5 runs after revision-loop correction) \u2014 the agent IS functional; the new scorer (D-07-05 + D-07-07 target-slot primary_type sub-check, D-06-09 strict 1.0 binary gate) is what zeros. revision_reasons across cells show stop_count_mismatch retries \u2014 root cause is both (a) scorer tightening from 07-04 and (b) intermediate over-edits from task-only preamble (07-01) that the revision loop corrects but byte-equality already lost on. After D-07-10 preamble-tightening iteration (added single 'Reuse `place_id` and `slot` index of every stop you are not changing exactly as listed' imperative), distribution shifted from all-0.0 to 2\u00d7 0.5 \u2014 partial recovery but median still 0.0. Accepted-with-notes per Phase 6 D-06-09 part 2 precedent: the regression measures honest scorer + prompt-contract divergence, not agent-behavior decay. Phase 10 inherits gpt-4o-mini baseline-regen under the matured Phase-7+ contract.",
+      "_observations": "Phase 9 PROV-01 reference cell (v2.0 anchor; logged-not-gated). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0, max=0.5, distribution=[0.0, 0.5, 0.0, 0.0, 0.0]. Identical median to post-Phase-7 baseline (D-07-10 partial-recovery snapshot); no regression from the gpt-5 Path B subclass \u2014 confirms `_is_openai_reasoning_model` keeps gpt-4o-mini on plain ChatOpenAI per CLAUDE.md v2.0 anchor rule. committed_itinerary_rate=1.0 (5/5 commits).",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
           "median": 0.3333333333333333,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.380058475033046
+          "stdev": 0.4346134936801766
         },
         "category_compliance_strict": {
           "max": 1.0,
           "median": 0.3333333333333333,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.380058475033046
+          "stdev": 0.4346134936801766
         },
         "constraints_satisfied": {
           "max": 1.0,
@@ -112,16 +112,16 @@
         "rationale_stop_alignment": {
           "max": 1.0,
           "median": 1.0,
-          "min": 0.5,
+          "min": 1.0,
           "n": 5,
-          "stdev": 0.22360679774997896
+          "stdev": 0.0
         },
         "refinement_minimal_edit": {
           "max": 0.5,
           "median": 0.0,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.27386127875258304
+          "stdev": 0.22360679774997896
         },
         "temporal_coherence": {
           "max": 1.0,
@@ -140,7 +140,7 @@
       }
     },
     "openai/gpt-5-mini": {
-      "_observations": "Phase 7 PROMPT-05 falsifier cell. n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, reasoning ENABLED per D-07-09. Logged-not-gated per D-07-08. PROMPT-05 falsifier: median=0.0, committed_itinerary_rate=0.0 (2/5 runs committed); state-loss dominates over prompt-coupling \u2014 gpt-5-mini's reasoning_content is dropped by _prune_for_llm so even task-only-plus-imperative preamble doesn't recover the loop. Phase 9 stays at full scope (per-provider state preservation impls) per project_agent_loses_reasoning_state_all_providers.",
+      "_observations": "Phase 9 PROV-01 GATED. n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, OpenAIReasoningAdapter active via OpenAIReasoningChatModel (use_responses_api=True). Milestone anchor gate (D-09-02): refinement_minimal_edit median=0.0 \u2014 GATE FAILED (target 1.0; 5/5 runs scored 0.0). committed_itinerary_rate=0.4 (2/5 runs committed; improvement from Phase-7 falsifier baseline of 2/5, but the committed runs still produce non-minimal edits to the prior plan \u2014 edit-distance scorer returns 0.0). Diagnosis: Path B subclass DOES lift reasoning blocks into additional_kwargs and round-trip them via the Responses-API serializer, but the gpt-5-mini agent loop still hits max_steps on 3/5 runs (revision_reasons=['low_similarity']) and the 2 committed runs choose wholesale stop replacements over minimal edits. Phase 9 PR cannot ship per D-09-02 until either (a) the refinement edit-minimization is recoverable by prompt/critique-loop tuning, or (b) the milestone gate is restructured to a softer threshold + committed_rate gate. See 09-PROV-01-BLOCKER.md for triage paths.",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
