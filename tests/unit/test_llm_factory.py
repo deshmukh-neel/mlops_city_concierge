@@ -160,7 +160,7 @@ def test_build_chat_model_anthropic_returns_chatanthropic_with_thinking_enabled(
     assert out == "anthropic-llm"
     cls.assert_called_once()
     _, kwargs = cls.call_args
-    assert kwargs["model"] == "claude-sonnet-4-6"
+    assert kwargs["model_name"] == "claude-sonnet-4-6"
     assert kwargs["temperature"] == 1.0
     assert kwargs["thinking"] == {"type": "enabled", "budget_tokens": 4096}
 

@@ -161,12 +161,18 @@ class AnthropicAdapter(ProviderAdapter):
                         # a debug log gives future bug-hunts telemetry to
                         # spot silent payload-discard.
                         existing_sigs = sorted(
-                            b.get("signature")
+                            sig
                             for b in existing
                             if isinstance(b, dict) and b.get("type") == "thinking"
+                            for sig in [b.get("signature")]
+                            if isinstance(sig, str)
                         )
                         captured_sigs = sorted(
-                            b.get("signature") for b in blocks if isinstance(b, dict)
+                            sig
+                            for b in blocks
+                            if isinstance(b, dict)
+                            for sig in [b.get("signature")]
+                            if isinstance(sig, str)
                         )
                         if existing_sigs != captured_sigs:
                             _log.debug(

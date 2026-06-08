@@ -405,7 +405,7 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
         # don't have to know the API constraint. D-09-06 already mandates
         # temp=1.0 for the Claude carve-out — this enforces it mechanically.
         anthropic_temperature = 1.0
-        anthropic_kwargs: dict[str, object] = {
+        anthropic_kwargs: dict[str, Any] = {
             "thinking": {
                 "type": "enabled",
                 "budget_tokens": budget_tokens,
@@ -413,7 +413,7 @@ def build_chat_model(llm_provider: str, chat_model: str, temperature: float) -> 
             "max_tokens": max_tokens,
         }
         return ChatAnthropic(
-            model=chat_model,
+            model_name=chat_model,
             api_key=SecretStr(api_key),
             temperature=anthropic_temperature,
             **anthropic_kwargs,
