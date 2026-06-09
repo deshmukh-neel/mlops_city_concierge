@@ -53,20 +53,35 @@ def test_repo_eval_matrix_yaml_loads_via_load_eval_matrix() -> None:
 
 
 def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
-    """configs/eval_matrix_refinement.yaml carries three provider entries
-    with a per-cell env override REFINEMENT_STRUCTURED_PLAN_ENABLED=true on
-    EACH entry, and a single scenario (refinement_cheaper). The merge gate
-    is strict 1.0 on openai/gpt-4o-mini only; DeepSeek and gpt-5-mini are
-    logged but not gated (Phase 7 D-07-08 added gpt-5-mini as the PROMPT-05
-    falsifier cell, mirroring the DeepSeek logged-not-gated precedent).
+    """configs/eval_matrix_refinement.yaml carries the six Phase-9 provider
+    entries with a per-cell env override REFINEMENT_STRUCTURED_PLAN_ENABLED=true
+    on EACH entry, and a single scenario (refinement_cheaper). The merge gate
+    history:
+    - openai/gpt-4o-mini — strict 1.0 (v2.0 anchor)
+    - deepseek/deepseek-chat — logged-not-gated reference (regression guard)
+    - openai/gpt-5-mini — PROV-01 GATED (D-09-02 re-scoped 2026-06-05); the
+      milestone anchor gate (Part A hard committed_itinerary_rate ≥ 0.6,
+      Part B advisory refinement_minimal_edit median ≥ 0.5)
+    - deepseek/deepseek-reasoner — PROV-02 GATED lower-bar median ≥ 0.6
+      (D-09-04 thinking-enabled carve-out via _DEEPSEEK_REASONER_THINKING_ENABLED)
+    - anthropic/claude-sonnet-4-6 — PROV-03 GATED strict median ≥ 1.0
+      (D-09-06 thinking-enabled carve-out via _ANTHROPIC_THINKING_BUDGET;
+      Plan 09-03 first-time Anthropic wiring)
+    - gemini/gemini-3.1-pro-preview — PROV-04 EXPERIMENTAL — no merge gate
+      per D-09-08 (Plan 09-04 first-time bytes thought_signature wiring;
+      critique-loop fix deferred per project_w10_migration_necessary_not_sufficient;
+      empirical median logged-not-gated)
     """
     matrix = load_eval_matrix(REPO_ROOT / "configs/eval_matrix_refinement.yaml")
-    assert len(matrix.entries) == 3
+    assert len(matrix.entries) == 6
     assert len(matrix.scenarios) == 1
     providers = {(e.provider, e.model) for e in matrix.entries}
     assert ("openai", "gpt-4o-mini") in providers
     assert ("deepseek", "deepseek-chat") in providers
     assert ("openai", "gpt-5-mini") in providers
+    assert ("deepseek", "deepseek-reasoner") in providers
+    assert ("anthropic", "claude-sonnet-4-6") in providers
+    assert ("gemini", "gemini-3.1-pro-preview") in providers
     assert matrix.scenarios == ["refinement_cheaper"]
     for entry in matrix.entries:
         assert entry.env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}, (

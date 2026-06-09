@@ -46,6 +46,10 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import Field
 
 from app.agent.adapters import ADAPTERS, MockReasoningAdapter
+from app.agent.adapters.anthropic import AnthropicAdapter
+from app.agent.adapters.deepseek import DeepSeekReasonerAdapter
+from app.agent.adapters.gemini import GeminiAdapter
+from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter
 from app.agent.graph import build_agent_graph
 from app.agent.state import ItineraryState
 
@@ -278,4 +282,337 @@ async def test_reason_05_graph_invoke_preserves_reasoning_state(
         "08-REASON-05-BLOCKER.md and xfail this test per D-08-11. "
         f"Recorded last-input AIMessage additional_kwargs: "
         f"{[m.additional_kwargs for m in ai_messages_in_last]!r}"
+    )
+
+
+# Phase 9 / PROV-01 (D-09-03 Path B) — sibling test that swaps the REAL
+# `OpenAIReasoningAdapter` into `ADAPTERS["scripted"]` and proves the openai
+# `reasoning_content` shape (matching `FOUR_SHAPE_PAYLOADS[0]`) survives the
+# `graph.ainvoke` round-trip end-to-end. The original
+# `test_reason_02_four_shape_roundtrip[payload0]` is unchanged (D-08-13 +
+# canonical_refs lock it); this is a NEW test that asserts the real adapter's
+# wire shape vs the Mock's `_reasoning_state` storage convention.
+async def test_reason_02_openai_real_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REASON-02 + PROV-01: real `OpenAIReasoningAdapter` round-trips
+    `additional_kwargs["reasoning_content"]` (the provider-native key) through
+    `graph.ainvoke`.
+
+    Mechanics:
+    - `monkeypatch.setitem(ADAPTERS, "scripted", OpenAIReasoningAdapter())` so
+      the real adapter is the one `plan()` closes over (no `MockReasoningAdapter`).
+    - The turn-1 scripted `AIMessage` carries
+      `additional_kwargs={"reasoning_content": "thinking..."}` — the shape the
+      `OpenAIReasoningChatModel` subclass would emit for `gpt-5-mini` in prod.
+    - We assert the turn-2 input's most-recent `AIMessage` carries the same
+      `additional_kwargs["reasoning_content"]` value (NOT `_reasoning_state`;
+      graph.py stashes capture output at `_reasoning_state`, but
+      `OpenAIReasoningAdapter.replay_reasoning_state` writes the
+      provider-native `reasoning_content` key on the most-recent AIMessage so
+      the next outbound Responses-API request carries it back to OpenAI).
+    """
+    monkeypatch.setitem(ADAPTERS, "scripted", OpenAIReasoningAdapter())
+
+    # Patch the underlying retrieval helper so act() succeeds without a real DB.
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    turn1_ai = AIMessage(
+        content="searching for bars",
+        tool_calls=[
+            {
+                "name": "semantic_search",
+                "args": {"query": "bar in mission", "k": 3},
+                "id": "call_test_openai_real",
+            },
+        ],
+        additional_kwargs={"reasoning_content": "thinking..."},
+    )
+    recording_llm = RecordingLLM(
+        scripted=[turn1_ai, AIMessage(content="done", tool_calls=[])],
+    )
+    graph = build_agent_graph(recording_llm, max_steps=4, provider="scripted")
+
+    await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="find a bar in mission")]),
+    )
+
+    assert len(recording_llm.recorded_inputs) >= 2, (
+        "expected ≥ 2 recorded LLM invocations across turn-1 + turn-2, "
+        f"got {len(recording_llm.recorded_inputs)}"
+    )
+
+    last_input = recording_llm.recorded_inputs[-1]
+    ai_messages_in_last = [m for m in last_input if isinstance(m, AIMessage)]
+    assert ai_messages_in_last, (
+        "expected at least one AIMessage in the most-recent LLM input; "
+        f"saw types {[type(m).__name__ for m in last_input]}"
+    )
+    # The real adapter writes the provider-native key (NOT _reasoning_state).
+    # walks outbound in reverse → most-recent AIMessage gets tagged.
+    assert ai_messages_in_last[-1].additional_kwargs.get("reasoning_content") == "thinking...", (
+        "OpenAIReasoningAdapter replay did NOT write `reasoning_content` onto "
+        "the most-recent outbound AIMessage's additional_kwargs. "
+        f"Recorded last-input AIMessage additional_kwargs: "
+        f"{[m.additional_kwargs for m in ai_messages_in_last]!r}"
+    )
+
+
+# Phase 9 / PROV-02 (D-09-04 model-level carve-out) — sibling test that swaps
+# the REAL `DeepSeekReasonerAdapter` into `ADAPTERS["scripted"]` and proves the
+# deepseek `reasoning_content` shape (matching `FOUR_SHAPE_PAYLOADS[2]`) survives
+# the `graph.ainvoke` round-trip end-to-end. Mirror of `test_reason_02_openai_real_adapter`
+# — same wire shape (additional_kwargs["reasoning_content"]) because the OpenAI
+# Path B subclass mimicked DeepSeek's documented contract on purpose. The
+# original `test_reason_02_four_shape_roundtrip[payload2]` is unchanged (D-08-13
+# + canonical_refs lock it); this is a NEW test that asserts the real adapter's
+# wire shape vs the Mock's `_reasoning_state` storage convention.
+async def test_reason_02_deepseek_real_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REASON-02 + PROV-02: real `DeepSeekReasonerAdapter` round-trips
+    `additional_kwargs["reasoning_content"]` (the provider-native key) through
+    `graph.ainvoke`.
+
+    Mechanics:
+    - `monkeypatch.setitem(ADAPTERS, "scripted", DeepSeekReasonerAdapter())` so
+      the real adapter is the one `plan()` closes over (no `MockReasoningAdapter`).
+    - The turn-1 scripted `AIMessage` carries
+      `additional_kwargs={"reasoning_content": "bar"}` — the shape `ChatDeepSeek`
+      populates natively for `deepseek-reasoner` when thinking is enabled.
+    - We assert the turn-2 input's most-recent `AIMessage` carries the same
+      `additional_kwargs["reasoning_content"]` value (NOT `_reasoning_state`;
+      graph.py stashes capture output at `_reasoning_state`, but
+      `DeepSeekReasonerAdapter.replay_reasoning_state` writes the
+      provider-native `reasoning_content` key on the most-recent AIMessage so
+      the next outbound DeepSeek API request carries it back — DeepSeek's API
+      400s with "reasoning_content must be passed back" when the field is
+      dropped between turns).
+    """
+    monkeypatch.setitem(ADAPTERS, "scripted", DeepSeekReasonerAdapter())
+
+    # Patch the underlying retrieval helper so act() succeeds without a real DB.
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    turn1_ai = AIMessage(
+        content="searching for bars",
+        tool_calls=[
+            {
+                "name": "semantic_search",
+                "args": {"query": "bar in mission", "k": 3},
+                "id": "call_test_deepseek_real",
+            },
+        ],
+        additional_kwargs={"reasoning_content": "bar"},
+    )
+    recording_llm = RecordingLLM(
+        scripted=[turn1_ai, AIMessage(content="done", tool_calls=[])],
+    )
+    graph = build_agent_graph(recording_llm, max_steps=4, provider="scripted")
+
+    await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="find a bar in mission")]),
+    )
+
+    assert len(recording_llm.recorded_inputs) >= 2, (
+        "expected ≥ 2 recorded LLM invocations across turn-1 + turn-2, "
+        f"got {len(recording_llm.recorded_inputs)}"
+    )
+
+    last_input = recording_llm.recorded_inputs[-1]
+    ai_messages_in_last = [m for m in last_input if isinstance(m, AIMessage)]
+    assert ai_messages_in_last, (
+        "expected at least one AIMessage in the most-recent LLM input; "
+        f"saw types {[type(m).__name__ for m in last_input]}"
+    )
+    # The real adapter writes the provider-native key (NOT _reasoning_state).
+    # walks outbound in reverse → most-recent AIMessage gets tagged.
+    assert ai_messages_in_last[-1].additional_kwargs.get("reasoning_content") == "bar", (
+        "DeepSeekReasonerAdapter replay did NOT write `reasoning_content` onto "
+        "the most-recent outbound AIMessage's additional_kwargs. "
+        f"Recorded last-input AIMessage additional_kwargs: "
+        f"{[m.additional_kwargs for m in ai_messages_in_last]!r}"
+    )
+
+
+# Phase 9 / PROV-03 (D-09-05 + D-09-06) — sibling test that swaps the REAL
+# `AnthropicAdapter` into `ADAPTERS["scripted"]` and proves the anthropic
+# `thinking_blocks` shape (matching `FOUR_SHAPE_PAYLOADS[1]`) survives the
+# `graph.ainvoke` round-trip end-to-end. ASYMMETRY callout: unlike PROV-01 /
+# PROV-02 sibling tests above which assert on `additional_kwargs["reasoning_content"]`,
+# this test asserts on `message.content` — Anthropic surfaces reasoning state
+# on the content block list, not on additional_kwargs (PATTERNS.md §ASYMMETRY
+# CALLOUT). The signed thinking block's `signature` field MUST survive
+# byte-identical or the next live request 400s; the assertion explicitly
+# checks signature equality.
+async def test_reason_02_anthropic_real_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REASON-02 + PROV-03: real `AnthropicAdapter` round-trips signed
+    `thinking_blocks` on `message.content` (NOT `additional_kwargs`) through
+    `graph.ainvoke`.
+
+    Mechanics:
+    - `monkeypatch.setitem(ADAPTERS, "scripted", AnthropicAdapter())` so the
+      real adapter is the one `plan()` closes over (no `MockReasoningAdapter`).
+    - The turn-1 scripted `AIMessage` carries
+      `content=[{"type": "thinking", "signature": "abc", "thinking": "..."},
+                {"type": "text", "text": "searching for bars"}]` — the shape
+      `ChatAnthropic` returns for `claude-sonnet-4-6` with thinking enabled.
+    - We assert the turn-2 input's most-recent `AIMessage` has its content
+      promoted/prepended to a list whose first block is the signed thinking
+      block, AND the signature equals "abc" byte-identical (the contract
+      Anthropic's API enforces on the wire).
+    """
+    monkeypatch.setitem(ADAPTERS, "scripted", AnthropicAdapter())
+
+    # Patch the underlying retrieval helper so act() succeeds without a real DB.
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    turn1_ai = AIMessage(
+        content=[
+            {"type": "thinking", "signature": "abc", "thinking": "..."},
+            {"type": "text", "text": "searching for bars"},
+        ],
+        tool_calls=[
+            {
+                "name": "semantic_search",
+                "args": {"query": "bar in mission", "k": 3},
+                "id": "call_test_anthropic_real",
+            },
+        ],
+    )
+    recording_llm = RecordingLLM(
+        scripted=[turn1_ai, AIMessage(content="done", tool_calls=[])],
+    )
+    graph = build_agent_graph(recording_llm, max_steps=4, provider="scripted")
+
+    await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="find a bar in mission")]),
+    )
+
+    assert len(recording_llm.recorded_inputs) >= 2, (
+        "expected ≥ 2 recorded LLM invocations across turn-1 + turn-2, "
+        f"got {len(recording_llm.recorded_inputs)}"
+    )
+
+    last_input = recording_llm.recorded_inputs[-1]
+    ai_messages_in_last = [m for m in last_input if isinstance(m, AIMessage)]
+    assert ai_messages_in_last, (
+        "expected at least one AIMessage in the most-recent LLM input; "
+        f"saw types {[type(m).__name__ for m in last_input]}"
+    )
+    # The real AnthropicAdapter writes the signed thinking block back onto
+    # `message.content` (NOT `additional_kwargs`). The most-recent AIMessage
+    # in turn-2's input has its content as a list whose first block is the
+    # captured thinking block — with the signature field byte-identical to
+    # what was captured ("abc").
+    final_content = ai_messages_in_last[-1].content
+    assert isinstance(final_content, list), (
+        "AnthropicAdapter replay did NOT keep `message.content` as a list "
+        "of blocks on the most-recent outbound AIMessage. "
+        f"Got type={type(final_content).__name__}; value={final_content!r}"
+    )
+    assert final_content, "expected at least one block in the replayed content list"
+    first_block = final_content[0]
+    assert isinstance(first_block, dict) and first_block.get("type") == "thinking", (
+        "AnthropicAdapter replay did NOT prepend a thinking block onto the "
+        f"most-recent outbound AIMessage's content. Got first block={first_block!r}"
+    )
+    # Byte-identical signature contract — Anthropic's API enforces this on
+    # the wire; the test enforces it before the wire.
+    assert first_block.get("signature") == "abc", (
+        "AnthropicAdapter replay did NOT preserve the byte-identical "
+        f"signature on the round-tripped thinking block. Expected 'abc', "
+        f"got {first_block.get('signature')!r}"
+    )
+
+
+# Phase 9 / PROV-04 (D-09-08 / D-09-09) — sibling test that swaps the REAL
+# `GeminiAdapter` into `ADAPTERS["scripted"]` and proves the gemini
+# `thought_signature` bytes shape (matching `FOUR_SHAPE_PAYLOADS[3]`) survives
+# the `graph.ainvoke` round-trip end-to-end. ASYMMETRY callout: the payload is
+# `bytes` — NOT `str` (PROV-01 / PROV-02 `reasoning_content`) and NOT a
+# heterogeneous block list (PROV-03 `thinking_blocks`). The bytes MUST
+# round-trip byte-identical or the next live Gemini request loses its
+# reasoning anchor (no documented 400, but the model loses the prior
+# turn's chain-of-thought). PROV-04 is EXPERIMENTAL — no merge gate per
+# D-09-08; this conformance test is the PR-blocking acceptance for
+# state-preservation correctness while the empirical median is logged-only.
+async def test_reason_02_gemini_real_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REASON-02 + PROV-04: real `GeminiAdapter` round-trips bytes
+    `thought_signature` on `additional_kwargs` (NOT `_reasoning_state`)
+    through `graph.ainvoke`.
+
+    Mechanics:
+    - `monkeypatch.setitem(ADAPTERS, "scripted", GeminiAdapter())` so the
+      real adapter is the one `plan()` closes over (no `MockReasoningAdapter`).
+    - The turn-1 scripted `AIMessage` carries
+      `additional_kwargs={"thought_signature": b"\\x00\\x01\\x02"}` — the
+      shape `langchain-google-genai>=4.2.0` would emit for
+      `gemini-3.1-pro-preview` with thinking enabled (the primary capture
+      path; the tool_calls fallback covered in the unit tests).
+    - We assert the turn-2 input's most-recent `AIMessage` carries the same
+      `additional_kwargs["thought_signature"]` bytes value (NOT
+      `_reasoning_state`; graph.py stashes capture output at
+      `_reasoning_state`, but `GeminiAdapter.replay_reasoning_state` writes
+      the provider-native `thought_signature` key on the most-recent
+      AIMessage so the next outbound Gemini API request carries it back).
+    - **Bytes byte-identity assertion** — the contract is bytes-in / bytes-out
+      with no encoding drift (memory `project_gemini3_thought_signatures`
+      documents the base64-as-str foot-gun; this test guards against it).
+    """
+    monkeypatch.setitem(ADAPTERS, "scripted", GeminiAdapter())
+
+    # Patch the underlying retrieval helper so act() succeeds without a real DB.
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    turn1_ai = AIMessage(
+        content="searching for bars",
+        tool_calls=[
+            {
+                "name": "semantic_search",
+                "args": {"query": "bar in mission", "k": 3},
+                "id": "call_test_gemini_real",
+            },
+        ],
+        additional_kwargs={"thought_signature": b"\x00\x01\x02"},
+    )
+    recording_llm = RecordingLLM(
+        scripted=[turn1_ai, AIMessage(content="done", tool_calls=[])],
+    )
+    graph = build_agent_graph(recording_llm, max_steps=4, provider="scripted")
+
+    await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="find a bar in mission")]),
+    )
+
+    assert len(recording_llm.recorded_inputs) >= 2, (
+        "expected ≥ 2 recorded LLM invocations across turn-1 + turn-2, "
+        f"got {len(recording_llm.recorded_inputs)}"
+    )
+
+    last_input = recording_llm.recorded_inputs[-1]
+    ai_messages_in_last = [m for m in last_input if isinstance(m, AIMessage)]
+    assert ai_messages_in_last, (
+        "expected at least one AIMessage in the most-recent LLM input; "
+        f"saw types {[type(m).__name__ for m in last_input]}"
+    )
+    # The real adapter writes the provider-native key (NOT _reasoning_state).
+    # walks outbound in reverse → most-recent AIMessage gets tagged.
+    replayed = ai_messages_in_last[-1].additional_kwargs.get("thought_signature")
+    # Bytes-only type assertion — the wire contract is bytes-in / bytes-out.
+    assert isinstance(replayed, bytes), (
+        "GeminiAdapter replay did NOT write bytes to `thought_signature` on "
+        f"the most-recent outbound AIMessage. Got type={type(replayed).__name__}; "
+        f"value={replayed!r}. Recorded last-input AIMessage additional_kwargs: "
+        f"{[m.additional_kwargs for m in ai_messages_in_last]!r}"
+    )
+    # Byte-identical round-trip — no encoding drift (the documented foot-gun).
+    assert replayed == b"\x00\x01\x02", (
+        "GeminiAdapter replay did NOT preserve the byte-identical "
+        f"thought_signature on round-trip. Expected b'\\x00\\x01\\x02', "
+        f"got {replayed!r}"
     )

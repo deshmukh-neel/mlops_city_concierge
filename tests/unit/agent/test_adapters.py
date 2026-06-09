@@ -12,8 +12,12 @@ from langchain_core.messages import AIMessage
 
 from app.agent.adapters import (
     ADAPTERS,
+    AnthropicAdapter,
+    DeepSeekReasonerAdapter,
+    GeminiAdapter,
     MockReasoningAdapter,
     NoOpAdapter,
+    OpenAIReasoningAdapter,
     ProviderAdapter,
     StatePayload,
 )
@@ -83,14 +87,77 @@ def test_noop_adapter_replay_with_none_state_returns_outbound_unchanged() -> Non
     assert replayed[-1].additional_kwargs == {}
 
 
+# WR-03 single source of truth: the expected (provider, adapter-class)
+# mapping for the post-PROV-04 invariant. Driving the registry assertion
+# off this dict (rather than the previous hardcoded "skip if in this tuple"
+# pattern) catches BOTH failure modes:
+#   1. New provider added to SUPPORTED_PROVIDERS without an ADAPTERS entry
+#      — set-equality fails AND this dict misses the new key (forces an
+#      explicit decision: real adapter or stay on NoOp?).
+#   2. Typo'd ADAPTERS key (e.g. "openai2") — set-equality fails because
+#      SUPPORTED_PROVIDERS has the canonical name.
+# When PROV-FUT-* adds a new provider, this mapping is the one edit-site
+# that pins the expected wiring.
+_EXPECTED_REGISTRY_MAPPING: dict[str, type] = {
+    "openai": OpenAIReasoningAdapter,
+    "deepseek": DeepSeekReasonerAdapter,
+    "anthropic": AnthropicAdapter,
+    "gemini": GeminiAdapter,
+    "kimi": NoOpAdapter,
+    "scripted": NoOpAdapter,
+}
+
+
 def test_adapters_registry_keys_match_supported_providers() -> None:
     """D-08-08: ADAPTERS keys MUST equal SUPPORTED_PROVIDERS, no drift.
 
-    Every value in Phase 8 is a NoOpAdapter — zero behavior change vs
-    Phase 7. Phase 9 sub-phases swap individual entries.
+    Phase 8 shipped every value as a NoOpAdapter — zero behavior change vs
+    Phase 7. Phase 9 sub-phases swap individual entries in place:
+    - PROV-01 (Plan 09-01) swaps `openai` → `OpenAIReasoningAdapter`.
+    - PROV-02 (Plan 09-02) swaps `deepseek` → `DeepSeekReasonerAdapter`.
+    - PROV-03 (Plan 09-03) adds `anthropic` to SUPPORTED_PROVIDERS and swaps
+      it to `AnthropicAdapter` in the same plan.
+    - PROV-04 (Plan 09-04) swaps `gemini` → `GeminiAdapter` (EXPERIMENTAL per
+      D-09-08 — no merge gate; logged-not-gated empirical median).
+
+    Post-PROV-04 invariant: all four reasoning providers (openai, deepseek,
+    anthropic, gemini) are wired to their real adapters; the remaining
+    entries (`kimi` PROV-FUT-02 library-blocked, `scripted` CI/test-only)
+    stay on NoOpAdapter. This test enforces that "key set = full
+    SUPPORTED_PROVIDERS coverage" + "every provider is wired to the
+    expected adapter class".
+
+    WR-03 (2026-06-05): refactored to iterate `_EXPECTED_REGISTRY_MAPPING`
+    instead of a hardcoded skip-list tuple. The previous shape silently
+    accepted typo'd ADAPTERS entries that matched SUPPORTED_PROVIDERS via
+    set-equality but then `continue`'d past the per-provider check; it
+    also misclassified new reasoning-capable providers as "should stay
+    NoOp" until the skip-tuple was manually extended. The dict-driven
+    version surfaces both failure modes loudly.
     """
+    # Set-equality catches "missing key" and "extra key" in ADAPTERS vs
+    # SUPPORTED_PROVIDERS — the D-08-08 invariant.
     assert set(ADAPTERS.keys()) == set(SUPPORTED_PROVIDERS)
-    assert all(isinstance(v, NoOpAdapter) for v in ADAPTERS.values())
+    # Cross-check: the expected mapping table mirrors SUPPORTED_PROVIDERS.
+    # If a Phase 9.5/10 PR adds a provider to SUPPORTED_PROVIDERS without
+    # updating _EXPECTED_REGISTRY_MAPPING, this fails — forcing an explicit
+    # wiring decision rather than silent NoOp drift.
+    assert set(_EXPECTED_REGISTRY_MAPPING.keys()) == set(SUPPORTED_PROVIDERS), (
+        "_EXPECTED_REGISTRY_MAPPING is out of sync with SUPPORTED_PROVIDERS. "
+        "When adding a new provider, also add it here with its expected "
+        "adapter class (NoOpAdapter is a valid choice when intentionally "
+        "deferred). "
+        f"Missing from mapping: {set(SUPPORTED_PROVIDERS) - set(_EXPECTED_REGISTRY_MAPPING)}, "
+        f"extra in mapping: {set(_EXPECTED_REGISTRY_MAPPING) - set(SUPPORTED_PROVIDERS)}."
+    )
+    # Per-provider class check: every entry must match the expected class.
+    # Catches "ADAPTERS entry typo'd or accidentally swapped to wrong class"
+    # AND "expected mapping forgot a new provider".
+    for provider, expected_cls in _EXPECTED_REGISTRY_MAPPING.items():
+        assert isinstance(ADAPTERS[provider], expected_cls), (
+            f"ADAPTERS[{provider!r}] expected {expected_cls.__name__}, "
+            f"got {type(ADAPTERS[provider]).__name__}"
+        )
 
 
 def test_mock_reasoning_adapter_captures_stored_payload() -> None:

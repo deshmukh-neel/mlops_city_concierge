@@ -32,12 +32,12 @@
 
 ### 🚧 v2.1 Reasoning-Model Compat (Phases 7-10)
 
-Empirical anchor gate: `gpt-5-mini × refinement_cheaper × prod × flag-on` commits 3 stops in median 5/5 runs at temp=1.0 (currently 0/1).
+Empirical anchor gate (D-09-02 re-scoped 2026-06-05 per user-approved Option A; original strict scorer was a Phase-6 baseline-saturation artifact): `gpt-5-mini × refinement_cheaper × prod × flag-on × temp=1.0` 2-part gate — Part A (hard) `committed_itinerary_rate ≥ 0.6`; Part B (advisory) `refinement_minimal_edit median ≥ 0.5`.
 Without this, every new reasoning model the field ships in 2026 is permanently unusable on this codebase.
 
 - [x] **Phase 7: Prompt/Rubric Decoupling** — Behavioral rules move from prompt body to scorer; no regression on v2.0 anchor; serves as falsifier for Phase 8 architectural diagnosis (completed 2026-06-04)
 - [x] **Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness** — Typed `ProviderAdapter` contract + per-provider conformance tests + `_prune_for_llm` refactor; doubles as harness-swap decision gate (completed 2026-06-04)
-- [ ] **Phase 9: Per-Provider State Preservation Implementations** — One sub-phase each: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (+ Anthropic wiring) → Gemini 3 (experimental); milestone anchor gate lands here
+- [x] **Phase 9: Per-Provider State Preservation Implementations** — One sub-phase each: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (+ Anthropic wiring) → Gemini 3 (experimental); milestone anchor gate lands here (completed 2026-06-05)
 - [ ] **Phase 10: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open; add three new cross-model anchors; lock per-family merge gates in CI
 
 ## Phase Details
@@ -110,7 +110,7 @@ Plans:
 **Requirements**: PROV-01, PROV-02, PROV-03, PROV-04, PROV-05
 **Success Criteria** (what must be TRUE):
 
-  1. `ProviderAdapter` implementation for OpenAI gpt-5 family is merged and the milestone anchor gate is met: `gpt-5-mini × refinement_cheaper × prod × flag-on` commits 3 stops in median 5/5 runs at temp=1.0 (PROV-01).
+  1. `ProviderAdapter` implementation for OpenAI gpt-5 family is merged and the milestone anchor gate is met (D-09-02 re-scoped 2026-06-05 per user-approved Option A): `gpt-5-mini × refinement_cheaper × prod × flag-on × temp=1.0` — Part A (hard) `committed_itinerary_rate ≥ 0.6`; Part B (advisory) `refinement_minimal_edit median ≥ 0.5` (PROV-01).
   2. `ProviderAdapter` implementation for DeepSeek reasoner is merged; `deepseek-reasoner × refinement_cheaper` median >= 0.6 across 5 runs at temp=1.0 (PROV-02; lower bar, exploratory).
   3. `ProviderAdapter` implementation for Anthropic Claude is merged AND `claude` is added to `SUPPORTED_PROVIDERS` in `app/llm_factory.py` with a new `build_chat_model` branch and `langchain-anthropic` in `pyproject.toml`; `claude-sonnet-4-6 × refinement_cheaper` median >= 1.0 across 5 runs at temp=1.0 (PROV-03).
   4. `ProviderAdapter` implementation for Gemini 3 is merged as experimental (no merge gate); `thought_signature` round-trips cleanly through a 2-turn loop in the conformance harness; a known-issues note accompanies the commit and Gemini 3 is absent from the prod matrix (PROV-04).
@@ -144,7 +144,7 @@ Plans:
 | 6. Minimal-Edit Refinement                     | v2.0      | 7/7            | Complete    | 2026-06-03 |
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
-| 9. Per-Provider State Preservation Impls       | v2.1      | 0/TBD          | Pending     | -          |
+| 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
 | 10. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
 ---
