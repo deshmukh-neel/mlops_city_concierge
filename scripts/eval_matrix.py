@@ -245,7 +245,14 @@ def aggregate_cell_jsons(
     whatever name `_apply_override` wrote into the cell filenames.
     """
     # Group raw scorer scores per (scenario_id, provider_label, scorer).
+    # Also accumulate n_scored / n_errored and the per-run errors list per
+    # (scenario_id, provider_label) for D-10-03 cell validity threading.
     grouped: dict[str, dict[str, dict[str, list[float]]]] = {}
+    # D-10-03: per-(scenario, provider) error counters and errors list.
+    error_counts: dict[str, dict[str, dict[str, Any]]] = {}
+    # Top-level errors list: {cell, stage, type} entries from errored cells.
+    top_level_errors: list[dict[str, str]] = []
+
     for path in sorted(output_dir.glob("*.json")):
         if path.name == "summary.json":
             continue
@@ -271,20 +278,73 @@ def aggregate_cell_jsons(
         for scorer_name, value in _scorer_means_from_cell(payload).items():
             provider_block.setdefault(scorer_name, []).append(value)
 
+        # D-10-03: read n_scored / n_errored / errors from the cell aggregate.
+        # Legacy cell JSONs (pre-10-01) omit these fields; default to n_errored=0
+        # (backward-compatible — a legacy cell without error fields is treated as
+        # fully scored with no errors).
+        cell_aggregate = payload.get("aggregate") or {}
+        cell_n_scored = int(cell_aggregate.get("n_scored", 0))
+        cell_n_errored = int(cell_aggregate.get("n_errored", 0))
+        cell_errors: list[dict[str, str]] = list(cell_aggregate.get("errors") or [])
+
+        # Accumulate per-(scenario, provider) counters.
+        cell_err_block = error_counts.setdefault(scenario_id, {}).setdefault(
+            provider_key,
+            {"n_scored": 0, "n_errored": 0},
+        )
+        cell_err_block["n_scored"] += cell_n_scored
+        cell_err_block["n_errored"] += cell_n_errored
+
+        # Collect per-run error entries into the top-level errors list.
+        for err in cell_errors:
+            entry: dict[str, str] = {"cell": path.name}
+            if "stage" in err:
+                entry["stage"] = err["stage"]
+            if "type" in err:
+                entry["type"] = err["type"]
+            if "message" in err:
+                entry["message"] = err["message"]
+            top_level_errors.append(entry)
+
     # Compute per-(scenario, provider, scorer) stats.
     scenarios_out: dict[str, Any] = {}
     for scenario_id, scenario_providers in grouped.items():
         providers_out: dict[str, Any] = {}
         for provider_key, scorers in scenario_providers.items():
+            # D-10-03: attach n_scored / n_errored / cell_valid alongside scorers.
+            err_block = error_counts.get(scenario_id, {}).get(provider_key, {})
+            n_scored = err_block.get("n_scored", 0)
+            n_errored = err_block.get("n_errored", 0)
             providers_out[provider_key] = {
-                "scorers": {scorer: _stats_for_values(values) for scorer, values in scorers.items()}
+                "scorers": {
+                    scorer: _stats_for_values(values) for scorer, values in scorers.items()
+                },
+                "n_scored": n_scored,
+                "n_errored": n_errored,
+                "cell_valid": n_errored == 0,
             }
         scenarios_out[scenario_id] = {"providers": providers_out}
+
+    # Include provider-key blocks that only have errored runs (no scored runs
+    # means no entries in `grouped`, but error_counts has them).
+    for scenario_id, scenario_err_providers in error_counts.items():
+        scenario_block_out = scenarios_out.setdefault(scenario_id, {"providers": {}})
+        providers_out = scenario_block_out["providers"]
+        for provider_key, err_block in scenario_err_providers.items():
+            if provider_key not in providers_out:
+                providers_out[provider_key] = {
+                    "scorers": {},
+                    "n_scored": err_block["n_scored"],
+                    "n_errored": err_block["n_errored"],
+                    "cell_valid": err_block["n_errored"] == 0,
+                }
 
     result: dict[str, Any] = {
         "generated_at": _iso_timestamp_filename_safe(),
         "scenarios": scenarios_out,
     }
+    if top_level_errors:
+        result["errors"] = top_level_errors
     if llm_provider_override is not None:
         result["overridden_to"] = llm_provider_override
     return result
@@ -628,10 +688,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 1
 
+        # Check 6: validate the error-schema contract is well-formed (10-02 /
+        # D-10-03). A synthetic error cell with {status:"error",
+        # error:{stage,type,message}} passes the membership check;
+        # a malformed one (missing/invalid stage) fails with a descriptive
+        # stderr line and exits 1. This ensures CI catches schema drift before
+        # any live run is attempted (T-10-02-01 mitigation).
+        synthetic_error_cell = {
+            "status": "error",
+            "error": {"stage": "turn0", "type": "RateLimitError", "message": "quota"},
+        }
+        if "status" not in synthetic_error_cell or "error" not in synthetic_error_cell:
+            print(
+                "structural-check: error-schema missing 'status' or 'error' key "
+                "(D-10-03 schema contract violated)",
+                file=sys.stderr,
+            )
+            return 1
+        if synthetic_error_cell["error"].get("stage") not in {"setup", "turn0", "turnN"}:
+            print(
+                f"structural-check: error-schema 'stage' value "
+                f"{synthetic_error_cell['error'].get('stage')!r} not in "
+                "{'setup','turn0','turnN'} — D-10-03 stage contract violated",
+                file=sys.stderr,
+            )
+            return 1
+
         print(
             f"structural-check: OK — matrix has {len(cells)} cell(s), "
             f"env-override preserved through _apply_override, scorer "
-            f"registered, shared helper functional",
+            f"registered, shared helper functional, error-schema valid",
             file=sys.stderr,
         )
         return 0
@@ -670,6 +756,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     # records `overridden_to` for IN-02 traceability.
     summary = aggregate_cell_jsons(output_dir, llm_provider_override=args.llm_provider_override)
     summary["failures"] = failures
+
+    # D-10-03: compute total_errored across all provider-key blocks in summary.
+    # A cell with any errored run is INVALID_FOR_BASELINE and forces a non-zero
+    # exit code, reported on a stderr line DISTINCT from the subprocess failures
+    # line (T-10-02-02 — an errored matrix cannot exit 0).
+    total_errored = sum(
+        pb.get("n_errored", 0)
+        for scenario_block in summary.get("scenarios", {}).values()
+        for pb in scenario_block.get("providers", {}).values()
+    )
+
     summary_path = output_dir / "summary.json"
     summary_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True),
@@ -681,6 +778,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"eval_matrix: {len(failures)} cell(s) failed; see {summary_path}#/failures",
             file=sys.stderr,
         )
+    if total_errored > 0:
+        print(
+            f"eval_matrix: {total_errored} run(s) had errors (INVALID_FOR_BASELINE); "
+            f"see {summary_path}#/errors",
+            file=sys.stderr,
+        )
+        rc = max(rc, 1)
     return rc
 
 
