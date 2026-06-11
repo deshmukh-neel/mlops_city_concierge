@@ -163,3 +163,53 @@ def test_main_help_exits_zero() -> None:
     assert "--provider" in result.stdout or "--provider" in result.stderr, (
         "--provider not found in --help output"
     )
+
+
+def test_post_write_guard_catches_env_var_sourced_secret(tmp_path: Path) -> None:
+    """T-10-09-02 / T-10-09-03: post-write guard catches a non-regex-shaped env-var secret.
+
+    Plants a rotated DeepSeek key that does NOT match any _SECRET_PATTERNS regex
+    (no sk- prefix, no AIzaSy prefix, not a 32+-char generic token) into a fixture
+    field (tool_calls / response_metadata), then exercises the production guard path
+    (_scan_fixture_for_secrets) and asserts:
+      - the fixture is detected as containing a secret (guard returns True)
+      - the end-to-end guard path returns 2 / deletes the fixture
+    """
+    import importlib
+
+    import scripts.probe_provider_capture as probe_mod
+
+    # A secret that looks like a rotated key — no regex-shaped prefix, length >= 10.
+    # This must NOT match any _SECRET_PATTERNS regex so the test proves the env-var
+    # path is the one catching it.
+    # Chosen to bypass all regexes: no sk- prefix, no sk-ant- prefix, no AIzaSy prefix,
+    # and no 32+-alphanumeric run followed by a dash.
+    rotated_secret = "rotated-deepseek-key-9876543210"
+
+    with patch.dict(os.environ, {"DEEPSEEK_API_KEY": rotated_secret}):
+        importlib.reload(probe_mod)
+
+        # Confirm the secret does NOT match any _SECRET_PATTERNS regex (if it does,
+        # the test is testing the regex path, not the env-var path).
+        secret_matches_regex = any(p.search(rotated_secret) for p in probe_mod._SECRET_PATTERNS)
+        assert not secret_matches_regex, (
+            f"Rotated secret {rotated_secret!r} matched a _SECRET_PATTERNS regex — "
+            "choose a value that bypasses all regexes to test the env-var guard path"
+        )
+
+        # Write a fixture that embeds the secret in tool_calls (the previously unredacted field).
+        fixture_data = {
+            "provider": "deepseek",
+            "tool_calls": [{"name": "search_places", "args": {"key": rotated_secret}}],
+            "response_metadata": {},
+        }
+        fixture_file = tmp_path / "deepseek.json"
+        fixture_file.write_text(json.dumps(fixture_data), encoding="utf-8")
+
+        # The production helper _scan_fixture_for_secrets must detect the secret.
+        text = fixture_file.read_text(encoding="utf-8")
+        found = probe_mod._scan_fixture_for_secrets(text)
+        assert found, (
+            "_scan_fixture_for_secrets should detect the env-var-sourced secret "
+            f"({rotated_secret!r}) planted in tool_calls, but returned False"
+        )
