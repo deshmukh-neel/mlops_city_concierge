@@ -173,6 +173,17 @@ eval-gates-check: ## Check summary.json against configs/eval_gates.yaml (EVAL-03
 	  $(SUMMARY) \
 	  --gates-config configs/eval_gates.yaml
 
+# Phase 11 / D-11-15 / BASE-03: gate-check against committed baseline JSONs (live-key-free CI).
+# Reads configs/eval_baselines/*.json and synthesises the summary shape internally.
+# Exit 0 = all hard gates passed; exit 1 = hard-gate violation; exit 2 = infra failure.
+# Aspirational misses (e.g. gpt-5-mini) are non-blocking. Advisory entries report-only WARN.
+.PHONY: eval-gates-check-baselines
+eval-gates-check-baselines: ## Check gates against committed baselines (D-11-15; no live keys)
+	$(POETRY_RUN) python scripts/check_eval_gates.py \
+	  --baselines-mode \
+	  --baselines-dir configs/eval_baselines \
+	  --gates-config configs/eval_gates.yaml
+
 # Phase 11 / D-11-07 / BASE-01: write baseline JSONs from a completed summary.json.
 # Requires SUMMARY= path; overrides RUNS= for --n-requested (default 1, runbook uses 5).
 # Exit 0 = all cells written; exit 1 = one or more cells refused (D-10-03/D-10-09);

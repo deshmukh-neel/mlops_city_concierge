@@ -113,9 +113,15 @@ def _build_summary_from_baselines(baselines_dir: Path) -> dict:
             raise ValueError(f"could not parse baseline JSON at {baseline_path}: {exc}") from exc
         if not isinstance(payload, dict):
             raise ValueError(f"baseline JSON at {baseline_path} is not an object")
-        scenario_id = payload.get("scenario_id")
+        # Prefer the explicit scenario_id key; fall back to the filename stem
+        # for pre-write_baselines legacy JSONs (e.g. refinement_cheaper.json
+        # predates the scenario_id field added by write_baselines.py).
+        scenario_id = payload.get("scenario_id") or baseline_path.stem
         if not scenario_id:
-            raise ValueError(f"baseline JSON at {baseline_path} missing 'scenario_id' key")
+            raise ValueError(
+                f"baseline JSON at {baseline_path} missing 'scenario_id' key "
+                "and has no usable filename stem"
+            )
         providers_out: dict[str, Any] = {}
         for provider_key, cell in payload.get("providers", {}).items():
             scorers = cell.get("scorers", {})
