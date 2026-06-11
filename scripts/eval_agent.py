@@ -1008,58 +1008,104 @@ def answer_retrieved_place_coverage(result: QueryEvalResult) -> float | None:
     return min(len(result.actual.answer_place_names) / result.actual.result_count, 1.0)
 
 
-def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | int]:
-    """Aggregate per-query deterministic eval results into flat metrics."""
+def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | int | list]:
+    """Aggregate per-query deterministic eval results into flat metrics.
+
+    D-10-03: scorer means are computed ONLY over results with status=="ok".
+    Errored runs (status="error") are excluded from means and counted separately
+    in n_errored. A cell with any errored run is INVALID_FOR_BASELINE.
+
+    Distinct accounting:
+      - n_scored: completed runs contributing to scorer means (status=="ok").
+      - n_errored: whole-run infra/config failures (status="error").
+      - check_error_count: individual scorer exceptions on COMPLETED runs.
+        A completed run with one failing check is still status="ok"; the
+        individual check's error is surfaced here, not via n_errored.
+    """
+    # D-10-03: split results into scored (status=="ok") and errored (status="error").
+    scored_results = [r for r in results if r.status == "ok"]
+    errored_results = [r for r in results if r.status == "error"]
+
     query_count = len(results)
-    queries_with_violations = sum(1 for result in results if result.deterministic.violations)
-    expected_results_mismatch_count = sum(
-        1 for result in results if result.deterministic.expected_results_met is False
+    n_scored = len(scored_results)
+    n_errored = len(errored_results)
+
+    # Per-run error list for audit trail and eval_matrix summary.json threading.
+    errors_list: list[dict[str, str]] = [
+        r.error for r in errored_results if r.error is not None
+    ]
+
+    # All aggregate statistics below operate on scored_results only.
+    queries_with_violations = sum(
+        1 for result in scored_results if result.deterministic.violations
     )
-    queries_with_tool_errors = sum(1 for result in results if result.deterministic.tool_errors)
+    expected_results_mismatch_count = sum(
+        1 for result in scored_results if result.deterministic.expected_results_met is False
+    )
+    queries_with_tool_errors = sum(
+        1 for result in scored_results if result.deterministic.tool_errors
+    )
     answer_coverage_scores = [
         score
-        for result in results
+        for result in scored_results
         if (score := answer_retrieved_place_coverage(result)) is not None
     ]
-    latencies = [float(result.latency_seconds) for result in results]
-    aggregate: dict[str, float | int] = {
+    latencies = [float(result.latency_seconds) for result in scored_results]
+    aggregate: dict[str, float | int | list] = {
+        # D-10-03: cell validity fields (read by eval_matrix summary threading).
+        "n_scored": n_scored,
+        "n_errored": n_errored,
+        "cell_valid": n_errored == 0,
+        "errors": errors_list,
+        # Standard aggregate fields — computed over scored_results only.
         "query_count": query_count,
         "queries_with_violations": queries_with_violations,
-        "deterministic_pass_rate": 1.0 - rate(queries_with_violations, query_count),
-        "deterministic_violation_rate": rate(queries_with_violations, query_count),
+        "deterministic_pass_rate": 1.0 - rate(queries_with_violations, n_scored),
+        "deterministic_violation_rate": rate(queries_with_violations, n_scored),
         "expected_results_mismatch_count": expected_results_mismatch_count,
-        "expected_results_mismatch_rate": rate(expected_results_mismatch_count, query_count),
-        "tool_error_count": sum(len(result.deterministic.tool_errors) for result in results),
+        "expected_results_mismatch_rate": rate(expected_results_mismatch_count, n_scored),
+        "tool_error_count": sum(
+            len(result.deterministic.tool_errors) for result in scored_results
+        ),
         "queries_with_tool_errors": queries_with_tool_errors,
-        "tool_error_rate": rate(queries_with_tool_errors, query_count),
-        "tool_success_rate": 1.0 - rate(queries_with_tool_errors, query_count),
+        "tool_error_rate": rate(queries_with_tool_errors, n_scored),
+        "tool_success_rate": 1.0 - rate(queries_with_tool_errors, n_scored),
+        # check_error_count: individual scorer exceptions on COMPLETED runs.
+        # Distinct from n_errored (whole-run failures) per D-10-03 / PATTERNS.md.
         "check_error_count": sum(
             1
-            for result in results
+            for result in scored_results
             for check in result.deterministic.checks.values()
             if check.error is not None
         ),
         "expected_results_match_rate": mean(
             [
                 1.0 if result.deterministic.expected_results_met else 0.0
-                for result in results
+                for result in scored_results
                 if result.deterministic.expected_results_met is not None
             ]
         ),
-        "results_mean": mean([float(result.actual.result_count) for result in results]),
+        "results_mean": mean([float(result.actual.result_count) for result in scored_results]),
         "committed_stops_mean": mean(
-            [float(result.actual.committed_stop_count) for result in results]
+            [float(result.actual.committed_stop_count) for result in scored_results]
         ),
         "committed_itinerary_rate": mean(
-            [1.0 if result.actual.committed_stop_count > 0 else 0.0 for result in results]
+            [
+                1.0 if result.actual.committed_stop_count > 0 else 0.0
+                for result in scored_results
+            ]
         ),
-        "contexts_mean": mean([float(len(result.contexts)) for result in results]),
-        "context_presence_rate": mean([1.0 if result.contexts else 0.0 for result in results]),
+        "contexts_mean": mean([float(len(result.contexts)) for result in scored_results]),
+        "context_presence_rate": mean(
+            [1.0 if result.contexts else 0.0 for result in scored_results]
+        ),
         "answer_retrieved_place_coverage_mean": mean(answer_coverage_scores),
         "answer_retrieved_place_coverage_count": len(answer_coverage_scores),
-        "tool_calls_mean": mean([float(result.deterministic.tool_calls) for result in results]),
+        "tool_calls_mean": mean(
+            [float(result.deterministic.tool_calls) for result in scored_results]
+        ),
         "revision_hints_mean": mean(
-            [float(result.deterministic.revision_hints) for result in results]
+            [float(result.deterministic.revision_hints) for result in scored_results]
         ),
         "latency_total_seconds": sum(latencies),
         "latency_mean_seconds": mean(latencies),
@@ -1067,9 +1113,10 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
         "latency_p95_seconds": percentile(latencies, 95),
         "latency_max_seconds": max(latencies) if latencies else 0.0,
     }
+    # D-10-03: scorer means over scored_results only — errored runs excluded.
     for name in DETERMINISTIC_CHECKS:
         scores: list[float] = []
-        for result in results:
+        for result in scored_results:
             score = result.deterministic.checks[name].score
             if score is not None:
                 scores.append(score)
@@ -1083,8 +1130,18 @@ def report_to_dict(report: EvalRunReport) -> dict[str, Any]:
 
 
 def report_has_errors(report: EvalRunReport) -> bool:
-    """Return True when any deterministic check raised an exception."""
-    return int(report.aggregate.get("check_error_count", 0)) > 0
+    """Return True when any deterministic check raised an exception OR when
+    any whole run failed with an infra/config error (status='error').
+
+    D-10-03: n_errored > 0 means a cell is INVALID_FOR_BASELINE; the matrix
+    exit code must be non-zero so operators know a re-run is needed before
+    using results as a baseline. check_error_count covers individual scorer
+    exceptions on completed runs; n_errored covers whole-run failures.
+    """
+    return (
+        int(report.aggregate.get("check_error_count", 0)) > 0
+        or int(report.aggregate.get("n_errored", 0)) > 0
+    )
 
 
 def report_has_violations(report: EvalRunReport) -> bool:
