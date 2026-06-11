@@ -31,22 +31,32 @@ from app.eval.config import REPO_ROOT, load_eval_matrix
 
 
 def test_repo_eval_matrix_yaml_loads_via_load_eval_matrix() -> None:
-    """configs/eval_matrix.yaml ships with the D-06 anchors locked:
-    providers=[openai/gpt-4o-mini, deepseek/deepseek-chat].
+    """configs/eval_matrix.yaml ships with the D-06 anchors locked plus the
+    Phase-11 / D-11-12 cross-model entries (flag-OFF):
+    providers=[openai/gpt-4o-mini, deepseek/deepseek-chat, openai/gpt-5-mini,
+               anthropic/claude-sonnet-4-6, deepseek/deepseek-reasoner].
 
     Phase 6 / D-06-09 / plan 06-07: `refinement_cheaper` was moved out of
     the default matrix and into `configs/eval_matrix_refinement.yaml`. The
     default matrix now contains only the first-turn scenarios so REF-04
     (omakase first-turn no-regression with flag OFF) is preserved.
+
+    Phase 11 / D-11-13: `late_night_closure_cascade` removed from default
+    scenarios (stays runnable via SCENARIOS=late_night_closure_cascade param).
     """
     matrix = load_eval_matrix(REPO_ROOT / "configs/eval_matrix.yaml")
-    assert len(matrix.entries) == 2
-    assert len(matrix.scenarios) == 2
+    assert len(matrix.entries) == 5  # D-11-12: was 2; 3 new cross-model entries added
+    assert len(matrix.scenarios) == 1  # D-11-13: was 2; late_night removed
     providers = {(e.provider, e.model) for e in matrix.entries}
     assert ("openai", "gpt-4o-mini") in providers
     assert ("deepseek", "deepseek-chat") in providers
+    # Phase 11 / D-11-12 new entries (flag-OFF — no env override):
+    assert ("openai", "gpt-5-mini") in providers
+    assert ("anthropic", "claude-sonnet-4-6") in providers
+    assert ("deepseek", "deepseek-reasoner") in providers
     assert "omakase_mission_open_ended" in matrix.scenarios
-    assert "late_night_closure_cascade" in matrix.scenarios
+    # Phase 11 / D-11-13 invariant: late_night removed from default scenarios.
+    assert "late_night_closure_cascade" not in matrix.scenarios
     # Phase 6 invariant: the refinement scenario lives in the sibling
     # refinement-only matrix, NOT in the default matrix.
     assert "refinement_cheaper" not in matrix.scenarios
@@ -92,22 +102,32 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
 
 # ─── baseline JSON ↔ matrix YAML provider-cell parity ────────────────────────
 
-# Matrix entries whose baseline cell is intentionally absent. The only
-# sanctioned deferral is gemini/gemini-3.1-pro-preview: its first n=5
-# measurement is deferred to the baseline-regen phase (see the PROV-04
-# comment block in configs/eval_matrix_refinement.yaml). Shrink this set
-# when the deferred cell lands; never grow it without a matching comment
-# in the matrix YAML.
+# Matrix entries whose baseline cell is intentionally absent. Sanctioned
+# deferrals:
+#   - eval_matrix_refinement.yaml: gemini/gemini-3.1-pro-preview — first n=5
+#     measurement deferred (see PROV-04 comment in eval_matrix_refinement.yaml)
+#   - eval_matrix.yaml: three Phase-11 / D-11-12 cross-model entries — baseline
+#     cells not yet written; Wave-2 live regen (BASE-01) will remove them.
+# Shrink each set when the deferred cell lands; never grow it without a matching
+# comment in the matrix YAML.
 _DEFERRED_BASELINE_CELLS: dict[str, set[str]] = {
     "eval_matrix_refinement.yaml": {"gemini/gemini-3.1-pro-preview"},
-    "eval_matrix.yaml": set(),
+    "eval_matrix.yaml": {
+        # D-11-12 Phase 11 expansion: new entries exist in YAML but baselines
+        # not yet written (Wave-2 live regen). Remove after Wave-2 completes.
+        "openai/gpt-5-mini",
+        "anthropic/claude-sonnet-4-6",
+        "deepseek/deepseek-reasoner",
+    },
 }
 
 _MATRIX_TO_BASELINES: dict[str, list[str]] = {
     "eval_matrix_refinement.yaml": ["refinement_cheaper.json"],
     "eval_matrix.yaml": [
+        # D-11-13: late_night_closure_cascade.json removed from parity check —
+        # it is no longer a default-matrix scenario. The baseline JSON file
+        # itself is NOT deleted (D-10-10 annotate-not-delete standing).
         "omakase_mission_open_ended.json",
-        "late_night_closure_cascade.json",
     ],
 }
 
@@ -228,6 +248,8 @@ def test_dry_run_prints_default_matrix_cells(capsys, monkeypatch) -> None:
     Phase 6 / D-06-09 / plan 06-07: default matrix has 2 entries × 2
     scenarios × 3 runs = 12 cells (refinement_cheaper moved to the sibling
     refinement-only matrix). Pre-Phase-6 expected 18 cells.
+
+    Phase 11 / D-11-12 + D-11-13: 5 entries × 1 scenario × 3 runs = 15 cells.
     """
     monkeypatch.setenv("APP_ENV", "eval")  # gate doesn't apply to dry-run
     from scripts.eval_matrix import main
@@ -243,9 +265,9 @@ def test_dry_run_prints_default_matrix_cells(capsys, monkeypatch) -> None:
     )
     out = capsys.readouterr().out
     assert rc == 0
-    # 2 providers * 2 scenarios * 3 runs = 12 cells.
+    # 5 providers * 1 scenario * 3 runs = 15 cells (Phase 11 / D-11-12 + D-11-13).
     cell_lines = [line for line in out.splitlines() if "--run-" in line]
-    assert len(cell_lines) == 12
+    assert len(cell_lines) == 15
 
 
 # ─── APP_ENV=eval gate enforcement (EVAL-09) ─────────────────────────────────
