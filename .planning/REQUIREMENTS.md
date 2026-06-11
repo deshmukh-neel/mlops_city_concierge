@@ -74,30 +74,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INST-01 | — | Pending |
-| INST-02 | — | Pending |
-| INST-03 | — | Pending |
-| INST-04 | — | Pending |
-| INST-05 | — | Pending |
-| ANCH-01 | — | Pending |
-| ANCH-02 | — | Pending |
-| ANCH-03 | — | Pending |
-| DEC-01 | — | Pending |
-| DEC-02 | — | Pending |
-| DEC-03 | — | Pending |
-| DEC-04 | — | Pending |
-| DEC-05 | — | Pending |
-| REPLAY-01 | — | Pending |
-| REPLAY-02 | — | Pending |
-| PROMO-01 | — | Pending |
-| PROMO-02 | — | Pending |
-| PROMO-03 | — | Pending |
+| INST-01 | Phase 12 | Pending |
+| INST-02 | Phase 12 | Pending |
+| INST-03 | Phase 12 | Pending |
+| INST-04 | Phase 12 | Pending |
+| INST-05 | Phase 12 | Pending |
+| ANCH-01 | Phase 12 | Pending |
+| ANCH-02 | Phase 12 | Pending |
+| ANCH-03 | Phase 12 | Pending |
+| DEC-01 | Phase 13 | Pending |
+| DEC-02 | Phase 13 | Pending |
+| DEC-03 | Phase 13 | Pending |
+| DEC-04 | Phase 13 | Pending |
+| DEC-05 | Phase 13 | Pending |
+| REPLAY-01 | Phase 14 | Pending |
+| REPLAY-02 | Phase 14 | Pending |
+| PROMO-01 | Phase 15 | Pending |
+| PROMO-02 | Phase 15 | Pending |
+| PROMO-03 | Phase 15 | Pending |
 
 **Coverage:**
 - v2.2 requirements: 18 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 18 ⚠️
+- Mapped to phases: 18 (100%)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-11*
-*Last updated: 2026-06-11 after initial definition from v2.2 milestone seed*
+*Last updated: 2026-06-11 — traceability table completed during roadmap creation (v2.2 roadmap, Phases 12-15)*

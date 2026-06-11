@@ -5,6 +5,7 @@
 - ✅ **v1.0 Knowledge Graph** — Phase 1 (shipped 2026-05-14, PR merged into main)
 - ✅ **v2.0 Production Readiness** — Phases 2-6 (shipped 2026-06-03, PR #100 at `14e01dd`) — see [milestones/v2.0-ROADMAP.md](milestones/v2.0-ROADMAP.md)
 - ✅ **v2.1 Reasoning-Model Compat** — Phases 7-11 (shipped 2026-06-11, PRs #103/#105/#106) — see [milestones/v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md)
+- 🚧 **v2.2 Reasoning-Model Decisiveness** — Phases 12-15 (started 2026-06-11)
 
 ## Phases
 
@@ -43,22 +44,83 @@
 
 </details>
 
+### 🚧 v2.2 Reasoning-Model Decisiveness (In Progress)
+
+**Milestone Goal:** Make reasoning models decisive on the tool loop — pass gpt-5-mini commit rate ≥ 0.6 at n=5 with no gpt-4o-mini anchor regression, and reduce per-turn latency via decisiveness (step-count).
+
+- [ ] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and deferred anchor baselines completing the 6-cell honest comparison floor
+- [ ] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier
+- [ ] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar
+- [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
+
+## Phase Details
+
+### Phase 12: Decisiveness Instrumentation + Comparison Floor
+**Goal**: The eval harness emits per-run decisiveness telemetry and the 6-cell honest comparison floor is complete, so every experiment arm in Phase 13 can be judged objectively against the same falsifier
+**Depends on**: Phase 11 (honest baselines infrastructure, `write_baselines.py`, `eval_gates.yaml` gates)
+**Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05, ANCH-01, ANCH-02, ANCH-03
+**Success Criteria** (what must be TRUE):
+  1. `eval_matrix.py` output includes per-run fields: steps-to-first-commit-consideration, per-step viable-candidate counts, and rule-8 precondition met/not-met flag — readable in the run JSON without post-processing
+  2. Per-turn latency decomposition (LLM call time vs sequential tool-execution time per plan step) is recorded in each run JSON
+  3. A single `make eval-falsifier` (or equivalent) report answers: did gpt-5-mini hit ≥ 0.6 commit rate at n=5, and did gpt-4o-mini hold ≥ its honest baseline? — pass/fail with per-model numbers
+  4. `anthropic/claude-sonnet-4-6` honest n=5 baseline is written via `write_baselines.py` and committed (billing top-up prerequisite documented; ANCH-01 clears)
+  5. `gemini/gemini-3.1-pro-preview` first honest n=5 baseline is written via `write_baselines.py` and committed; `_DEFERRED_BASELINE_CELLS` is empty and the 6-cell matrix comparison floor is fully populated (ANCH-02, ANCH-03 clear together)
+**Plans**: TBD
+**External dependency**: ANCH-01 requires Anthropic billing top-up; ANCH-02 requires Gemini quota resolution. These are prerequisites for those two plans but do NOT block INST-01..05 work. INST plans execute first; ANCH plans execute when credentials are available.
+
+### Phase 13: Decisiveness Experiment Arms
+**Goal**: Four coupled experiment arms are implemented, run at n=5 temp=1.0 against the Phase-12 comparison floor, and their verdicts are documented — revealing whether any arm clears the falsifier bar or all plateau below it
+**Depends on**: Phase 12 (telemetry fields in runs, falsifier report executable, 6-cell comparison floor complete)
+**Requirements**: DEC-01, DEC-02, DEC-03, DEC-04, DEC-05
+**Success Criteria** (what must be TRUE):
+  1. The viability-contract arm (DEC-01) ships without touching the text or structure of any prompt section covered by the Phase-7 CI grep gate — the grep gate stays green
+  2. The forced-commit-at-step-N arm (DEC-02) is a graph-level mechanism that triggers independently of model identity — confirmed by a unit test that fires it on a mock that never calls `commit_itinerary`
+  3. The parallel-tool-execution arm (DEC-04) runs all tool calls within one `act()` plan step concurrently with results order-stable — measurable gpt-4o-mini latency reduction at n=5 recorded in run JSON
+  4. The critique-recalibration arm (DEC-03) is co-tuned with DEC-01 (not tuned in isolation), with the `LOW_SIMILARITY_THRESHOLD` change direction and the `low_similarity` scoping decision both documented before any threshold change lands
+  5. DEC-05 arm-verdict document records per-arm n=5 commit-rate numbers for gpt-5-mini, deepseek-reasoner, and gpt-4o-mini anchor, and explicitly states which arm (if any) cleared the INST-05 falsifier bar — or records an honest null result
+**Plans**: TBD
+
+### Phase 14: Richer State Replay (CONDITIONAL)
+**Goal**: Multi-message reasoning-state replay and content-block preservation are A/B-tested against the Phase-13 plateau baseline, producing evidence that either justifies promotion to the winning configuration or confirms the decisiveness gap requires architectural rethinking (ARCH-FUT-01 trigger)
+**Depends on**: Phase 13 (DEC-05 verdict — entry gate is "all DEC arms plateau below the INST-05 falsifier bar")
+**Requirements**: REPLAY-01, REPLAY-02
+**Entry gate (CONDITIONAL)**: This phase executes ONLY if Phase 13's DEC-05 arm-verdict document records that no arm cleared the INST-05 falsifier bar (gpt-5-mini commit rate ≥ 0.6 at n=5 with no anchor regression). If any arm clears the bar, Phase 14 is skipped and the roadmap proceeds directly to Phase 15.
+**Success Criteria** (what must be TRUE):
+  1. Multi-message `_reasoning_state` replay A/B (REPLAY-01) is measured at n=5 against the DEC plateau: the commit-rate delta vs the best DEC arm is reported, not assumed — positive or negative result is valid
+  2. Content-block preservation through `_prune_for_llm` A/B (REPLAY-02) is measured at n=5 against the DEC plateau: the delta is reported alongside an explanation of whether `str()` collapse was causing observable loss in run JSONs
+  3. The combined REPLAY result either (a) clears the INST-05 falsifier bar and Phase 15 begins, or (b) is documented as a plateau, triggering explicit ARCH-FUT-01 evaluation before Phase 15 scope is finalized
+**Plans**: TBD
+
+### Phase 15: Gate Promotion + Baseline Regen
+**Goal**: The winning arm's honest baselines are written for all matrix cells, reasoning-model gates are promoted from logged-not-gated to enforced where the data earns it, and the prod latency budget analysis is documented — closing the milestone with a ratified prod-driver recommendation
+**Depends on**: Phase 13 (or Phase 14 if entered) — winning arm identified and merged
+**Requirements**: PROMO-01, PROMO-02, PROMO-03
+**Success Criteria** (what must be TRUE):
+  1. `scripts/write_baselines.py` successfully writes honest n=5 baselines for all matrix cells under the winning arm configuration — no partial/quarantined cells in the output (per D-11-14)
+  2. `configs/eval_gates.yaml` is updated: reasoning-model entries are promoted to `enforced` where measured commit-rate data meets the gate threshold, and entries that fall short explicitly retain `logged` with a note in the file
+  3. The latency report (decomposed from INST-04 data) documents actual per-turn LLM-call time + tool-execution time for gpt-4o-mini under the winning arm, explicitly comparing against the ~30s/turn prod budget, with a written prod-driver recommendation (ratify gpt-4o-mini anchor OR revise with justification)
+**Plans**: TBD
+
 ## Progress
 
-| Phase                                          | Milestone | Plans Complete | Status      | Completed  |
-| ---------------------------------------------- | --------- | -------------- | ----------- | ---------- |
-| 1. Knowledge Graph                             | v1.0      | —              | Complete    | 2026-05-14 |
-| 2. Model Override                              | v2.0      | 1/1            | Complete    | 2026-05-22 |
-| 3. Eval Harness Extension                      | v2.0      | 12/12          | Complete    | 2026-05-22 |
-| 4. Category Compliance Fix                     | v2.0      | 7/7            | Complete    | 2026-05-23 |
-| 5. Rationale-Stop Alignment Fix                | v2.0      | 2/2            | Complete    | 2026-05-27 |
-| 6. Minimal-Edit Refinement                     | v2.0      | 7/7            | Complete    | 2026-06-03 |
-| 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
-| 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
-| 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
-| 10. Eval Harness Honesty                       | v2.1      | 9/9 | Complete    | 2026-06-11 |
-| 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 9/9 | Complete    | 2026-06-11 |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Knowledge Graph | v1.0 | — | Complete | 2026-05-14 |
+| 2. Model Override | v2.0 | 1/1 | Complete | 2026-05-22 |
+| 3. Eval Harness Extension | v2.0 | 12/12 | Complete | 2026-05-22 |
+| 4. Category Compliance Fix | v2.0 | 7/7 | Complete | 2026-05-23 |
+| 5. Rationale-Stop Alignment Fix | v2.0 | 2/2 | Complete | 2026-05-27 |
+| 6. Minimal-Edit Refinement | v2.0 | 7/7 | Complete | 2026-06-03 |
+| 7. Prompt/Rubric Decoupling | v2.1 | 7/7 | Complete | 2026-06-04 |
+| 8. Reasoning-State Contract + Harness | v2.1 | 5/5 | Complete | 2026-06-04 |
+| 9. Per-Provider State Preservation Impls | v2.1 | 5/5 | Complete | 2026-06-05 |
+| 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
+| 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
+| 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 0/TBD | Not started | - |
+| 13. Decisiveness Experiment Arms | v2.2 | 0/TBD | Not started | - |
+| 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
+| 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
 ---
 
-*Last updated: 2026-06-11 — Phase 11 gap-closure: verification found 3/6 truths (CR-01 None-abstain + CR-02 fail-open gate). Code fixes already committed (fbd1174..054a20c); the remaining gap is the contaminated empirical baselines. Plan 11-09 re-measures only the category_compliance-contaminated cells live at n=5 under the now-fixed abstain semantics — the clean gpt-4o-mini omakase anchor and the anthropic/gemini deferrals are NOT re-run.*
+*Last updated: 2026-06-11 — v2.2 Reasoning-Model Decisiveness roadmap created (Phases 12-15). Phase 14 is conditional on Phase 13 arm plateau.*
