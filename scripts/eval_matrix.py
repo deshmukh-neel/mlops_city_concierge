@@ -292,6 +292,18 @@ def aggregate_cell_jsons(
         for scorer_name, value in _scorer_means_from_cell(payload).items():
             provider_block.setdefault(scorer_name, []).append(value)
 
+        # D-11-02: thread committed_itinerary_rate from the aggregate block into
+        # the scorers accumulation so the gate checker's
+        # `scorers → committed_itinerary_rate → median` read becomes evaluable.
+        # This metric is not in CRITIQUE_THRESHOLDS so _scorer_means_from_cell
+        # excludes it deliberately; we add it here as a supplemental scalar that
+        # bypasses the whitelist (it is the hard-gate metric per D-10-07/D-11-02,
+        # not a critique-threshold scorer).
+        cell_aggregate_for_commit_rate = payload.get("aggregate") or {}
+        commit_rate = cell_aggregate_for_commit_rate.get("committed_itinerary_rate")
+        if commit_rate is not None and not isinstance(commit_rate, bool):
+            provider_block.setdefault("committed_itinerary_rate", []).append(float(commit_rate))
+
         # D-10-03: read n_scored / n_errored / errors from the cell aggregate.
         # Legacy cell JSONs (pre-10-01) omit these fields; default to n_errored=0
         # (backward-compatible — a legacy cell without error fields is treated as
