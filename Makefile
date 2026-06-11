@@ -148,6 +148,17 @@ eval-matrix-refinement-structural-check: ## Phase 6 refinement matrix structural
 	  --matrix-config configs/eval_matrix_refinement.yaml \
 	  --structural-check
 
+# Phase 10 / EVAL-03 / D-10-05: gate-check against configs/eval_gates.yaml.
+# Requires SUMMARY= path to a summary.json from an eval_matrix run.
+# Exit 0 = all hard gates passed; exit 1 = hard-gate violation; exit 2 = infra failure.
+# Aspirational misses (e.g. gpt-5-mini below v2.2 target) are reported but non-blocking.
+# See docs/eval_gates.md for semantics; gate values live only in configs/eval_gates.yaml.
+.PHONY: eval-gates-check
+eval-gates-check: ## Check summary.json against configs/eval_gates.yaml (EVAL-03 / D-10-05)
+	$(POETRY_RUN) python scripts/check_eval_gates.py \
+	  $(SUMMARY) \
+	  --gates-config configs/eval_gates.yaml
+
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
 test: ## Run the full test suite

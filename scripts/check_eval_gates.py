@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""Gate-check script for eval_gates.yaml (EVAL-03 / D-10-05).
+
+Reads a matrix summary.json and exits non-zero on any hard-gate violation.
+
+Usage:
+    poetry run python scripts/check_eval_gates.py eval_reports/{ts}/summary.json
+    make eval-gates-check SUMMARY=eval_reports/{ts}/summary.json
+
+Exit codes (matching check_baselines_fresh.py exactly):
+    0 = all hard gates passed (aspirational misses printed, non-blocking)
+    1 = one or more hard-gate violations
+    2 = infrastructure failure (missing YAML, bad summary.json shape)
+
+Gate semantics:
+    active / provisional-n1 — hard gate; violation → exit 1
+    aspirational — reported to stdout but non-blocking; exit 0 on miss
+    logged / quarantined-legacy-threading — skipped entirely
+
+Not-evaluable condition:
+    When committed_itinerary_rate is absent from a cell's scorers block
+    (Phase 10 — the metric is wired by Phase 11 BASE-01), the gate is
+    reported as not-evaluable rather than silently passing (T-10-04-01).
+    Similarly, if a family with a hard gate has no cell in the summary at
+    all, it is treated as not-evaluable and reported.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections.abc import Sequence
+from pathlib import Path
+
+# No top-level LLM SDK imports — this script is the checker, not the caller.
+
+_HARD_STATUSES = {"active", "provisional-n1"}
+_SKIP_STATUSES = {"logged", "quarantined-legacy-threading"}
+
+
+def _load_gates(gates_path: str) -> dict:
+    """Load and return the gates YAML as a Python dict.
+
+    Raises OSError on missing file, ValueError on parse failure.
+    """
+    try:
+        import yaml  # noqa: PLC0415
+    except ImportError as exc:
+        raise OSError("PyYAML not available — install with 'poetry install'") from exc
+
+    p = Path(gates_path)
+    if not p.exists():
+        raise OSError(f"gates config not found: {gates_path}")
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"could not parse gates YAML at {gates_path}: {exc}") from exc
+    if not isinstance(data, dict) or "gates" not in data:
+        raise ValueError(f"gates YAML at {gates_path} missing top-level 'gates' key")
+    return data
+
+
+def _load_summary(summary_path: str) -> dict:
+    """Load and return the summary.json as a Python dict.
+
+    Raises OSError on missing file, ValueError on parse/shape failure.
+    """
+    p = Path(summary_path)
+    if not p.exists():
+        raise OSError(f"summary.json not found: {summary_path}")
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"could not parse summary.json at {summary_path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"summary.json at {summary_path} is not a JSON object")
+    return data
+
+
+def _get_metric_value(cell: dict, metric: str) -> float | None:
+    """Extract metric value from a cell dict.
+
+    Returns None if the metric is not present in the cell's scorers block.
+    The cell shape produced by aggregate_cell_jsons nests the metric under
+    ``scorers → <metric> → median``.
+    """
+    scorers = cell.get("scorers", {})
+    if metric not in scorers:
+        return None
+    metric_block = scorers[metric]
+    if isinstance(metric_block, dict):
+        # Prefer median; fall back to mean for robustness.
+        if "median" in metric_block:
+            return float(metric_block["median"])
+        if "mean" in metric_block:
+            return float(metric_block["mean"])
+        return None
+    # Scalar value (less common but handle gracefully)
+    try:
+        return float(metric_block)
+    except (TypeError, ValueError):
+        return None
+
+
+def _evaluate_op(value: float, op: str, threshold: float) -> bool:
+    """Evaluate ``value op threshold``."""
+    if op == ">=":
+        return value >= threshold
+    if op == ">":
+        return value > threshold
+    if op == "<=":
+        return value <= threshold
+    if op == "<":
+        return value < threshold
+    if op == "==":
+        return value == threshold
+    raise ValueError(f"unknown gate op: {op!r}")
+
+
+def _check_gate(
+    gate: dict,
+    summary: dict,
+) -> str:
+    """Check a single gate entry against the summary.
+
+    Returns one of:
+        "pass"                  — gate satisfied or gate is null
+        "violation"             — active/provisional-n1 hard gate failed
+        "aspirational_miss"     — aspirational gate failed (non-blocking)
+        "not_evaluable"         — metric absent or cell absent (non-blocking)
+        "skip"                  — logged or quarantined family
+
+    The caller is responsible for routing each result to the correct output.
+    """
+    status = gate.get("status", "logged")
+
+    # logged and quarantined-legacy-threading families are skipped entirely.
+    if status in _SKIP_STATUSES:
+        return "skip"
+
+    hard = gate.get("hard")
+
+    # Gates with null hard block are trivially passing for the purpose of
+    # exit-code calculation (advisory-only entries).
+    if hard is None:
+        return "pass"
+
+    family = gate["family"]
+    metric = hard["metric"]
+    op = hard["op"]
+    threshold = hard["value"]
+
+    # Locate the cell for this family in the summary.
+    providers: dict = summary.get("providers", {})
+    cell = providers.get(family)
+
+    if cell is None:
+        # Family has no cell in the summary — not-evaluable, not a silent pass.
+        note = f"check_eval_gates: NOT-EVALUABLE — family '{family}' has no cell in summary"
+        print(note)
+        return "not_evaluable"
+
+    # Extract the metric from the cell.
+    value = _get_metric_value(cell, metric)
+
+    if value is None:
+        # Metric absent — not-evaluable, not a silent pass.
+        note = (
+            f"check_eval_gates: NOT-EVALUABLE — metric '{metric}' absent from cell "
+            f"'{family}' (Phase 11 BASE-01 will wire this metric)"
+        )
+        print(note)
+        return "not_evaluable"
+
+    # Evaluate the gate.
+    satisfied = _evaluate_op(value, op, threshold)
+
+    if satisfied:
+        return "pass"
+
+    # Gate failed — classify by status.
+    if status in _HARD_STATUSES:
+        return "violation"
+    if status == "aspirational":
+        return "aspirational_miss"
+
+    # Unknown status treated as non-blocking.
+    return "pass"
+
+
+def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    """Parse argv. Both positional summary and --gates-config flag are accepted."""
+    parser = argparse.ArgumentParser(
+        prog="check_eval_gates",
+        description=(
+            "Gate-check script for eval_gates.yaml (EVAL-03 / D-10-05). "
+            "Reads a matrix summary.json and exits non-zero on any hard-gate violation."
+        ),
+    )
+    parser.add_argument(
+        "summary",
+        help="Path to summary.json from an eval_matrix run.",
+    )
+    parser.add_argument(
+        "--gates-config",
+        default="configs/eval_gates.yaml",
+        help="Path to eval_gates.yaml (default: configs/eval_gates.yaml).",
+    )
+    return parser.parse_args(list(argv))
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Entry point. Returns the script's exit code.
+
+    Exit codes:
+        0 = all hard gates passed (aspirational misses reported, non-blocking)
+        1 = one or more hard-gate violations (active or provisional-n1)
+        2 = infrastructure failure (missing YAML, unreadable or malformed summary.json)
+    """
+    args = _parse_args(argv if argv is not None else sys.argv[1:])
+
+    try:
+        gates_cfg = _load_gates(args.gates_config)
+        summary = _load_summary(args.summary)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write(f"check_eval_gates: {exc}\n")
+        return 2
+
+    violations: list[str] = []
+    aspirational_misses: list[str] = []
+
+    for gate in gates_cfg["gates"]:
+        result = _check_gate(gate, summary)
+        if result == "violation":
+            violations.append(gate["family"])
+        elif result == "aspirational_miss":
+            aspirational_misses.append(gate["family"])
+
+    if aspirational_misses:
+        print(f"check_eval_gates: ASPIRATIONAL miss (not blocking): {sorted(aspirational_misses)}")
+
+    if violations:
+        sys.stderr.write(f"check_eval_gates: HARD GATE VIOLATION: {sorted(violations)}\n")
+        return 1
+
+    print(f"check_eval_gates: OK — {len(gates_cfg['gates'])} gates checked")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
