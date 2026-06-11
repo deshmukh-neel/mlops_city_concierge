@@ -1,11 +1,16 @@
 # Phase 6 refinement-only matrix (D-06-09 / D-06-10 / plan 06-07).
 #
 # Runs the refinement_cheaper scenario against BOTH provider entries
-# under REFINEMENT_STRUCTURED_PLAN_ENABLED=true. The merge gate is
-# strict 1.0 on openai/gpt-4o-mini only (D-06-09). DeepSeek is
-# logged-but-not-gated per D-04-11 / D-06-09 — its cell still RUNS so
-# its scores are captured in the baseline JSON, but no gate-on-failure
-# is enforced.
+# under REFINEMENT_STRUCTURED_PLAN_ENABLED=true.
+#
+# GATE SOURCE OF TRUTH: configs/eval_gates.yaml (D-10-05).
+# Gate values for all families (openai/gpt-4o-mini, openai/gpt-5-mini,
+# deepseek/*, anthropic/*, gemini/*) are defined there — not here.
+# See docs/eval_gates.md for semantics.
+#
+# Historical note: the strict refinement_minimal_edit == 1.0 gate that
+# was described in this file's comments is formally retired (D-10-06).
+# Gate values must not be re-added to this file; update configs/eval_gates.yaml.
 #
 # Per-cell env override (Phase 6 / plan 06-06 / D-06-10):
 #   - REFINEMENT_STRUCTURED_PLAN_ENABLED=true gates the structured-plan
@@ -22,38 +27,32 @@ entries:
     model: deepseek-chat
     env:
       REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
-  # Phase 9 / D-09-12 / PROV-01: GATED. Milestone anchor gate (D-09-02 re-scoped
-  # 2026-06-05 per user-approved Option A — see 09-PROV-01-BLOCKER.md Resolution):
-  # 2-part — Part A (hard): committed_itinerary_rate ≥ 0.6 on temp=1.0 with
-  # OpenAIReasoningAdapter; Part B (advisory): refinement_minimal_edit median ≥ 0.5.
-  # Gate enforced by make eval-matrix-refinement (local) and
-  # scripts/check_baselines_fresh.py (CI).
+  # Phase 9 / D-09-12 / PROV-01: GATED (aspirational as of D-10-07).
+  # Milestone anchor gate (D-09-02 re-scoped 2026-06-05 per user-approved Option A
+  # — see 09-PROV-01-BLOCKER.md Resolution). Gate values in configs/eval_gates.yaml.
+  # Gate enforced by make eval-gates-check (local); see docs/eval_gates.md.
   - provider: openai
     model: gpt-5-mini
     env:
       REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
-  # Phase 9 / D-09-12 / PROV-02: gated median ≥ 0.6 (lower bar; intentional).
-  # DeepSeek reasoner has a known decisiveness gap on this codebase
-  # (memory project_deepseek_decisiveness_gap), so the gate is calibrated
-  # below the v2.0 anchor's 1.0 strict target. Thinking is ENABLED via
-  # _DEEPSEEK_REASONER_THINKING_ENABLED in app/llm_factory.py so the model
-  # emits reasoning_content for DeepSeekReasonerAdapter to round-trip;
+  # Phase 9 / D-09-12 / PROV-02: logged-not-gated (D-10-07).
+  # DeepSeek reasoner has a known decisiveness gap (memory project_deepseek_decisiveness_gap).
+  # Gate values (if any) live in configs/eval_gates.yaml — not here.
+  # Thinking is ENABLED via _DEEPSEEK_REASONER_THINKING_ENABLED in app/llm_factory.py so
+  # the model emits reasoning_content for DeepSeekReasonerAdapter to round-trip;
   # the existing deepseek-chat cell stays at thinking-disabled (regression
   # guard test_deepseek_chat_keeps_thinking_disabled in tests/unit/test_llm_factory.py).
   - provider: deepseek
     model: deepseek-reasoner
     env:
       REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"
-  # Phase 9 / D-09-12 / PROV-03: gated median ≥ 1.0 (strict; first-time
-  # Anthropic wiring). claude-sonnet-4-6 runs with thinking ENABLED + temp=1.0
+  # Phase 9 / D-09-12 / PROV-03: provisional-n1 (D-10-07).
+  # First-time Anthropic wiring. claude-sonnet-4-6 runs with thinking ENABLED + temp=1.0
   # per D-09-06 carve-out (Sonnet with thinking disabled is just regular
   # Sonnet — no thinking_blocks for AnthropicAdapter to round-trip).
-  # budget_tokens=4096 default via _ANTHROPIC_THINKING_BUDGET in
-  # app/llm_factory.py. The signed thinking blocks MUST round-trip
-  # byte-identical or Anthropic's API 400s; that contract is the wire-level
-  # backstop for the AnthropicAdapter unit + conformance tests. Gate-miss
-  # ships accept-with-notes per D-06-09 + Wave 1/2 precedent (D-09-02
-  # PR-blocking gate is PROV-01 only).
+  # budget_tokens=4096 default via _ANTHROPIC_THINKING_BUDGET in app/llm_factory.py.
+  # The signed thinking blocks MUST round-trip byte-identical or Anthropic's API 400s.
+  # Gate values in configs/eval_gates.yaml (status: provisional-n1; Phase 11 re-ratifies).
   - provider: anthropic
     model: claude-sonnet-4-6
     env:
