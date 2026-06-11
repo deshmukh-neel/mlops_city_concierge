@@ -129,7 +129,13 @@ class DeterministicEvalResult:
 
 @dataclass
 class QueryEvalResult:
-    """RAGAS-compatible per-query eval output plus deterministic diagnostics."""
+    """RAGAS-compatible per-query eval output plus deterministic diagnostics.
+
+    The `status` field is the discriminator used by aggregate_results:
+      - "ok"    — completed run; scored fields are populated.
+      - "error" — infra/config exception; scorers were NOT invoked.
+                  `error` dict carries {stage, type, message} per D-10-01.
+    """
 
     id: str
     question: str
@@ -142,6 +148,11 @@ class QueryEvalResult:
     deterministic: DeterministicEvalResult
     final_reply: str
     latency_seconds: float
+    # D-10-01: status discriminator — default "ok" so all pre-existing
+    # scored rows remain status="ok" without any callsite change.
+    status: str = "ok"
+    # D-10-01: populated only on status="error" runs; None on scored runs.
+    error: dict[str, str] | None = None
 
 
 @dataclass
@@ -154,6 +165,66 @@ class EvalRunReport:
     query_count: int
     aggregate: dict[str, float | int]
     queries: list[QueryEvalResult]
+
+
+def make_error_record(case: EvalQuery, stage: str, exc: BaseException) -> QueryEvalResult:
+    """Build a D-10-01-shaped error record for one failed eval run.
+
+    Returns a QueryEvalResult with status="error" and an error dict carrying
+    {stage, type, message}. Scorers are NEVER invoked — all check scores are
+    None and the deterministic block is empty. Serializes cleanly via asdict().
+
+    Args:
+        case:  The eval case that was running when the exception occurred.
+        stage: One of {"setup", "turn0", "turnN"} per D-10-01.
+        exc:   The exception that caused the run to fail.
+    """
+    error_dict: dict[str, str] = {
+        "stage": stage,
+        "type": type(exc).__name__,
+        "message": str(exc)[:500],
+    }
+    # All check entries carry score=None so the aggregate filter (status=="ok")
+    # correctly skips this record — no scorer output leaks into means.
+    empty_checks: dict[str, CheckResult] = {
+        name: CheckResult(score=None, threshold=0.0, passed=False) for name in DETERMINISTIC_CHECKS
+    }
+    return QueryEvalResult(
+        id=case.id,
+        question=case.query,
+        answer="",
+        contexts=[],
+        reference=case.reference,
+        tags=case.tags,
+        expected=ExpectedEvalResult(
+            min_stops=case.expected_results.min_stops if case.expected_results else None,
+            max_stops=case.expected_results.max_stops if case.expected_results else None,
+            expects_clarification_or_relaxation=False,
+        ),
+        actual=ActualEvalResult(
+            result_count=0,
+            committed_stop_count=0,
+            place_ids=[],
+            place_names=[],
+            sources=[],
+            answer_place_names=[],
+        ),
+        deterministic=DeterministicEvalResult(
+            expected_results_met=None,
+            checks=empty_checks,
+            violations=[],
+            tool_errors=[],
+            first_tool_error=None,
+            tool_calls=0,
+            tool_names=[],
+            revision_hints=0,
+            revision_reasons=[],
+        ),
+        final_reply="",
+        latency_seconds=0.0,
+        status="error",
+        error=error_dict,
+    )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
