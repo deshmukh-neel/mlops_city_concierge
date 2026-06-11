@@ -7,7 +7,7 @@ from dataclasses import asdict
 
 import pytest
 
-from app.agent.state import ItineraryState
+from app.agent.state import ItineraryState, UserConstraints
 from app.eval.config import EvalQuery, ExpectedConstraints, load_eval_queries
 from app.tools.filters import family_of
 from scripts.eval_agent import (
@@ -27,12 +27,14 @@ from scripts.eval_agent import (
     evaluate_multi_turn_case,
     expected_results_label,
     percentile,
+    query_result_from_state,
     rate,
     report_has_errors,
     report_has_violations,
     resolve_chat_model,
     retrieved_place_names_from_state,
     revision_reasons_from_state,
+    score_checks,
     score_expected_results,
     selected_cases,
     state_from_graph_output,
@@ -1251,7 +1253,8 @@ def test_query_eval_result_with_error_serializes_via_asdict() -> None:
 def test_aggregate_results_filters_scored_only() -> None:
     """D-10-03: aggregate_results must compute scorer means over ONLY results
     with status=='ok'. An all-error result list yields n_scored==0 and scorer
-    means of 0.0 (not 1.0 from Branch-1 abstain).
+    means of None (not 1.0 from Branch-1 abstain, and — per D-11-03/CR-01 —
+    not the former mean([]) == 0.0 that conflated "no signal" with "zero score").
     """
     from scripts.eval_agent import aggregate_results, make_error_record
 
@@ -1260,9 +1263,10 @@ def test_aggregate_results_filters_scored_only() -> None:
 
     assert aggregate["n_scored"] == 0
     assert aggregate["n_errored"] == 1
-    # Scorer means must be 0.0 (empty list → mean returns 0.0), NOT 1.0.
-    assert aggregate["refinement_minimal_edit_mean"] == 0.0
-    assert aggregate["category_compliance_mean"] == 0.0
+    # Scorer means must be None (zero non-None scores → no signal), NOT 1.0
+    # fail-open and NOT the former mean([]) == 0.0.
+    assert aggregate["refinement_minimal_edit_mean"] is None
+    assert aggregate["category_compliance_mean"] is None
 
 
 def test_aggregate_results_n_scored_and_n_errored_counts() -> None:
@@ -1355,9 +1359,11 @@ async def test_21_14_30z_replay_all_error_report_has_zero_scored(mocker) -> None
     assert aggregate["n_scored"] == 0
     assert aggregate["n_errored"] == 3
     # Former fail-open: refinement_minimal_edit_mean was 1.0 due to Branch-1
-    # abstain returning 1.0 on partial state. Now it must be 0.0.
+    # abstain returning 1.0 on partial state. Now it must be None — zero
+    # non-None scores publish None per D-11-03/CR-01, never a fabricated 1.0
+    # (or the former mean([]) == 0.0).
     assert aggregate["refinement_minimal_edit_mean"] != 1.0
-    assert aggregate["refinement_minimal_edit_mean"] == 0.0
+    assert aggregate["refinement_minimal_edit_mean"] is None
 
 
 @pytest.mark.asyncio
@@ -2242,6 +2248,79 @@ class TestZeroNDerivedRateGuards:
         assert isinstance(agg["expected_results_mismatch_rate"], float)
         assert isinstance(agg["tool_error_rate"], float)
         assert isinstance(agg["tool_success_rate"], float)
+
+
+class TestZeroStopAbstainPipeline:
+    """CR-01 / D-11-03: the category_compliance None-abstain must survive the
+    REAL eval pipeline — score_checks → aggregate_results → main() exit code —
+    not just the scorer function in isolation.
+
+    Before the fix, score_checks coerced with ``float(check(state))``;
+    ``float(None)`` raised TypeError, the blanket except converted the abstain
+    into a scorer ERROR (check_error_count > 0) and a violation, and
+    report_has_errors forced exit 2 ("infra failure — rerun needed") for what
+    is a pure model-behavior outcome. Every zero-stop run tripped it.
+    """
+
+    def _zero_stop_state(self) -> ItineraryState:
+        return ItineraryState(
+            constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+            stops=[],
+        )
+
+    def test_score_checks_abstain_is_not_error_and_not_violation(self) -> None:
+        """The None abstain must not surface as a scorer error or a violation."""
+        checks = score_checks(self._zero_stop_state())
+
+        result = checks["category_compliance"]
+        assert result.score is None, "zero-stop abstain must keep score=None"
+        assert result.error is None, "abstain must NOT be recorded as a scorer error"
+        assert result.passed is True, "abstain must NOT count as a failed check"
+        assert "category_compliance" not in violations_from_checks(checks)
+
+    def test_zero_stop_aggregate_reports_no_check_error_and_none_mean(self) -> None:
+        """Real pipeline: zero-stop state → score_checks → aggregate_results."""
+        result = query_result_from_state(eval_case(), self._zero_stop_state())
+        agg = aggregate_results([result])
+
+        assert agg["check_error_count"] == 0, (
+            "abstain must not inflate check_error_count (it forces exit 2)"
+        )
+        assert agg["category_compliance_mean"] is None, (
+            "a cell with zero non-None scores must publish None, not mean([]) == 0.0 — "
+            "'no signal' must never read as 'zero compliance'"
+        )
+
+    def test_mixed_cell_mean_excludes_abstained_run(self) -> None:
+        """One abstained run + one populated run → mean over the populated run only."""
+        zero_stop = query_result_from_state(eval_case(), self._zero_stop_state())
+        populated = query_result()  # category_compliance score 1.0
+
+        agg = aggregate_results([zero_stop, populated])
+
+        assert agg["category_compliance_mean"] == 1.0, (
+            "the abstained (None) run must be excluded from the mean entirely"
+        )
+
+    def test_zero_stop_run_exits_1_not_2(self, mocker) -> None:
+        """Full path to the exit code: a zero-stop run is a model-behavior
+        outcome (exit 1 via the expected_results violation), never an infra
+        failure (exit 2) — the D-11-16 contract."""
+        from scripts.eval_agent import main
+
+        result = query_result_from_state(eval_case(), self._zero_stop_state())
+        report = EvalRunReport(
+            eval_queries_path="configs/eval_queries.yaml",
+            llm_provider="openai",
+            chat_model="gpt-4o-mini",
+            query_count=1,
+            aggregate=aggregate_results([result]),
+            queries=[result],
+        )
+        mocker.patch("scripts.eval_agent.asyncio.run", side_effect=lambda coro: report)
+
+        rc = main(["--llm-provider", "openai"])
+        assert rc == 1, f"zero-stop run must exit 1 (model behavior), not 2 (infra); got {rc}"
 
 
 class TestExitCodeContract:

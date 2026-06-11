@@ -52,7 +52,10 @@ _log = logging.getLogger(__name__)
 # enforcement comes from argparse `choices=list(SUPPORTED_PROVIDERS)`; this
 # alias exists so static type-checkers see the same canonical set.
 LlmProvider = Literal["openai", "gemini", "deepseek", "kimi", "anthropic", "scripted"]
-CheckFunction = Callable[[ItineraryState], float]
+# D-11-03 / CR-01: checks may return None to ABSTAIN (no signal — e.g. the
+# zero-stop category_compliance abstain). score_checks treats None as
+# "excluded from aggregation", never as a scorer error or a violation.
+CheckFunction = Callable[[ItineraryState], float | None]
 
 DETERMINISTIC_CHECKS: dict[str, CheckFunction] = {
     "category_compliance": category_compliance,
@@ -560,7 +563,8 @@ def score_checks(state: ItineraryState) -> dict[str, CheckResult]:
     for name, check in DETERMINISTIC_CHECKS.items():
         threshold = CRITIQUE_THRESHOLDS[name]
         try:
-            score = float(check(state))
+            raw = check(state)
+            score = float(raw) if raw is not None else None
         except Exception as exc:  # noqa: BLE001
             results[name] = CheckResult(
                 score=None,
@@ -568,6 +572,15 @@ def score_checks(state: ItineraryState) -> dict[str, CheckResult]:
                 passed=False,
                 error=str(exc),
             )
+            continue
+        if score is None:
+            # D-11-03 / CR-01 abstain: the check carries no signal for this
+            # run (e.g. zero-stop category_compliance). Not an error
+            # (error=None keeps it out of check_error_count, so it can never
+            # force exit 2) and not a violation (passed=True keeps it out of
+            # violations_from_checks). The None score is excluded from
+            # aggregate means downstream.
+            results[name] = CheckResult(score=None, threshold=threshold, passed=True)
             continue
         results[name] = CheckResult(
             score=score,
@@ -1022,7 +1035,7 @@ def answer_retrieved_place_coverage(result: QueryEvalResult) -> float | None:
     return min(len(result.actual.answer_place_names) / result.actual.result_count, 1.0)
 
 
-def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | int | list]:
+def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | int | list | None]:
     """Aggregate per-query deterministic eval results into flat metrics.
 
     D-10-03: scorer means are computed ONLY over results with status=="ok".
@@ -1065,7 +1078,7 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
         if (score := answer_retrieved_place_coverage(result)) is not None
     ]
     latencies = [float(result.latency_seconds) for result in scored_results]
-    aggregate: dict[str, float | int | list] = {
+    aggregate: dict[str, float | int | list | None] = {
         # D-10-03: cell validity fields (read by eval_matrix summary threading).
         "n_scored": n_scored,
         "n_errored": n_errored,
@@ -1139,13 +1152,17 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
         "latency_max_seconds": max(latencies) if latencies else 0.0,
     }
     # D-10-03: scorer means over scored_results only — errored runs excluded.
+    # D-11-03 / CR-01: a check with zero non-None scores in the cell publishes
+    # None, never mean([]) == 0.0 — "no signal" must not read as "zero score".
+    # eval_matrix._scorer_means_from_cell skips non-numeric values, so a None
+    # mean simply drops out of summary.json scorer stats (not-evaluable).
     for name in DETERMINISTIC_CHECKS:
         scores: list[float] = []
         for result in scored_results:
             score = result.deterministic.checks[name].score
             if score is not None:
                 scores.append(score)
-        aggregate[f"{name}_mean"] = mean(scores)
+        aggregate[f"{name}_mean"] = mean(scores) if scores else None
     return aggregate
 
 
