@@ -133,7 +133,7 @@ Plans:
   5. A per-provider live-probe Make target exists (one ~$0.01 call per provider), is documented as the mandatory pre-matrix step, and its captured real-wire responses are checked in as fixtures consumed by the adapter/conformance tests — closing the synthetic-vs-live gap that produced 4 live-only Anthropic bugs and the Gemini lcgg key-shape miss in Phase 9 (EVAL-05).
   6. The untested `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`, `app/llm_factory.py:350-361`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph (`app/agent/critique/vibe.py:78`) is made non-blocking or explicitly flag-documented as eval-only (EVAL-06).
 
-**Plans:** 6/6 plans complete
+**Plans:** 6/6 original plans complete; 3 gap-closure plans added (10-07..10-09, see 10-VERIFICATION.md)
 Plans:
 **Wave 1**
 
@@ -149,6 +149,12 @@ Plans:
 **Wave 3** *(blocked on Wave 2)*
 
 - [x] 10-03-quarantine-and-parity-PLAN.md — Quarantine late_night (baseline_eligible) + verify PR #104 parity test (EVAL-02, EVAL-04) [depends 10-02]
+
+**Gap-closure wave** *(verification found 4 BLOCKER + 1 WARNING; CR-01..CR-05 — all independent, parallel)*
+
+- [ ] 10-07-gate-checker-schema-fix-PLAN.md — Fix check_eval_gates to walk the nested scenarios->providers summary shape + real-aggregator integration test (EVAL-03 / CR-01)
+- [ ] 10-08-quarantine-wiring-and-crash-guard-PLAN.md — Wire eval_queries_config into main()'s aggregate_cell_jsons (baseline_eligible) + None-guard _constraints_for_case on clarification cases (EVAL-02, EVAL-01 / CR-03, CR-02)
+- [ ] 10-09-probe-redaction-and-portability-PLAN.md — Route response_metadata/usage_metadata/tool_calls through _redact + env-var-aware post-write guard + repo-root-relative test path (EVAL-05 / CR-05, CR-04)
 
 ### Phase 11: Cross-Model Baseline Regen + Matrix Expansion
 
