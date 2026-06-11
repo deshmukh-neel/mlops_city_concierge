@@ -1255,6 +1255,52 @@ gates:
     )
 
 
+def test_advisory_only_family_with_null_hard_still_reports_advisory_miss(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """WR-05: `hard: null` + non-empty advisory must still evaluate and report.
+
+    Before the fix, `if hard is None: return "pass"` exited _check_gate before
+    the advisory loop ran, so a schema-conforming advisory-only entry (e.g.
+    the anthropic promotion path's intermediate state) produced zero ADVISORY
+    output with no warning.
+    """
+    gates_yaml = """\
+gates:
+  - family: anthropic/claude-sonnet-4-6
+    status: active
+    rationale: "advisory-only intermediate state"
+    hard: null
+    advisory:
+      - metric: refinement_minimal_edit_median
+        op: ">="
+        value: 0.5
+"""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(gates_yaml)
+
+    cell = {
+        "scorers": {"refinement_minimal_edit": {"median": 0.0}},  # below advisory floor
+        "n_scored": 5,
+        "n_errored": 0,
+        "cell_valid": True,
+    }
+    summary = _make_summary({"anthropic/claude-sonnet-4-6": cell})
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 0, f"null hard block must never block (exit 0), got {rc}"
+
+    captured = capsys.readouterr()
+    assert "ADVISORY" in captured.out, (
+        f"advisory-only entry (hard: null) must still print its ADVISORY miss; "
+        f"got: {captured.out!r}"
+    )
+
+
 def test_advisory_metric_name_resolution_refinement_minimal_edit_median(
     tmp_path: Path,
     script: ModuleType,

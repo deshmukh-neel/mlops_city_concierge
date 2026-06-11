@@ -283,16 +283,7 @@ def _check_gate(
         return "skip"
 
     hard = gate.get("hard")
-
-    # Gates with null hard block are trivially passing for the purpose of
-    # exit-code calculation (advisory-only entries).
-    if hard is None:
-        return "pass"
-
     family = gate["family"]
-    metric = hard["metric"]
-    op = hard["op"]
-    threshold = hard["value"]
 
     # Locate the cells for this family by walking the nested scenarios->providers shape
     # produced by aggregate_cell_jsons:
@@ -303,6 +294,9 @@ def _check_gate(
     # The gate is evaluated against EVERY eligible scenario carrying the family —
     # never first-match-wins. A merge gate's verdict must not depend on scenario-id
     # ordering: if the family fails in any eligible scenario, the gate fails.
+    #
+    # WR-05: cell location is hoisted ABOVE the `hard is None` early return —
+    # advisory entries need cells regardless of whether a hard block exists.
     cells: list[tuple[str, dict]] = []
     for scenario_id, scenario_block in summary.get("scenarios", {}).items():
         if scenario_block.get("baseline_eligible", True) is False:
@@ -310,6 +304,41 @@ def _check_gate(
         candidate = scenario_block.get("providers", {}).get(family)
         if candidate is not None:
             cells.append((scenario_id, candidate))
+
+    # WR-05 / D-11-17: evaluate advisory entries — report-only WARN, never
+    # blocking. Advisory results MUST NOT be added to violations or change the
+    # exit code. Evaluated BEFORE the hard-gate early returns so an
+    # advisory-only entry (`hard: null` + non-empty advisory — e.g. the
+    # documented anthropic promotion path's intermediate state) still reports.
+    advisory_entries = gate.get("advisory") or []
+    for adv in advisory_entries:
+        adv_metric = adv.get("metric", "")
+        # D-11-17: resolve the advisory metric name alias.
+        # 'refinement_minimal_edit_median' is the gate-YAML name for the
+        # refinement_minimal_edit scorer's median value.
+        if adv_metric == "refinement_minimal_edit_median":
+            adv_metric = "refinement_minimal_edit"
+        adv_op = adv.get("op", ">=")
+        adv_threshold = adv.get("value", 0.0)
+        # Evaluate advisory against every eligible cell for this family.
+        for _sid, cell in cells:
+            adv_value = _get_metric_value(cell, adv_metric)
+            if adv_value is not None and not _evaluate_op(adv_value, adv_op, adv_threshold):
+                print(
+                    f"check_eval_gates: ADVISORY miss — {family} "
+                    f"{adv_metric} {adv_op} {adv_threshold} "
+                    f"(actual={adv_value:.3f}) [non-blocking]"
+                )
+                break  # one ADVISORY line per advisory entry is sufficient
+
+    # Gates with null hard block are trivially passing for the purpose of
+    # exit-code calculation (advisory-only entries report above, never block).
+    if hard is None:
+        return "pass"
+
+    metric = hard["metric"]
+    op = hard["op"]
+    threshold = hard["value"]
 
     if not cells:
         # Family has no cell in any eligible scenario — not-evaluable, not a silent pass.
@@ -356,29 +385,6 @@ def _check_gate(
             # Statuses are validated at load time (_load_gates, WR-03); reaching here
             # means a caller bypassed validation — fail closed, never silently pass.
             raise ValueError(f"unknown gate status {status!r} for family {family!r}")
-
-    # WR-05 / D-11-17: evaluate advisory entries — report-only WARN, never blocking.
-    # Advisory results MUST NOT be added to violations or change the exit code.
-    advisory_entries = gate.get("advisory") or []
-    for adv in advisory_entries:
-        adv_metric = adv.get("metric", "")
-        # D-11-17: resolve the advisory metric name alias.
-        # 'refinement_minimal_edit_median' is the gate-YAML name for the
-        # refinement_minimal_edit scorer's median value.
-        if adv_metric == "refinement_minimal_edit_median":
-            adv_metric = "refinement_minimal_edit"
-        adv_op = adv.get("op", ">=")
-        adv_threshold = adv.get("value", 0.0)
-        # Evaluate advisory against every eligible cell for this family.
-        for _sid, cell in cells:
-            adv_value = _get_metric_value(cell, adv_metric)
-            if adv_value is not None and not _evaluate_op(adv_value, adv_op, adv_threshold):
-                print(
-                    f"check_eval_gates: ADVISORY miss — {family} "
-                    f"{adv_metric} {adv_op} {adv_threshold} "
-                    f"(actual={adv_value:.3f}) [non-blocking]"
-                )
-                break  # one ADVISORY line per advisory entry is sufficient
 
     return gate_result
 
