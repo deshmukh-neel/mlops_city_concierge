@@ -41,6 +41,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from app.agent.critique.checks import CRITIQUE_THRESHOLDS
 from app.eval.config import (
     DEFAULT_EVAL_MATRIX_PATH,
@@ -794,7 +796,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # — fall back to None (no baseline_eligible keys) with a logged warning.
     try:
         _eval_queries_cfg: EvalQueriesConfig | None = load_eval_queries(args.eval_queries)
-    except (OSError, ValueError) as _exc:
+    except (OSError, ValueError, yaml.YAMLError) as _exc:
         _log.warning(
             "eval_matrix: could not load eval-queries config %r (%s); "
             "baseline_eligible will be omitted from summary.json",

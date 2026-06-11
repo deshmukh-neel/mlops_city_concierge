@@ -24,12 +24,14 @@ Not-evaluable condition:
     Similarly, if a family with a hard gate has no cell in the summary at
     all, it is treated as not-evaluable and reported.
 
-    The cell for a family is located by walking each scenario block under
+    The cells for a family are located by walking each scenario block under
     ``summary['scenarios']`` and looking up the family under
     ``scenario_block['providers']``.  Scenarios whose ``baseline_eligible``
     flag is explicitly ``False`` (D-10-09 quarantined scenarios) are skipped
     during this walk — a quarantined scenario's cell neither satisfies nor
-    violates a gate.
+    violates a gate.  The gate is evaluated against EVERY eligible scenario
+    carrying the family (fail-closed): if any eligible scenario's cell fails,
+    the gate fails, regardless of scenario-id ordering.
 """
 
 from __future__ import annotations
@@ -158,31 +160,39 @@ def _check_gate(
     op = hard["op"]
     threshold = hard["value"]
 
-    # Locate the cell for this family by walking the nested scenarios->providers shape
+    # Locate the cells for this family by walking the nested scenarios->providers shape
     # produced by aggregate_cell_jsons:
     #   summary['scenarios'][<scenario_id>]['providers'][<family>]
     # Quarantined scenarios (baseline_eligible=False, D-10-09) are skipped so their
     # cells neither satisfy nor violate a gate.
-    cell = None
-    for _scenario_id, scenario_block in summary.get("scenarios", {}).items():
+    #
+    # The gate is evaluated against EVERY eligible scenario carrying the family —
+    # never first-match-wins. A merge gate's verdict must not depend on scenario-id
+    # ordering: if the family fails in any eligible scenario, the gate fails.
+    cells: list[tuple[str, dict]] = []
+    for scenario_id, scenario_block in summary.get("scenarios", {}).items():
         if scenario_block.get("baseline_eligible", True) is False:
             continue
         candidate = scenario_block.get("providers", {}).get(family)
         if candidate is not None:
-            cell = candidate
-            break
+            cells.append((scenario_id, candidate))
 
-    if cell is None:
+    if not cells:
         # Family has no cell in any eligible scenario — not-evaluable, not a silent pass.
         note = f"check_eval_gates: NOT-EVALUABLE — family '{family}' has no cell in summary"
         print(note)
         return "not_evaluable"
 
-    # Extract the metric from the cell.
-    value = _get_metric_value(cell, metric)
+    # Extract the metric from every located cell. Cells lacking the metric do not
+    # count toward the verdict; if NO cell carries it, the gate is not-evaluable.
+    evaluable: list[tuple[str, float]] = []
+    for scenario_id, cell in cells:
+        value = _get_metric_value(cell, metric)
+        if value is not None:
+            evaluable.append((scenario_id, value))
 
-    if value is None:
-        # Metric absent — not-evaluable, not a silent pass.
+    if not evaluable:
+        # Metric absent from every eligible cell — not-evaluable, not a silent pass.
         note = (
             f"check_eval_gates: NOT-EVALUABLE — metric '{metric}' absent from cell "
             f"'{family}' (Phase 11 BASE-01 will wire this metric)"
@@ -190,11 +200,18 @@ def _check_gate(
         print(note)
         return "not_evaluable"
 
-    # Evaluate the gate.
-    satisfied = _evaluate_op(value, op, threshold)
+    # Evaluate the gate against every evaluable scenario — fail-closed on any miss.
+    failing_scenarios = [
+        scenario_id for scenario_id, value in evaluable if not _evaluate_op(value, op, threshold)
+    ]
 
-    if satisfied:
+    if not failing_scenarios:
         return "pass"
+
+    print(
+        f"check_eval_gates: gate '{family}' {metric} {op} {threshold} failed in "
+        f"scenario(s): {sorted(failing_scenarios)}"
+    )
 
     # Gate failed — classify by status.
     if status in _HARD_STATUSES:
