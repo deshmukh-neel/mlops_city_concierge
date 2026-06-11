@@ -418,6 +418,14 @@ hand_written:
       min_stops: 3
       max_stops: 3
     turns: ["yes accept the alternative"]
+    # D-10-09: quarantined from baselines and gates. The closure-cascade turn-2
+    # scorers were designed against the full-tool-history threading shape
+    # (project memory: project_eval_multi_turn_threading_bug). Migrating to
+    # prod threading would redesign the scenario — deferred out of scope for
+    # the harness-honesty phase. Runs as a diagnostic only; excluded from
+    # baseline aggregation and merge gates. See eval_gates.yaml for the
+    # quarantined-legacy-threading status entry.
+    baseline_eligible: false
     tags: ["closure", "rationale_alignment", "multi_turn", "mission", "late_night"]
 
 generated:

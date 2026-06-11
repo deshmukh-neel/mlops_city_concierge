@@ -724,6 +724,65 @@ def test_openai_reasoning_chat_model_generate_wires_through_lift(mocker) -> None
     ]
 
 
+# ─── Plan 10-06 / EVAL-06: gpt-5 dispatch + gpt-4o-mini anchor guard + ScriptedChatModel ainvoke ──
+
+
+def test_build_chat_model_gpt5_returns_openai_reasoning_chat_model(mocker, monkeypatch) -> None:
+    """D-10-15: gpt-5-* routes through OpenAIReasoningChatModel with
+    use_responses_api=True. Previously ZERO tests referenced use_responses_api
+    — a refactor could silently route gpt-5 onto plain ChatOpenAI and lose
+    reasoning-state preservation (EVAL-06).
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    cls = mocker.patch(
+        "app.llm_factory.OpenAIReasoningChatModel",
+        return_value="gpt5-reasoning-llm",
+    )
+    out = build_chat_model("openai", "gpt-5-mini", temperature=1.0)
+    assert out == "gpt5-reasoning-llm"
+    cls.assert_called_once()
+    _, kwargs = cls.call_args
+    assert kwargs["model"] == "gpt-5-mini"
+    assert kwargs["use_responses_api"] is True
+
+
+def test_build_chat_model_gpt4o_mini_stays_plain_chat_openai(mocker, monkeypatch) -> None:
+    """D-10-15 regression guard: gpt-4o-mini MUST NOT be routed through
+    OpenAIReasoningChatModel — it must stay on plain ChatOpenAI (v2.0
+    production anchor must be byte-preserved, CLAUDE.md / EVAL-06).
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    reasoning_cls = mocker.patch("app.llm_factory.OpenAIReasoningChatModel")
+    plain_cls = mocker.patch("app.llm_factory.ChatOpenAI", return_value="plain-llm")
+    out = build_chat_model("openai", "gpt-4o-mini", temperature=1.0)
+    assert out == "plain-llm"
+    plain_cls.assert_called_once()
+    reasoning_cls.assert_not_called()
+
+
+async def test_scripted_chat_model_ainvoke_works() -> None:
+    """D-10-16: The graph only ever calls ainvoke; verify BaseChatModel executor
+    fallback works for ScriptedChatModel (no _agenerate override).
+
+    ScriptedChatModel defines only _generate; ainvoke falls back to
+    BaseChatModel's async executor path (run_in_executor). This test proves
+    that path works without any network call.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from app.llm_factory import ScriptedChatModel
+
+    llm = ScriptedChatModel(scripted=[AIMessage(content="hello")])
+    result = await llm.ainvoke([HumanMessage(content="go")])
+    assert result.content == "hello"
+
+
 async def test_openai_reasoning_chat_model_agenerate_wires_through_lift(mocker) -> None:
     """WR-01 Test 7 (async parity): `_agenerate` calls `_lift_reasoning_blocks`
     on the result returned by the parent `ChatOpenAI._agenerate`. Without

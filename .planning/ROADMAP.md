@@ -38,7 +38,7 @@ Without this, every new reasoning model the field ships in 2026 is permanently u
 - [x] **Phase 7: Prompt/Rubric Decoupling** — Behavioral rules move from prompt body to scorer; no regression on v2.0 anchor; serves as falsifier for Phase 8 architectural diagnosis (completed 2026-06-04)
 - [x] **Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness** — Typed `ProviderAdapter` contract + per-provider conformance tests + `_prune_for_llm` refactor; doubles as harness-swap decision gate (completed 2026-06-04)
 - [x] **Phase 9: Per-Provider State Preservation Implementations** — One sub-phase each: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (+ Anthropic wiring) → Gemini 3 (experimental); milestone anchor gate lands here (completed 2026-06-05)
-- [ ] **Phase 10: Eval Harness Honesty** — Close the three fail-open scorer paths, fix late_night threading shape, re-derive satisfiable per-family gates, institutionalize live-probe + recorded fixtures (re-scoped 2026-06-10; original BASE scope moved to Phase 11)
+- [x] **Phase 10: Eval Harness Honesty** — Close the three fail-open scorer paths, fix late_night threading shape, re-derive satisfiable per-family gates, institutionalize live-probe + recorded fixtures (re-scoped 2026-06-10; original BASE scope moved to Phase 11) (completed 2026-06-11)
 - [ ] **Phase 11: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open (incl. carried-forward anthropic n=5 + gemini first n=5); add three new cross-model anchors; lock per-family merge gates in CI
 
 ## Phase Details
@@ -133,7 +133,28 @@ Plans:
   5. A per-provider live-probe Make target exists (one ~$0.01 call per provider), is documented as the mandatory pre-matrix step, and its captured real-wire responses are checked in as fixtures consumed by the adapter/conformance tests — closing the synthetic-vs-live gap that produced 4 live-only Anthropic bugs and the Gemini lcgg key-shape miss in Phase 9 (EVAL-05).
   6. The untested `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`, `app/llm_factory.py:350-361`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph (`app/agent/critique/vibe.py:78`) is made non-blocking or explicitly flag-documented as eval-only (EVAL-06).
 
-**Plans**: TBD
+**Plans:** 9/9 plans complete
+Plans:
+**Wave 1**
+
+- [x] 10-01-error-status-runner-PLAN.md — Error-status records in the eval runner; remove partial-state scoring; 21-14-30Z replay test (EVAL-01)
+- [x] 10-04-eval-gates-PLAN.md — configs/eval_gates.yaml + check_eval_gates.py + docs + Make target; retire strict-1.0 gate (EVAL-03)
+- [x] 10-06-sync-async-test-debt-PLAN.md — gpt-5 dispatch tests + ScriptedChatModel ainvoke + vibe_check executor doc (EVAL-06)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [x] 10-02-summary-error-threading-PLAN.md — Thread n_scored/n_errored/errors through summary.json + structural-check (EVAL-01) [depends 10-01]
+- [x] 10-05-live-probe-fixtures-PLAN.md — Generalized probe_provider_capture + redacted fixtures + adapter fixture tests (EVAL-05) [depends 10-04]
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [x] 10-03-quarantine-and-parity-PLAN.md — Quarantine late_night (baseline_eligible) + verify PR #104 parity test (EVAL-02, EVAL-04) [depends 10-02]
+
+**Gap-closure wave** *(verification found 4 BLOCKER + 1 WARNING; CR-01..CR-05 — all independent, parallel)*
+
+- [x] 10-07-gate-checker-schema-fix-PLAN.md — Fix check_eval_gates to walk the nested scenarios->providers summary shape + real-aggregator integration test (EVAL-03 / CR-01)
+- [x] 10-08-quarantine-wiring-and-crash-guard-PLAN.md — Wire eval_queries_config into main()'s aggregate_cell_jsons (baseline_eligible) + None-guard _constraints_for_case on clarification cases (EVAL-02, EVAL-01 / CR-03, CR-02)
+- [x] 10-09-probe-redaction-and-portability-PLAN.md — Route response_metadata/usage_metadata/tool_calls through _redact + env-var-aware post-write guard + repo-root-relative test path (EVAL-05 / CR-05, CR-04)
 
 ### Phase 11: Cross-Model Baseline Regen + Matrix Expansion
 
@@ -146,6 +167,18 @@ Plans:
   2. `configs/eval_matrix*.yaml` includes `gpt-5-mini`, `claude-sonnet-4-6`, and `deepseek-reasoner` as cross-model matrix entries alongside `openai/gpt-4o-mini`; running `make eval-matrix` against the updated config produces results for all four providers without errors (BASE-02).
   3. The per-family merge gates re-derived in Phase 10 (EVAL-03) are enforced via named Makefile targets and a CI step; the `gpt-5-mini × refinement_cheaper` anchor gate is one of them and fires on a synthetic regression (BASE-03).
   4. A staleness check analogous to `scripts/check_baselines_fresh.py` covers the new cross-model baselines; a code change touching the agent loop without regenerating the new baselines causes CI to fail, verified by a dry-run test of the staleness script (BASE-04).
+
+**Carry-over from Phase 10 code review** (`.planning/phases/10-eval-harness-honesty/10-REVIEW.md` — WR-01..04 fixed in Phase 10; the rest deferred here because they change scorer/exit-code semantics that BASE-01's regen will re-anchor anyway):
+
+  - WR-06: single-turn eval path lacks D-10-01 error capture — one transient failure aborts the whole run (`evaluate_case` single-turn branch needs `make_error_record`, stage `"setup"`)
+  - WR-07: `eval_agent` exit code conflates model-behavior violations with infra failures; `run_matrix` records both as cell failures — fold into BASE-03 gate wiring
+  - WR-08: prod-threading scratch keys (`prior_committed_stops`, `prior_stops_obj`) counted as phantom tool calls — fix before regenerating baselines or `tool_calls_mean` bakes in the skew
+  - WR-09: all-errored cell (`n_scored == 0`) publishes `deterministic_pass_rate: 1.0` / `tool_success_rate: 1.0` — emit None/0.0; fix before BASE-01 regen
+  - WR-10: `additional_kwargs_values` stringified in probe fixtures — adapter fixture test never exercises real-typed bytes/dict paths (D-10-12 residual)
+  - WR-11: eval-matrix structural-check "Check 6" is a tautology — exercise the real `make_error_record` schema
+  - WR-12: `category_compliance` returns 1.0 on zero committed stops, contradicting its own docstring — scorer-semantics change; coordinate with baseline regen (also relevant to v2.2 decisiveness work)
+  - WR-05: `advisory` gate entries never evaluated (dead config, unresolvable metric name) — implement or delete during BASE-03 gate promotion
+  - Info items IN-01..IN-06 (error-record metadata, aggregation logging, redaction edge cases) — see 10-REVIEW.md
 
 **Plans**: TBD
 
@@ -162,7 +195,7 @@ Plans:
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
-| 10. Eval Harness Honesty                       | v2.1      | 0/TBD          | Pending     | -          |
+| 10. Eval Harness Honesty                       | v2.1      | 9/9 | Complete    | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
 ---

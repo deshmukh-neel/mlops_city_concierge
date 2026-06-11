@@ -39,6 +39,7 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 **v2.1 progress:**
 - Phase 7 (Prompt/Rubric Decoupling) — shipped 2026-06-03 (PR #101).
 - Phase 8 (Reasoning-State Thread-Through Contract + Conformance Harness) — shipped 2026-06-04 (branch `gsd/phase-08-...`). D-08-11 Branch A acceptance: REASON-05 gate PASSED — LangGraph's `add_messages` reducer preserves `additional_kwargs` end-to-end through `graph.invoke`. Phase 9 proceeds on LangGraph; no v2.1.1 imperative-loop replan triggered. Typed `ProviderAdapter` contract live; `NoOpAdapter` byte-identical to pre-Phase-8 for the locked `openai/gpt-4o-mini` anchor (pinned by `tests/unit/fixtures/reason_04_prune_baseline.json`).
+- Phase 10 (Eval Harness Honesty) — complete 2026-06-11 (branch `gsd/phase-10-eval-harness-honesty`, verification 6/6 after gap-closure wave 10-07..10-09 closed CR-01..CR-05). ERROR-status records replace fail-open scoring; `late_night_closure_cascade` quarantined via `baseline_eligible` flag wired through real summary.json; per-family merge gates in `configs/eval_gates.yaml` enforced by `make eval-gates-check` against the real nested summary shape; per-provider live-probe fixtures with fail-closed redaction; gpt-5 dispatch + ScriptedChatModel ainvoke test debt closed.
 
 **v2.0 delivered:**
 - Reproducible cross-model eval harness with committed baselines, multi-turn threading, scripted-LLM CI mode, and a hard CI gate on baseline staleness.
@@ -137,4 +138,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-04 — Phase 8 shipped: ProviderAdapter contract + conformance harness; LangGraph retained for v2.1 (REASON-05 gate PASSED).*
+*Last updated: 2026-06-11 — Phase 10 complete: eval harness honesty (error-status records, gate enforcement, quarantine wiring, live-probe fixtures); v2.1 advances to Phase 11 baseline regen.*

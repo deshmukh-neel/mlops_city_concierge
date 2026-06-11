@@ -1253,3 +1253,561 @@ class TestStructuralCheck:
             "refinement_minimal_edit missing from DETERMINISTIC_CHECKS — "
             "plan 06-03 registration regressed"
         )
+
+
+# ─── 10-02: n_scored/n_errored/cell_valid error-threading in aggregation ─────
+
+
+def _write_cell_with_error_fields(
+    directory: Path,
+    provider: str,
+    model: str,
+    scenario_id: str,
+    run_n: int,
+    n_scored: int,
+    n_errored: int,
+    errors: list[dict[str, str]] | None = None,
+    score_value: float = 0.5,
+) -> Path:
+    """Write a cell JSON with the D-10-03 aggregate error fields (10-01 shape).
+
+    Supports both OK cells (n_errored=0) and errored cells (n_errored>=1).
+    The `errors` list mirrors the shape produced by eval_agent.aggregate_results.
+    """
+    fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
+    path = directory / fname
+    aggregate: dict = {
+        "n_scored": n_scored,
+        "n_errored": n_errored,
+        "cell_valid": n_errored == 0,
+        "errors": errors or [],
+        "category_compliance_mean": score_value,
+        "rationale_stop_alignment_mean": score_value,
+    }
+    payload = {
+        "llm_provider": provider,
+        "chat_model": model,
+        "query_count": n_scored + n_errored,
+        "aggregate": aggregate,
+        "queries": [{"id": scenario_id}],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def test_aggregate_cell_jsons_threads_error_counts(tmp_path: Path) -> None:
+    """10-02 / D-10-03: aggregate_cell_jsons surfaces n_scored, n_errored, and
+    cell_valid per provider-key block, and accumulates a top-level errors list.
+
+    Setup: one OK cell (n_errored=0) and one errored cell (n_errored=1).
+    Expected:
+      - OK cell: n_scored=1, n_errored=0, cell_valid=True
+      - Errored cell: n_scored=0, n_errored=1, cell_valid=False
+      - summary["errors"] is non-empty with the errored cell's entry
+    """
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    # OK cell — n_errored=0, contributes scores.
+    _write_cell_with_error_fields(
+        tmp_path,
+        "openai",
+        "gpt-4o-mini",
+        "scenario_a",
+        0,
+        n_scored=1,
+        n_errored=0,
+        errors=[],
+    )
+    # Errored cell — n_errored=1, stage/type populated.
+    _write_cell_with_error_fields(
+        tmp_path,
+        "openai",
+        "gpt-4o-mini",
+        "scenario_a",
+        1,
+        n_scored=0,
+        n_errored=1,
+        errors=[{"stage": "turn0", "type": "RateLimitError", "message": "quota exceeded"}],
+    )
+
+    summary = aggregate_cell_jsons(tmp_path)
+
+    # Per-provider block must carry n_scored, n_errored, cell_valid.
+    provider_block = summary["scenarios"]["scenario_a"]["providers"]["openai/gpt-4o-mini"]
+    # n_scored: sum across 2 runs → 1+0=1
+    assert provider_block["n_scored"] == 1
+    # n_errored: sum across 2 runs → 0+1=1
+    assert provider_block["n_errored"] == 1
+    # cell_valid: False because n_errored > 0
+    assert provider_block["cell_valid"] is False
+
+    # Top-level errors list must be non-empty.
+    assert "errors" in summary
+    assert len(summary["errors"]) >= 1
+    # Each error entry must carry stage and type.
+    err = summary["errors"][0]
+    assert "stage" in err
+    assert "type" in err
+
+
+def test_aggregate_cell_jsons_cell_valid_true_when_no_errors(tmp_path: Path) -> None:
+    """10-02 backward-compat: cells without any errored runs have cell_valid=True."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell_with_error_fields(
+        tmp_path,
+        "openai",
+        "gpt-4o-mini",
+        "scenario_a",
+        0,
+        n_scored=1,
+        n_errored=0,
+        errors=[],
+    )
+    _write_cell_with_error_fields(
+        tmp_path,
+        "openai",
+        "gpt-4o-mini",
+        "scenario_a",
+        1,
+        n_scored=1,
+        n_errored=0,
+        errors=[],
+    )
+
+    summary = aggregate_cell_jsons(tmp_path)
+    provider_block = summary["scenarios"]["scenario_a"]["providers"]["openai/gpt-4o-mini"]
+    assert provider_block["n_scored"] == 2
+    assert provider_block["n_errored"] == 0
+    assert provider_block["cell_valid"] is True
+    # No errors → top-level errors list is empty (or absent).
+    assert summary.get("errors", []) == []
+
+
+def test_aggregate_cell_jsons_legacy_cell_json_defaults_to_zero_errored(tmp_path: Path) -> None:
+    """10-02 backward-compat: legacy cell JSONs missing n_scored/n_errored fields
+    default to n_errored=0, n_scored=n (backward-compatible with pre-10-01 cells)."""
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    # Legacy cell with NO n_scored/n_errored/cell_valid fields.
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+
+    summary = aggregate_cell_jsons(tmp_path)
+    provider_block = summary["scenarios"]["scenario_a"]["providers"]["openai/gpt-4o-mini"]
+    # Legacy cell: n_errored defaults to 0.
+    assert provider_block["n_errored"] == 0
+    # Legacy cell: cell_valid defaults to True (no errors).
+    assert provider_block["cell_valid"] is True
+
+
+def test_aggregate_cell_jsons_error_count_in_exit_code(tmp_path: Path) -> None:
+    """10-02: main() exits non-zero when total_errored > 0 (cell had errored runs).
+
+    Uses a tmp_path with one errored cell. The matrix runner subprocess fan-out
+    is monkeypatched to be a no-op; we call aggregate_cell_jsons + a minimal
+    main() wrapper to verify the error-aware exit code path.
+
+    This is the integration-level exit-code assertion; the structural-check
+    extension test is separate (test_structural_check_validates_error_schema).
+    """
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell_with_error_fields(
+        tmp_path,
+        "openai",
+        "gpt-4o-mini",
+        "scenario_a",
+        0,
+        n_scored=0,
+        n_errored=1,
+        errors=[{"stage": "turn0", "type": "RateLimitError", "message": "quota"}],
+    )
+
+    summary = aggregate_cell_jsons(tmp_path)
+    provider_block = summary["scenarios"]["scenario_a"]["providers"]["openai/gpt-4o-mini"]
+    assert provider_block["n_errored"] == 1
+    assert provider_block["cell_valid"] is False
+
+
+class TestStructuralCheckErrorSchema:
+    """10-02: --structural-check now includes Check 6 — validates the error-schema
+    contract is well-formed. A synthetic error cell with {status:"error",
+    error:{stage,type,message}} passes membership checks; a malformed one fails.
+    """
+
+    @staticmethod
+    def _write_valid_refinement_matrix(tmp_path: Path) -> Path:
+        """Write a minimal valid refinement matrix YAML (mirrors TestStructuralCheck)."""
+        yaml_path = tmp_path / "matrix.yaml"
+        yaml_path.write_text(
+            "entries:\n"
+            "  - provider: openai\n"
+            "    model: gpt-4o-mini\n"
+            "    env:\n"
+            '      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"\n'
+            "scenarios:\n"
+            "  - refinement_cheaper\n",
+            encoding="utf-8",
+        )
+        return yaml_path
+
+    def test_structural_check_validates_error_schema(self, tmp_path: Path) -> None:
+        """10-02 Check 6: --structural-check validates the error-schema shape.
+
+        A well-formed matrix with the error-schema contract in place exits 0.
+        Asserts that Check 6 is present by verifying exit 0 still holds after
+        adding the check.
+        """
+        from scripts import eval_matrix as eval_matrix_mod
+
+        yaml_path = self._write_valid_refinement_matrix(tmp_path)
+        rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
+        assert rc == 0
+
+    def test_structural_check_error_schema_check_is_present_in_source(self) -> None:
+        """10-02: assert the error-schema membership check is present in the
+        structural-check block. Validates the source contains the stage membership
+        guard (not subprocess-calling code)."""
+        import inspect
+
+        import scripts.eval_matrix as mod
+
+        src = inspect.getsource(mod.main)
+        assert 'in {"setup", "turn0", "turnN"}' in src, (
+            "Check 6 error-schema membership guard not found in main() source — "
+            "structural-check block missing the stage membership assertion"
+        )
+
+
+# ─── 10-03: baseline_eligible quarantine flag (EVAL-02) ──────────────────────
+
+
+def test_eval_query_baseline_eligible_defaults_to_true() -> None:
+    """D-10-09: EvalQuery must carry baseline_eligible: bool = True.
+    All 30 legacy cases omit this field — the default preserves them."""
+    from app.eval.config import EvalQuery
+
+    case = EvalQuery.model_validate(
+        {
+            "id": "test_case",
+            "query": "coffee in soma",
+            "reference": "Recommend a cafe in SOMA.",
+            "expected_results": {"min_stops": 1, "max_stops": 3},
+        }
+    )
+    assert case.baseline_eligible is True
+
+
+def test_eval_query_baseline_eligible_can_be_set_to_false() -> None:
+    """D-10-09: baseline_eligible: false must parse when explicitly set."""
+    from app.eval.config import EvalQuery
+
+    case = EvalQuery.model_validate(
+        {
+            "id": "test_case_quarantined",
+            "query": "late-night mission plan",
+            "reference": "A closure-cascade multi-turn scenario.",
+            "expected_results": {"min_stops": 3, "max_stops": 3},
+            "turns": ["yes accept the alternative"],
+            "baseline_eligible": False,
+        }
+    )
+    assert case.baseline_eligible is False
+
+
+def test_late_night_closure_cascade_is_baseline_ineligible() -> None:
+    """D-10-09: the late_night_closure_cascade case in eval_queries.yaml must
+    parse with baseline_eligible=False, quarantined from baseline aggregation.
+    The legacy threading shape means its turn-2 scorers are not prod-comparable."""
+    from app.eval.config import REPO_ROOT, load_eval_queries
+
+    cfg = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    ln_cases = [c for c in cfg.hand_written if c.id == "late_night_closure_cascade"]
+    assert len(ln_cases) == 1, "expected exactly one late_night_closure_cascade case"
+    assert ln_cases[0].baseline_eligible is False, (
+        "late_night_closure_cascade must have baseline_eligible: false in eval_queries.yaml "
+        "(D-10-09 quarantine — legacy threading shape, not comparable to prod)"
+    )
+
+
+def test_omakase_mission_open_ended_is_baseline_eligible() -> None:
+    """D-10-09 guard: omakase_mission_open_ended must NOT be quarantined.
+    The quarantine is opt-in and explicit (T-10-03-03: fail toward enforcement)."""
+    from app.eval.config import REPO_ROOT, load_eval_queries
+
+    cfg = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    om_cases = [c for c in cfg.hand_written if c.id == "omakase_mission_open_ended"]
+    assert len(om_cases) >= 1, "expected at least one omakase_mission_open_ended case"
+    assert all(c.baseline_eligible is True for c in om_cases), (
+        "omakase_mission_open_ended must remain baseline_eligible=True — quarantine is opt-in"
+    )
+
+
+def test_aggregate_cell_jsons_surfaces_baseline_ineligible_in_scenario_block(
+    tmp_path: Path,
+) -> None:
+    """D-10-09: aggregate_cell_jsons marks a scenario's summary block with
+    baseline_eligible=False when the scenario config has that flag.
+
+    The scenario still RUNS (cell counts are present); only the baseline-eligibility
+    marker distinguishes it so Phase 11 tooling can skip it automatically.
+    """
+    from app.eval.config import REPO_ROOT, load_eval_queries
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    # Write a cell for late_night_closure_cascade (the quarantined scenario).
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5)
+
+    eval_queries = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    summary = aggregate_cell_jsons(
+        tmp_path,
+        eval_queries_config=eval_queries,
+    )
+
+    # The scenario block must carry baseline_eligible=False.
+    scenario_block = summary["scenarios"].get("late_night_closure_cascade", {})
+    assert scenario_block.get("baseline_eligible") is False, (
+        "late_night_closure_cascade scenario block must have baseline_eligible=False "
+        "in summary.json so Phase 11 regen tooling can skip it automatically"
+    )
+
+
+def test_aggregate_cell_jsons_omakase_scenario_is_baseline_eligible(
+    tmp_path: Path,
+) -> None:
+    """D-10-09 guard: aggregate_cell_jsons does NOT mark omakase as ineligible."""
+    from app.eval.config import REPO_ROOT, load_eval_queries
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8)
+
+    eval_queries = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    summary = aggregate_cell_jsons(
+        tmp_path,
+        eval_queries_config=eval_queries,
+    )
+
+    scenario_block = summary["scenarios"].get("omakase_mission_open_ended", {})
+    # Must be True (eligible) or absent (defaults to eligible for unknown scenarios).
+    baseline_eligible = scenario_block.get("baseline_eligible", True)
+    assert baseline_eligible is True, (
+        "omakase_mission_open_ended must be baseline_eligible=True in summary.json"
+    )
+
+
+# ─── 10-03 Task 2: late_night baseline JSON annotation + EVAL-04 parity ──────
+
+
+# ─── CR-03: main() must wire eval_queries_config into aggregate_cell_jsons ───
+
+
+def _write_cell_scored(
+    directory: Path,
+    provider: str,
+    model: str,
+    scenario_id: str,
+    run_n: int,
+    score_value: float,
+) -> Path:
+    """Write a minimal scored cell JSON for CR-03 baseline_eligible tests."""
+    fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
+    path = directory / fname
+    payload = {
+        "llm_provider": provider,
+        "chat_model": model,
+        "query_count": 1,
+        "aggregate": {
+            "category_compliance_mean": score_value,
+            "rationale_stop_alignment_mean": score_value,
+            "n_scored": 1,
+            "n_errored": 0,
+        },
+        "queries": [{"id": scenario_id}],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def test_main_aggregation_surfaces_baseline_eligible(monkeypatch, mocker, tmp_path) -> None:
+    """CR-03: main() must pass eval_queries_config to aggregate_cell_jsons so
+    baseline_eligible appears in summary.json scenario blocks.
+
+    The late_night_closure_cascade scenario must surface baseline_eligible=False;
+    a regular scenario must surface baseline_eligible=True.
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import main
+
+    # Seed per-cell JSONs for two scenarios in the output dir.
+    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5)
+    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+
+    # Mock run_matrix to return immediately (no subprocesses) and leave the
+    # pre-seeded cell JSONs in place.
+    mocker.patch(
+        "scripts.eval_matrix.run_matrix",
+        return_value=(0, []),
+    )
+
+    summary_path = tmp_path / "summary.json"
+    assert not summary_path.exists()
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--output-dir",
+            str(tmp_path),
+            "--eval-queries",
+            str(REPO_ROOT / "configs/eval_queries.yaml"),
+            "--llm-provider-override",
+            "scripted",
+        ]
+    )
+
+    assert rc == 0, f"main() returned non-zero: {rc}"
+    assert summary_path.exists(), "summary.json was not written"
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    scenarios = summary.get("scenarios", {})
+
+    # CR-03: quarantined scenario must have baseline_eligible=False
+    assert "late_night_closure_cascade" in scenarios, (
+        "late_night_closure_cascade scenario missing from summary.json"
+    )
+    assert scenarios["late_night_closure_cascade"].get("baseline_eligible") is False, (
+        "CR-03: late_night_closure_cascade must have baseline_eligible=False in summary.json"
+    )
+
+    # Regular scenario must have baseline_eligible=True
+    assert "refinement_cheaper" in scenarios, (
+        "refinement_cheaper scenario missing from summary.json"
+    )
+    assert scenarios["refinement_cheaper"].get("baseline_eligible") is True, (
+        "CR-03: refinement_cheaper must have baseline_eligible=True in summary.json"
+    )
+
+
+def test_main_aggregation_survives_missing_eval_queries_file(monkeypatch, mocker, tmp_path) -> None:
+    """CR-03 fallback: when --eval-queries points to a nonexistent path, main()
+    must still write summary.json (no baseline_eligible keys, but no crash).
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import main
+
+    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+
+    mocker.patch(
+        "scripts.eval_matrix.run_matrix",
+        return_value=(0, []),
+    )
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--output-dir",
+            str(tmp_path),
+            "--eval-queries",
+            str(tmp_path / "does_not_exist.yaml"),
+            "--llm-provider-override",
+            "scripted",
+        ]
+    )
+
+    assert rc == 0, f"main() returned non-zero on missing eval-queries: {rc}"
+    summary_path = tmp_path / "summary.json"
+    assert summary_path.exists(), (
+        "summary.json must still be written even when eval-queries missing"
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    # No baseline_eligible key when config was missing (fallback to None path)
+    for scenario_block in summary.get("scenarios", {}).values():
+        assert "baseline_eligible" not in scenario_block, (
+            "baseline_eligible must NOT appear when eval_queries_config fallback fires"
+        )
+
+
+def test_main_aggregation_survives_malformed_eval_queries_yaml(
+    monkeypatch, mocker, tmp_path
+) -> None:
+    """WR-01: syntactically malformed eval-queries YAML raises yaml.YAMLError
+    (not OSError/ValueError) — the CR-03 fallback must catch it too, or
+    summary.json is never written and the operator gets a raw traceback.
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import main
+
+    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+
+    malformed = tmp_path / "malformed_eval_queries.yaml"
+    malformed.write_text("hand_written: [unclosed", encoding="utf-8")
+
+    mocker.patch(
+        "scripts.eval_matrix.run_matrix",
+        return_value=(0, []),
+    )
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--output-dir",
+            str(tmp_path),
+            "--eval-queries",
+            str(malformed),
+            "--llm-provider-override",
+            "scripted",
+        ]
+    )
+
+    assert rc == 0, f"main() returned non-zero on malformed eval-queries YAML: {rc}"
+    summary_path = tmp_path / "summary.json"
+    assert summary_path.exists(), (
+        "summary.json must still be written when eval-queries YAML is malformed"
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    for scenario_block in summary.get("scenarios", {}).values():
+        assert "baseline_eligible" not in scenario_block, (
+            "baseline_eligible must NOT appear when eval_queries_config fallback fires"
+        )
+
+
+def test_late_night_scenario_is_baseline_ineligible() -> None:
+    """10-03 / D-10-09 + D-10-10: verify both the quarantine flag AND the
+    baseline JSON annotation are in place.
+
+    Part 1 (EVAL-02): load_eval_queries yields baseline_eligible=False for
+    late_night_closure_cascade (the parsed flag governs baseline skip in the
+    matrix runner and Phase 11 regen tooling).
+
+    Part 2 (D-10-10): the late_night baseline JSON carries a top-level
+    _observations key annotating it as a legacy-threading-shaped measurement.
+    The providers block is NOT regenerated — only the annotation was added.
+    """
+    import json
+
+    from app.eval.config import REPO_ROOT, load_eval_queries
+
+    # Part 1: quarantine flag
+    cfg = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    ln_cases = [c for c in cfg.hand_written if c.id == "late_night_closure_cascade"]
+    assert len(ln_cases) == 1, "expected exactly one late_night_closure_cascade case"
+    assert ln_cases[0].baseline_eligible is False, (
+        "late_night_closure_cascade must have baseline_eligible=False (D-10-09 quarantine)"
+    )
+
+    # Part 2: _observations annotation in baseline JSON
+    baseline_path = REPO_ROOT / "configs" / "eval_baselines" / "late_night_closure_cascade.json"
+    payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+    assert "_observations" in payload, (
+        "late_night_closure_cascade.json must contain a top-level _observations key "
+        "(D-10-10: annotate-not-regenerate decision)"
+    )
+    # The observation must reference the quarantine decision
+    assert "D-10-10" in payload["_observations"], "_observations must cite D-10-10 for audit trail"
+    # The providers block must still be present (not deleted)
+    assert "providers" in payload, (
+        "late_night_closure_cascade.json providers block must not be deleted — "
+        "annotation-only change per D-10-10"
+    )

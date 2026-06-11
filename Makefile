@@ -148,6 +148,31 @@ eval-matrix-refinement-structural-check: ## Phase 6 refinement matrix structural
 	  --matrix-config configs/eval_matrix_refinement.yaml \
 	  --structural-check
 
+# Phase 10 / EVAL-05 / D-10-11: live probe writes one redacted AIMessage fixture per provider
+# to tests/fixtures/provider_payloads/{provider}.json.
+# MANDATORY PRE-MATRIX STEP: run this before make eval-matrix to ensure adapter tests
+# execute against real-wire shapes, not just synthetic cases.
+# NO CI/CRON: live provider keys are NOT in CI (D-10-14 / D-09-10). Adapter tests in
+# tests/unit/test_adapters.py SKIP gracefully when fixtures are absent — CI stays green.
+# Run this locally whenever a provider's SDK is upgraded or the wire shape may have changed.
+.PHONY: probe-providers
+probe-providers: ## MANDATORY pre-matrix: run live probes for all four providers, write redacted fixtures (no CI/cron — D-10-14)
+	$(POETRY_RUN) python scripts/probe_provider_capture.py --provider openai
+	$(POETRY_RUN) python scripts/probe_provider_capture.py --provider deepseek
+	$(POETRY_RUN) python scripts/probe_provider_capture.py --provider anthropic
+	$(POETRY_RUN) python scripts/probe_provider_capture.py --provider gemini
+
+# Phase 10 / EVAL-03 / D-10-05: gate-check against configs/eval_gates.yaml.
+# Requires SUMMARY= path to a summary.json from an eval_matrix run.
+# Exit 0 = all hard gates passed; exit 1 = hard-gate violation; exit 2 = infra failure.
+# Aspirational misses (e.g. gpt-5-mini below v2.2 target) are reported but non-blocking.
+# See docs/eval_gates.md for semantics; gate values live only in configs/eval_gates.yaml.
+.PHONY: eval-gates-check
+eval-gates-check: ## Check summary.json against configs/eval_gates.yaml (EVAL-03 / D-10-05)
+	$(POETRY_RUN) python scripts/check_eval_gates.py \
+	  $(SUMMARY) \
+	  --gates-config configs/eval_gates.yaml
+
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
 test: ## Run the full test suite

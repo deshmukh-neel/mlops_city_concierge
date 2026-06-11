@@ -486,6 +486,10 @@ def refinement_minimal_edit(state: ItineraryState) -> float:
     `itinerary_violations` therefore never trips on a DB error here.
     """
     # Branch 1: abstain when not in refinement context.
+    # D-10-04 invariant: score_checks is only called on completed (status="ok")
+    # runs. Exceptions in the eval runner are converted to ERROR records
+    # before reaching this function, so this abstain fires only for genuinely
+    # non-refinement completed runs — never from exception-corrupted partial state.
     refinement_context = bool(state.scratch.get("refinement_context", False))
     if not refinement_context:
         return 1.0

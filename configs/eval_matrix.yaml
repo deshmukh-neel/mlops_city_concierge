@@ -28,4 +28,13 @@ entries:
 
 scenarios:
   - omakase_mission_open_ended
+  # D-10-09/10: late_night_closure_cascade is quarantined from baselines and gates.
+  # The closure-cascade turn-2 scorers were designed against the full-tool-history
+  # threading shape (project memory: project_eval_multi_turn_threading_bug).
+  # Migrating to prod threading would redesign the scenario — deferred out of
+  # scope for the harness-honesty phase (D-10-09). baseline_eligible: false is
+  # set in eval_queries.yaml and honored by aggregate_cell_jsons. The scenario
+  # still RUNS as a diagnostic; the baseline JSON is annotated with _observations
+  # (D-10-10) but NOT regenerated and NOT deleted. See eval_gates.yaml for the
+  # quarantined-legacy-threading gate entry.
   - late_night_closure_cascade

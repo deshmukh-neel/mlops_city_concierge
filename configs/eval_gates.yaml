@@ -1,0 +1,74 @@
+# configs/eval_gates.yaml — single source of truth for per-family merge gates.
+#
+# Consumed by scripts/check_eval_gates.py (make eval-gates-check).
+# docs/eval_gates.md explains semantics and links here; it never duplicates numbers.
+#
+# Schema per D-10-08:
+#   family:    provider/model string (or scenario name for legacy entries)
+#   status:    active | aspirational | provisional-n1 | logged | quarantined-legacy-threading
+#   rationale: one-liner with the decision ID that anchors the gate value
+#   hard:      null, or {metric, op, value} — enforced by check_eval_gates.py
+#   advisory:  list of {metric, op, value} — reported but never blocking
+#
+# Gate shape: D-10-06 extends D-09-02's two-part pattern to all families.
+# Hard gates ride on committed_itinerary_rate floors; refinement_minimal_edit
+# medians are advisory everywhere until v2.2 decisiveness work earns more.
+#
+# NOTE: committed_itinerary_rate is not yet wired into the eval matrix scorers
+# (Phase 11 BASE-01 adds it). Until then, hard gates on this metric are reported
+# as not-evaluable (not a silent pass) by check_eval_gates.py.
+
+gates:
+  - family: openai/gpt-4o-mini
+    status: active                   # hard gate enforced by make eval-gates-check
+    rationale: "D-10-07: anchor; 0.8 absorbs one stochastic miss at n=5"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.8
+    advisory:
+      - metric: refinement_minimal_edit_median
+        op: ">="
+        value: 0.0        # logged-not-gated until v2.2 decisiveness work
+
+  - family: openai/gpt-5-mini
+    status: aspirational             # FAILS at 0.4; reported but not hard-failing
+    rationale: "D-10-07 + D-09-02 Part A: v2.2 decisiveness target"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.6
+    advisory: []
+
+  - family: anthropic/claude-sonnet-4-6
+    status: provisional-n1           # hard gate from a single run; Phase 11 re-ratifies at n=5
+    rationale: "D-10-07: single-run baseline; Phase 11 re-ratifies at n=5"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.8
+    advisory: []
+
+  - family: deepseek/deepseek-reasoner
+    status: logged                   # no gate; empirical median captured for reference
+    rationale: "D-10-07: logged-not-gated"
+    hard: null
+    advisory: []
+
+  - family: deepseek/deepseek-chat
+    status: logged                   # no gate; empirical median captured for reference
+    rationale: "D-10-07: logged-not-gated"
+    hard: null
+    advisory: []
+
+  - family: gemini/gemini-3.1-pro-preview
+    status: logged                   # no gate; empirical median captured for reference
+    rationale: "D-10-07: logged-not-gated"
+    hard: null
+    advisory: []
+
+  - family: late_night_closure_cascade
+    status: quarantined-legacy-threading   # excluded from baselines/gates (D-10-09/10)
+    rationale: "D-10-09: legacy threading shape; excluded from baselines/gates"
+    hard: null
+    advisory: []

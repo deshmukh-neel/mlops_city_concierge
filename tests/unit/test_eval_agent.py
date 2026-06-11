@@ -679,6 +679,7 @@ def test_evaluate_multi_turn_case_is_async_helper() -> None:
 #     (turn N's AIMessages are re-injected into turn N+1's input state).
 
 
+from langchain_core.language_models import BaseChatModel  # noqa: E402
 from langchain_core.messages import (  # noqa: E402
     AIMessage,
     HumanMessage,
@@ -688,6 +689,27 @@ from langchain_core.messages import (  # noqa: E402
 from app.agent.graph import build_agent_graph  # noqa: E402
 from scripts.eval_agent import evaluate_case  # noqa: E402
 from tests._helpers.scripted_llm import RecordingScriptedLLM  # noqa: E402
+
+
+class RaisingChatModel(BaseChatModel):
+    """Test stub that raises on every _generate call.
+
+    Simulates infra failures: 429 quota, DB-down, 400 config errors.
+    Used for the 21-14-30Z replay acceptance tests (D-10-04, EVAL-01).
+    """
+
+    raise_exc: type[Exception] = Exception
+    raise_msg: str = "simulated infra failure"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        raise self.raise_exc(self.raise_msg)
+
+    @property
+    def _llm_type(self) -> str:
+        return "raising"
+
+    def bind_tools(self, tools, **kwargs):
+        return self
 
 
 def _finalize_msg(content: str) -> AIMessage:
@@ -841,14 +863,15 @@ async def test_multi_turn_latency_sums(mocker) -> None:
 
 @pytest.mark.asyncio
 async def test_multi_turn_intermediate_failure_captured(mocker) -> None:
-    """EVAL-06 fail-open contract: if any turn raises, the helper records a
-    synthetic `multi_turn_runner` tool error and returns a partial
-    QueryEvalResult instead of crashing the whole eval run (mirrors the
-    existing fail-open pattern in evaluate_cases).
+    """D-10-02 error-status contract: if any turn raises, the helper returns an
+    ERROR-status QueryEvalResult rather than a partial scored result. Scorers
+    are NOT invoked on the failed run.
 
     We force turn 2 to raise by scripting only one AIMessage — the second
     invocation pops from an empty list and raises IndexError. The plan()
-    coroutine propagates it; our helper's try/except catches it."""
+    coroutine propagates it; our helper's try/except catches it and returns
+    an error record (replacing the old partial-state fail-open path).
+    """
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
     llm = RecordingScriptedLLM(scripted=[_finalize_msg("turn1 reply")])
     graph = build_agent_graph(llm, max_steps=4)
@@ -858,13 +881,14 @@ async def test_multi_turn_intermediate_failure_captured(mocker) -> None:
 
     # The run did NOT crash — we have a result.
     assert isinstance(result, QueryEvalResult)
-    # Turn 1's reply survives in the partial state's final_reply.
-    assert result.final_reply == "turn1 reply"
-    # The synthetic multi_turn_runner error is in tool_errors with the
-    # failing turn's index threaded through the message.
-    assert any(
-        "multi_turn_runner" in err and "turn 1" in err for err in result.deterministic.tool_errors
-    )
+    # D-10-02: result is an ERROR record (turn 1 raised IndexError).
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error["stage"] == "turnN"  # index=1 → "turnN"
+    assert result.error["type"] == "IndexError"
+    # Scorers must NOT have been called — all check scores should be None.
+    for check_result in result.deterministic.checks.values():
+        assert check_result.score is None
     # Two plan() invocations were attempted (the second is the one that
     # raised). The recorder shows turn 1 succeeded.
     assert len(llm.seen) >= 1
@@ -1013,6 +1037,349 @@ def test_selected_cases_scenario_ids_preserves_yaml_order() -> None:
     cases = [eval_case(id="a"), eval_case(id="b"), eval_case(id="c")]
     filtered = selected_cases(cases, None, scenario_ids=["c", "a"])
     assert [c.id for c in filtered] == ["a", "c"]
+
+
+# ============================================================================
+# EVAL-01 / Plan 10-01 Task 2: partial_state scoring REMOVED; error records on
+# exception in both threading branches (D-10-02)
+# ============================================================================
+
+
+def test_no_partial_state_scoring_in_eval_agent() -> None:
+    """D-10-02: The partial_state SCORING path must be fully removed from
+    eval_agent.py — no call to query_result_from_state on a partial_state
+    inside an except block. Comments mentioning the old pattern are fine.
+    """
+    import ast
+    from pathlib import Path
+
+    source = Path("scripts/eval_agent.py").read_text(encoding="utf-8")
+    # AST parse first to ensure no syntax errors crept in.
+    tree = ast.parse(source)
+
+    # Walk all except handlers and verify none call query_result_from_state.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler):
+            handler_src = ast.get_source_segment(source, node) or ""
+            assert "query_result_from_state" not in handler_src, (
+                "D-10-02: query_result_from_state must NOT be called inside an "
+                "except handler — use make_error_record instead."
+            )
+
+
+def test_make_error_record_called_in_prod_threading_except() -> None:
+    """D-10-02: _run_prod_threading except clause must call make_error_record,
+    not query_result_from_state on partial state.
+    """
+    import ast
+    from pathlib import Path
+
+    source = Path("scripts/eval_agent.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    # Find _run_prod_threading function and check its except handlers.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_prod_threading":
+            source_segment = ast.get_source_segment(source, node) or ""
+            assert "make_error_record" in source_segment, (
+                "_run_prod_threading except clause must call make_error_record"
+            )
+            break
+    else:
+        pytest.fail("_run_prod_threading not found in eval_agent.py")
+
+
+def test_make_error_record_called_in_legacy_threading_except() -> None:
+    """D-10-02: _run_legacy_threading except clause must call make_error_record."""
+    import ast
+    from pathlib import Path
+
+    source = Path("scripts/eval_agent.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_legacy_threading":
+            source_segment = ast.get_source_segment(source, node) or ""
+            assert "make_error_record" in source_segment, (
+                "_run_legacy_threading except clause must call make_error_record"
+            )
+            break
+    else:
+        pytest.fail("_run_legacy_threading not found in eval_agent.py")
+
+
+@pytest.mark.asyncio
+async def test_legacy_threading_turn0_exception_produces_error_record(mocker) -> None:
+    """D-10-02 / EVAL-01: A turn-0 exception in _run_legacy_threading returns
+    a QueryEvalResult with status='error' and error.stage='turn0'.
+    Scorers are NOT invoked on the failed run.
+    """
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    llm = RaisingChatModel(raise_exc=RuntimeError, raise_msg="quota exceeded")
+    graph = build_agent_graph(llm, max_steps=4)
+
+    case = eval_case(turns=["make it cheaper"])
+    result = await evaluate_case(graph, case)
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error["stage"] == "turn0"
+    assert result.error["type"] == "RuntimeError"
+    # Scorers must NOT have been called — all check scores should be None.
+    for check_result in result.deterministic.checks.values():
+        assert check_result.score is None, f"Scorer ran on a failed turn: {check_result}"
+
+
+# ============================================================================
+# EVAL-01 / Plan 10-01: ERROR-status record schema + make_error_record builder
+# ============================================================================
+
+
+def test_query_eval_result_has_status_field_with_default_ok() -> None:
+    """D-10-01: QueryEvalResult must have a `status` field defaulting to 'ok'.
+
+    This is the discriminator field that aggregate_results uses to filter out
+    errored runs. Existing scored-row construction (no status arg) must still
+    work without change.
+    """
+    import dataclasses
+
+    from scripts.eval_agent import QueryEvalResult
+
+    field_names = {f.name for f in dataclasses.fields(QueryEvalResult)}
+    assert "status" in field_names, "QueryEvalResult must have a 'status' field"
+
+    # Default must be "ok" so existing scored rows keep status="ok" unchanged.
+    result = query_result()  # built by the existing helper — no status arg
+    assert result.status == "ok"
+
+
+def test_make_error_record_builds_error_schema_record() -> None:
+    """D-10-01: make_error_record returns a QueryEvalResult with status='error'
+    and an error dict with keys {stage, type, message}.
+    """
+    from scripts.eval_agent import make_error_record
+
+    case = eval_case()
+    exc = RuntimeError("db connection failed")
+    record = make_error_record(case, "turn0", exc)
+
+    assert record.status == "error"
+    assert isinstance(record.error, dict)
+    assert record.error["stage"] == "turn0"
+    assert record.error["type"] == "RuntimeError"
+    assert "db connection failed" in record.error["message"]
+
+
+def test_make_error_record_truncates_message_to_500_chars() -> None:
+    """D-10-01: error.message is truncated to 500 chars per the schema."""
+    from scripts.eval_agent import make_error_record
+
+    long_msg = "x" * 1000
+    exc = ValueError(long_msg)
+    record = make_error_record(eval_case(), "turnN", exc)
+
+    assert len(record.error["message"]) <= 500
+
+
+def test_make_error_record_stage_values_are_valid() -> None:
+    """D-10-01: make_error_record accepts stage in {setup, turn0, turnN}."""
+    from scripts.eval_agent import make_error_record
+
+    valid_stages = {"setup", "turn0", "turnN"}
+    case = eval_case()
+    exc = Exception("oops")
+
+    for stage in valid_stages:
+        record = make_error_record(case, stage, exc)
+        assert record.error["stage"] == stage
+
+
+def test_make_error_record_carries_no_scored_checks() -> None:
+    """D-10-01: error records carry no scored check data — scorers NEVER run
+    on failed turns. The deterministic.checks dict may be empty or have
+    None scores, but must not contain real scorer scores.
+    """
+    from scripts.eval_agent import make_error_record
+
+    record = make_error_record(eval_case(), "turn0", Exception("fail"))
+
+    # Error record's deterministic.checks must all have score=None (or be empty).
+    for check_result in record.deterministic.checks.values():
+        assert check_result.score is None, (
+            f"Error record should not carry scored checks; got score={check_result.score}"
+        )
+
+
+def test_make_error_record_type_is_exception_class_name() -> None:
+    """D-10-01: error.type is type(exc).__name__, not the string representation."""
+    from scripts.eval_agent import make_error_record
+
+    class CustomError(Exception):
+        pass
+
+    exc = CustomError("custom failure")
+    record = make_error_record(eval_case(), "setup", exc)
+
+    assert record.error["type"] == "CustomError"
+
+
+def test_query_eval_result_with_error_serializes_via_asdict() -> None:
+    """Error records must serialize cleanly via asdict() -> json.dumps()
+    (same contract as test_query_result_serializes_to_json_via_asdict).
+    """
+    import json
+    from dataclasses import asdict
+
+    from scripts.eval_agent import make_error_record
+
+    record = make_error_record(eval_case(), "turn0", Exception("quota exceeded"))
+    payload = asdict(record)
+    encoded = json.dumps(payload)
+    decoded = json.loads(encoded)
+
+    assert decoded["status"] == "error"
+    assert decoded["error"]["stage"] == "turn0"
+
+
+# ============================================================================
+# EVAL-01 / Plan 10-01 Task 3: aggregate_results filters on status=="ok";
+# n_scored / n_errored / errors[] added; 21-14-30Z replay acceptance test
+# ============================================================================
+
+
+def test_aggregate_results_filters_scored_only() -> None:
+    """D-10-03: aggregate_results must compute scorer means over ONLY results
+    with status=='ok'. An all-error result list yields n_scored==0 and scorer
+    means of 0.0 (not 1.0 from Branch-1 abstain).
+    """
+    from scripts.eval_agent import aggregate_results, make_error_record
+
+    error_record = make_error_record(eval_case(), "turn0", Exception("quota"))
+    aggregate = aggregate_results([error_record])
+
+    assert aggregate["n_scored"] == 0
+    assert aggregate["n_errored"] == 1
+    # Scorer means must be 0.0 (empty list → mean returns 0.0), NOT 1.0.
+    assert aggregate["refinement_minimal_edit_mean"] == 0.0
+    assert aggregate["category_compliance_mean"] == 0.0
+
+
+def test_aggregate_results_n_scored_and_n_errored_counts() -> None:
+    """D-10-03: aggregate dict gains n_scored, n_errored, errors list."""
+    from scripts.eval_agent import aggregate_results, make_error_record
+
+    ok_record = query_result()
+    error_record = make_error_record(eval_case(id="fail_case"), "turnN", ValueError("db down"))
+    aggregate = aggregate_results([ok_record, error_record])
+
+    assert aggregate["n_scored"] == 1
+    assert aggregate["n_errored"] == 1
+    assert isinstance(aggregate["errors"], list)
+    assert len(aggregate["errors"]) == 1
+    err = aggregate["errors"][0]
+    assert err["stage"] == "turnN"
+    assert err["type"] == "ValueError"
+
+
+def test_aggregate_results_ok_only_excludes_errored_from_means() -> None:
+    """D-10-03: scored means only include status=='ok' results."""
+    from scripts.eval_agent import aggregate_results, make_error_record
+
+    ok_record = query_result()  # all scores=1.0
+    error_record = make_error_record(eval_case(), "turn0", Exception("fail"))
+    aggregate = aggregate_results([ok_record, error_record])
+
+    # Only the ok_record contributes to refinement_minimal_edit_mean.
+    assert aggregate["refinement_minimal_edit_mean"] == 1.0
+    assert aggregate["n_scored"] == 1
+    assert aggregate["n_errored"] == 1
+
+
+def test_report_has_errors_detects_n_errored() -> None:
+    """D-10-03: report_has_errors returns True when n_errored > 0."""
+    from scripts.eval_agent import make_error_record
+
+    error_record = make_error_record(eval_case(), "turn0", Exception("fail"))
+    report = EvalRunReport(
+        eval_queries_path="configs/eval_queries.yaml",
+        llm_provider="openai",
+        chat_model="gpt-4o-mini",
+        query_count=1,
+        aggregate={"check_error_count": 0, "n_errored": 1},
+        queries=[error_record],
+    )
+    assert report_has_errors(report) is True
+
+
+@pytest.mark.asyncio
+async def test_21_14_30z_replay_turn0_exception_produces_error_record(mocker) -> None:
+    """D-10-04: 21-14-30Z replay — turn-0 LLM exception must produce a
+    status='error' record. The former fail-open outcome (Branch-1 abstain 1.0)
+    must NOT appear on the all-error report.
+    """
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    llm = RaisingChatModel(raise_exc=RuntimeError, raise_msg="429 quota exceeded")
+    graph = build_agent_graph(llm, max_steps=4)
+
+    case = eval_case(turns=["this should error on turn 0"])
+    result = await evaluate_case(graph, case)
+
+    assert result.status == "error"
+    assert result.error["stage"] == "turn0"
+    assert result.error["type"] == "RuntimeError"
+    # Former fail-open outcome: Branch-1 abstain returned 1.0 on partial state.
+    # Now scorers must NOT be called; all scores are None.
+    for check_result in result.deterministic.checks.values():
+        assert check_result.score is None
+
+
+@pytest.mark.asyncio
+async def test_21_14_30z_replay_all_error_report_has_zero_scored(mocker) -> None:
+    """D-10-04: 21-14-30Z replay — an all-error run produces n_scored==0
+    and refinement_minimal_edit_mean != 1.0. This directly proves the
+    Branch-1-abstain-1.0 fail-open is gone.
+    """
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    from scripts.eval_agent import aggregate_results, make_error_record
+
+    # Simulate the 21-14-30Z scenario: all three cases errored.
+    error_records = [
+        make_error_record(eval_case(id="case_a"), "turn0", RuntimeError("429")),
+        make_error_record(eval_case(id="case_b"), "turn0", RuntimeError("429")),
+        make_error_record(eval_case(id="case_c"), "turnN", RuntimeError("db down")),
+    ]
+    aggregate = aggregate_results(error_records)
+
+    # D-10-04: n_scored must be 0.
+    assert aggregate["n_scored"] == 0
+    assert aggregate["n_errored"] == 3
+    # Former fail-open: refinement_minimal_edit_mean was 1.0 due to Branch-1
+    # abstain returning 1.0 on partial state. Now it must be 0.0.
+    assert aggregate["refinement_minimal_edit_mean"] != 1.0
+    assert aggregate["refinement_minimal_edit_mean"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_21_14_30z_replay_turn_n_exception_produces_error_record(mocker) -> None:
+    """D-10-04: 21-14-30Z replay — turn-N (N>=1) exception produces status='error'
+    with error.stage='turnN'.
+    """
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+
+    # Turn 0 succeeds (scripted), turn 1 raises.
+    from tests._helpers.scripted_llm import ScriptedLLM
+
+    # Turn 0: scripted to produce a final reply; turn 1 will raise via exhaustion.
+    llm_turn0 = ScriptedLLM(scripted=[_finalize_msg("turn0 reply")])
+    graph = build_agent_graph(llm_turn0, max_steps=4)
+
+    case = eval_case(turns=["this turn should error"])
+    result = await evaluate_case(graph, case)
+
+    assert result.status == "error"
+    assert result.error["stage"] == "turnN"
+    assert result.error["type"] == "IndexError"  # ScriptedLLM exhaustion
 
 
 def test_selected_cases_scenario_ids_returns_empty_when_no_match() -> None:
@@ -1532,8 +1899,9 @@ class TestEvaluateMultiTurnProdThreading:
 
     @pytest.mark.asyncio
     async def test_prod_mode_preserves_fail_open_on_exception(self, mocker, monkeypatch) -> None:
-        """Fail-open contract preserved in prod branch: a per-turn exception
-        records the synthetic `multi_turn_runner` scratch entry.
+        """D-10-02 error-status contract in prod branch: a per-turn exception
+        returns an ERROR-status QueryEvalResult (not a partial scored record).
+        Replaces the old 'synthetic multi_turn_runner scratch entry' behavior.
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
@@ -1544,10 +1912,13 @@ class TestEvaluateMultiTurnProdThreading:
         case = self._prod_case()
         result = await evaluate_multi_turn_case(graph, case)
 
-        assert any(
-            "multi_turn_runner" in err and "turn 1" in err
-            for err in result.deterministic.tool_errors
-        )
+        # D-10-02: exception on turn 1 produces an ERROR record.
+        assert result.status == "error"
+        assert result.error is not None
+        assert result.error["stage"] == "turnN"  # index=1 → "turnN"
+        # Scorers were NOT invoked.
+        for check_result in result.deterministic.checks.values():
+            assert check_result.score is None
 
     @pytest.mark.asyncio
     async def test_prod_mode_synthesized_history_includes_user_and_assistant(
@@ -1596,3 +1967,51 @@ class TestEvaluateMultiTurnProdThreading:
         result = await evaluate_multi_turn_case(graph, case)
 
         assert result.deterministic.checks["refinement_minimal_edit"].score == 1.0
+
+
+# ─── CR-02: _constraints_for_case must not crash on clarification cases ──────
+
+
+class TestConstraintsForCaseClarificationGuard:
+    """CR-02 (EVAL-01 harness trustworthiness): _constraints_for_case must
+    not raise AttributeError when case.expected_results is None.
+
+    Five hand_written cases have expected_results=None by design
+    (expects_clarification_or_relaxation=True): impossible_four_am_five_star,
+    impossible_cheap_michelin, impossible_north_beach_sushi_4am,
+    overconstrained_walkable_three_neighborhoods, closed_monday_brunch.
+
+    Without the None-guard the default full-suite run aborts with
+    AttributeError on the first clarification case encountered.
+    """
+
+    def test_no_crash_on_known_clarification_case(self) -> None:
+        """Focused regression: _constraints_for_case must return UserConstraints
+        (not raise) for impossible_four_am_five_star (expected_results=None)."""
+        from app.agent.state import UserConstraints
+
+        cases = {c.id: c for c in load_eval_queries("configs/eval_queries.yaml").hand_written}
+        case = cases["impossible_four_am_five_star"]
+        assert case.expected_results is None, (
+            "test pre-condition: impossible_four_am_five_star must have expected_results=None"
+        )
+        result = _constraints_for_case(case)
+        assert isinstance(result, UserConstraints)
+        assert result.num_stops is None, (
+            "clarification case with no text-extracted stops must yield num_stops=None"
+        )
+
+    def test_no_crash_over_all_hand_written_cases(self) -> None:
+        """Regression: _constraints_for_case must not raise for ANY case in
+        configs/eval_queries.yaml — including all 5 clarification cases that
+        have expected_results=None.
+        """
+        from app.agent.state import UserConstraints
+
+        cases = load_eval_queries("configs/eval_queries.yaml").hand_written
+        assert len(cases) > 0, "hand_written cases must be non-empty"
+        for case in cases:
+            result = _constraints_for_case(case)
+            assert isinstance(result, UserConstraints), (
+                f"_constraints_for_case({case.id!r}) must return UserConstraints, got {type(result)}"
+            )
