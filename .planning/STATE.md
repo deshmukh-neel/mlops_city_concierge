@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
-current_phase: 9
-status: verifying
-last_updated: "2026-06-11T00:55:24.148Z"
-last_activity: 2026-06-05
+current_phase: 10
+status: discussed
+last_updated: "2026-06-11T00:56:34.740Z"
+last_activity: 2026-06-10
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 3
   total_plans: 17
   completed_plans: 17
@@ -19,7 +19,7 @@ progress:
 **Project:** City Concierge
 **Initialized:** 2026-05-14
 **Active milestone:** v2.1 Reasoning-Model Compat (started 2026-06-03)
-**Current phase:** 9
+**Current phase:** 10
 
 ## Project Reference
 
@@ -28,7 +28,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0)
 See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 9 — per provider state preservation implementations
+**Current focus:** Phase 10 — eval harness honesty (context gathered; ready to plan)
 
 ## Status
 
@@ -37,10 +37,11 @@ See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 - [x] v2.1 milestone formalized via `/gsd-new-milestone v2.1` (2026-06-03)
 - [x] v2.1 requirements defined (REQUIREMENTS.md — 20 requirements, 4 categories)
 - [x] v2.1 roadmap created (phases 7-10, 2026-06-04)
-- [ ] Phase 7: Prompt/rubric decoupling
-- [ ] Phase 8: Reasoning-state thread-through (contract + harness)
-- [x] Phase 9: Per-provider state preservation impls (gpt-5 → DeepSeek → Claude → Gemini 3) — completed 2026-06-05
-- [ ] Phase 10: Cross-model baseline regen + matrix expansion
+- [x] Phase 7: Prompt/rubric decoupling — completed 2026-06-04
+- [x] Phase 8: Reasoning-state thread-through (contract + harness) — completed 2026-06-04
+- [x] Phase 9: Per-provider state preservation impls (gpt-5 → DeepSeek → Claude → Gemini 3) — completed 2026-06-05, merged PR #103
+- [ ] Phase 10: Eval harness honesty (EVAL-01..06; re-scoped 2026-06-10, original BASE scope moved to Phase 11)
+- [ ] Phase 11: Cross-model baseline regen + matrix expansion (BASE-01..04)
 
 ## Notes
 
@@ -53,20 +54,22 @@ See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 ## Resume
 
-Next step: `/gsd-plan-phase 7` to plan Phase 7 (Prompt/Rubric Decoupling).
+Next step: `/gsd-plan-phase 10` to plan Phase 10 (Eval Harness Honesty). Context is in
+`.planning/phases/10-eval-harness-honesty/10-CONTEXT.md` (D-10-01..17, all areas decided).
+Working branch: `gsd/phase-10-eval-harness-honesty` (off main @ e3dc6c2, post-PR #104).
 
 ## Current Position
 
-Phase: 09 (per-provider-state-preservation-implementations) — COMPLETE
-Plan: 5 of 5 complete (09-01 SHIPPED-WITH-GAP, 09-02 SHIPPED-WITH-GAP, 09-03 SHIPPED-WITH-GAP, 09-04 SHIPPED-STRUCTURAL, 09-05 PASS-WITH-FINDINGS).
-Status: Phase 9 ready for verification + secure-phase + code-review gates, then PR open against `main`.
-Last activity: 2026-06-05
+Phase: 10 (eval-harness-honesty) — CONTEXT GATHERED
+Plan: 0 of TBD. Phase 9 COMPLETE (merged PR #103); pre-phase harness fixes merged PR #104.
+Status: discussed
+Last activity: 2026-06-10
 
 ### Blockers
 
 None active for Phase 9 completion. PROV-05 atomicity audit completed (`.planning/phases/09-per-provider-state-preservation-implementations/09-05-AUDIT.md`). Phase 9 PR-ready: all 5 plans shipped, atomicity audit done, gates documented as SHIPPED-WITH-GAP / SHIPPED-STRUCTURAL / PASS-WITH-FINDINGS per Wave 1/2/3 + D-06-09 precedent. Per `feedback_user_merges_prs`: do NOT run `gh pr merge` once CI is green.
 
-**Pre-Phase-10 prerequisite carried forward from Wave 4:** OpenAI embeddings quota top-up before Phase 10 BASE-01 (re-measure anthropic n=5 + first-time gemini n=5).
+**Pre-Phase-11 prerequisite (was pre-Phase-10 before the 2026-06-10 re-scope):** OpenAI embeddings quota topped up 2026-06-10 (repo secret rotated, CI green). Cloud SQL must be reachable before Phase 11 BASE-01 (re-measure anthropic n=5 + first-time gemini n=5). Phase 10 itself needs no live infra beyond ~$0.05 of probes.
 
 **PROV-05 audit findings carried into PATTERNS.md / Phase 10:**
 
