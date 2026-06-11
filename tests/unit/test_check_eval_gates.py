@@ -632,3 +632,66 @@ def test_check_gate_skips_quarantined_scenario_for_cell_lookup(script: ModuleTyp
     assert result == "not_evaluable", (
         f"quarantined scenario's cell must not satisfy gate; got {result!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# WR-02: cell lookup must evaluate every eligible scenario, not first-match-wins
+# ---------------------------------------------------------------------------
+
+
+def test_hard_gate_fires_when_any_eligible_scenario_violates_regardless_of_order(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """WR-02: when a family has cells in more than one eligible scenario and
+    ANY of them fails the hard gate, the checker must exit 1 — in both
+    scenario-id orders. First-match-wins lookup makes the verdict depend on
+    alphabetical scenario naming, which a merge gate must never do.
+    """
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    passing = _cell_with_rate(1.0)
+    failing = _cell_with_rate(0.4)  # below the 0.8 active gate
+
+    for label, (first_cell, second_cell) in {
+        "pass_then_fail": (passing, failing),
+        "fail_then_pass": (failing, passing),
+    }.items():
+        summary = {
+            "scenarios": {
+                "a_first": {"providers": {"openai/gpt-4o-mini": first_cell}},
+                "b_second": {"providers": {"openai/gpt-4o-mini": second_cell}},
+            },
+            "errors": [],
+        }
+        summary_file = tmp_path / f"summary_{label}.json"
+        summary_file.write_text(json.dumps(summary, sort_keys=True))
+
+        rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+        assert rc == 1, (
+            f"{label}: a failing cell in ANY eligible scenario must exit 1 "
+            f"(got rc={rc}) — gate verdict must not depend on scenario-id order"
+        )
+
+
+def test_hard_gate_passes_when_all_eligible_scenarios_pass(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """WR-02 complement: multiple eligible scenarios all above the gate → exit 0."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    summary = {
+        "scenarios": {
+            "a_first": {"providers": {"openai/gpt-4o-mini": _cell_with_rate(0.9)}},
+            "b_second": {"providers": {"openai/gpt-4o-mini": _cell_with_rate(1.0)}},
+        },
+        "errors": [],
+    }
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary, sort_keys=True))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 0, f"all eligible scenarios above gate must exit 0 (got rc={rc})"

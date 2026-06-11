@@ -1728,6 +1728,51 @@ def test_main_aggregation_survives_missing_eval_queries_file(monkeypatch, mocker
         )
 
 
+def test_main_aggregation_survives_malformed_eval_queries_yaml(
+    monkeypatch, mocker, tmp_path
+) -> None:
+    """WR-01: syntactically malformed eval-queries YAML raises yaml.YAMLError
+    (not OSError/ValueError) — the CR-03 fallback must catch it too, or
+    summary.json is never written and the operator gets a raw traceback.
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import main
+
+    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+
+    malformed = tmp_path / "malformed_eval_queries.yaml"
+    malformed.write_text("hand_written: [unclosed", encoding="utf-8")
+
+    mocker.patch(
+        "scripts.eval_matrix.run_matrix",
+        return_value=(0, []),
+    )
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--output-dir",
+            str(tmp_path),
+            "--eval-queries",
+            str(malformed),
+            "--llm-provider-override",
+            "scripted",
+        ]
+    )
+
+    assert rc == 0, f"main() returned non-zero on malformed eval-queries YAML: {rc}"
+    summary_path = tmp_path / "summary.json"
+    assert summary_path.exists(), (
+        "summary.json must still be written when eval-queries YAML is malformed"
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    for scenario_block in summary.get("scenarios", {}).values():
+        assert "baseline_eligible" not in scenario_block, (
+            "baseline_eligible must NOT appear when eval_queries_config fallback fires"
+        )
+
+
 def test_late_night_scenario_is_baseline_ineligible() -> None:
     """10-03 / D-10-09 + D-10-10: verify both the quarantine flag AND the
     baseline JSON annotation are in place.
