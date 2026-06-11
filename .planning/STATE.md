@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 11
-status: milestone_complete
-last_updated: 2026-06-11T23:04:07.634Z
+status: "Phase 11 shipped — PR #106"
+last_updated: "2026-06-11T23:10:54.904Z"
 last_activity: 2026-06-11
 progress:
   total_phases: 6
@@ -12,7 +12,6 @@ progress:
   total_plans: 35
   completed_plans: 35
   percent: 83
-stopped_at: Milestone complete (Phase 11 was final phase)
 ---
 
 # Project State
@@ -65,7 +64,7 @@ Working branch: `gsd/phase-11-cross-model-baseline-regen-matrix-expansion` (off 
 
 Phase: 11 (cross-model-baseline-regen-matrix-expansion) — EXECUTING
 Plan: Not started
-Status: Milestone complete
+Status: Phase 11 shipped — PR #106
 Last activity: 2026-06-11
 Last session: 2026-06-11T22:58:25.396Z
 
