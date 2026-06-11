@@ -38,7 +38,7 @@ Without this, every new reasoning model the field ships in 2026 is permanently u
 - [x] **Phase 7: Prompt/Rubric Decoupling** — Behavioral rules move from prompt body to scorer; no regression on v2.0 anchor; serves as falsifier for Phase 8 architectural diagnosis (completed 2026-06-04)
 - [x] **Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness** — Typed `ProviderAdapter` contract + per-provider conformance tests + `_prune_for_llm` refactor; doubles as harness-swap decision gate (completed 2026-06-04)
 - [x] **Phase 9: Per-Provider State Preservation Implementations** — One sub-phase each: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (+ Anthropic wiring) → Gemini 3 (experimental); milestone anchor gate lands here (completed 2026-06-05)
-- [ ] **Phase 10: Eval Harness Honesty** — Close the three fail-open scorer paths, fix late_night threading shape, re-derive satisfiable per-family gates, institutionalize live-probe + recorded fixtures (re-scoped 2026-06-10; original BASE scope moved to Phase 11)
+- [x] **Phase 10: Eval Harness Honesty** — Close the three fail-open scorer paths, fix late_night threading shape, re-derive satisfiable per-family gates, institutionalize live-probe + recorded fixtures (re-scoped 2026-06-10; original BASE scope moved to Phase 11) (completed 2026-06-11)
 - [ ] **Phase 11: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open (incl. carried-forward anthropic n=5 + gemini first n=5); add three new cross-model anchors; lock per-family merge gates in CI
 
 ## Phase Details
@@ -133,7 +133,7 @@ Plans:
   5. A per-provider live-probe Make target exists (one ~$0.01 call per provider), is documented as the mandatory pre-matrix step, and its captured real-wire responses are checked in as fixtures consumed by the adapter/conformance tests — closing the synthetic-vs-live gap that produced 4 live-only Anthropic bugs and the Gemini lcgg key-shape miss in Phase 9 (EVAL-05).
   6. The untested `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`, `app/llm_factory.py:350-361`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph (`app/agent/critique/vibe.py:78`) is made non-blocking or explicitly flag-documented as eval-only (EVAL-06).
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 Plans:
 **Wave 1**
 
@@ -148,7 +148,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 10-03-quarantine-and-parity-PLAN.md — Quarantine late_night (baseline_eligible) + verify PR #104 parity test (EVAL-02, EVAL-04) [depends 10-02]
+- [x] 10-03-quarantine-and-parity-PLAN.md — Quarantine late_night (baseline_eligible) + verify PR #104 parity test (EVAL-02, EVAL-04) [depends 10-02]
 
 ### Phase 11: Cross-Model Baseline Regen + Matrix Expansion
 
@@ -177,7 +177,7 @@ Plans:
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
-| 10. Eval Harness Honesty                       | v2.1      | 5/6 | In Progress|  |
+| 10. Eval Harness Honesty                       | v2.1      | 6/6 | Complete   | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
 ---
