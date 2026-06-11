@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 10
-status: executing
-last_updated: "2026-06-11T04:48:57.501Z"
-last_activity: 2026-06-11 -- Phase 10 planning complete
+status: verifying
+last_updated: "2026-06-11T04:57:27.023Z"
+last_activity: 2026-06-11
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 26
-  completed_plans: 23
+  completed_plans: 24
   percent: 50
 ---
 
@@ -62,8 +62,8 @@ Working branch: `gsd/phase-10-eval-harness-honesty` (off main @ e3dc6c2, post-PR
 
 Phase: 10 (eval-harness-honesty) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
-Last activity: 2026-06-11 -- Phase 10 planning complete
+Status: Phase complete — ready for verification
+Last activity: 2026-06-11
 
 ### Blockers
 
@@ -87,6 +87,7 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 | Phase 10 P02 | 30m | 2 tasks | 2 files |
 | Phase 10 P05 | 5m | 2 tasks | 5 files |
 | Phase 10 P03 | 25m | 2 tasks | 6 files |
+| Phase 10 P07 | 10m | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -109,6 +110,7 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 - [Phase 10 P10-05]: D-10-14: make probe-providers is MANDATORY pre-matrix step, CI-free; fail-closed post-write guard deletes fixture on secret leak
 - [Phase ?]: D-10-09: late_night_closure_cascade quarantined via baseline_eligible=False on EvalQuery
 - [Phase ?]: D-10-10: late_night baseline JSON annotated with _observations; annotate-not-regenerate pattern confirmed
+- [Phase ?]: CR-01 closed: _check_gate walks nested scenarios->providers shape
 
 ## Accumulated Context
 
