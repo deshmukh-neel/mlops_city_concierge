@@ -6,6 +6,7 @@ Reads a matrix summary.json and exits non-zero on any hard-gate violation.
 Usage:
     poetry run python scripts/check_eval_gates.py eval_reports/{ts}/summary.json
     make eval-gates-check SUMMARY=eval_reports/{ts}/summary.json
+    make eval-gates-check-baselines   # D-11-15: reads committed baselines (no live keys)
 
 Exit codes (matching check_baselines_fresh.py exactly):
     0 = all hard gates passed (aspirational misses printed, non-blocking)
@@ -33,6 +34,15 @@ Not-evaluable condition:
     violates a gate.  The gate is evaluated against EVERY eligible scenario
     carrying the family (fail-closed): if any eligible scenario's cell fails,
     the gate fails, regardless of scenario-id ordering.
+
+Baselines mode (D-11-15):
+    When --baselines-mode is set, the script reads committed
+    configs/eval_baselines/*.json and synthesises a summary-shaped dict via
+    _build_summary_from_baselines.  The _check_gate loop is unchanged — only
+    the input source is swapped.  _snapshots/ subdirectory files are skipped.
+    Per-scenario ``baseline_eligible`` flags are resolved from
+    --eval-queries (WR-03) the same way summary-mode's aggregate_cell_jsons
+    does, so D-10-09 quarantined scenarios neither satisfy nor violate gates.
 """
 
 from __future__ import annotations
@@ -42,6 +52,7 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 # No top-level LLM SDK imports — this script is the checker, not the caller.
 
@@ -83,6 +94,114 @@ def _load_gates(gates_path: str) -> dict:
                 f"{gate.get('family', f'#{idx}')!r}; valid statuses: {sorted(_VALID_STATUSES)}"
             )
     return data
+
+
+def _load_baseline_eligibility(eval_queries_path: str) -> dict[str, bool]:
+    """Resolve scenario_id -> baseline_eligible from eval_queries.yaml (D-10-09).
+
+    WR-03: baselines-mode must honor the quarantine the same way summary-mode
+    does (aggregate_cell_jsons resolves the flag from the eval-queries config).
+    Scenario IDs absent from the lookup default to True downstream — failing
+    toward enforcement, not silent exclusion (T-10-03-03).
+
+    Raises OSError on missing file, ValueError on parse failure.
+    """
+    try:
+        import yaml  # noqa: PLC0415
+    except ImportError as exc:
+        raise OSError("PyYAML not available — install with 'poetry install'") from exc
+
+    p = Path(eval_queries_path)
+    if not p.exists():
+        raise OSError(f"eval queries config not found: {eval_queries_path}")
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(
+            f"could not parse eval queries YAML at {eval_queries_path}: {exc}"
+        ) from exc
+    lookup: dict[str, bool] = {}
+    if isinstance(data, dict):
+        for case in data.get("hand_written") or []:
+            if isinstance(case, dict) and case.get("id"):
+                lookup[str(case["id"])] = bool(case.get("baseline_eligible", True))
+    return lookup
+
+
+def _build_summary_from_baselines(
+    baselines_dir: Path,
+    baseline_eligibility: dict[str, bool] | None = None,
+) -> dict:
+    """Synthesise a summary-shaped dict from committed baseline JSONs (D-11-15).
+
+    Shape matches aggregate_cell_jsons output exactly so _check_gate can
+    consume it without modification.  Files inside a ``_snapshots``
+    subdirectory are skipped.
+
+    Fail-closed contract (CR-02): this feeds the HARD CI gate. A missing
+    baselines directory raises OSError and an empty result raises ValueError —
+    both route through main's (OSError, ValueError) handler to exit 2. The
+    T-10-04-01 "not-evaluable is non-blocking" design covers a single missing
+    metric in an otherwise-present summary; an entirely missing input must
+    never read as green (deleted baselines, renamed dir, typo'd
+    --baselines-dir would all silently pass otherwise).
+
+    Per-scenario ``baseline_eligible`` flags come from ``baseline_eligibility``
+    (WR-03: resolved from eval_queries.yaml via _load_baseline_eligibility, so
+    D-10-09 quarantined scenarios are skipped by _check_gate exactly as in
+    summary-mode). Unknown scenario IDs default to True (T-10-03-03).
+
+    Raises OSError on missing/unreadable directory, ValueError on malformed
+    JSON or an empty baselines directory.
+    """
+    if not baselines_dir.is_dir():
+        raise OSError(f"baselines directory not found: {baselines_dir}")
+    eligibility = baseline_eligibility or {}
+    scenarios_out: dict[str, Any] = {}
+    for baseline_path in sorted(baselines_dir.glob("*.json")):
+        # Skip any file whose immediate parent is _snapshots (pre-phase snapshots).
+        if baseline_path.parent.name == "_snapshots":
+            continue
+        try:
+            payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"could not parse baseline JSON at {baseline_path}: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"baseline JSON at {baseline_path} is not an object")
+        # Prefer the explicit scenario_id key; fall back to the filename stem
+        # for pre-write_baselines legacy JSONs (e.g. refinement_cheaper.json
+        # predates the scenario_id field added by write_baselines.py).
+        scenario_id = payload.get("scenario_id") or baseline_path.stem
+        if not scenario_id:
+            raise ValueError(
+                f"baseline JSON at {baseline_path} missing 'scenario_id' key "
+                "and has no usable filename stem"
+            )
+        providers_out: dict[str, Any] = {}
+        for provider_key, cell in payload.get("providers", {}).items():
+            scorers = cell.get("scorers", {})
+            # Derive n_scored from scorers.<any_metric>.n for completeness
+            # (fallback to cell-level n_scored if the key is present).
+            any_n = next(
+                (v["n"] for v in scorers.values() if isinstance(v, dict) and "n" in v),
+                0,
+            )
+            providers_out[provider_key] = {
+                "scorers": scorers,  # verbatim — shape already correct
+                "n_scored": cell.get("n_scored", any_n),
+                "n_errored": 0,
+                "cell_valid": True,
+            }
+        scenarios_out[scenario_id] = {
+            "baseline_eligible": eligibility.get(scenario_id, True),
+            "providers": providers_out,
+        }
+    if not scenarios_out:
+        raise ValueError(
+            f"no baseline JSONs found in {baselines_dir} — refusing to pass "
+            "hard gates against an empty record (D-11-15 fail-closed)"
+        )
+    return {"scenarios": scenarios_out}
 
 
 def _load_summary(summary_path: str) -> dict:
@@ -164,16 +283,7 @@ def _check_gate(
         return "skip"
 
     hard = gate.get("hard")
-
-    # Gates with null hard block are trivially passing for the purpose of
-    # exit-code calculation (advisory-only entries).
-    if hard is None:
-        return "pass"
-
     family = gate["family"]
-    metric = hard["metric"]
-    op = hard["op"]
-    threshold = hard["value"]
 
     # Locate the cells for this family by walking the nested scenarios->providers shape
     # produced by aggregate_cell_jsons:
@@ -184,6 +294,9 @@ def _check_gate(
     # The gate is evaluated against EVERY eligible scenario carrying the family —
     # never first-match-wins. A merge gate's verdict must not depend on scenario-id
     # ordering: if the family fails in any eligible scenario, the gate fails.
+    #
+    # WR-05: cell location is hoisted ABOVE the `hard is None` early return —
+    # advisory entries need cells regardless of whether a hard block exists.
     cells: list[tuple[str, dict]] = []
     for scenario_id, scenario_block in summary.get("scenarios", {}).items():
         if scenario_block.get("baseline_eligible", True) is False:
@@ -191,6 +304,41 @@ def _check_gate(
         candidate = scenario_block.get("providers", {}).get(family)
         if candidate is not None:
             cells.append((scenario_id, candidate))
+
+    # WR-05 / D-11-17: evaluate advisory entries — report-only WARN, never
+    # blocking. Advisory results MUST NOT be added to violations or change the
+    # exit code. Evaluated BEFORE the hard-gate early returns so an
+    # advisory-only entry (`hard: null` + non-empty advisory — e.g. the
+    # documented anthropic promotion path's intermediate state) still reports.
+    advisory_entries = gate.get("advisory") or []
+    for adv in advisory_entries:
+        adv_metric = adv.get("metric", "")
+        # D-11-17: resolve the advisory metric name alias.
+        # 'refinement_minimal_edit_median' is the gate-YAML name for the
+        # refinement_minimal_edit scorer's median value.
+        if adv_metric == "refinement_minimal_edit_median":
+            adv_metric = "refinement_minimal_edit"
+        adv_op = adv.get("op", ">=")
+        adv_threshold = adv.get("value", 0.0)
+        # Evaluate advisory against every eligible cell for this family.
+        for _sid, cell in cells:
+            adv_value = _get_metric_value(cell, adv_metric)
+            if adv_value is not None and not _evaluate_op(adv_value, adv_op, adv_threshold):
+                print(
+                    f"check_eval_gates: ADVISORY miss — {family} "
+                    f"{adv_metric} {adv_op} {adv_threshold} "
+                    f"(actual={adv_value:.3f}) [non-blocking]"
+                )
+                break  # one ADVISORY line per advisory entry is sufficient
+
+    # Gates with null hard block are trivially passing for the purpose of
+    # exit-code calculation (advisory-only entries report above, never block).
+    if hard is None:
+        return "pass"
+
+    metric = hard["metric"]
+    op = hard["op"]
+    threshold = hard["value"]
 
     if not cells:
         # Family has no cell in any eligible scenario — not-evaluable, not a silent pass.
@@ -221,22 +369,24 @@ def _check_gate(
     ]
 
     if not failing_scenarios:
-        return "pass"
+        gate_result = "pass"
+    else:
+        print(
+            f"check_eval_gates: gate '{family}' {metric} {op} {threshold} failed in "
+            f"scenario(s): {sorted(failing_scenarios)}"
+        )
 
-    print(
-        f"check_eval_gates: gate '{family}' {metric} {op} {threshold} failed in "
-        f"scenario(s): {sorted(failing_scenarios)}"
-    )
+        # Gate failed — classify by status.
+        if status in _HARD_STATUSES:
+            gate_result = "violation"
+        elif status == "aspirational":
+            gate_result = "aspirational_miss"
+        else:
+            # Statuses are validated at load time (_load_gates, WR-03); reaching here
+            # means a caller bypassed validation — fail closed, never silently pass.
+            raise ValueError(f"unknown gate status {status!r} for family {family!r}")
 
-    # Gate failed — classify by status.
-    if status in _HARD_STATUSES:
-        return "violation"
-    if status == "aspirational":
-        return "aspirational_miss"
-
-    # Statuses are validated at load time (_load_gates, WR-03); reaching here
-    # means a caller bypassed validation — fail closed, never silently pass.
-    raise ValueError(f"unknown gate status {status!r} for family {family!r}")
+    return gate_result
 
 
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -245,17 +395,45 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         prog="check_eval_gates",
         description=(
             "Gate-check script for eval_gates.yaml (EVAL-03 / D-10-05). "
-            "Reads a matrix summary.json and exits non-zero on any hard-gate violation."
+            "Reads a matrix summary.json and exits non-zero on any hard-gate violation. "
+            "Use --baselines-mode to read committed configs/eval_baselines/*.json instead "
+            "(D-11-15: live-key-free CI enforcement)."
         ),
     )
     parser.add_argument(
         "summary",
-        help="Path to summary.json from an eval_matrix run.",
+        nargs="?",
+        default=None,
+        help=(
+            "Path to summary.json from an eval_matrix run. Required unless --baselines-mode is set."
+        ),
     )
     parser.add_argument(
         "--gates-config",
         default="configs/eval_gates.yaml",
         help="Path to eval_gates.yaml (default: configs/eval_gates.yaml).",
+    )
+    parser.add_argument(
+        "--baselines-mode",
+        action="store_true",
+        default=False,
+        help=(
+            "Read committed configs/eval_baselines/*.json instead of a live summary.json "
+            "(D-11-15: CI live-key-free gate enforcement)."
+        ),
+    )
+    parser.add_argument(
+        "--baselines-dir",
+        default="configs/eval_baselines",
+        help="Baseline JSON directory (used with --baselines-mode; default: configs/eval_baselines).",
+    )
+    parser.add_argument(
+        "--eval-queries",
+        default="configs/eval_queries.yaml",
+        help=(
+            "Path to eval_queries.yaml for D-10-09 baseline_eligible resolution "
+            "(used with --baselines-mode; default: configs/eval_queries.yaml)."
+        ),
     )
     return parser.parse_args(list(argv))
 
@@ -272,7 +450,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         gates_cfg = _load_gates(args.gates_config)
-        summary = _load_summary(args.summary)
+        if args.baselines_mode:
+            # D-11-15: read committed baseline JSONs instead of a live summary.json.
+            # WR-03: resolve D-10-09 quarantine flags from eval_queries.yaml so a
+            # quarantined baseline file neither satisfies nor violates a gate.
+            eligibility = _load_baseline_eligibility(args.eval_queries)
+            summary = _build_summary_from_baselines(Path(args.baselines_dir), eligibility)
+        else:
+            if args.summary is None:
+                sys.stderr.write(
+                    "check_eval_gates: error: the 'summary' argument is required "
+                    "unless --baselines-mode is set\n"
+                )
+                return 2
+            summary = _load_summary(args.summary)
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"check_eval_gates: {exc}\n")
         return 2

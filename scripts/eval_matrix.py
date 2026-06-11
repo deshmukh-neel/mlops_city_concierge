@@ -292,6 +292,18 @@ def aggregate_cell_jsons(
         for scorer_name, value in _scorer_means_from_cell(payload).items():
             provider_block.setdefault(scorer_name, []).append(value)
 
+        # D-11-02: thread committed_itinerary_rate from the aggregate block into
+        # the scorers accumulation so the gate checker's
+        # `scorers → committed_itinerary_rate → median` read becomes evaluable.
+        # This metric is not in CRITIQUE_THRESHOLDS so _scorer_means_from_cell
+        # excludes it deliberately; we add it here as a supplemental scalar that
+        # bypasses the whitelist (it is the hard-gate metric per D-10-07/D-11-02,
+        # not a critique-threshold scorer).
+        cell_aggregate_for_commit_rate = payload.get("aggregate") or {}
+        commit_rate = cell_aggregate_for_commit_rate.get("committed_itinerary_rate")
+        if commit_rate is not None and not isinstance(commit_rate, bool):
+            provider_block.setdefault("committed_itinerary_rate", []).append(float(commit_rate))
+
         # D-10-03: read n_scored / n_errored / errors from the cell aggregate.
         # Legacy cell JSONs (pre-10-01) omit these fields; default to n_errored=0
         # (backward-compatible — a legacy cell without error fields is treated as
@@ -460,15 +472,25 @@ def run_matrix(
     output_dir: Path,
     llm_provider_override: str | None,
     eval_queries_path: str,
-) -> tuple[int, list[dict[str, Any]]]:
-    """Fan-out one subprocess per cell. Returns (returncode, failures).
+) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fan-out one subprocess per cell. Returns (returncode, violation_cells, error_cells).
 
-    `failures` is a list of dicts shaped:
+    D-11-16 / WR-07: exit codes are classified distinctly:
+        - returncode == 1: model-behavior violation (expected in exploratory runs)
+        - returncode >= 2: infra failure (rerun needed)
+        - returncode == 0: clean
+
+    `violation_cells` and `error_cells` are lists of dicts shaped:
         {"cell": "<cell_filename>", "stderr": "...", "returncode": N}
 
+    Matrix return code precedence:
+        2  if any error-cell present (error dominates)
+        1  if any violation-cell and no error-cells
+        0  all cells clean
+
     Subprocess failures do NOT short-circuit the matrix (D-08 / plan task
-    3 behavior). The caller checks `failures` to know whether the matrix
-    completed cleanly; the returncode is non-zero iff any cell failed.
+    3 behavior). The caller checks the lists to know whether the matrix
+    completed cleanly.
     """
     if llm_provider_override:
         # IN-02: surface the rebind in CI logs so operators reading the run
@@ -481,7 +503,8 @@ def run_matrix(
         entries=list(_apply_override(matrix.entries, llm_provider_override)),
         scenarios=list(matrix.scenarios),
     )
-    failures: list[dict[str, Any]] = []
+    violation_cells: list[dict[str, Any]] = []  # D-11-16: rc==1 model-behavior violations
+    error_cells: list[dict[str, Any]] = []  # D-11-16: rc>=2 infra failures
     # Phase 6 plan 06-06 / D-06-10: each cell composes its own env from
     # `parent_env` + any per-cell overrides (`MatrixEntry.env` from
     # `eval_matrix.yaml`). The per-cell composition replaces the prior
@@ -520,22 +543,40 @@ def run_matrix(
                 env=cell_env,
                 check=False,
             )
-            if result.returncode != 0:
-                failures.append(
+            # D-11-16 / WR-07: classify returncode into violation vs error.
+            if result.returncode == 1:
+                # Model-behavior violations — expected in exploratory runs, non-blocking.
+                violation_cells.append(
                     {
                         "cell": cell.cell_filename(),
                         "stderr": result.stderr,
                         "returncode": result.returncode,
                     }
                 )
+            elif result.returncode >= 2:
+                # Infra failure — rerun needed.
+                error_cells.append(
+                    {
+                        "cell": cell.cell_filename(),
+                        "stderr": result.stderr,
+                        "returncode": result.returncode,
+                    }
+                )
+            # returncode == 0: clean, nothing to record.
         finally:
             for k, v in saved_env.items():
                 if v is None:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-    rc = 0 if not failures else 1
-    return rc, failures
+    # Return code precedence: error dominates violation dominates clean.
+    if error_cells:
+        rc = 2
+    elif violation_cells:
+        rc = 1
+    else:
+        rc = 0
+    return rc, violation_cells, error_cells
 
 
 def _validate_override(value: str | None) -> str | None:
@@ -725,27 +766,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 1
 
-        # Check 6: validate the error-schema contract is well-formed (10-02 /
-        # D-10-03). A synthetic error cell with {status:"error",
-        # error:{stage,type,message}} passes the membership check;
-        # a malformed one (missing/invalid stage) fails with a descriptive
-        # stderr line and exits 1. This ensures CI catches schema drift before
-        # any live run is attempted (T-10-02-01 mitigation).
-        synthetic_error_cell = {
-            "status": "error",
-            "error": {"stage": "turn0", "type": "RateLimitError", "message": "quota"},
-        }
-        if "status" not in synthetic_error_cell or "error" not in synthetic_error_cell:
+        # Check 6: validate make_error_record produces a conforming D-10-03 record
+        # (WR-11 / D-11-18). The prior Check 6 used a tautological synthetic dict
+        # that could never fail even if the real schema regressed. This version
+        # calls the real make_error_record with a real EvalQuery so schema drift
+        # is caught in CI without any live network calls.
+        from app.eval.config import EvalQuery
+        from scripts.eval_agent import make_error_record
+
+        _synthetic_case = EvalQuery(
+            id="structural_check_synthetic",
+            query="structural check probe",
+            reference="structural check probe reference",
+            expects_clarification_or_relaxation=True,
+        )
+        try:
+            _err_record = make_error_record(
+                _synthetic_case, "turn0", RuntimeError("quota exceeded")
+            )
+        except Exception as exc:
             print(
-                "structural-check: error-schema missing 'status' or 'error' key "
-                "(D-10-03 schema contract violated)",
+                f"structural-check: make_error_record raised {type(exc).__name__}: {exc} "
+                "(D-10-03 schema contract violated — make_error_record must not raise)",
                 file=sys.stderr,
             )
             return 1
-        if synthetic_error_cell["error"].get("stage") not in {"setup", "turn0", "turnN"}:
+        if _err_record.status != "error":
             print(
-                f"structural-check: error-schema 'stage' value "
-                f"{synthetic_error_cell['error'].get('stage')!r} not in "
+                f"structural-check: make_error_record status={_err_record.status!r} "
+                "expected 'error' (D-10-03 schema contract violated)",
+                file=sys.stderr,
+            )
+            return 1
+        _err_stage = (_err_record.error or {}).get("stage")
+        if _err_stage not in {"setup", "turn0", "turnN"}:
+            print(
+                f"structural-check: make_error_record error.stage={_err_stage!r} not in "
                 "{'setup','turn0','turnN'} — D-10-03 stage contract violated",
                 file=sys.stderr,
             )
@@ -780,7 +836,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     output_dir = Path(args.output_dir) if args.output_dir is not None else resolve_run_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
-    rc, failures = run_matrix(
+    rc, violation_cells, error_cells = run_matrix(
         matrix=matrix,
         runs=args.runs,
         output_dir=output_dir,
@@ -809,7 +865,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         llm_provider_override=args.llm_provider_override,
         eval_queries_config=_eval_queries_cfg,
     )
-    summary["failures"] = failures
+    # D-11-16: record violation and error cells separately in summary.json.
+    summary["violation_cells"] = violation_cells
+    summary["error_cells"] = error_cells
 
     # D-10-03: compute total_errored across all provider-key blocks in summary.
     # A cell with any errored run is INVALID_FOR_BASELINE and forces a non-zero
@@ -827,9 +885,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         encoding="utf-8",
     )
     print(f"eval_matrix: wrote {summary_path}", file=sys.stderr)
-    if failures:
+    if violation_cells:
         print(
-            f"eval_matrix: {len(failures)} cell(s) failed; see {summary_path}#/failures",
+            f"eval_matrix: {len(violation_cells)} violation cell(s) (model-behavior); "
+            f"see {summary_path}#/violation_cells",
+            file=sys.stderr,
+        )
+    if error_cells:
+        print(
+            f"eval_matrix: {len(error_cells)} error cell(s) (infra failure — rerun needed); "
+            f"see {summary_path}#/error_cells",
             file=sys.stderr,
         )
     if total_errored > 0:
@@ -838,7 +903,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"see {summary_path}#/errors",
             file=sys.stderr,
         )
-        rc = max(rc, 1)
+        rc = max(rc, 2)
     return rc
 
 

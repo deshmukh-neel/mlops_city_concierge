@@ -226,8 +226,15 @@ def constraints_satisfied(state: ItineraryState) -> float:
     return satisfied / total
 
 
-def category_compliance(state: ItineraryState) -> float:
+def category_compliance(state: ItineraryState) -> float | None:
     """Per-slot category match between requested slots and committed stops (EVAL-01).
+
+    D-11-03 / WR-12 abstain contract: returns None when there are zero committed
+    stops. Decisiveness failure is already the hard-gated `committed_itinerary_rate`
+    signal; a zero-stop run carries no category-compliance signal and must not
+    score as a perfect 1.0 (which would inflate medians for decisiveness-failing
+    providers). None propagates cleanly — aggregate_results already filters
+    `if score is not None`. This guard fires BEFORE the D-03 empty-requested guard.
 
     D-03 abstain contract: returns 1.0 when the user did not name category
     slots (state.constraints.requested_primary_types is empty). The scorer
@@ -248,10 +255,10 @@ def category_compliance(state: ItineraryState) -> float:
 
     Pure function of state: no DB access. Cannot be broken by DB outages.
     """
+    if not state.stops:
+        return None  # WR-12 / D-11-03: abstain — zero-stop runs carry no category signal; excluded from aggregation
     requested = state.constraints.requested_primary_types
     if not requested:
-        return 1.0
-    if not state.stops:
         return 1.0
     overlap = min(len(requested), len(state.stops))
     denom = max(len(requested), len(state.stops))
@@ -594,6 +601,10 @@ def itinerary_violations(state: ItineraryState) -> list[str]:
             score = fn(state)
         except Exception as e:  # noqa: BLE001
             _log.warning("itinerary check %s failed; skipping: %s", name, e)
+            return
+        if score is None:
+            # Scorer abstained (e.g. category_compliance on zero-stop runs).
+            # Abstain = no signal = no violation. Do not append to failed.
             return
         if score < CRITIQUE_THRESHOLDS[name]:
             failed.append(name)

@@ -13,7 +13,9 @@ file covers the adapter contract in isolation per `feedback_test_layering`.
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -24,6 +26,20 @@ from app.agent.adapters.anthropic import AnthropicAdapter
 from app.agent.adapters.deepseek import DeepSeekReasonerAdapter
 from app.agent.adapters.gemini import GeminiAdapter
 from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter
+
+_PROBE_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "probe_provider_capture.py"
+
+
+def _load_probe_script():  # type: ignore[return]
+    """Load probe_provider_capture.py as a module (it lives outside a package)."""
+    spec = importlib.util.spec_from_file_location("probe_provider_capture", _PROBE_SCRIPT_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load {_PROBE_SCRIPT_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["probe_provider_capture"] = module
+    spec.loader.exec_module(module)
+    return module
+
 
 # D-10-11: fixture directory; populated by `make probe-providers`
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "provider_payloads"
@@ -952,3 +968,119 @@ def test_adapter_capture_on_real_wire_fixture(provider: str) -> None:
             f"capture_reasoning_state for '{provider}' returned a result without "
             f"a 'provider' key: {result!r}"
         )
+
+
+# ─── WR-10: probe fixture type-fidelity tests ─────────────────────────────────
+#
+# The probe script's _redact function called str(value) on additional_kwargs
+# values, collapsing dict/list/number values to Python repr strings like
+# "{'k': 'v'}".  WR-10 fixes this by routing additional_kwargs values through
+# the same json.loads(_redact(json.dumps(..., default=str))) pattern already
+# used for response_metadata/usage_metadata/tool_calls.
+#
+# These tests verify:
+#   1. A dict-valued additional_kwargs entry survives as a real dict (not str repr).
+#   2. Secrets in additional_kwargs values are still redacted after the fix.
+#   3. The adapter fixture test still passes/skips correctly (no regression).
+#
+# Tests use a synthetic fixture in tmp_path — no live keys needed (CI-safe).
+
+
+@pytest.fixture
+def probe():  # type: ignore[return]
+    """The probe_provider_capture module under test."""
+    return _load_probe_script()
+
+
+def test_wr10_dict_additional_kwargs_value_preserved_as_dict(probe, tmp_path: Path) -> None:
+    """WR-10: a dict-valued additional_kwargs entry must survive redaction as a dict.
+
+    Before the fix, _redact(message.additional_kwargs[k]) calls str(value) on a
+    dict, producing "{'reasoning': {'tokens': 42}}" — a Python repr string, not
+    JSON.  After the fix, json.loads(_redact(json.dumps(value, default=str)))
+    round-trips it as {"reasoning": {"tokens": 42}}.
+    """
+    # Simulate the fixture-build path: apply the type-faithful redaction to a dict value.
+    structured_value = {"reasoning": {"tokens": 42, "model": "test-model"}}
+    # WR-10 fix: json.loads(_redact(json.dumps(v, default=str)))
+    redacted = json.loads(probe._redact(json.dumps(structured_value, default=str)))
+    assert isinstance(redacted, dict), (
+        f"WR-10: dict additional_kwargs value must survive as dict, got {type(redacted).__name__!r}: "
+        f"{redacted!r}"
+    )
+    assert redacted == structured_value, (
+        f"WR-10: dict value must round-trip faithfully; got {redacted!r}"
+    )
+
+
+def test_wr10_list_additional_kwargs_value_preserved_as_list(probe) -> None:
+    """WR-10: a list-valued additional_kwargs entry must survive redaction as a list."""
+    list_value = [{"type": "thinking", "thinking": "step 1"}, {"type": "text", "text": "done"}]
+    redacted = json.loads(probe._redact(json.dumps(list_value, default=str)))
+    assert isinstance(redacted, list), (
+        f"WR-10: list additional_kwargs value must survive as list, got {type(redacted).__name__!r}"
+    )
+    assert len(redacted) == 2
+
+
+def test_wr10_secrets_in_additional_kwargs_are_still_redacted(probe, monkeypatch) -> None:
+    """WR-10: type-fidelity must not weaken redaction — secrets in dict values are removed.
+
+    Plants a fake secret in an env var and embeds it in a dict-valued additional_kwargs
+    entry.  The WR-10 redaction path must strip it.
+    """
+    fake_secret = "sk-" + "A" * 30  # matches _SECRET_PATTERNS OpenAI pattern
+    # Plant the secret inside a nested dict value.
+    structured_value = {"nested": {"api_key": fake_secret, "safe_field": "hello"}}
+    # Apply the WR-10 redaction path.
+    redacted_str = probe._redact(json.dumps(structured_value, default=str))
+    assert fake_secret not in redacted_str, (
+        "WR-10: secret in additional_kwargs dict value must be redacted"
+    )
+    assert "<REDACTED>" in redacted_str, (
+        "WR-10: redaction marker must appear after stripping the secret"
+    )
+    # The round-trip must still produce a dict (type preserved despite redaction).
+    redacted = json.loads(redacted_str)
+    assert isinstance(redacted, dict), "WR-10: redacted value must still be a dict"
+
+
+def test_wr10_synthetic_fixture_roundtrips_dict_value(probe, tmp_path: Path) -> None:
+    """WR-10: a synthetic type-faithful fixture with a dict additional_kwargs value
+    can be written and re-loaded, with the dict type preserved (not stringified).
+
+    This exercises the full fixture-build shape used by test_adapter_capture_on_real_wire_fixture.
+    """
+    structured_value = {"reasoning_effort": "high", "tokens": 128}
+    # Apply the WR-10 redaction (same code path the fixed probe uses).
+    add_kwargs_values = {
+        "reasoning_config": json.loads(probe._redact(json.dumps(structured_value, default=str)))
+    }
+
+    # Write a synthetic fixture to tmp_path.
+    fixture = {
+        "provider": "openai",
+        "model": "gpt-5-mini",
+        "library_version": "0.0.0",
+        "probe_query": "search for a bar in mission",
+        "additional_kwargs_keys": ["reasoning_config"],
+        "additional_kwargs_values": add_kwargs_values,
+        "response_metadata": {},
+        "content_shape": "str (len=12)",
+        "usage_metadata": None,
+        "tool_calls": [],
+    }
+    fixture_file = tmp_path / "openai.json"
+    fixture_file.write_text(json.dumps(fixture, indent=2), encoding="utf-8")
+
+    # Re-load the fixture (same as test_adapter_capture_on_real_wire_fixture does).
+    payload = json.loads(fixture_file.read_text(encoding="utf-8"))
+    additional_kwargs = payload.get("additional_kwargs_values", {})
+
+    # The dict value must be a real dict, not a str repr.
+    assert "reasoning_config" in additional_kwargs
+    assert isinstance(additional_kwargs["reasoning_config"], dict), (
+        f"WR-10: additional_kwargs_values['reasoning_config'] must be dict after fixture round-trip, "
+        f"got {type(additional_kwargs['reasoning_config']).__name__!r}"
+    )
+    assert additional_kwargs["reasoning_config"] == structured_value

@@ -1,0 +1,131 @@
+{
+  "_observations": "D-10-10: legacy-threading-shaped measurement. Turn-2 scorers were designed against the full-tool-history threading shape (project memory: project_eval_multi_turn_threading_bug). Not comparable to prod threading. Baseline NOT regenerated in Phase 10 — annotated only. See eval_queries.yaml baseline_eligible: false (D-10-09) and eval_gates.yaml status: quarantined-legacy-threading. Migration to prod threading deferred to a future harness milestone.",
+  "scenario_id": "late_night_closure_cascade",
+  "generated_at": "2026-05-22T23-07-11Z",
+  "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
+  "closure_check_confirmed": "2026-05-21",
+  "providers": {
+    "deepseek/deepseek-chat": {
+      "scorers": {
+        "category_compliance": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "category_compliance_strict": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "constraints_satisfied": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "geographic_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "no_hallucinated_place_ids": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "rationale_stop_alignment": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "temporal_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "walking_budget_respected": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        }
+      },
+      "_observations": "Post-Phase-4 baseline (DeepSeek, tracked but not gated per D-04-11 + D-04-12 \u2014 neither DeepSeek nor this scenario gate Phase 4)."
+    },
+    "openai/gpt-4o-mini": {
+      "scorers": {
+        "category_compliance": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "category_compliance_strict": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "constraints_satisfied": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "geographic_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 0.0,
+          "n": 3,
+          "stdev": 0.5773502691896257
+        },
+        "no_hallucinated_place_ids": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "rationale_stop_alignment": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "temporal_coherence": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 3,
+          "stdev": 0.0
+        },
+        "walking_budget_respected": {
+          "max": 1.0,
+          "median": 1.0,
+          "min": 0.0,
+          "n": 3,
+          "stdev": 0.5773502691896257
+        }
+      },
+      "_observations": "Post-Phase-4 baseline for tracking only (NOT gated per D-04-12). Scenario does not exercise category compliance (no slot structure in the query); the eval-harness multi-turn threading mismatch (project memory: project_eval_multi_turn_threading_bug.md) means the measurement is not directly comparable to production behavior. Phase 5 (RAT-02) will decide whether to fix the harness, scope the scenario out long-term, or accept the caveat."
+    }
+  }
+}

@@ -342,13 +342,89 @@ def test_category_compliance_abstains_when_no_requested_types() -> None:
     assert category_compliance(state) == 1.0
 
 
-def test_category_compliance_returns_one_for_empty_stops() -> None:
-    """Fail-open: no committed stops -> 1.0 (nothing to score)."""
+def test_category_compliance_returns_none_for_empty_stops_with_requested_types() -> None:
+    """D-11-03 / WR-12: zero-stop abstain — decisiveness failure already gated.
+
+    category_compliance must return None (not 1.0) when there are zero committed
+    stops and the user DID name category slots. A zero-stop run carries no
+    category-compliance signal; returning 1.0 would inflate medians for
+    decisiveness-failing providers (e.g. DeepSeek).
+    """
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
         stops=[],
     )
-    assert category_compliance(state) == 1.0
+    result = category_compliance(state)
+    assert result is None, (
+        "category_compliance must abstain (None) on zero-stop state — "
+        "decisiveness failure is already the hard-gated committed_itinerary_rate signal"
+    )
+
+
+def test_category_compliance_returns_none_for_empty_stops_no_requested_types() -> None:
+    """D-11-03 / WR-12: zero-stop abstain fires BEFORE the requested-types guard.
+
+    When both stops and requested_primary_types are empty, the zero-stop guard
+    fires first (returns None) rather than the D-03 empty-requested guard (1.0).
+    Documents which branch takes precedence.
+    """
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=[]),
+        stops=[],
+    )
+    result = category_compliance(state)
+    assert result is None, (
+        "zero-stop abstain (None) must fire before the empty-requested abstain (1.0)"
+    )
+
+
+def test_category_compliance_populated_path_still_returns_float() -> None:
+    """D-11-03 non-regression: committed stops + matching types still returns float.
+
+    The None-abstain must not affect the populated path. A single matched stop
+    must return 1.0 (float), not None.
+    """
+    state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+    )
+    result = category_compliance(state)
+    assert isinstance(result, float), "populated path must return float, not None"
+    assert result == 1.0
+
+
+def test_category_compliance_zero_stop_none_excluded_from_aggregation() -> None:
+    """D-11-03 aggregation propagation: None score excluded from median calculation.
+
+    Simulates what aggregate_results does: a results list mixing one zero-stop
+    run (score=None) and one populated run (score=1.0) should aggregate only
+    the populated run — the None must be filtered out.
+    """
+    # Simulate what aggregate_results does with scores
+    scores_from_runs = []
+
+    zero_stop_state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[],
+    )
+    populated_state = ItineraryState(
+        constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
+        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+    )
+
+    zero_stop_score = category_compliance(zero_stop_state)
+    populated_score = category_compliance(populated_state)
+
+    assert zero_stop_score is None, "zero-stop run must produce None score"
+    assert populated_score == 1.0, "populated run must produce 1.0 float score"
+
+    # Replicate the aggregate_results filter: if score is not None
+    for score in [zero_stop_score, populated_score]:
+        if score is not None:
+            scores_from_runs.append(score)
+
+    assert len(scores_from_runs) == 1, "None score must be excluded; only 1 float survives"
+    assert scores_from_runs[0] == 1.0
 
 
 def test_category_compliance_single_exact_family_match() -> None:

@@ -14,14 +14,13 @@
 # Hard gates ride on committed_itinerary_rate floors; refinement_minimal_edit
 # medians are advisory everywhere until v2.2 decisiveness work earns more.
 #
-# NOTE: committed_itinerary_rate is not yet wired into the eval matrix scorers
-# (Phase 11 BASE-01 adds it). Until then, hard gates on this metric are reported
-# as not-evaluable (not a silent pass) by check_eval_gates.py.
+# committed_itinerary_rate is wired into eval matrix scorers (D-11-02 / Phase 11
+# Plan 03). Hard gates on this metric are now enforced by check_eval_gates.py.
 
 gates:
   - family: openai/gpt-4o-mini
     status: active                   # hard gate enforced by make eval-gates-check
-    rationale: "D-10-07: anchor; 0.8 absorbs one stochastic miss at n=5"
+    rationale: "D-10-07: anchor; 0.8 absorbs one stochastic miss at n=5; D-11-20: re-ratified at n=5 (median 1.0 in 2026-06-11T19-09-10Z run)"
     hard:
       metric: committed_itinerary_rate
       op: ">="
@@ -33,7 +32,7 @@ gates:
 
   - family: openai/gpt-5-mini
     status: aspirational             # FAILS at 0.4; reported but not hard-failing
-    rationale: "D-10-07 + D-09-02 Part A: v2.2 decisiveness target"
+    rationale: "D-10-07 + D-09-02 Part A: v2.2 decisiveness target; D-11-20: remains aspirational — omakase committed_itinerary_rate median 1.0 (2026-06-11T19-09-10Z n=5); refinement committed_itinerary_rate median 0.0 (2026-06-11T19-38-23Z n=5); v2.2 anchor pending decisiveness work"
     hard:
       metric: committed_itinerary_rate
       op: ">="
@@ -41,29 +40,26 @@ gates:
     advisory: []
 
   - family: anthropic/claude-sonnet-4-6
-    status: provisional-n1           # hard gate from a single run; Phase 11 re-ratifies at n=5
-    rationale: "D-10-07: single-run baseline; Phase 11 re-ratifies at n=5"
-    hard:
-      metric: committed_itinerary_rate
-      op: ">="
-      value: 0.8
+    status: logged                   # deferred: API billing exhausted 2026-06-11; promotable when credits restored
+    rationale: "D-11-20: deferred to logged-not-gated — all 5 omakase cells HTTP 400 'credit balance too low' on 2026-06-11; promotion path: top up credits -> re-run matrix -> write baselines -> promote to active; prior provisional-n1 value (0.8) is the intended floor when promoted"
+    hard: null
     advisory: []
 
   - family: deepseek/deepseek-reasoner
     status: logged                   # no gate; empirical median captured for reference
-    rationale: "D-10-07: logged-not-gated"
+    rationale: "D-10-07: logged-not-gated; D-11-20: omakase n=5 committed_itinerary_rate median=0.0 (decisiveness gap, not infra error)"
     hard: null
     advisory: []
 
   - family: deepseek/deepseek-chat
     status: logged                   # no gate; empirical median captured for reference
-    rationale: "D-10-07: logged-not-gated"
+    rationale: "D-10-07: logged-not-gated; D-11-20: omakase n=5 committed_itinerary_rate median=0.0 (1/5 converged)"
     hard: null
     advisory: []
 
   - family: gemini/gemini-3.1-pro-preview
     status: logged                   # no gate; empirical median captured for reference
-    rationale: "D-10-07: logged-not-gated"
+    rationale: "D-10-07: logged-not-gated; D-11-11: first-ever n=5 measurement deferred — gemini cells errored during regen; retry when GEMINI_API_KEY quota permits"
     hard: null
     advisory: []
 

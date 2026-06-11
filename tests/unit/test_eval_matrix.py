@@ -31,22 +31,32 @@ from app.eval.config import REPO_ROOT, load_eval_matrix
 
 
 def test_repo_eval_matrix_yaml_loads_via_load_eval_matrix() -> None:
-    """configs/eval_matrix.yaml ships with the D-06 anchors locked:
-    providers=[openai/gpt-4o-mini, deepseek/deepseek-chat].
+    """configs/eval_matrix.yaml ships with the D-06 anchors locked plus the
+    Phase-11 / D-11-12 cross-model entries (flag-OFF):
+    providers=[openai/gpt-4o-mini, deepseek/deepseek-chat, openai/gpt-5-mini,
+               anthropic/claude-sonnet-4-6, deepseek/deepseek-reasoner].
 
     Phase 6 / D-06-09 / plan 06-07: `refinement_cheaper` was moved out of
     the default matrix and into `configs/eval_matrix_refinement.yaml`. The
     default matrix now contains only the first-turn scenarios so REF-04
     (omakase first-turn no-regression with flag OFF) is preserved.
+
+    Phase 11 / D-11-13: `late_night_closure_cascade` removed from default
+    scenarios (stays runnable via SCENARIOS=late_night_closure_cascade param).
     """
     matrix = load_eval_matrix(REPO_ROOT / "configs/eval_matrix.yaml")
-    assert len(matrix.entries) == 2
-    assert len(matrix.scenarios) == 2
+    assert len(matrix.entries) == 5  # D-11-12: was 2; 3 new cross-model entries added
+    assert len(matrix.scenarios) == 1  # D-11-13: was 2; late_night removed
     providers = {(e.provider, e.model) for e in matrix.entries}
     assert ("openai", "gpt-4o-mini") in providers
     assert ("deepseek", "deepseek-chat") in providers
+    # Phase 11 / D-11-12 new entries (flag-OFF — no env override):
+    assert ("openai", "gpt-5-mini") in providers
+    assert ("anthropic", "claude-sonnet-4-6") in providers
+    assert ("deepseek", "deepseek-reasoner") in providers
     assert "omakase_mission_open_ended" in matrix.scenarios
-    assert "late_night_closure_cascade" in matrix.scenarios
+    # Phase 11 / D-11-13 invariant: late_night removed from default scenarios.
+    assert "late_night_closure_cascade" not in matrix.scenarios
     # Phase 6 invariant: the refinement scenario lives in the sibling
     # refinement-only matrix, NOT in the default matrix.
     assert "refinement_cheaper" not in matrix.scenarios
@@ -92,22 +102,39 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
 
 # ─── baseline JSON ↔ matrix YAML provider-cell parity ────────────────────────
 
-# Matrix entries whose baseline cell is intentionally absent. The only
-# sanctioned deferral is gemini/gemini-3.1-pro-preview: its first n=5
-# measurement is deferred to the baseline-regen phase (see the PROV-04
-# comment block in configs/eval_matrix_refinement.yaml). Shrink this set
-# when the deferred cell lands; never grow it without a matching comment
-# in the matrix YAML.
+# Matrix entries whose baseline cell is intentionally absent. Sanctioned
+# deferrals:
+#   - eval_matrix_refinement.yaml: gemini/gemini-3.1-pro-preview — first n=5
+#     measurement deferred per D-11-11 (PROV-04; gemini errored during regen).
+#     anthropic/claude-sonnet-4-6 is NOT listed here — its PROV-03 SHIPPED-WITH-GAP
+#     n=1 cell is preserved in refinement_cheaper.json (historical record); write_baselines
+#     refuses to overwrite it with n=0 results per D-10-03 (no data loss).
+#   - eval_matrix.yaml: anthropic/claude-sonnet-4-6 — D-11-20 deferral; status demoted
+#     to logged-not-gated in configs/eval_gates.yaml; API billing exhausted 2026-06-11
+#     (HTTP 400 "credit balance too low" on all 5 omakase cells). Promotable when
+#     Anthropic credits are restored. See docs/eval_gates.md § Anthropic deferral.
+# Shrink each set when the deferred cell lands; never grow it without a matching
+# comment in the matrix YAML.
 _DEFERRED_BASELINE_CELLS: dict[str, set[str]] = {
-    "eval_matrix_refinement.yaml": {"gemini/gemini-3.1-pro-preview"},
-    "eval_matrix.yaml": set(),
+    "eval_matrix_refinement.yaml": {
+        # D-11-11: gemini deferred — errored during regen; retry when GEMINI_API_KEY quota permits.
+        "gemini/gemini-3.1-pro-preview",
+    },
+    "eval_matrix.yaml": {
+        # D-11-20: anthropic deferred to logged-not-gated — API billing exhausted 2026-06-11;
+        # all 5 omakase cells HTTP 400; promotable when Anthropic credits are restored.
+        # See docs/eval_gates.md § Anthropic deferral for promotion path.
+        "anthropic/claude-sonnet-4-6",
+    },
 }
 
 _MATRIX_TO_BASELINES: dict[str, list[str]] = {
     "eval_matrix_refinement.yaml": ["refinement_cheaper.json"],
     "eval_matrix.yaml": [
+        # D-11-13: late_night_closure_cascade.json removed from parity check —
+        # it is no longer a default-matrix scenario. The baseline JSON file
+        # itself is NOT deleted (D-10-10 annotate-not-delete standing).
         "omakase_mission_open_ended.json",
-        "late_night_closure_cascade.json",
     ],
 }
 
@@ -228,6 +255,8 @@ def test_dry_run_prints_default_matrix_cells(capsys, monkeypatch) -> None:
     Phase 6 / D-06-09 / plan 06-07: default matrix has 2 entries × 2
     scenarios × 3 runs = 12 cells (refinement_cheaper moved to the sibling
     refinement-only matrix). Pre-Phase-6 expected 18 cells.
+
+    Phase 11 / D-11-12 + D-11-13: 5 entries × 1 scenario × 3 runs = 15 cells.
     """
     monkeypatch.setenv("APP_ENV", "eval")  # gate doesn't apply to dry-run
     from scripts.eval_matrix import main
@@ -243,9 +272,9 @@ def test_dry_run_prints_default_matrix_cells(capsys, monkeypatch) -> None:
     )
     out = capsys.readouterr().out
     assert rc == 0
-    # 2 providers * 2 scenarios * 3 runs = 12 cells.
+    # 5 providers * 1 scenario * 3 runs = 15 cells (Phase 11 / D-11-12 + D-11-13).
     cell_lines = [line for line in out.splitlines() if "--run-" in line]
-    assert len(cell_lines) == 12
+    assert len(cell_lines) == 15
 
 
 # ─── APP_ENV=eval gate enforcement (EVAL-09) ─────────────────────────────────
@@ -658,7 +687,7 @@ def test_run_matrix_invokes_eval_agent_subprocess(mocker, monkeypatch, tmp_path)
         entries=[MatrixEntry(provider="scripted", model="placeholder")],
         scenarios=["scenario_a"],
     )
-    rc, failures = run_matrix(
+    rc, violation_cells, error_cells = run_matrix(
         matrix=matrix,
         runs=2,
         output_dir=tmp_path,
@@ -676,15 +705,16 @@ def test_run_matrix_invokes_eval_agent_subprocess(mocker, monkeypatch, tmp_path)
     assert "--scenario-ids" in first_cmd
     assert "scenario_a" in first_cmd
     # No cell failures expected when subprocess.run returns 0.
-    assert failures == []
+    assert violation_cells == []
+    assert error_cells == []
     # Return code: 0 because no cells failed.
     assert rc == 0
 
 
 def test_run_matrix_collects_failures_without_short_circuit(mocker, monkeypatch, tmp_path) -> None:
     """Subprocess failures do not stop the matrix — they're recorded in the
-    returned `failures` list and the runner still exits non-zero (D-08
-    + plan task 3 behavior bullets)."""
+    returned error_cells list and the runner still exits non-zero (D-08
+    + plan task 3 behavior bullets). D-11-16: rc>=2 goes to error_cells."""
     monkeypatch.setenv("APP_ENV", "eval")
     from scripts.eval_matrix import run_matrix
 
@@ -700,16 +730,16 @@ def test_run_matrix_collects_failures_without_short_circuit(mocker, monkeypatch,
         entries=[MatrixEntry(provider="scripted", model="placeholder")],
         scenarios=["a", "b", "c"],
     )
-    rc, failures = run_matrix(
+    rc, violation_cells, error_cells = run_matrix(
         matrix=matrix,
         runs=1,
         output_dir=tmp_path,
         llm_provider_override=None,
         eval_queries_path="configs/eval_queries.yaml",
     )
-    assert len(failures) == 1
-    assert failures[0]["returncode"] == 2
-    assert failures[0]["stderr"] == "boom"
+    assert len(error_cells) == 1
+    assert error_cells[0]["returncode"] == 2
+    assert error_cells[0]["stderr"] == "boom"
     assert rc != 0  # the runner exits non-zero when any cell failed
 
 
@@ -1646,7 +1676,7 @@ def test_main_aggregation_surfaces_baseline_eligible(monkeypatch, mocker, tmp_pa
     # pre-seeded cell JSONs in place.
     mocker.patch(
         "scripts.eval_matrix.run_matrix",
-        return_value=(0, []),
+        return_value=(0, [], []),
     )
 
     summary_path = tmp_path / "summary.json"
@@ -1699,7 +1729,7 @@ def test_main_aggregation_survives_missing_eval_queries_file(monkeypatch, mocker
 
     mocker.patch(
         "scripts.eval_matrix.run_matrix",
-        return_value=(0, []),
+        return_value=(0, [], []),
     )
 
     rc = main(
@@ -1745,7 +1775,7 @@ def test_main_aggregation_survives_malformed_eval_queries_yaml(
 
     mocker.patch(
         "scripts.eval_matrix.run_matrix",
-        return_value=(0, []),
+        return_value=(0, [], []),
     )
 
     rc = main(
@@ -1810,4 +1840,287 @@ def test_late_night_scenario_is_baseline_ineligible() -> None:
     assert "providers" in payload, (
         "late_night_closure_cascade.json providers block must not be deleted — "
         "annotation-only change per D-10-10"
+    )
+
+
+# ─── 11-03 Task 1: committed_itinerary_rate threading (D-11-02) ───────────────
+
+
+def _write_cell_with_commit_rate(
+    directory: Path,
+    provider: str,
+    model: str,
+    scenario_id: str,
+    run_n: int,
+    score_value: float,
+    commit_rate: float | None,
+) -> Path:
+    """Write a cell JSON whose aggregate block includes committed_itinerary_rate.
+
+    Mirrors _write_cell but adds committed_itinerary_rate to the aggregate dict.
+    When commit_rate is None the key is omitted entirely (back-compat test).
+    """
+    fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
+    path = directory / fname
+    agg: dict = {
+        "category_compliance_mean": score_value,
+        "rationale_stop_alignment_mean": score_value,
+        "n_scored": 1,
+        "n_errored": 0,
+    }
+    if commit_rate is not None:
+        agg["committed_itinerary_rate"] = commit_rate
+    payload = {
+        "llm_provider": provider,
+        "chat_model": model,
+        "query_count": 1,
+        "aggregate": agg,
+        "queries": [{"id": scenario_id}],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def test_committed_itinerary_rate_single_run_lands_in_scorers(tmp_path: Path) -> None:
+    """D-11-02: a cell with committed_itinerary_rate=1.0 in its aggregate block
+    must produce a stats entry in summary['scenarios'][sid]['providers'][fam]['scorers']
+    with median==1.0 and an 'n' key.
+
+    This is the keystone assertion: until this test passes, every hard gate that
+    rides on committed_itinerary_rate reports NOT-EVALUABLE.
+    """
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell_with_commit_rate(
+        tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8, 1.0
+    )
+    summary = aggregate_cell_jsons(tmp_path)
+    scorers = summary["scenarios"]["omakase_mission_open_ended"]["providers"]["openai/gpt-4o-mini"][
+        "scorers"
+    ]
+    assert "committed_itinerary_rate" in scorers, (
+        "D-11-02: committed_itinerary_rate must appear in summary scorers block"
+    )
+    assert scorers["committed_itinerary_rate"]["median"] == pytest.approx(1.0), (
+        "D-11-02: committed_itinerary_rate median must equal 1.0"
+    )
+    assert "n" in scorers["committed_itinerary_rate"], "D-11-02: scorers block must include 'n' key"
+
+
+def test_committed_itinerary_rate_multiple_runs_correct_median(tmp_path: Path) -> None:
+    """D-11-02: three runs with committed_itinerary_rate [1.0, 0.0, 1.0] should
+    aggregate to median 1.0 (median of [0.0, 1.0, 1.0] = 1.0).
+    """
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell_with_commit_rate(
+        tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8, 1.0
+    )
+    _write_cell_with_commit_rate(
+        tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 1, 0.8, 0.0
+    )
+    _write_cell_with_commit_rate(
+        tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 2, 0.8, 1.0
+    )
+    summary = aggregate_cell_jsons(tmp_path)
+    scorers = summary["scenarios"]["omakase_mission_open_ended"]["providers"]["openai/gpt-4o-mini"][
+        "scorers"
+    ]
+    assert "committed_itinerary_rate" in scorers, (
+        "D-11-02: committed_itinerary_rate must appear in summary scorers after 3 runs"
+    )
+    block = scorers["committed_itinerary_rate"]
+    assert block["n"] == 3, "n must equal the number of runs (3)"
+    # median of [0.0, 1.0, 1.0] = 1.0
+    assert block["median"] == pytest.approx(1.0), "D-11-02: median of [1.0, 0.0, 1.0] must be 1.0"
+
+
+def test_committed_itinerary_rate_missing_key_no_scorer_no_crash(tmp_path: Path) -> None:
+    """D-11-02 back-compat: a cell whose aggregate block has NO committed_itinerary_rate
+    key (legacy cell JSON) must NOT add a committed_itinerary_rate scorer key and
+    must not raise any exception.
+    """
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    # Use _write_cell (no commit_rate) to simulate a legacy cell.
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8)
+    summary = aggregate_cell_jsons(tmp_path)
+    scorers = summary["scenarios"]["omakase_mission_open_ended"]["providers"]["openai/gpt-4o-mini"][
+        "scorers"
+    ]
+    assert "committed_itinerary_rate" not in scorers, (
+        "D-11-02: committed_itinerary_rate must NOT appear when cell has no such key"
+    )
+
+
+# ─── 11-03 Task 2: run_matrix exit classification + WR-11 structural-check ────
+
+
+def test_run_matrix_classifies_rc1_as_violation_cell(mocker, monkeypatch, tmp_path) -> None:
+    """D-11-16: run_matrix classifies returncode==1 as a violation-cell (model
+    behavior violation, non-blocking) and returncode==0 as a success.
+
+    The new 3-tuple return is (rc, violation_cells, error_cells).
+    rc==1 when violation cells present and no errors.
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    fake_results = [
+        mocker.Mock(returncode=1, stdout="", stderr="violation"),
+        mocker.Mock(returncode=0, stdout="{}", stderr=""),
+    ]
+    mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_results)
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["a", "b"],
+    )
+    rc, violation_cells, error_cells = run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    # returncode==1 → violation cell; returncode==0 → clean
+    assert len(violation_cells) == 1, "rc==1 must be recorded as a violation cell"
+    assert violation_cells[0]["returncode"] == 1
+    assert violation_cells[0]["stderr"] == "violation"
+    assert len(error_cells) == 0, "rc==0 must not appear in error_cells"
+    # Violations alone: matrix rc==1
+    assert rc == 1, "run_matrix rc must be 1 when violation cells present and no errors"
+
+
+def test_run_matrix_classifies_rc2_as_error_cell(mocker, monkeypatch, tmp_path) -> None:
+    """D-11-16: run_matrix classifies returncode>=2 as an error-cell (infra failure).
+
+    error-cells dominate: matrix rc==2 when any error-cell present.
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    fake_results = [
+        mocker.Mock(returncode=0, stdout="{}", stderr=""),
+        mocker.Mock(returncode=2, stdout="", stderr="infra-fail"),
+        mocker.Mock(returncode=0, stdout="{}", stderr=""),
+    ]
+    mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_results)
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["a", "b", "c"],
+    )
+    rc, violation_cells, error_cells = run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    assert len(error_cells) == 1, "rc>=2 must be recorded as an error cell"
+    assert error_cells[0]["returncode"] == 2
+    assert error_cells[0]["stderr"] == "infra-fail"
+    assert len(violation_cells) == 0, "rc==0 must not appear in violation_cells"
+    # error cells dominate: matrix rc must be 2
+    assert rc == 2, "run_matrix rc must be 2 when any error cell present"
+
+
+def test_run_matrix_rc0_clean_no_cells(mocker, monkeypatch, tmp_path) -> None:
+    """D-11-16: all cells succeed (rc==0) → run_matrix returns (0, [], [])."""
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    mocker.patch(
+        "scripts.eval_matrix.subprocess.run",
+        return_value=mocker.Mock(returncode=0, stdout="{}", stderr=""),
+    )
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["scenario_a"],
+    )
+    rc, violation_cells, error_cells = run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    assert rc == 0
+    assert violation_cells == []
+    assert error_cells == []
+
+
+def test_run_matrix_error_dominates_violation(mocker, monkeypatch, tmp_path) -> None:
+    """D-11-16: when both violation cells (rc==1) and error cells (rc>=2) are
+    present, the matrix rc must be 2 (error dominates).
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    fake_results = [
+        mocker.Mock(returncode=1, stdout="", stderr="violation"),
+        mocker.Mock(returncode=2, stdout="", stderr="error"),
+    ]
+    mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_results)
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["a", "b"],
+    )
+    rc, violation_cells, error_cells = run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    assert len(violation_cells) == 1
+    assert len(error_cells) == 1
+    assert rc == 2, "error cells dominate violations: rc must be 2"
+
+
+def test_structural_check_check6_uses_real_make_error_record(tmp_path: Path) -> None:
+    """WR-11: structural-check Check 6 must call the REAL make_error_record
+    with a real EvalQuery and validate status=='error' and stage in valid set.
+
+    Passes when make_error_record is wired in and the schema is intact.
+    """
+    from scripts import eval_matrix as eval_matrix_mod
+
+    yaml_path = tmp_path / "matrix.yaml"
+    yaml_path.write_text(
+        "entries:\n"
+        "  - provider: openai\n"
+        "    model: gpt-4o-mini\n"
+        "    env:\n"
+        '      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"\n'
+        "scenarios:\n"
+        "  - refinement_cheaper\n",
+        encoding="utf-8",
+    )
+    rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
+    assert rc == 0, "WR-11: structural-check must exit 0 after Check 6 calls real make_error_record"
+
+
+def test_structural_check_check6_invokes_make_error_record_in_source() -> None:
+    """WR-11: the structural-check block must contain a call to make_error_record(
+    with a real EvalQuery, not just a synthetic dict.
+    """
+    import inspect
+
+    import scripts.eval_matrix as mod
+
+    src = inspect.getsource(mod.main)
+    assert "make_error_record(" in src, (
+        "WR-11: structural-check Check 6 must call make_error_record() — "
+        "the tautological synthetic-dict check must be replaced"
+    )
+    assert "EvalQuery" in src, (
+        "WR-11: structural-check Check 6 must use EvalQuery to build the synthetic case"
     )

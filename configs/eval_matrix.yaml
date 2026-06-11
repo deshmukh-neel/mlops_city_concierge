@@ -25,16 +25,22 @@ entries:
     model: gpt-4o-mini
   - provider: deepseek
     model: deepseek-chat
+  # Phase 11 / D-11-12 / BASE-02: cross-model entries (flag-OFF — no env override)
+  # Wave-1 deferral: baseline cells not yet written (Wave-2 live regen pending).
+  # Gemini is intentionally EXCLUDED from this matrix per D-11-12 / PROV-04
+  # experimental standing — gemini coverage lives only in eval_matrix_refinement.yaml.
+  - provider: openai
+    model: gpt-5-mini
+  - provider: anthropic
+    model: claude-sonnet-4-6
+  - provider: deepseek
+    model: deepseek-reasoner
 
 scenarios:
   - omakase_mission_open_ended
-  # D-10-09/10: late_night_closure_cascade is quarantined from baselines and gates.
-  # The closure-cascade turn-2 scorers were designed against the full-tool-history
-  # threading shape (project memory: project_eval_multi_turn_threading_bug).
-  # Migrating to prod threading would redesign the scenario — deferred out of
-  # scope for the harness-honesty phase (D-10-09). baseline_eligible: false is
-  # set in eval_queries.yaml and honored by aggregate_cell_jsons. The scenario
-  # still RUNS as a diagnostic; the baseline JSON is annotated with _observations
-  # (D-10-10) but NOT regenerated and NOT deleted. See eval_gates.yaml for the
-  # quarantined-legacy-threading gate entry.
-  - late_night_closure_cascade
+  # D-11-13: late_night_closure_cascade removed from default scenarios (D-10-09 quarantine).
+  # Still runnable: make eval-matrix SCENARIOS=late_night_closure_cascade
+  # Cost rationale: 5 providers × 5 runs of a baseline-ineligible scenario is pure burn.
+  # D-10-09/10 standing: baseline_eligible: false is set in eval_queries.yaml;
+  # the baseline JSON is annotated with _observations (D-10-10) but NOT regenerated
+  # and NOT deleted.

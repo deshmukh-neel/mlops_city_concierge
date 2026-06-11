@@ -45,10 +45,10 @@ Each requirement maps to exactly one phase. Categories align 1:1 with phases for
 
 ### Cross-Model Baseline Regen + Matrix Expansion (Phase 11)
 
-- [ ] **BASE-01**: All `configs/eval_baselines/*.json` are regenerated under DB-up conditions (Cloud SQL or local Postgres reachable) with the Phase-7-decoupled prompt and Phase-9 provider adapters in place. The fail-open-saturated v2.0 baselines (documented in `project_phase4_d_04_14_locked` and `project_phase6_d_06_09_root_cause`) are replaced, and the regen procedure is documented in a runbook.
-- [ ] **BASE-02**: The eval matrix (`configs/eval_matrix*.yaml`) includes `gpt-5-mini`, `claude-sonnet-4-6`, and `deepseek-reasoner` as cross-model entries alongside the existing `openai/gpt-4o-mini` anchor.
-- [ ] **BASE-03**: Per-family merge gates are documented in a single source-of-truth doc (e.g. `docs/eval_gates.md` or similar) and enforced via Makefile targets + CI. The `gpt-5-mini × refinement_cheaper` anchor gate is one of them.
-- [ ] **BASE-04**: A staleness check (analogous to `scripts/check_baselines_fresh.py`) covers the new cross-model baselines so a code change touching the agent loop without regenerating the new baselines fails CI.
+- [x] **BASE-01**: All `configs/eval_baselines/*.json` are regenerated under DB-up conditions (Cloud SQL or local Postgres reachable) with the Phase-7-decoupled prompt and Phase-9 provider adapters in place. The fail-open-saturated v2.0 baselines (documented in `project_phase4_d_04_14_locked` and `project_phase6_d_06_09_root_cause`) are replaced, and the regen procedure is documented in a runbook.
+- [x] **BASE-02**: The eval matrix (`configs/eval_matrix*.yaml`) includes `gpt-5-mini`, `claude-sonnet-4-6`, and `deepseek-reasoner` as cross-model entries alongside the existing `openai/gpt-4o-mini` anchor.
+- [x] **BASE-03**: Per-family merge gates are documented in a single source-of-truth doc (e.g. `docs/eval_gates.md` or similar) and enforced via Makefile targets + CI. The `gpt-5-mini × refinement_cheaper` anchor gate is one of them.
+- [x] **BASE-04**: A staleness check (analogous to `scripts/check_baselines_fresh.py`) covers the new cross-model baselines so a code change touching the agent loop without regenerating the new baselines fails CI.
 
 ## Future Requirements
 
@@ -113,10 +113,10 @@ Updated during roadmap creation (Phase 10 of this workflow).
 | EVAL-04 | Phase 10 | Complete |
 | EVAL-05 | Phase 10 | Complete |
 | EVAL-06 | Phase 10 | Complete |
-| BASE-01 | Phase 11 | Pending |
-| BASE-02 | Phase 11 | Pending |
-| BASE-03 | Phase 11 | Pending |
-| BASE-04 | Phase 11 | Pending |
+| BASE-01 | Phase 11 | Complete |
+| BASE-02 | Phase 11 | Complete |
+| BASE-03 | Phase 11 | Complete |
+| BASE-04 | Phase 11 | Complete |
 
 **Coverage:**
 - v2.1 requirements: 26 total
