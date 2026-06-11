@@ -1593,3 +1593,46 @@ def test_aggregate_cell_jsons_omakase_scenario_is_baseline_eligible(
     assert baseline_eligible is True, (
         "omakase_mission_open_ended must be baseline_eligible=True in summary.json"
     )
+
+
+# ─── 10-03 Task 2: late_night baseline JSON annotation + EVAL-04 parity ──────
+
+
+def test_late_night_scenario_is_baseline_ineligible() -> None:
+    """10-03 / D-10-09 + D-10-10: verify both the quarantine flag AND the
+    baseline JSON annotation are in place.
+
+    Part 1 (EVAL-02): load_eval_queries yields baseline_eligible=False for
+    late_night_closure_cascade (the parsed flag governs baseline skip in the
+    matrix runner and Phase 11 regen tooling).
+
+    Part 2 (D-10-10): the late_night baseline JSON carries a top-level
+    _observations key annotating it as a legacy-threading-shaped measurement.
+    The providers block is NOT regenerated — only the annotation was added.
+    """
+    import json
+
+    from app.eval.config import REPO_ROOT, load_eval_queries
+
+    # Part 1: quarantine flag
+    cfg = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    ln_cases = [c for c in cfg.hand_written if c.id == "late_night_closure_cascade"]
+    assert len(ln_cases) == 1, "expected exactly one late_night_closure_cascade case"
+    assert ln_cases[0].baseline_eligible is False, (
+        "late_night_closure_cascade must have baseline_eligible=False (D-10-09 quarantine)"
+    )
+
+    # Part 2: _observations annotation in baseline JSON
+    baseline_path = REPO_ROOT / "configs" / "eval_baselines" / "late_night_closure_cascade.json"
+    payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+    assert "_observations" in payload, (
+        "late_night_closure_cascade.json must contain a top-level _observations key "
+        "(D-10-10: annotate-not-regenerate decision)"
+    )
+    # The observation must reference the quarantine decision
+    assert "D-10-10" in payload["_observations"], "_observations must cite D-10-10 for audit trail"
+    # The providers block must still be present (not deleted)
+    assert "providers" in payload, (
+        "late_night_closure_cascade.json providers block must not be deleted — "
+        "annotation-only change per D-10-10"
+    )

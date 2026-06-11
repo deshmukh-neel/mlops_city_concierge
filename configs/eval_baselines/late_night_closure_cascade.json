@@ -1,4 +1,5 @@
 {
+  "_observations": "D-10-10: legacy-threading-shaped measurement. Turn-2 scorers were designed against the full-tool-history threading shape (project memory: project_eval_multi_turn_threading_bug). Not comparable to prod threading. Baseline NOT regenerated in Phase 10 — annotated only. See eval_queries.yaml baseline_eligible: false (D-10-09) and eval_gates.yaml status: quarantined-legacy-threading. Migration to prod threading deferred to a future harness milestone.",
   "scenario_id": "late_night_closure_cascade",
   "generated_at": "2026-05-22T23-07-11Z",
   "generated_by": "APP_ENV=eval make eval-matrix RUNS=3",
