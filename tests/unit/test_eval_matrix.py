@@ -658,7 +658,7 @@ def test_run_matrix_invokes_eval_agent_subprocess(mocker, monkeypatch, tmp_path)
         entries=[MatrixEntry(provider="scripted", model="placeholder")],
         scenarios=["scenario_a"],
     )
-    rc, failures = run_matrix(
+    rc, violation_cells, error_cells = run_matrix(
         matrix=matrix,
         runs=2,
         output_dir=tmp_path,
@@ -676,15 +676,16 @@ def test_run_matrix_invokes_eval_agent_subprocess(mocker, monkeypatch, tmp_path)
     assert "--scenario-ids" in first_cmd
     assert "scenario_a" in first_cmd
     # No cell failures expected when subprocess.run returns 0.
-    assert failures == []
+    assert violation_cells == []
+    assert error_cells == []
     # Return code: 0 because no cells failed.
     assert rc == 0
 
 
 def test_run_matrix_collects_failures_without_short_circuit(mocker, monkeypatch, tmp_path) -> None:
     """Subprocess failures do not stop the matrix — they're recorded in the
-    returned `failures` list and the runner still exits non-zero (D-08
-    + plan task 3 behavior bullets)."""
+    returned error_cells list and the runner still exits non-zero (D-08
+    + plan task 3 behavior bullets). D-11-16: rc>=2 goes to error_cells."""
     monkeypatch.setenv("APP_ENV", "eval")
     from scripts.eval_matrix import run_matrix
 
@@ -700,16 +701,16 @@ def test_run_matrix_collects_failures_without_short_circuit(mocker, monkeypatch,
         entries=[MatrixEntry(provider="scripted", model="placeholder")],
         scenarios=["a", "b", "c"],
     )
-    rc, failures = run_matrix(
+    rc, violation_cells, error_cells = run_matrix(
         matrix=matrix,
         runs=1,
         output_dir=tmp_path,
         llm_provider_override=None,
         eval_queries_path="configs/eval_queries.yaml",
     )
-    assert len(failures) == 1
-    assert failures[0]["returncode"] == 2
-    assert failures[0]["stderr"] == "boom"
+    assert len(error_cells) == 1
+    assert error_cells[0]["returncode"] == 2
+    assert error_cells[0]["stderr"] == "boom"
     assert rc != 0  # the runner exits non-zero when any cell failed
 
 
@@ -1646,7 +1647,7 @@ def test_main_aggregation_surfaces_baseline_eligible(monkeypatch, mocker, tmp_pa
     # pre-seeded cell JSONs in place.
     mocker.patch(
         "scripts.eval_matrix.run_matrix",
-        return_value=(0, []),
+        return_value=(0, [], []),
     )
 
     summary_path = tmp_path / "summary.json"
@@ -1699,7 +1700,7 @@ def test_main_aggregation_survives_missing_eval_queries_file(monkeypatch, mocker
 
     mocker.patch(
         "scripts.eval_matrix.run_matrix",
-        return_value=(0, []),
+        return_value=(0, [], []),
     )
 
     rc = main(
@@ -1745,7 +1746,7 @@ def test_main_aggregation_survives_malformed_eval_queries_yaml(
 
     mocker.patch(
         "scripts.eval_matrix.run_matrix",
-        return_value=(0, []),
+        return_value=(0, [], []),
     )
 
     rc = main(
