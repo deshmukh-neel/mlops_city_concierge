@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.1
-milestone_name: Reasoning-Model Compat
-current_phase: 11
-status: Awaiting next milestone
-last_updated: "2026-06-11T23:28:39.507Z"
-last_activity: 2026-06-11 — Milestone v2.1 completed and archived
+milestone: v2.2
+milestone_name: Reasoning-Model Decisiveness
+status: planning
+last_updated: "2026-06-11T23:51:57.614Z"
+last_activity: 2026-06-11
 progress:
-  total_phases: 6
-  completed_phases: 5
-  total_plans: 35
-  completed_plans: 35
-  percent: 83
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -62,10 +61,10 @@ Working branch: `gsd/phase-11-cross-model-baseline-regen-matrix-expansion` (off 
 
 ## Current Position
 
-Phase: Milestone v2.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-11 — Milestone v2.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-11 — Milestone v2.2 started
 
 ### Blockers
 
