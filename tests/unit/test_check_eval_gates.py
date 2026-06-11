@@ -81,17 +81,42 @@ gates:
 """
 
 
+_SYNTHETIC_SCENARIO_ID = "refinement_cheaper"
+
+_INTEGRATION_GATES_YAML = """\
+gates:
+  - family: openai/gpt-4o-mini
+    status: active
+    rationale: "integration test gate on a whitelisted scorer"
+    hard:
+      metric: category_compliance
+      op: ">="
+      value: 0.8
+    advisory: []
+"""
+
+
 def _make_summary(
-    providers: dict[str, dict],
+    provider_cells: dict[str, dict],
     extra_top_level: dict | None = None,
 ) -> dict:
-    """Build a minimal summary.json-shaped dict.
+    """Build a minimal summary.json-shaped dict using the real nested shape.
 
-    providers: mapping of provider_key → per-cell dict (at minimum
+    provider_cells: mapping of provider_key → per-cell dict (at minimum
     {"scorers": {}, "n_scored": N, "n_errored": 0}).
+
+    The real ``aggregate_cell_jsons`` shape nests the provider map under a
+    ``scenarios`` block — this helper mirrors that so every exit-code test
+    exercises the actual code path:
+
+        {"scenarios": {"<id>": {"providers": {...}}}, "errors": []}
     """
     out: dict = {
-        "providers": providers,
+        "scenarios": {
+            _SYNTHETIC_SCENARIO_ID: {
+                "providers": provider_cells,
+            }
+        },
         "errors": [],
     }
     if extra_top_level:
@@ -409,6 +434,75 @@ def test_main_returns_int(tmp_path: Path, script: ModuleType) -> None:
 
     result = script.main([str(summary_file), "--gates-config", str(gates_file)])
     assert isinstance(result, int), f"main() must return int, got {type(result)}"
+
+
+# ---------------------------------------------------------------------------
+# Integration test: real aggregate_cell_jsons output fires hard gate (CR-01)
+# ---------------------------------------------------------------------------
+
+
+def test_integration_real_aggregate_output_fires_hard_gate(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """End-to-end: aggregate_cell_jsons() output fed to check_eval_gates → exit 1.
+
+    This is the test that would have caught CR-01.  The old flat
+    summary.get('providers', {}) lookup never found any cell in the real
+    aggregate_cell_jsons shape, so make eval-gates-check always exited 0.
+
+    Uses category_compliance as the gated scorer because it is registered in
+    CRITIQUE_THRESHOLDS and therefore survives the _scorer_means_from_cell
+    whitelist (committed_itinerary_rate is wired in Phase 11 BASE-01; until
+    then, testing the end-to-end path with a whitelisted scorer is sufficient
+    to prove the nested-shape fix closes CR-01).
+    """
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    # Write the per-cell JSON that _write_cell_with_aggregate would produce.
+    # The aggregator reads aggregate.{scorer}_mean and strips the _mean suffix.
+    cell_dir = tmp_path / "cells"
+    cell_dir.mkdir()
+    cell_path = cell_dir / "openai--gpt-4o-mini--refinement_cheaper--run-0.json"
+    cell_payload = {
+        "llm_provider": "openai",
+        "chat_model": "gpt-4o-mini",
+        "query_count": 1,
+        "aggregate": {
+            # 0.4 < 0.8 gate — must trigger violation
+            "category_compliance_mean": 0.4,
+        },
+        "queries": [{"id": "refinement_cheaper"}],
+    }
+    cell_path.write_text(json.dumps(cell_payload), encoding="utf-8")
+
+    # Build the real aggregate_cell_jsons summary.
+    summary = aggregate_cell_jsons(cell_dir)
+
+    # Confirm the aggregator produced the nested shape with the scorer present.
+    assert "scenarios" in summary, "aggregate_cell_jsons must produce a 'scenarios' top-level key"
+    scenario_block = summary["scenarios"]["refinement_cheaper"]
+    provider_block = scenario_block["providers"]["openai/gpt-4o-mini"]
+    assert "category_compliance" in provider_block["scorers"], (
+        "category_compliance scorer must survive the _scorer_means_from_cell whitelist"
+    )
+    assert provider_block["scorers"]["category_compliance"]["median"] == pytest.approx(0.4)
+
+    # Write the summary to disk.
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary), encoding="utf-8")
+
+    # Write the integration gate config.
+    gates_file = tmp_path / "integration_gates.yaml"
+    gates_file.write_text(_INTEGRATION_GATES_YAML)
+
+    # The gate must fire (exit 1) against the real aggregator output.
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 1, (
+        f"Hard gate must fire (exit 1) against real aggregate_cell_jsons output; got exit {rc}. "
+        "This is the CR-01 regression: if the checker reads a flat top-level 'providers' key "
+        "it will find nothing and exit 0 instead of 1."
+    )
 
 
 # ---------------------------------------------------------------------------
