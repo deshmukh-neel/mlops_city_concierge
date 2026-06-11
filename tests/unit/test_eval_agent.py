@@ -2015,3 +2015,305 @@ class TestConstraintsForCaseClarificationGuard:
             assert isinstance(result, UserConstraints), (
                 f"_constraints_for_case({case.id!r}) must return UserConstraints, got {type(result)}"
             )
+
+
+# ============================================================================
+# Phase 11 / Plan 11-01 Task 1: Phantom-key exclusion (WR-08 / D-11-05)
+# + Single-turn error capture (WR-06 / D-11-06)
+# ============================================================================
+
+
+class TestPhantomKeyExclusion:
+    """WR-08 / D-11-05: prior_committed_stops and prior_stops_obj scratch keys
+    must be excluded from tool-call counting and tool-name listing.
+
+    These keys are injected by the prod-threading branch as part of
+    conversation-state serialization — they are NOT tool invocations. Before
+    the fix, count_tool_calls and tool_names_from_state would count them as
+    real tool calls, inflating tool_calls_mean in baselines.
+    """
+
+    def test_count_tool_calls_excludes_prior_committed_stops(self) -> None:
+        """WR-08: prior_committed_stops list must not be counted as tool calls."""
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [{"id": "a"}, {"id": "b"}],
+                "prior_committed_stops": [{"place_id": "ChIJtest_p1_aaaaaaaa"}],
+            }
+        )
+        # Only the 2 semantic_search entries should be counted.
+        assert count_tool_calls(state) == 2
+
+    def test_count_tool_calls_excludes_prior_stops_obj(self) -> None:
+        """WR-08: prior_stops_obj list must not be counted as tool calls."""
+        state = ItineraryState(
+            scratch={
+                "nearby": [{"id": "x"}],
+                "prior_stops_obj": [{"stop": "data"}],
+            }
+        )
+        assert count_tool_calls(state) == 1
+
+    def test_count_tool_calls_excludes_both_phantom_keys(self) -> None:
+        """WR-08: both phantom scratch keys present simultaneously are excluded."""
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [{"id": "a"}],
+                "prior_committed_stops": [{"place_id": "ChIJtest_p1_aaaaaaaa"}],
+                "prior_stops_obj": [{"stop": "data"}],
+            }
+        )
+        assert count_tool_calls(state) == 1
+
+    def test_tool_names_excludes_prior_committed_stops(self) -> None:
+        """WR-08: prior_committed_stops must not appear in tool_names_from_state."""
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [{"id": "a"}],
+                "prior_committed_stops": [{"place_id": "ChIJtest_p1_aaaaaaaa"}],
+            }
+        )
+        names = tool_names_from_state(state)
+        assert "prior_committed_stops" not in names
+        assert "semantic_search" in names
+
+    def test_tool_names_excludes_prior_stops_obj(self) -> None:
+        """WR-08: prior_stops_obj must not appear in tool_names_from_state."""
+        state = ItineraryState(
+            scratch={
+                "nearby": [{"id": "x"}],
+                "prior_stops_obj": [{"stop": "data"}],
+            }
+        )
+        names = tool_names_from_state(state)
+        assert "prior_stops_obj" not in names
+        assert "nearby" in names
+
+    def test_non_tool_scratch_keys_constant_exists(self) -> None:
+        """WR-08: _NON_TOOL_SCRATCH_KEYS constant must be defined in eval_agent."""
+        from scripts.eval_agent import _NON_TOOL_SCRATCH_KEYS
+
+        assert "prior_committed_stops" in _NON_TOOL_SCRATCH_KEYS
+        assert "prior_stops_obj" in _NON_TOOL_SCRATCH_KEYS
+
+
+class TestSingleTurnErrorCapture:
+    """WR-06 / D-11-06: A single-turn eval case (case.turns is None or empty)
+    where graph.ainvoke raises must return an error record, not crash the run.
+
+    Before the fix, exceptions during the single-turn ainvoke propagated to
+    the evaluate_cases loop, aborting the whole eval run. Now they are caught
+    and returned as make_error_record(case, "turn0", exc).
+    """
+
+    @pytest.mark.asyncio
+    async def test_single_turn_ainvoke_exception_produces_error_record(self, mocker) -> None:
+        """WR-06: single-turn ainvoke exception returns status='error' record."""
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        llm = RaisingChatModel(raise_exc=RuntimeError, raise_msg="quota exceeded")
+        graph = build_agent_graph(llm, max_steps=4)
+
+        case = eval_case(turns=None)  # single-turn path
+        result = await evaluate_case(graph, case)
+
+        assert isinstance(result, QueryEvalResult)
+        assert result.status == "error"
+        assert result.error is not None
+        assert result.error["stage"] == "turn0"
+        assert result.error["type"] == "RuntimeError"
+
+    @pytest.mark.asyncio
+    async def test_single_turn_error_does_not_invoke_scorers(self, mocker) -> None:
+        """WR-06: scorers must NOT be called when single-turn ainvoke raises."""
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        llm = RaisingChatModel(raise_exc=ValueError, raise_msg="db down")
+        graph = build_agent_graph(llm, max_steps=4)
+
+        case = eval_case(turns=None)
+        result = await evaluate_case(graph, case)
+
+        # All check scores must be None — scorers were not invoked.
+        for check_result in result.deterministic.checks.values():
+            assert check_result.score is None, (
+                f"Scorer must not run on single-turn error; got score={check_result.score}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_single_turn_success_still_returns_scored_result(self, mocker) -> None:
+        """WR-06: normal single-turn (no exception) still returns a scored result."""
+        mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+        llm = RecordingScriptedLLM(scripted=[_finalize_msg("cafe reply")])
+        graph = build_agent_graph(llm, max_steps=4)
+
+        case = eval_case(turns=None)
+        result = await evaluate_case(graph, case)
+
+        # A successful run must NOT be an error record.
+        assert result.status == "ok"
+        assert result.error is None
+
+
+# ============================================================================
+# Phase 11 / Plan 11-01 Task 2: Zero-n derived-rate guards (WR-09 / D-11-04)
+# + 0/1/2 exit-code contract (WR-07 / D-11-16)
+# ============================================================================
+
+
+class TestZeroNDerivedRateGuards:
+    """WR-09 / D-11-04: All five derived-rate fields in aggregate_results must
+    publish None (not 1.0) when n_scored == 0 (all-errored cell).
+
+    Before the fix, rate(0, 0) returned 0.0 and the derived rates were
+    computed from that, producing deterministic_pass_rate=1.0 on an
+    all-errored cell — a measurement error that would be permanently baked
+    into regenerated baselines if not fixed.
+    """
+
+    def test_all_errored_cell_deterministic_pass_rate_is_none(self) -> None:
+        """D-11-04: deterministic_pass_rate is None when n_scored == 0."""
+        from scripts.eval_agent import aggregate_results, make_error_record
+
+        error_record = make_error_record(eval_case(), "turn0", Exception("quota"))
+        agg = aggregate_results([error_record])
+
+        assert agg["n_scored"] == 0
+        assert agg["deterministic_pass_rate"] is None, (
+            "deterministic_pass_rate must be None on all-errored cell, not 1.0"
+        )
+
+    def test_all_errored_cell_deterministic_violation_rate_is_none(self) -> None:
+        """D-11-04: deterministic_violation_rate is None when n_scored == 0."""
+        from scripts.eval_agent import aggregate_results, make_error_record
+
+        error_record = make_error_record(eval_case(), "turn0", Exception("quota"))
+        agg = aggregate_results([error_record])
+
+        assert agg["deterministic_violation_rate"] is None
+
+    def test_all_errored_cell_expected_results_mismatch_rate_is_none(self) -> None:
+        """D-11-04: expected_results_mismatch_rate is None when n_scored == 0."""
+        from scripts.eval_agent import aggregate_results, make_error_record
+
+        error_record = make_error_record(eval_case(), "turnN", Exception("db down"))
+        agg = aggregate_results([error_record])
+
+        assert agg["expected_results_mismatch_rate"] is None
+
+    def test_all_errored_cell_tool_error_rate_is_none(self) -> None:
+        """D-11-04: tool_error_rate is None when n_scored == 0."""
+        from scripts.eval_agent import aggregate_results, make_error_record
+
+        error_record = make_error_record(eval_case(), "turn0", Exception("quota"))
+        agg = aggregate_results([error_record])
+
+        assert agg["tool_error_rate"] is None
+
+    def test_all_errored_cell_tool_success_rate_is_none(self) -> None:
+        """D-11-04: tool_success_rate is None when n_scored == 0."""
+        from scripts.eval_agent import aggregate_results, make_error_record
+
+        error_record = make_error_record(eval_case(), "turn0", Exception("quota"))
+        agg = aggregate_results([error_record])
+
+        assert agg["tool_success_rate"] is None
+
+    def test_all_errored_cell_all_five_rates_are_none(self) -> None:
+        """D-11-04: all five derived rates are None on an all-errored cell."""
+        from scripts.eval_agent import aggregate_results, make_error_record
+
+        records = [
+            make_error_record(eval_case(id="a"), "turn0", Exception("quota")),
+            make_error_record(eval_case(id="b"), "turn0", Exception("quota")),
+        ]
+        agg = aggregate_results(records)
+
+        assert agg["deterministic_pass_rate"] is None
+        assert agg["deterministic_violation_rate"] is None
+        assert agg["expected_results_mismatch_rate"] is None
+        assert agg["tool_error_rate"] is None
+        assert agg["tool_success_rate"] is None
+
+    def test_normal_scored_cell_still_returns_float_rates(self) -> None:
+        """D-11-04: non-regression — float derived rates still work when n_scored > 0."""
+        agg = aggregate_results([query_result()])
+
+        assert isinstance(agg["deterministic_pass_rate"], float)
+        assert isinstance(agg["deterministic_violation_rate"], float)
+        assert isinstance(agg["expected_results_mismatch_rate"], float)
+        assert isinstance(agg["tool_error_rate"], float)
+        assert isinstance(agg["tool_success_rate"], float)
+
+
+class TestExitCodeContract:
+    """WR-07 / D-11-16: main() must return 0/1/2 per the three-way contract.
+
+    Before the fix, main() returned 1 for BOTH infra failures (build_report
+    exception) AND violations. CI cannot distinguish a rerun-needed infra
+    failure (2) from a model-behavior miss (1) that is expected in exploratory
+    runs.
+
+    Exit codes:
+        0 = clean (no infra failures, no violations)
+        1 = model-behavior violations (non-blocking; rerun not needed)
+        2 = infra failure (build_report raised; rerun needed)
+    """
+
+    def _make_report(self, *, n_errored: int = 0, violations: int = 0) -> EvalRunReport:
+        """Build a synthetic EvalRunReport for exit-code testing."""
+        return EvalRunReport(
+            eval_queries_path="configs/eval_queries.yaml",
+            llm_provider="openai",
+            chat_model="gpt-4o-mini",
+            query_count=1,
+            aggregate={
+                "check_error_count": 0,
+                "n_errored": n_errored,
+                "queries_with_violations": violations,
+            },
+            queries=[query_result()],
+        )
+
+    def test_main_returns_2_when_report_has_errors(self, mocker) -> None:
+        """D-11-16: main() returns 2 when report_has_errors is True (n_errored > 0)."""
+        from scripts.eval_agent import main
+
+        report = self._make_report(n_errored=1, violations=0)
+        mocker.patch("scripts.eval_agent.build_report", return_value=report)
+        mocker.patch("scripts.eval_agent.asyncio.run", side_effect=lambda coro: report)
+
+        rc = main(["--llm-provider", "openai"])
+        assert rc == 2, f"Expected exit 2 for infra errors, got {rc}"
+
+    def test_main_returns_1_when_only_violations(self, mocker) -> None:
+        """D-11-16: main() returns 1 when only model-behavior violations present."""
+        from scripts.eval_agent import main
+
+        report = self._make_report(n_errored=0, violations=1)
+        mocker.patch("scripts.eval_agent.asyncio.run", side_effect=lambda coro: report)
+
+        rc = main(["--llm-provider", "openai"])
+        assert rc == 1, f"Expected exit 1 for violations, got {rc}"
+
+    def test_main_returns_0_when_clean(self, mocker) -> None:
+        """D-11-16: main() returns 0 when no infra errors and no violations."""
+        from scripts.eval_agent import main
+
+        report = self._make_report(n_errored=0, violations=0)
+        mocker.patch("scripts.eval_agent.asyncio.run", side_effect=lambda coro: report)
+
+        rc = main(["--llm-provider", "openai"])
+        assert rc == 0, f"Expected exit 0 for clean run, got {rc}"
+
+    def test_main_returns_2_when_build_report_raises(self, mocker) -> None:
+        """D-11-16: main() returns 2 (not 1) when build_report raises."""
+        from scripts.eval_agent import main
+
+        mocker.patch(
+            "scripts.eval_agent.asyncio.run",
+            side_effect=RuntimeError("embedding quota exceeded"),
+        )
+
+        rc = main(["--llm-provider", "openai"])
+        assert rc == 2, (
+            "build_report exception must map to exit 2 (infra failure), not 1 (violations)"
+        )
