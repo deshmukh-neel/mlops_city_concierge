@@ -183,7 +183,7 @@ Plans:
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
-| 10. Eval Harness Honesty                       | v2.1      | 9/9 | Complete   | 2026-06-11 |
+| 10. Eval Harness Honesty                       | v2.1      | 9/9 | Complete    | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
 ---

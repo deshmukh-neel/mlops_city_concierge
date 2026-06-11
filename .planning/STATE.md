@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 10
-status: verifying
-last_updated: "2026-06-11T05:12:01.580Z"
+status: ready_to_plan
+last_updated: 2026-06-11T05:27:12.980Z
 last_activity: 2026-06-11
 progress:
   total_phases: 6
@@ -12,6 +12,7 @@ progress:
   total_plans: 26
   completed_plans: 26
   percent: 67
+stopped_at: Phase 10 complete (9/9) — ready to discuss Phase 11
 ---
 
 # Project State
@@ -19,7 +20,7 @@ progress:
 **Project:** City Concierge
 **Initialized:** 2026-05-14
 **Active milestone:** v2.1 Reasoning-Model Compat (started 2026-06-03)
-**Current phase:** 10
+**Current phase:** 11
 
 ## Project Reference
 
@@ -28,7 +29,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0)
 See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 10 — eval-harness-honesty
+**Current focus:** Phase 11 — cross model baseline regen matrix expansion
 
 ## Status
 
@@ -61,8 +62,8 @@ Working branch: `gsd/phase-10-eval-harness-honesty` (off main @ e3dc6c2, post-PR
 ## Current Position
 
 Phase: 10 (eval-harness-honesty) — EXECUTING
-Plan: 6 of 6
-Status: Phase complete — ready for verification
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-06-11
 
 ### Blockers
