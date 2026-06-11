@@ -173,6 +173,28 @@ eval-gates-check: ## Check summary.json against configs/eval_gates.yaml (EVAL-03
 	  $(SUMMARY) \
 	  --gates-config configs/eval_gates.yaml
 
+# Phase 11 / D-11-07 / BASE-01: write baseline JSONs from a completed summary.json.
+# Requires SUMMARY= path; overrides RUNS= for --n-requested (default 1, runbook uses 5).
+# Exit 0 = all cells written; exit 1 = one or more cells refused (D-10-03/D-10-09);
+# exit 2 = infra failure (missing/malformed summary.json).
+.PHONY: write-baselines
+write-baselines: ## Write baseline JSONs from a completed summary.json (D-11-07; SUMMARY= required, RUNS= run count)
+	$(POETRY_RUN) python scripts/write_baselines.py \
+	  $(SUMMARY) \
+	  --n-requested $(RUNS) \
+	  --baselines-dir configs/eval_baselines
+
+# Phase 11 / D-11-09 / BASE-01: snapshot current canonical baselines before Wave 2 regen.
+# Creates pre-phase11 copies in configs/eval_baselines/_snapshots/ for audit trail.
+.PHONY: snapshot-baselines
+snapshot-baselines: ## Snapshot current canonical baselines to _snapshots/ as pre-phase11 (D-11-09)
+	cp configs/eval_baselines/omakase_mission_open_ended.json \
+	   configs/eval_baselines/_snapshots/omakase_mission_open_ended.pre-phase11.json
+	cp configs/eval_baselines/refinement_cheaper.json \
+	   configs/eval_baselines/_snapshots/refinement_cheaper.pre-phase11.json
+	cp configs/eval_baselines/late_night_closure_cascade.json \
+	   configs/eval_baselines/_snapshots/late_night_closure_cascade.pre-phase11.json
+
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
 test: ## Run the full test suite
