@@ -4,13 +4,13 @@ milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 10
 status: verifying
-last_updated: "2026-06-11T04:57:27.023Z"
+last_updated: "2026-06-11T05:04:57.136Z"
 last_activity: 2026-06-11
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 26
-  completed_plans: 24
+  completed_plans: 25
   percent: 50
 ---
 
@@ -88,6 +88,7 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 | Phase 10 P05 | 5m | 2 tasks | 5 files |
 | Phase 10 P03 | 25m | 2 tasks | 6 files |
 | Phase 10 P07 | 10m | 2 tasks | 2 files |
+| Phase 10 P08 | 15m | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -111,6 +112,8 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 - [Phase ?]: D-10-09: late_night_closure_cascade quarantined via baseline_eligible=False on EvalQuery
 - [Phase ?]: D-10-10: late_night baseline JSON annotated with _observations; annotate-not-regenerate pattern confirmed
 - [Phase ?]: CR-01 closed: _check_gate walks nested scenarios->providers shape
+- [Phase 10 P10-08]: CR-03 closed: main() wires load_eval_queries(args.eval_queries) into aggregate_cell_jsons with try/except fallback to None; baseline_eligible now reaches real summary.json
+- [Phase 10 P10-08]: CR-02 closed: _constraints_for_case None-guards expected_results dereference; all 30 hand_written cases including clarification cases build constraints without AttributeError
 
 ## Accumulated Context
 

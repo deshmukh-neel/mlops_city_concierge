@@ -133,7 +133,7 @@ Plans:
   5. A per-provider live-probe Make target exists (one ~$0.01 call per provider), is documented as the mandatory pre-matrix step, and its captured real-wire responses are checked in as fixtures consumed by the adapter/conformance tests — closing the synthetic-vs-live gap that produced 4 live-only Anthropic bugs and the Gemini lcgg key-shape miss in Phase 9 (EVAL-05).
   6. The untested `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`, `app/llm_factory.py:350-361`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph (`app/agent/critique/vibe.py:78`) is made non-blocking or explicitly flag-documented as eval-only (EVAL-06).
 
-**Plans:** 7/9 plans executed
+**Plans:** 8/9 plans executed
 Plans:
 **Wave 1**
 
@@ -153,7 +153,7 @@ Plans:
 **Gap-closure wave** *(verification found 4 BLOCKER + 1 WARNING; CR-01..CR-05 — all independent, parallel)*
 
 - [x] 10-07-gate-checker-schema-fix-PLAN.md — Fix check_eval_gates to walk the nested scenarios->providers summary shape + real-aggregator integration test (EVAL-03 / CR-01)
-- [ ] 10-08-quarantine-wiring-and-crash-guard-PLAN.md — Wire eval_queries_config into main()'s aggregate_cell_jsons (baseline_eligible) + None-guard _constraints_for_case on clarification cases (EVAL-02, EVAL-01 / CR-03, CR-02)
+- [x] 10-08-quarantine-wiring-and-crash-guard-PLAN.md — Wire eval_queries_config into main()'s aggregate_cell_jsons (baseline_eligible) + None-guard _constraints_for_case on clarification cases (EVAL-02, EVAL-01 / CR-03, CR-02)
 - [ ] 10-09-probe-redaction-and-portability-PLAN.md — Route response_metadata/usage_metadata/tool_calls through _redact + env-var-aware post-write guard + repo-root-relative test path (EVAL-05 / CR-05, CR-04)
 
 ### Phase 11: Cross-Model Baseline Regen + Matrix Expansion
@@ -183,7 +183,7 @@ Plans:
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
-| 10. Eval Harness Honesty                       | v2.1      | 7/9 | In Progress|  |
+| 10. Eval Harness Honesty                       | v2.1      | 8/9 | In Progress|  |
 | 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
 ---
