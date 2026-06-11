@@ -39,7 +39,7 @@ Without this, every new reasoning model the field ships in 2026 is permanently u
 - [x] **Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness** — Typed `ProviderAdapter` contract + per-provider conformance tests + `_prune_for_llm` refactor; doubles as harness-swap decision gate (completed 2026-06-04)
 - [x] **Phase 9: Per-Provider State Preservation Implementations** — One sub-phase each: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (+ Anthropic wiring) → Gemini 3 (experimental); milestone anchor gate lands here (completed 2026-06-05)
 - [x] **Phase 10: Eval Harness Honesty** — Close the three fail-open scorer paths, fix late_night threading shape, re-derive satisfiable per-family gates, institutionalize live-probe + recorded fixtures (re-scoped 2026-06-10; original BASE scope moved to Phase 11) (completed 2026-06-11)
-- [ ] **Phase 11: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open (incl. carried-forward anthropic n=5 + gemini first n=5); add three new cross-model anchors; lock per-family merge gates in CI
+- [x] **Phase 11: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open (incl. carried-forward anthropic n=5 + gemini first n=5); add three new cross-model anchors; lock per-family merge gates in CI (gap-closure regen in progress — plan 11-09)
 
 ## Phase Details
 
@@ -180,27 +180,31 @@ Plans:
   - WR-05: `advisory` gate entries never evaluated (dead config, unresolvable metric name) — implement or delete during BASE-03 gate promotion
   - Info items IN-01..IN-06 (error-record metadata, aggregation logging, redaction edge cases) — see 10-REVIEW.md
 
-**Plans:** 8 plans
+**Plans:** 8/8 base plans complete + 1 gap-closure plan (11-09) in progress
 Plans:
 **Wave 0 — measurement-semantics pre-fixes (no live calls; D-11-01)**
 
-- [ ] 11-01-eval-agent-measurement-fixes-PLAN.md — Single-turn error capture (WR-06), phantom-key exclusion (WR-08), zero-n rate guards (WR-09), 0/1/2 exit-code contract (WR-07/D-11-16) in scripts/eval_agent.py (BASE-01)
-- [ ] 11-02-category-compliance-abstain-PLAN.md — category_compliance abstains (None) on zero stops (WR-12/D-11-03) (BASE-01)
-- [ ] 11-07-staleness-and-fixture-fidelity-PLAN.md — Staleness watch-set extends to app/llm_factory.py + configs/eval_matrix* (BASE-04/D-11-21) + WR-10 probe fixture type fidelity (BASE-04)
+- [x] 11-01-eval-agent-measurement-fixes-PLAN.md — Single-turn error capture (WR-06), phantom-key exclusion (WR-08), zero-n rate guards (WR-09), 0/1/2 exit-code contract (WR-07/D-11-16) in scripts/eval_agent.py (BASE-01)
+- [x] 11-02-category-compliance-abstain-PLAN.md — category_compliance abstains (None) on zero stops (WR-12/D-11-03) (BASE-01)
+- [x] 11-07-staleness-and-fixture-fidelity-PLAN.md — Staleness watch-set extends to app/llm_factory.py + configs/eval_matrix* (BASE-04/D-11-21) + WR-10 probe fixture type fidelity (BASE-04)
 
 **Wave 0b — eval_matrix commit-rate + exit semantics** *(blocked on 11-01)*
 
-- [ ] 11-03-eval-matrix-commit-rate-and-exit-PLAN.md — committed_itinerary_rate threading into summary scorers (D-11-02 keystone) + run_matrix exit classification (D-11-16) + WR-11 structural-check fix (BASE-01, BASE-03)
+- [x] 11-03-eval-matrix-commit-rate-and-exit-PLAN.md — committed_itinerary_rate threading into summary scorers (D-11-02 keystone) + run_matrix exit classification (D-11-16) + WR-11 structural-check fix (BASE-01, BASE-03)
 
 **Wave 1 — matrix expansion + tooling + CI wiring (no live calls)** *(blocked on Wave 0)*
 
-- [ ] 11-04-matrix-expansion-PLAN.md — 3 cross-model entries + late_night scenario removal + atomic parity-test update (BASE-02/D-11-12/13)
-- [ ] 11-05-write-baselines-tool-PLAN.md — scripts/write_baselines.py with D-10-03 refusal + Makefile write/snapshot targets (BASE-01/D-11-07)
-- [ ] 11-06-baselines-gate-ci-PLAN.md — check_eval_gates --baselines-mode + WR-05 advisory + synthetic-regression test + CI steps + conformance-marker promotion (BASE-03/D-11-15/17/19)
+- [x] 11-04-matrix-expansion-PLAN.md — 3 cross-model entries + late_night scenario removal + atomic parity-test update (BASE-02/D-11-12/13)
+- [x] 11-05-write-baselines-tool-PLAN.md — scripts/write_baselines.py with D-10-03 refusal + Makefile write/snapshot targets (BASE-01/D-11-07)
+- [x] 11-06-baselines-gate-ci-PLAN.md — check_eval_gates --baselines-mode + WR-05 advisory + synthetic-regression test + CI steps + conformance-marker promotion (BASE-03/D-11-15/17/19)
 
 **Wave 2 — live regen + gate re-ratification + runbook (LIVE; DB-up; LAST)** *(blocked on all prior)*
 
-- [ ] 11-08-live-regen-and-ratification-PLAN.md — Runbook + snapshots + n=5 regen of both matrices + write baselines + gate re-ratification (D-11-20) + parity deferred-cell removal (BASE-01, BASE-02, BASE-03)
+- [x] 11-08-live-regen-and-ratification-PLAN.md — Runbook + snapshots + n=5 regen of both matrices + write baselines + gate re-ratification (D-11-20) + parity deferred-cell removal (BASE-01, BASE-02, BASE-03)
+
+**Gap-closure wave** *(verification 2026-06-11: 3/6 truths; CR-01/CR-02 code fixes already committed — fbd1174..054a20c; remaining gap is the contaminated empirical numbers those fixes exposed)*
+
+- [ ] 11-09-contaminated-cell-regen-PLAN.md — Re-measure ONLY the category_compliance-contaminated cells (omakase: gpt-5-mini/deepseek-chat/deepseek-reasoner; refinement: gpt-4o-mini/gpt-5-mini/deepseek-chat/deepseek-reasoner) live at n=5 under fixed abstain semantics via temp scoped matrix-configs + write_baselines + gate-rationale re-verify + closing verification (BASE-01, BASE-03)
 
 ## Progress
 
@@ -216,8 +220,8 @@ Plans:
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
 | 10. Eval Harness Honesty                       | v2.1      | 9/9 | Complete    | 2026-06-11 |
-| 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/8            | Planned     | -          |
+| 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 8/8 + gap-closure 11-09 | Verifying (gap-closure) | — |
 
 ---
 
-*Last updated: 2026-06-11 — Phase 11 planned: 8 plans across Wave 0 (measurement-semantics pre-fixes) → Wave 1 (matrix expansion + write-baselines tool + CI/gate/staleness wiring) → Wave 2 (live n=5 regen + gate re-ratification). Live regen is the LAST wave so baselines are written exactly once (D-11-01).*
+*Last updated: 2026-06-11 — Phase 11 gap-closure: verification found 3/6 truths (CR-01 None-abstain + CR-02 fail-open gate). Code fixes already committed (fbd1174..054a20c); the remaining gap is the contaminated empirical baselines. Plan 11-09 re-measures only the category_compliance-contaminated cells live at n=5 under the now-fixed abstain semantics — the clean gpt-4o-mini omakase anchor and the anthropic/gemini deferrals are NOT re-run.*
