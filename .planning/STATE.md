@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 11
-status: "Phase 11 shipped — PR #106"
-last_updated: "2026-06-11T23:10:54.904Z"
-last_activity: 2026-06-11
+status: Awaiting next milestone
+last_updated: "2026-06-11T23:28:39.507Z"
+last_activity: 2026-06-11 — Milestone v2.1 completed and archived
 progress:
   total_phases: 6
   completed_phases: 5
@@ -62,11 +62,10 @@ Working branch: `gsd/phase-11-cross-model-baseline-regen-matrix-expansion` (off 
 
 ## Current Position
 
-Phase: 11 (cross-model-baseline-regen-matrix-expansion) — EXECUTING
-Plan: Not started
-Status: Phase 11 shipped — PR #106
-Last activity: 2026-06-11
-Last session: 2026-06-11T22:58:25.396Z
+Phase: Milestone v2.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-11 — Milestone v2.1 completed and archived
 
 ### Blockers
 
@@ -154,3 +153,7 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 
 - Phase 10 edited: re-scoped to Eval Harness Honesty (EVAL-01..06) after post-Phase-9 harness analysis; BASE scope moved to Phase 11
 - Phase 11 added: Cross-Model Baseline Regen + Matrix Expansion (carries BASE-01..04 from original Phase 10)
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

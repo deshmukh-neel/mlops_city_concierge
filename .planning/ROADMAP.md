@@ -4,7 +4,7 @@
 
 - ✅ **v1.0 Knowledge Graph** — Phase 1 (shipped 2026-05-14, PR merged into main)
 - ✅ **v2.0 Production Readiness** — Phases 2-6 (shipped 2026-06-03, PR #100 at `14e01dd`) — see [milestones/v2.0-ROADMAP.md](milestones/v2.0-ROADMAP.md)
-- 🚧 **v2.1 Reasoning-Model Compat** — Phases 7-11 (active, started 2026-06-03)
+- ✅ **v2.1 Reasoning-Model Compat** — Phases 7-11 (shipped 2026-06-11, PRs #103/#105/#106) — see [milestones/v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md)
 
 ## Phases
 
@@ -30,181 +30,18 @@
 
 </details>
 
-### 🚧 v2.1 Reasoning-Model Compat (Phases 7-11)
+<details>
+<summary>✅ v2.1 Reasoning-Model Compat (Phases 7-11) — SHIPPED 2026-06-11</summary>
 
-Empirical anchor gate (D-09-02 re-scoped 2026-06-05 per user-approved Option A; original strict scorer was a Phase-6 baseline-saturation artifact): `gpt-5-mini × refinement_cheaper × prod × flag-on × temp=1.0` 2-part gate — Part A (hard) `committed_itinerary_rate ≥ 0.6`; Part B (advisory) `refinement_minimal_edit median ≥ 0.5`.
-Without this, every new reasoning model the field ships in 2026 is permanently unusable on this codebase.
+- [x] Phase 7: Prompt/Rubric Decoupling (7/7 plans) — completed 2026-06-04
+- [x] Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness (5/5 plans) — completed 2026-06-04
+- [x] Phase 9: Per-Provider State Preservation Implementations (5/5 plans) — completed 2026-06-05 (PR #103)
+- [x] Phase 10: Eval Harness Honesty (9/9 plans) — completed 2026-06-11 (PR #105)
+- [x] Phase 11: Cross-Model Baseline Regen + Matrix Expansion (9/9 plans) — completed 2026-06-11 (PR #106)
 
-- [x] **Phase 7: Prompt/Rubric Decoupling** — Behavioral rules move from prompt body to scorer; no regression on v2.0 anchor; serves as falsifier for Phase 8 architectural diagnosis (completed 2026-06-04)
-- [x] **Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness** — Typed `ProviderAdapter` contract + per-provider conformance tests + `_prune_for_llm` refactor; doubles as harness-swap decision gate (completed 2026-06-04)
-- [x] **Phase 9: Per-Provider State Preservation Implementations** — One sub-phase each: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (+ Anthropic wiring) → Gemini 3 (experimental); milestone anchor gate lands here (completed 2026-06-05)
-- [x] **Phase 10: Eval Harness Honesty** — Close the three fail-open scorer paths, fix late_night threading shape, re-derive satisfiable per-family gates, institutionalize live-probe + recorded fixtures (re-scoped 2026-06-10; original BASE scope moved to Phase 11) (completed 2026-06-11)
-- [x] **Phase 11: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open (incl. carried-forward anthropic n=5 + gemini first n=5); add three new cross-model anchors; lock per-family merge gates in CI (gap-closure regen in progress — plan 11-09)
+*Full details: [milestones/v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md)*
 
-## Phase Details
-
-### Phase 7: Prompt/Rubric Decoupling
-
-**Goal**: The refinement scorer enforces behavioral rules that were previously baked into the prompt, so the prompt is task-description-only and any reasoning model can follow it without being confused by prescription-as-description.
-**Depends on**: Phase 6 (v2.0 shipped — `REFINEMENT_STRUCTURED_PLAN_ENABLED` flag, `build_refinement_prompt_message` helper, and the v2.0 eval baseline are prerequisites)
-**Requirements**: PROMPT-01, PROMPT-02, PROMPT-03, PROMPT-04, PROMPT-05
-**Success Criteria** (what must be TRUE):
-
-  1. `SYSTEM_PROMPT` rule 10 and `_REFINEMENT_PREAMBLE` contain no behavioral prescriptions — no "keep same stop count", "do not ask clarifying questions", "preserve `place_id` byte-for-byte", "same primary_type on replacement" in the prompt body; a grep for those phrases returns zero matches.
-  2. `refinement_minimal_edit` scorer enforces same-stop-count, byte-equal preserved `place_id`s for untouched stops, and same Google Place `primary_type` on the replacement as scorer logic, with unit tests covering each rule.
-  3. A `/chat` refinement turn ("make stop 2 cheaper") with `REFINEMENT_STRUCTURED_PLAN_ENABLED=on` returns a full itinerary with the requested edit applied and all other stops byte-identical to the committed plan.
-  4. `openai/gpt-4o-mini × refinement_cheaper` median score is >= the pre-Phase-7 v2.0 baseline (no regression on the v2.0 prod anchor; PROMPT-04 gate).
-  5. `gpt-5-mini × refinement_cheaper` median score is > 0 across 5 runs at temp=1.0 — any non-zero confirms prompt-coupling materially contributed; a flat 0/5 confirms architectural state-loss dominates and Phase 9 scope stays at full (PROMPT-05 falsifier signal).
-
-**Plans:** 7/7 plans complete
-Plans:
-**Wave 1**
-
-- [x] 07-01-prompt-rewrite-PLAN.md — Delete SYSTEM_PROMPT rule 10 and rewrite `_REFINEMENT_PREAMBLE` as task-only (PROMPT-01, PROMPT-02)
-- [x] 07-02-scratch-payload-extend-PLAN.md — Extend `prior_committed_stops` scratch entries with `primary_type` and update `ExpectedRefinement` docstring (PROMPT-03)
-- [x] 07-03-gpt5-mini-matrix-entry-PLAN.md — Add `openai/gpt-5-mini` as logged-not-gated entry in `configs/eval_matrix_refinement.yaml` (PROMPT-05 wiring)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 07-04-scorer-category-extend-PLAN.md — Extend `refinement_minimal_edit` Branch 5 with target-slot `primary_type` check per D-07-07 (PROMPT-03)
-- [x] 07-05-scorer-tests-and-grep-gate-PLAN.md — Unit tests: PROMPT-02 grep gate + six new `TestRefinementMinimalEdit` methods + prod-threading scratch assertion (PROMPT-02, PROMPT-03)
-- [x] 07-06-chat-refinement-integration-test-PLAN.md — Functional test in `TestChatRefinementInjection` driving real LangGraph + `/chat` with scripted-LLM commit (PROMPT-01)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 07-07-rebaseline-and-falsifier-PLAN.md — Snapshot pre-Phase-7 baseline; re-run `make eval-matrix-refinement RUNS=5`; evaluate PROMPT-04 vs snapshot + PROMPT-05 falsifier signal (PROMPT-04, PROMPT-05)
-
-### Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness
-
-**Goal**: A typed `ProviderAdapter` contract exists and is proven to round-trip reasoning state through `graph.invoke`, or the harness-swap decision gate fires and v2.1 replans around a custom imperative loop.
-**Depends on**: Phase 7 (prompt decoupled so the conformance signal is not confounded by prompt-coupling noise)
-**Requirements**: REASON-01, REASON-02, REASON-03, REASON-04, REASON-05, REASON-06
-**Success Criteria** (what must be TRUE):
-
-  1. A typed `ProviderAdapter` abstract interface exists in `app/agent/` (or `app/llm_factory/`) with stable `capture_reasoning_state(message)` and `replay_reasoning_state(payload, state)` methods; adding a fifth provider shape is an interface extension, not a rewrite.
-  2. The contract type-stubs cover all four state shapes: OpenAI `reasoning_content` (string), Anthropic `thinking` blocks (signed), DeepSeek `reasoning_content` (string), Gemini `thought_signature` (bytes); each shape has a dedicated unit test.
-  3. `_prune_for_llm` delegates state preservation to `ProviderAdapter.replay_reasoning_state` for reasoning providers; the gpt-4o-mini non-reasoning path passes through unchanged; both paths have regression unit tests.
-  4. `tests/integration/test_reasoning_state_roundtrip.py` exists, runs a 2-turn agent loop against mocked provider responses, asserts the reasoning state field present on the turn-1 `AIMessage` is present in the turn-2 outbound payload, and is quarantined (does not gate prod merges unless explicitly opted in).
-  5. The conformance test passes end-to-end **including through `graph.invoke`** for at least the gpt-5 family provider (REASON-05 — harness-swap decision gate). If the isolated conformance test passes but `graph.invoke` drops state, this criterion is explicitly marked FAILED, a Phase 8 blocker is filed, and v2.1 replans around a custom imperative loop before Phase 9 starts. This branch point is not a footnote — it gates whether Phase 9 proceeds as written.
-  6. After the `_prune_for_llm` refactor, all v2.0 baselines (`openai/gpt-4o-mini × refinement_cheaper` and all other committed baselines) do not regress; the existing staleness CI hard gate (`scripts/check_baselines_fresh.py`) continues to pass (REASON-06 no-regression gate).
-
-**Plans:** 5/5 plans complete
-Plans:
-**Wave 1**
-
-- [x] 08-01-adapters-subpackage-PLAN.md — Create app/agent/adapters/ subpackage with ProviderAdapter ABC + NoOpAdapter + MockReasoningAdapter + ADAPTERS registry (REASON-01, REASON-02)
-- [x] 08-02-prune-kwargs-preservation-PLAN.md — Patch _prune_for_llm stub constructor to preserve additional_kwargs across the cutoff window (REASON-04 precondition)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 08-03-plan-capture-replay-wiring-PLAN.md — Wire ProviderAdapter into build_agent_graph (keyword-only provider param) + plan() capture/replay + thread provider through app/main.py and scripts/eval_agent.py call sites (REASON-01, REASON-04)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 08-04-conformance-harness-and-reason-05-PLAN.md — Parametrized 4-shape conformance harness + REASON-05 graph.ainvoke gate test + pytest marker quarantine + Makefile target + conditional 08-REASON-05-BLOCKER.md (REASON-02, REASON-03, REASON-05)
-- [x] 08-05-byte-identity-regression-PLAN.md — Byte-identity regression test for the NoOp adapter path on gpt-4o-mini-shaped inputs + committed fixture (REASON-06)
-
-### Phase 9: Per-Provider State Preservation Implementations
-
-**Goal**: Each of the four reasoning provider families (gpt-5, DeepSeek, Claude, Gemini 3) has a working `ProviderAdapter` implementation that preserves reasoning state across turns; the milestone anchor gate (`gpt-5-mini × refinement_cheaper` at 5/5) is met; the v2.0 anchor path is untouched throughout.
-**Depends on**: Phase 8 (typed `ProviderAdapter` contract and conformance harness in place; REASON-05 harness-swap gate passed — if Phase 8 REASON-05 was a blocker and v2.1 replanned around a custom imperative loop, Phase 9 implementations target that loop instead of the LangGraph path)
-**Requirements**: PROV-01, PROV-02, PROV-03, PROV-04, PROV-05
-**Success Criteria** (what must be TRUE):
-
-  1. `ProviderAdapter` implementation for OpenAI gpt-5 family is merged and the milestone anchor gate is met (D-09-02 re-scoped 2026-06-05 per user-approved Option A): `gpt-5-mini × refinement_cheaper × prod × flag-on × temp=1.0` — Part A (hard) `committed_itinerary_rate ≥ 0.6`; Part B (advisory) `refinement_minimal_edit median ≥ 0.5` (PROV-01).
-  2. `ProviderAdapter` implementation for DeepSeek reasoner is merged; `deepseek-reasoner × refinement_cheaper` median >= 0.6 across 5 runs at temp=1.0 (PROV-02; lower bar, exploratory).
-  3. `ProviderAdapter` implementation for Anthropic Claude is merged AND `claude` is added to `SUPPORTED_PROVIDERS` in `app/llm_factory.py` with a new `build_chat_model` branch and `langchain-anthropic` in `pyproject.toml`; `claude-sonnet-4-6 × refinement_cheaper` median >= 1.0 across 5 runs at temp=1.0 (PROV-03).
-  4. `ProviderAdapter` implementation for Gemini 3 is merged as experimental (no merge gate); `thought_signature` round-trips cleanly through a 2-turn loop in the conformance harness; a known-issues note accompanies the commit and Gemini 3 is absent from the prod matrix (PROV-04).
-  5. Each provider sub-phase ships as an independently revertable commit; reverting any one sub-phase leaves the remaining adapters and the v2.0 `openai/gpt-4o-mini` anchor fully functional in prod; verified by running `make test` after each revert (PROV-05).
-
-**Plans**: TBD
-
-### Phase 10: Eval Harness Honesty
-
-**Goal**: The eval harness distinguishes infrastructure failure from model failure, measures only prod-shaped behavior, and documents merge gates that are actually satisfiable — so that Phase 11's baseline regen is trustworthy on the first attempt. (Re-scoped 2026-06-10 after the post-Phase-9 harness analysis proved three live fail-open scorer paths: `eval_reports/2026-06-05T21-14-30Z/` scored all-1.0 medians on a fully quota-429'd matrix. Original BASE-01..04 scope moved to Phase 11; see `.planning/phases/09-*/09-PROV-01-BLOCKER.md` and project memory `phase10-rescope-plan`.)
-**Depends on**: Phase 9 (all provider adapters shipped; conformance harness in place)
-**Requirements**: EVAL-01, EVAL-02, EVAL-03, EVAL-04, EVAL-05, EVAL-06
-**Success Criteria** (what must be TRUE):
-
-  1. A run whose turn-0 or turn-1 raises an exception produces an ERROR-status record that is excluded from score aggregation and surfaced in `summary.json` as an error count — never a 1.0 (fail-open) or 0.0 (fail-loud) score; replaying the 2026-06-05T21-14-30Z failure conditions yields error-flagged runs and zero scored cells. Closes the three fail-open paths: turn-0 exception → `refinement_minimal_edit` Branch-1 abstain 1.0, turn-1 exception → prior-vs-itself 1.0, retrieval-only outage → 0.0 asymmetry (EVAL-01).
-  2. `late_night_closure_cascade` either runs prod threading (mirroring `/chat`'s text-only history shape, as `refinement_cheaper` already does) or is explicitly quarantined from baselines and merge gates, with the decision recorded next to the scenario config (EVAL-02).
-  3. Per-family merge gates are re-derived from honest anchor data (gpt-4o-mini sits at `refinement_minimal_edit` median 0.0 / max 0.5 post-Phase-7 scorer tightening — the documented strict-1.0 gate is unsatisfiable), written to a single source-of-truth doc, and enforced by an executable Makefile target that compares a matrix summary against the gate values and exits non-zero on regression (EVAL-03).
-  4. A test asserts baseline JSON provider cells match matrix YAML entries in both directions, modulo explicitly documented deferrals (initial test shipped in PR #104; this phase verifies it and extends coverage to any matrix added later) (EVAL-04).
-  5. A per-provider live-probe Make target exists (one ~$0.01 call per provider), is documented as the mandatory pre-matrix step, and its captured real-wire responses are checked in as fixtures consumed by the adapter/conformance tests — closing the synthetic-vs-live gap that produced 4 live-only Anthropic bugs and the Gemini lcgg key-shape miss in Phase 9 (EVAL-05).
-  6. The untested `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`, `app/llm_factory.py:350-361`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph (`app/agent/critique/vibe.py:78`) is made non-blocking or explicitly flag-documented as eval-only (EVAL-06).
-
-**Plans:** 9/9 plans complete
-Plans:
-**Wave 1**
-
-- [x] 10-01-error-status-runner-PLAN.md — Error-status records in the eval runner; remove partial-state scoring; 21-14-30Z replay test (EVAL-01)
-- [x] 10-04-eval-gates-PLAN.md — configs/eval_gates.yaml + check_eval_gates.py + docs + Make target; retire strict-1.0 gate (EVAL-03)
-- [x] 10-06-sync-async-test-debt-PLAN.md — gpt-5 dispatch tests + ScriptedChatModel ainvoke + vibe_check executor doc (EVAL-06)
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 10-02-summary-error-threading-PLAN.md — Thread n_scored/n_errored/errors through summary.json + structural-check (EVAL-01) [depends 10-01]
-- [x] 10-05-live-probe-fixtures-PLAN.md — Generalized probe_provider_capture + redacted fixtures + adapter fixture tests (EVAL-05) [depends 10-04]
-
-**Wave 3** *(blocked on Wave 2)*
-
-- [x] 10-03-quarantine-and-parity-PLAN.md — Quarantine late_night (baseline_eligible) + verify PR #104 parity test (EVAL-02, EVAL-04) [depends 10-02]
-
-**Gap-closure wave** *(verification found 4 BLOCKER + 1 WARNING; CR-01..CR-05 — all independent, parallel)*
-
-- [x] 10-07-gate-checker-schema-fix-PLAN.md — Fix check_eval_gates to walk the nested scenarios->providers summary shape + real-aggregator integration test (EVAL-03 / CR-01)
-- [x] 10-08-quarantine-wiring-and-crash-guard-PLAN.md — Wire eval_queries_config into main()'s aggregate_cell_jsons (baseline_eligible) + None-guard _constraints_for_case on clarification cases (EVAL-02, EVAL-01 / CR-03, CR-02)
-- [x] 10-09-probe-redaction-and-portability-PLAN.md — Route response_metadata/usage_metadata/tool_calls through _redact + env-var-aware post-write guard + repo-root-relative test path (EVAL-05 / CR-05, CR-04)
-
-### Phase 11: Cross-Model Baseline Regen + Matrix Expansion
-
-**Goal**: All eval baselines are regenerated honestly under DB-up conditions with the Phase-7 prompt and Phase-9 adapters in place; three new cross-model anchors are in the matrix; per-family merge gates are enforced in CI so future code changes that regress any anchor fail before merge.
-**Depends on**: Phase 10 (fail-open paths closed; gates re-derived). External preconditions: OpenAI embeddings quota topped up (`semantic_search` → `OpenAIEmbeddings` 429s every cell when exhausted), Cloud SQL or local Postgres reachable, all 4 provider keys live.
-**Requirements**: BASE-01, BASE-02, BASE-03, BASE-04
-**Success Criteria** (what must be TRUE):
-
-  1. All `configs/eval_baselines/*.json` are regenerated under DB-up conditions (Cloud SQL or local Postgres reachable) with the Phase-7-decoupled prompt and Phase-9 provider adapters active; the regen includes the Phase-9 carried-forward measurements (anthropic n=5 re-measure, gemini first-ever n=5); the regen procedure is documented in a runbook (e.g. `docs/baseline_regen.md`) and the fail-open-saturated v2.0 baselines are replaced (BASE-01).
-  2. `configs/eval_matrix*.yaml` includes `gpt-5-mini`, `claude-sonnet-4-6`, and `deepseek-reasoner` as cross-model matrix entries alongside `openai/gpt-4o-mini`; running `make eval-matrix` against the updated config produces results for all four providers without errors (BASE-02).
-  3. The per-family merge gates re-derived in Phase 10 (EVAL-03) are enforced via named Makefile targets and a CI step; the `gpt-5-mini × refinement_cheaper` anchor gate is one of them and fires on a synthetic regression (BASE-03).
-  4. A staleness check analogous to `scripts/check_baselines_fresh.py` covers the new cross-model baselines; a code change touching the agent loop without regenerating the new baselines causes CI to fail, verified by a dry-run test of the staleness script (BASE-04).
-
-**Carry-over from Phase 10 code review** (`.planning/phases/10-eval-harness-honesty/10-REVIEW.md` — WR-01..04 fixed in Phase 10; the rest deferred here because they change scorer/exit-code semantics that BASE-01's regen will re-anchor anyway):
-
-  - WR-06: single-turn eval path lacks D-10-01 error capture — one transient failure aborts the whole run (`evaluate_case` single-turn branch needs `make_error_record`, stage `"setup"`)
-  - WR-07: `eval_agent` exit code conflates model-behavior violations with infra failures; `run_matrix` records both as cell failures — fold into BASE-03 gate wiring
-  - WR-08: prod-threading scratch keys (`prior_committed_stops`, `prior_stops_obj`) counted as phantom tool calls — fix before regenerating baselines or `tool_calls_mean` bakes in the skew
-  - WR-09: all-errored cell (`n_scored == 0`) publishes `deterministic_pass_rate: 1.0` / `tool_success_rate: 1.0` — emit None/0.0; fix before BASE-01 regen
-  - WR-10: `additional_kwargs_values` stringified in probe fixtures — adapter fixture test never exercises real-typed bytes/dict paths (D-10-12 residual)
-  - WR-11: eval-matrix structural-check "Check 6" is a tautology — exercise the real `make_error_record` schema
-  - WR-12: `category_compliance` returns 1.0 on zero committed stops, contradicting its own docstring — scorer-semantics change; coordinate with baseline regen (also relevant to v2.2 decisiveness work)
-  - WR-05: `advisory` gate entries never evaluated (dead config, unresolvable metric name) — implement or delete during BASE-03 gate promotion
-  - Info items IN-01..IN-06 (error-record metadata, aggregation logging, redaction edge cases) — see 10-REVIEW.md
-
-**Plans:** 9/9 plans complete
-Plans:
-**Wave 0 — measurement-semantics pre-fixes (no live calls; D-11-01)**
-
-- [x] 11-01-eval-agent-measurement-fixes-PLAN.md — Single-turn error capture (WR-06), phantom-key exclusion (WR-08), zero-n rate guards (WR-09), 0/1/2 exit-code contract (WR-07/D-11-16) in scripts/eval_agent.py (BASE-01)
-- [x] 11-02-category-compliance-abstain-PLAN.md — category_compliance abstains (None) on zero stops (WR-12/D-11-03) (BASE-01)
-- [x] 11-07-staleness-and-fixture-fidelity-PLAN.md — Staleness watch-set extends to app/llm_factory.py + configs/eval_matrix* (BASE-04/D-11-21) + WR-10 probe fixture type fidelity (BASE-04)
-
-**Wave 0b — eval_matrix commit-rate + exit semantics** *(blocked on 11-01)*
-
-- [x] 11-03-eval-matrix-commit-rate-and-exit-PLAN.md — committed_itinerary_rate threading into summary scorers (D-11-02 keystone) + run_matrix exit classification (D-11-16) + WR-11 structural-check fix (BASE-01, BASE-03)
-
-**Wave 1 — matrix expansion + tooling + CI wiring (no live calls)** *(blocked on Wave 0)*
-
-- [x] 11-04-matrix-expansion-PLAN.md — 3 cross-model entries + late_night scenario removal + atomic parity-test update (BASE-02/D-11-12/13)
-- [x] 11-05-write-baselines-tool-PLAN.md — scripts/write_baselines.py with D-10-03 refusal + Makefile write/snapshot targets (BASE-01/D-11-07)
-- [x] 11-06-baselines-gate-ci-PLAN.md — check_eval_gates --baselines-mode + WR-05 advisory + synthetic-regression test + CI steps + conformance-marker promotion (BASE-03/D-11-15/17/19)
-
-**Wave 2 — live regen + gate re-ratification + runbook (LIVE; DB-up; LAST)** *(blocked on all prior)*
-
-- [x] 11-08-live-regen-and-ratification-PLAN.md — Runbook + snapshots + n=5 regen of both matrices + write baselines + gate re-ratification (D-11-20) + parity deferred-cell removal (BASE-01, BASE-02, BASE-03)
-
-**Gap-closure wave** *(verification 2026-06-11: 3/6 truths; CR-01/CR-02 code fixes already committed — fbd1174..054a20c; remaining gap is the contaminated empirical numbers those fixes exposed)*
-
-- [x] 11-09-contaminated-cell-regen-PLAN.md — Re-measure ONLY the category_compliance-contaminated cells (omakase: gpt-5-mini/deepseek-chat/deepseek-reasoner; refinement: gpt-4o-mini/gpt-5-mini/deepseek-chat/deepseek-reasoner) live at n=5 under fixed abstain semantics via temp scoped matrix-configs + write_baselines + gate-rationale re-verify + closing verification (BASE-01, BASE-03)
+</details>
 
 ## Progress
 

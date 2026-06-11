@@ -16,30 +16,22 @@ The agentic redesign shipped as workstreams W0 → W8 (`implementation_plan/jame
 
 Five live runs against the omakase Mission/Japantown query revealed the next class of bugs — category compliance, rationale-stop alignment, refinement-turn explosions, and the lack of any reproducible way to measure agent quality without invading the shared MLflow `production` alias. **v2.0 Production Readiness shipped that work on 2026-06-03 (PR #100 → `14e01dd`):** the eval harness + model-override env var + three agent-behavior fixes, all measured against committed cross-model baselines with a CI hard gate on baseline staleness. The Phase 6 minimal-edit refinement probe also empirically confirmed an architectural limit (`_prune_for_llm` drops `reasoning_content` across turns), which scopes v2.1: reasoning-model compat.
 
-## Current Milestone: v2.1 Reasoning-Model Compat
+## Next Milestone Goals
 
-**Goal:** Unblock reasoning models (gpt-5 family, Claude Sonnet 4.6, DeepSeek reasoner, Gemini 3) on the agent loop so the v2.0 anchor (`openai/gpt-4o-mini`) is no longer the only viable prod path.
-
-**Empirical anchor gate:** `gpt-5-mini × refinement_cheaper × prod × flag-on` commits 3 stops in median 5/5 runs at temp=1.0 (currently 0/1).
-
-**Target features (phases 7-10):**
-- Prompt/rubric decoupling so the rubric stops describing the prompt the locked anchor was tuned against (Phase 7)
-- Reasoning-state thread-through: typed provider-adapter contract + conformance harness; doubles as the LangGraph-vs-imperative-loop decision gate (Phase 8)
-- Per-provider state preservation implementations, one sub-phase per provider in order gpt-5 → DeepSeek reasoner → Claude (absorbs Anthropic wiring) → Gemini 3 (Phase 9)
-- Honest cross-model baseline regen + matrix expansion under DB-up conditions (Phase 10)
-
-**Key context:** Phase 7 is sequenced first because it's a falsifier for the architectural work in Phase 8 *and* the only phase that independently improves the v2.0 prod anchor. Phase 8's conformance harness is a decision gate: if reasoning state plumbs through provider adapters but fails when run through `graph.invoke`, v2.1 replans around a custom imperative loop instead of finishing on LangGraph. Anti-scope: replace LangGraph entirely (unless Phase 8 forces it), multi-agent split, new scorers.
+**v2.2 Decisiveness (draft):** the v2.1 falsifier resolved — reasoning state now threads through every provider adapter, yet reasoning models still don't *commit* (gpt-5-mini refinement median 0.0; DeepSeek decisiveness gap). v2.2's theme is making reasoning models decisive on the tool loop: critique-loop ↔ commit tension, `category_compliance` zero-stop semantics (now abstain-correct), and promotion paths for the deferred anchors (anthropic billing top-up; gemini full n=5 — its single scored run hit commit-rate 1.0, first evidence the Phase-9 adapters fixed Gemini). Start with `/gsd-new-milestone`.
 
 ## Current State
 
-**Shipped milestone:** v2.0 Production Readiness (2026-06-03, PR #100 → main `14e01dd`).
-**Active milestone:** v2.1 Reasoning-Model Compat (started 2026-06-03; phases 7-10).
-**Current codebase scale:** ~107 files touched and 18k LOC added across v2.0; agent driver locked to `openai/gpt-4o-mini` until v2.1 ships reasoning-content thread-through.
+**Shipped milestone:** v2.1 Reasoning-Model Compat (2026-06-11; PRs #103, #105, #106; 5 phases, 35 plans, 48 tasks; 156 files changed, +24k/−6.4k vs v2.0). Audit: 26/26 requirements, integration COMPLETE, status tech_debt (documented deferrals only) — see `milestones/v2.1-MILESTONE-AUDIT.md`.
+**Active milestone:** none — run `/gsd-new-milestone` for v2.2.
+**Agent driver:** still `openai/gpt-4o-mini` (anchor held commit-rate median 1.0 throughout v2.1). Reasoning-state loss is FIXED (adapters + conformance harness in CI), but reasoning-model *decisiveness* remains the gap — that's v2.2's scope, not an architecture problem.
 
-**v2.1 progress:**
-- Phase 7 (Prompt/Rubric Decoupling) — shipped 2026-06-03 (PR #101).
-- Phase 8 (Reasoning-State Thread-Through Contract + Conformance Harness) — shipped 2026-06-04 (branch `gsd/phase-08-...`). D-08-11 Branch A acceptance: REASON-05 gate PASSED — LangGraph's `add_messages` reducer preserves `additional_kwargs` end-to-end through `graph.invoke`. Phase 9 proceeds on LangGraph; no v2.1.1 imperative-loop replan triggered. Typed `ProviderAdapter` contract live; `NoOpAdapter` byte-identical to pre-Phase-8 for the locked `openai/gpt-4o-mini` anchor (pinned by `tests/unit/fixtures/reason_04_prune_baseline.json`).
-- Phase 10 (Eval Harness Honesty) — complete 2026-06-11 (branch `gsd/phase-10-eval-harness-honesty`, verification 6/6 after gap-closure wave 10-07..10-09 closed CR-01..CR-05). ERROR-status records replace fail-open scoring; `late_night_closure_cascade` quarantined via `baseline_eligible` flag wired through real summary.json; per-family merge gates in `configs/eval_gates.yaml` enforced by `make eval-gates-check` against the real nested summary shape; per-provider live-probe fixtures with fail-closed redaction; gpt-5 dispatch + ScriptedChatModel ainvoke test debt closed.
+**v2.1 delivered:**
+- Prompt/rubric decoupling: behavioral rules live in the `refinement_minimal_edit` scorer (D-07-07 `primary_type` matrix), locked out of prompts by a CI grep gate; PROMPT-05 falsifier resolved (gpt-5-mini flat 0/5 → state-loss dominated, Phase 9 stayed full scope).
+- Typed `ProviderAdapter` reasoning-state contract wired POST-PRUNE into the agent graph + 9-test conformance harness as a required CI step; LangGraph retained (REASON-05 gate passed).
+- Four per-provider adapters (gpt-5 Responses API, DeepSeek reasoner, Anthropic, Gemini 3 experimental) with import isolation and a revertability audit.
+- Eval-harness honesty: fail-open scoring closed, per-case error records, scenario quarantine, per-family gates re-derived from honest data, fail-closed probe redaction.
+- Honest n=5 baselines via `scripts/write_baselines.py` (refuses partial/quarantined cells); 3 cross-model anchors in the matrix; live-key-free `--baselines-mode` gate + extended staleness watch-set as required CI steps; `docs/baseline_regen.md` runbook.
 
 **v2.0 delivered:**
 - Reproducible cross-model eval harness with committed baselines, multi-turn threading, scripted-LLM CI mode, and a hard CI gate on baseline staleness.
@@ -75,12 +67,15 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 - ✓ Category compliance: agent injects `SearchFilters.primary_type_family` per named slot via `_inject_primary_type_family` in `act()`; rationales describe the committed place's actual category via `rationale_misaligned` revision dispatch; `category_compliance_strict` scorer holds the floor — v2.0 Phase 4 (CAT-01..CAT-04 + RAT-01 + RAT-03 folded in per D-04-09)
 - ✓ Minimal-edit refinement: `ConversationState.committed_stops` round-trips between turns; `build_refinement_prompt_message` shared helper used by both `/chat` and the eval runner; `REFINEMENT_STRUCTURED_PLAN_ENABLED` feature flag (default OFF); CI structural-check hard gate via `make eval-matrix-refinement-structural-check` — v2.0 Phase 6 (REF-01..REF-04, D-06-09 part 1 PASSES on 5-run live)
 
-### Active (v2.1 — Reasoning-Model Compat)
+- ✓ Prompt/rubric decoupling: task-only `_REFINEMENT_PREAMBLE` + SYSTEM_PROMPT rule 10 deleted; behavioral rules enforced by `refinement_minimal_edit` scorer; CI grep gate — v2.1 Phase 7 (PROMPT-01..05; 04 via documented override, 05 falsifier resolved)
+- ✓ Typed `ProviderAdapter` reasoning-state contract + 9-test conformance harness (required CI step); `_prune_for_llm` delegates to adapters; LangGraph retained per REASON-05 gate — v2.1 Phase 8 (REASON-01..06)
+- ✓ Per-provider state preservation: OpenAI gpt-5 (Responses API), DeepSeek reasoner, Anthropic (full provider wiring), Gemini 3 (experimental); import isolation + revertability audit — v2.1 Phase 9 (PROV-01..05; 01–03 shipped-with-gap, decisiveness → v2.2)
+- ✓ Eval-harness honesty: error-status records, `baseline_eligible` quarantine, per-family gates vs real summary shape, fail-closed probe redaction — v2.1 Phase 10 (EVAL-01..06)
+- ✓ Honest n=5 baselines via `write_baselines.py`; 3 cross-model matrix anchors; `--baselines-mode` live-key-free CI gate (fail-closed); staleness watch-set covers `app/llm_factory.py` + matrix configs; `docs/baseline_regen.md` runbook — v2.1 Phase 11 (BASE-01..04)
 
-- [ ] **Phase 7 — Prompt/rubric decoupling:** rewrite `_REFINEMENT_PREAMBLE` + `SYSTEM_PROMPT` rule 10 to describe TASK ("user wants to swap one stop; return the new full itinerary") not BEHAVIOR ("keep same stop count; do not ask clarifying questions"); behavioral rules move into the scorer where they belong. Sequenced first as a falsifier for Phase 8 *and* because it independently improves the v2.0 anchor today.
-- [ ] **Phase 8 — Reasoning-state thread-through (contract + harness):** typed provider-adapter contract for round-tripping reasoning state (`reasoning_content` / `thought_signature` / encrypted reasoning / `thinking` blocks); per-provider conformance test harness running a 2-turn agent loop and asserting state field shows up in turn 2's outbound payload; `_prune_for_llm` refactor that delegates state preservation to the provider adapter. **Doubles as harness-swap decision gate** — if isolated tests pass but `graph.invoke` drops state, v2.1 replans around a custom imperative loop.
-- [ ] **Phase 9 — Per-provider state preservation impls:** one sub-phase per provider in order: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (absorbs Anthropic provider wiring: add `claude` to `SUPPORTED_PROVIDERS` in `app/llm_factory.py`, new `build_chat_model` branch, `langchain-anthropic` dep) → Gemini 3 (experimental, no gate). Each sub-phase independently shippable and revertable; v2.0 anchor path untouched.
-- [ ] **Phase 10 — Cross-model baseline regen + matrix expansion:** rebuild all `configs/eval_baselines/*.json` honestly (post-fail-open era); add gpt-5-mini, claude-sonnet-4-6, deepseek-reasoner as cross-model anchors; lock new per-family merge gates and enforce in CI.
+### Active (next milestone — define via /gsd-new-milestone)
+
+(None — v2.2 Decisiveness is drafted; see Next Milestone Goals.)
 
 ### Out of Scope (v2.0 — archived)
 
@@ -116,8 +111,11 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 | Phase 6 D-06-09 part 2 (no-regression) accepted with notes; real fix scoped to v2.1 | Pre-Phase-6 1.0 baselines were Phase-4 fail-open false positives; the new fail-loud measurement makes the "regression" appear, but real agent behavior improved. The architectural fix (reasoning-content thread-through) requires v2.1 work | ⚠️ Revisit during v2.1 reasoning-content phase |
 | Lock agent driver to `openai/gpt-4o-mini` for v2.0 prod anchor | gpt-5-mini / gpt-5.4-mini / DeepSeek reasoner / Claude / Gemini 3 all fail on this codebase's tool-loop tasks because `_prune_for_llm` drops `reasoning_content` across turns. Locked anchor is a feature given current architecture | Decided 2026-06-03 (Phase 6 probe); revisit when v2.1 ships |
 | v2.1 milestone drafted: reasoning-state thread-through + prompt/rubric decoupling + Anthropic wiring + honest baseline regen | Without these, every new reasoning model the field ships in 2026 is unusable on this codebase. Empirical anchor gate: gpt-5-mini × refinement_cheaper commits 3 stops in median 5/5 runs at temp=1.0 | ✓ Promoted to active 2026-06-03 |
-| v2.1 phase order reversed from draft: prompt/rubric decoupling (Phase 7) sequenced BEFORE reasoning-state thread-through | Decoupling is a falsifier for the architectural diagnosis (if reasoning models still 0/5 after decoupling, state-loss is confirmed; if they move off 0, prompt-coupling was a bigger factor and Phase 9 scope shrinks). Also the only phase that pays back on the v2.0 anchor even if v2.1 stalls | — Pending (decided 2026-06-03) |
-| v2.1 draft Phase 1 (reasoning-state thread-through) split into Phase 8 (contract + conformance harness) and Phase 9 (per-provider impls, one sub-phase each) | W10 prior attempt landed three different "fixes" before finding what worked; per-provider variance is too high for one phase. Splitting gives independent ship/revert per provider and lets Phase 8 double as the harness-swap decision gate | — Pending (decided 2026-06-03) |
+| v2.1 phase order reversed from draft: prompt/rubric decoupling (Phase 7) sequenced BEFORE reasoning-state thread-through | Decoupling is a falsifier for the architectural diagnosis (if reasoning models still 0/5 after decoupling, state-loss is confirmed; if they move off 0, prompt-coupling was a bigger factor and Phase 9 scope shrinks). Also the only phase that pays back on the v2.0 anchor even if v2.1 stalls | ✓ Good — falsifier resolved exactly as designed: gpt-5-mini stayed flat 0/5 post-decoupling, confirming state-loss dominated; Phase 9 ran at full scope |
+| v2.1 draft Phase 1 (reasoning-state thread-through) split into Phase 8 (contract + conformance harness) and Phase 9 (per-provider impls, one sub-phase each) | W10 prior attempt landed three different "fixes" before finding what worked; per-provider variance is too high for one phase. Splitting gives independent ship/revert per provider and lets Phase 8 double as the harness-swap decision gate | ✓ Good — Phase 8 gate kept LangGraph; all 4 adapters shipped independently with revertability audit |
+| `category_compliance` abstains (`None`) on zero committed stops instead of fail-open 1.0 | Decisiveness-failing providers were inflating medians; abstain = no signal, excluded from aggregation. The first fix crashed at the `float()` consumer — caught by phase-11 code review, fixed + contaminated baseline cells re-measured live | ✓ Good — locked 2026-06-11 (D-11-03 + CR-01 gap closure) |
+| Anthropic demoted to logged-not-gated; gemini deferral retained | API credits exhausted mid-regen (billing, not code); promotion path documented in `docs/baseline_regen.md`. Gemini's single scored refinement run (commit-rate 1.0) is first evidence the Phase-9 adapter fixed it | — Pending re-promotion (decided 2026-06-11) |
+| Baselines only ever written by `scripts/write_baselines.py`; matrix execution stays sequential (D-11-14) | Hand-rolled baselines caused the v2.0 fail-open saturation; the tool refuses partial/quarantined cells mechanically. Parallel runs would contaminate latency measurements — scoped temp matrix configs are the sanctioned subset-rerun mechanism | ✓ Good — locked 2026-06-11 |
 | Stay on LangGraph for v2.1 unless Phase 8's conformance harness shows `graph.invoke` itself drops the round-tripped state | The W10 failure was at the langchain-openai library boundary, not at LangGraph's reducer. Swapping the harness now would pay full architectural cost for a problem we haven't proven the harness causes. Phase 8 is the cheapest place to test the harness in isolation | ✓ Resolved 2026-06-04 — Phase 8 REASON-05 gate PASSED: `add_messages` reducer preserves `additional_kwargs["_reasoning_state"]` through `graph.invoke`. LangGraph retained for v2.1; no v2.1.1 replan triggered |
 
 ## Evolution
@@ -138,4 +136,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-11 — Phase 10 complete: eval harness honesty (error-status records, gate enforcement, quarantine wiring, live-probe fixtures); v2.1 advances to Phase 11 baseline regen.*
+*Last updated: 2026-06-11 after v2.1 milestone (Reasoning-Model Compat shipped; next: v2.2 Decisiveness via /gsd-new-milestone).*
