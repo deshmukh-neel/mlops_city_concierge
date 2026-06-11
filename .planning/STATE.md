@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
-current_phase: 10
-status: ready
-last_updated: "2026-06-08T21:15:00Z"
-last_activity: 2026-06-08 -- Phase 09 verified (code review, security, UAT all pass); ready for Phase 10
+current_phase: 9
+status: verifying
+last_updated: "2026-06-11T00:40:07.050Z"
+last_activity: 2026-06-05
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 3
   total_plans: 17
   completed_plans: 17
-  percent: 60
+  percent: 50
 ---
 
 # Project State
@@ -82,3 +82,10 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 ## Decisions
 
 - [Phase ?]: Phase 9 PROV-05 atomicity audit: PASS-WITH-FINDINGS — import isolation PASS; cumulative reverse-pop revert preserves v2.0 anchor; PROV-02 chore 3800737 latent test-vs-data atomicity gap documented as note (D-06-09 precedent)
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 10 edited: re-scoped to Eval Harness Honesty (EVAL-01..06) after post-Phase-9 harness analysis; BASE scope moved to Phase 11
+- Phase 11 added: Cross-Model Baseline Regen + Matrix Expansion (carries BASE-01..04 from original Phase 10)

@@ -4,7 +4,7 @@
 
 - ✅ **v1.0 Knowledge Graph** — Phase 1 (shipped 2026-05-14, PR merged into main)
 - ✅ **v2.0 Production Readiness** — Phases 2-6 (shipped 2026-06-03, PR #100 at `14e01dd`) — see [milestones/v2.0-ROADMAP.md](milestones/v2.0-ROADMAP.md)
-- 🚧 **v2.1 Reasoning-Model Compat** — Phases 7-10 (active, started 2026-06-03)
+- 🚧 **v2.1 Reasoning-Model Compat** — Phases 7-11 (active, started 2026-06-03)
 
 ## Phases
 
@@ -30,7 +30,7 @@
 
 </details>
 
-### 🚧 v2.1 Reasoning-Model Compat (Phases 7-10)
+### 🚧 v2.1 Reasoning-Model Compat (Phases 7-11)
 
 Empirical anchor gate (D-09-02 re-scoped 2026-06-05 per user-approved Option A; original strict scorer was a Phase-6 baseline-saturation artifact): `gpt-5-mini × refinement_cheaper × prod × flag-on × temp=1.0` 2-part gate — Part A (hard) `committed_itinerary_rate ≥ 0.6`; Part B (advisory) `refinement_minimal_edit median ≥ 0.5`.
 Without this, every new reasoning model the field ships in 2026 is permanently unusable on this codebase.
@@ -38,7 +38,8 @@ Without this, every new reasoning model the field ships in 2026 is permanently u
 - [x] **Phase 7: Prompt/Rubric Decoupling** — Behavioral rules move from prompt body to scorer; no regression on v2.0 anchor; serves as falsifier for Phase 8 architectural diagnosis (completed 2026-06-04)
 - [x] **Phase 8: Reasoning-State Thread-Through Contract + Conformance Harness** — Typed `ProviderAdapter` contract + per-provider conformance tests + `_prune_for_llm` refactor; doubles as harness-swap decision gate (completed 2026-06-04)
 - [x] **Phase 9: Per-Provider State Preservation Implementations** — One sub-phase each: gpt-5 family → DeepSeek reasoner → Claude Sonnet 4.6 (+ Anthropic wiring) → Gemini 3 (experimental); milestone anchor gate lands here (completed 2026-06-05)
-- [ ] **Phase 10: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open; add three new cross-model anchors; lock per-family merge gates in CI
+- [ ] **Phase 10: Eval Harness Honesty** — Close the three fail-open scorer paths, fix late_night threading shape, re-derive satisfiable per-family gates, institutionalize live-probe + recorded fixtures (re-scoped 2026-06-10; original BASE scope moved to Phase 11)
+- [ ] **Phase 11: Cross-Model Baseline Regen + Matrix Expansion** — Rebuild all baselines honestly post-fail-open (incl. carried-forward anthropic n=5 + gemini first n=5); add three new cross-model anchors; lock per-family merge gates in CI
 
 ## Phase Details
 
@@ -118,16 +119,32 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 10: Cross-Model Baseline Regen + Matrix Expansion
+### Phase 10: Eval Harness Honesty
 
-**Goal**: All eval baselines are regenerated honestly under DB-up conditions with the Phase-7 prompt and Phase-9 adapters in place; three new cross-model anchors are in the matrix; per-family merge gates are documented and enforced in CI so future code changes that regress any anchor fail before merge.
-**Depends on**: Phase 9 (all provider adapters shipped; prompt decoupled; no fail-open saturation in the baselines)
+**Goal**: The eval harness distinguishes infrastructure failure from model failure, measures only prod-shaped behavior, and documents merge gates that are actually satisfiable — so that Phase 11's baseline regen is trustworthy on the first attempt. (Re-scoped 2026-06-10 after the post-Phase-9 harness analysis proved three live fail-open scorer paths: `eval_reports/2026-06-05T21-14-30Z/` scored all-1.0 medians on a fully quota-429'd matrix. Original BASE-01..04 scope moved to Phase 11; see `.planning/phases/09-*/09-PROV-01-BLOCKER.md` and project memory `phase10-rescope-plan`.)
+**Depends on**: Phase 9 (all provider adapters shipped; conformance harness in place)
+**Requirements**: EVAL-01, EVAL-02, EVAL-03, EVAL-04, EVAL-05, EVAL-06
+**Success Criteria** (what must be TRUE):
+
+  1. A run whose turn-0 or turn-1 raises an exception produces an ERROR-status record that is excluded from score aggregation and surfaced in `summary.json` as an error count — never a 1.0 (fail-open) or 0.0 (fail-loud) score; replaying the 2026-06-05T21-14-30Z failure conditions yields error-flagged runs and zero scored cells. Closes the three fail-open paths: turn-0 exception → `refinement_minimal_edit` Branch-1 abstain 1.0, turn-1 exception → prior-vs-itself 1.0, retrieval-only outage → 0.0 asymmetry (EVAL-01).
+  2. `late_night_closure_cascade` either runs prod threading (mirroring `/chat`'s text-only history shape, as `refinement_cheaper` already does) or is explicitly quarantined from baselines and merge gates, with the decision recorded next to the scenario config (EVAL-02).
+  3. Per-family merge gates are re-derived from honest anchor data (gpt-4o-mini sits at `refinement_minimal_edit` median 0.0 / max 0.5 post-Phase-7 scorer tightening — the documented strict-1.0 gate is unsatisfiable), written to a single source-of-truth doc, and enforced by an executable Makefile target that compares a matrix summary against the gate values and exits non-zero on regression (EVAL-03).
+  4. A test asserts baseline JSON provider cells match matrix YAML entries in both directions, modulo explicitly documented deferrals (initial test shipped in PR #104; this phase verifies it and extends coverage to any matrix added later) (EVAL-04).
+  5. A per-provider live-probe Make target exists (one ~$0.01 call per provider), is documented as the mandatory pre-matrix step, and its captured real-wire responses are checked in as fixtures consumed by the adapter/conformance tests — closing the synthetic-vs-live gap that produced 4 live-only Anthropic bugs and the Gemini lcgg key-shape miss in Phase 9 (EVAL-05).
+  6. The untested `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`, `app/llm_factory.py:350-361`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph (`app/agent/critique/vibe.py:78`) is made non-blocking or explicitly flag-documented as eval-only (EVAL-06).
+
+**Plans**: TBD
+
+### Phase 11: Cross-Model Baseline Regen + Matrix Expansion
+
+**Goal**: All eval baselines are regenerated honestly under DB-up conditions with the Phase-7 prompt and Phase-9 adapters in place; three new cross-model anchors are in the matrix; per-family merge gates are enforced in CI so future code changes that regress any anchor fail before merge.
+**Depends on**: Phase 10 (fail-open paths closed; gates re-derived). External preconditions: OpenAI embeddings quota topped up (`semantic_search` → `OpenAIEmbeddings` 429s every cell when exhausted), Cloud SQL or local Postgres reachable, all 4 provider keys live.
 **Requirements**: BASE-01, BASE-02, BASE-03, BASE-04
 **Success Criteria** (what must be TRUE):
 
-  1. All `configs/eval_baselines/*.json` are regenerated under DB-up conditions (Cloud SQL or local Postgres reachable) with the Phase-7-decoupled prompt and Phase-9 provider adapters active; the regen procedure is documented in a runbook (e.g. `docs/baseline_regen.md`) and the fail-open-saturated v2.0 baselines are replaced (BASE-01).
+  1. All `configs/eval_baselines/*.json` are regenerated under DB-up conditions (Cloud SQL or local Postgres reachable) with the Phase-7-decoupled prompt and Phase-9 provider adapters active; the regen includes the Phase-9 carried-forward measurements (anthropic n=5 re-measure, gemini first-ever n=5); the regen procedure is documented in a runbook (e.g. `docs/baseline_regen.md`) and the fail-open-saturated v2.0 baselines are replaced (BASE-01).
   2. `configs/eval_matrix*.yaml` includes `gpt-5-mini`, `claude-sonnet-4-6`, and `deepseek-reasoner` as cross-model matrix entries alongside `openai/gpt-4o-mini`; running `make eval-matrix` against the updated config produces results for all four providers without errors (BASE-02).
-  3. Per-family merge gates are documented in a single source-of-truth file (e.g. `docs/eval_gates.md`) and enforced via named Makefile targets and a CI step; the `gpt-5-mini × refinement_cheaper` anchor gate is one of them and fires on a synthetic regression (BASE-03).
+  3. The per-family merge gates re-derived in Phase 10 (EVAL-03) are enforced via named Makefile targets and a CI step; the `gpt-5-mini × refinement_cheaper` anchor gate is one of them and fires on a synthetic regression (BASE-03).
   4. A staleness check analogous to `scripts/check_baselines_fresh.py` covers the new cross-model baselines; a code change touching the agent loop without regenerating the new baselines causes CI to fail, verified by a dry-run test of the staleness script (BASE-04).
 
 **Plans**: TBD
@@ -145,8 +162,9 @@ Plans:
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
-| 10. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
+| 10. Eval Harness Honesty                       | v2.1      | 0/TBD          | Pending     | -          |
+| 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
 ---
 
-*Last updated: 2026-06-04 — Phase 8 shipped: D-08-11 Branch A acceptance (REASON-05 gate PASSED, LangGraph retained for v2.1).*
+*Last updated: 2026-06-10 — Phase 10 re-scoped to Eval Harness Honesty (EVAL-01..06) after post-Phase-9 harness analysis; original BASE-01..04 scope moved to new Phase 11.*
