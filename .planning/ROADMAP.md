@@ -180,7 +180,27 @@ Plans:
   - WR-05: `advisory` gate entries never evaluated (dead config, unresolvable metric name) — implement or delete during BASE-03 gate promotion
   - Info items IN-01..IN-06 (error-record metadata, aggregation logging, redaction edge cases) — see 10-REVIEW.md
 
-**Plans**: TBD
+**Plans:** 8 plans
+Plans:
+**Wave 0 — measurement-semantics pre-fixes (no live calls; D-11-01)**
+
+- [ ] 11-01-eval-agent-measurement-fixes-PLAN.md — Single-turn error capture (WR-06), phantom-key exclusion (WR-08), zero-n rate guards (WR-09), 0/1/2 exit-code contract (WR-07/D-11-16) in scripts/eval_agent.py (BASE-01)
+- [ ] 11-02-category-compliance-abstain-PLAN.md — category_compliance abstains (None) on zero stops (WR-12/D-11-03) (BASE-01)
+- [ ] 11-07-staleness-and-fixture-fidelity-PLAN.md — Staleness watch-set extends to app/llm_factory.py + configs/eval_matrix* (BASE-04/D-11-21) + WR-10 probe fixture type fidelity (BASE-04)
+
+**Wave 0b — eval_matrix commit-rate + exit semantics** *(blocked on 11-01)*
+
+- [ ] 11-03-eval-matrix-commit-rate-and-exit-PLAN.md — committed_itinerary_rate threading into summary scorers (D-11-02 keystone) + run_matrix exit classification (D-11-16) + WR-11 structural-check fix (BASE-01, BASE-03)
+
+**Wave 1 — matrix expansion + tooling + CI wiring (no live calls)** *(blocked on Wave 0)*
+
+- [ ] 11-04-matrix-expansion-PLAN.md — 3 cross-model entries + late_night scenario removal + atomic parity-test update (BASE-02/D-11-12/13)
+- [ ] 11-05-write-baselines-tool-PLAN.md — scripts/write_baselines.py with D-10-03 refusal + Makefile write/snapshot targets (BASE-01/D-11-07)
+- [ ] 11-06-baselines-gate-ci-PLAN.md — check_eval_gates --baselines-mode + WR-05 advisory + synthetic-regression test + CI steps + conformance-marker promotion (BASE-03/D-11-15/17/19)
+
+**Wave 2 — live regen + gate re-ratification + runbook (LIVE; DB-up; LAST)** *(blocked on all prior)*
+
+- [ ] 11-08-live-regen-and-ratification-PLAN.md — Runbook + snapshots + n=5 regen of both matrices + write baselines + gate re-ratification (D-11-20) + parity deferred-cell removal (BASE-01, BASE-02, BASE-03)
 
 ## Progress
 
@@ -196,8 +216,8 @@ Plans:
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
 | 10. Eval Harness Honesty                       | v2.1      | 9/9 | Complete    | 2026-06-11 |
-| 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
+| 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/8            | Planned     | -          |
 
 ---
 
-*Last updated: 2026-06-10 — Phase 10 re-scoped to Eval Harness Honesty (EVAL-01..06) after post-Phase-9 harness analysis; original BASE-01..04 scope moved to new Phase 11.*
+*Last updated: 2026-06-11 — Phase 11 planned: 8 plans across Wave 0 (measurement-semantics pre-fixes) → Wave 1 (matrix expansion + write-baselines tool + CI/gate/staleness wiring) → Wave 2 (live n=5 regen + gate re-ratification). Live regen is the LAST wave so baselines are written exactly once (D-11-01).*
