@@ -1811,3 +1811,113 @@ def test_late_night_scenario_is_baseline_ineligible() -> None:
         "late_night_closure_cascade.json providers block must not be deleted — "
         "annotation-only change per D-10-10"
     )
+
+
+# ─── 11-03 Task 1: committed_itinerary_rate threading (D-11-02) ───────────────
+
+
+def _write_cell_with_commit_rate(
+    directory: Path,
+    provider: str,
+    model: str,
+    scenario_id: str,
+    run_n: int,
+    score_value: float,
+    commit_rate: float | None,
+) -> Path:
+    """Write a cell JSON whose aggregate block includes committed_itinerary_rate.
+
+    Mirrors _write_cell but adds committed_itinerary_rate to the aggregate dict.
+    When commit_rate is None the key is omitted entirely (back-compat test).
+    """
+    fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
+    path = directory / fname
+    agg: dict = {
+        "category_compliance_mean": score_value,
+        "rationale_stop_alignment_mean": score_value,
+        "n_scored": 1,
+        "n_errored": 0,
+    }
+    if commit_rate is not None:
+        agg["committed_itinerary_rate"] = commit_rate
+    payload = {
+        "llm_provider": provider,
+        "chat_model": model,
+        "query_count": 1,
+        "aggregate": agg,
+        "queries": [{"id": scenario_id}],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def test_committed_itinerary_rate_single_run_lands_in_scorers(tmp_path: Path) -> None:
+    """D-11-02: a cell with committed_itinerary_rate=1.0 in its aggregate block
+    must produce a stats entry in summary['scenarios'][sid]['providers'][fam]['scorers']
+    with median==1.0 and an 'n' key.
+
+    This is the keystone assertion: until this test passes, every hard gate that
+    rides on committed_itinerary_rate reports NOT-EVALUABLE.
+    """
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell_with_commit_rate(
+        tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8, 1.0
+    )
+    summary = aggregate_cell_jsons(tmp_path)
+    scorers = summary["scenarios"]["omakase_mission_open_ended"]["providers"]["openai/gpt-4o-mini"][
+        "scorers"
+    ]
+    assert "committed_itinerary_rate" in scorers, (
+        "D-11-02: committed_itinerary_rate must appear in summary scorers block"
+    )
+    assert scorers["committed_itinerary_rate"]["median"] == pytest.approx(1.0), (
+        "D-11-02: committed_itinerary_rate median must equal 1.0"
+    )
+    assert "n" in scorers["committed_itinerary_rate"], "D-11-02: scorers block must include 'n' key"
+
+
+def test_committed_itinerary_rate_multiple_runs_correct_median(tmp_path: Path) -> None:
+    """D-11-02: three runs with committed_itinerary_rate [1.0, 0.0, 1.0] should
+    aggregate to median 1.0 (median of [0.0, 1.0, 1.0] = 1.0).
+    """
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell_with_commit_rate(
+        tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8, 1.0
+    )
+    _write_cell_with_commit_rate(
+        tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 1, 0.8, 0.0
+    )
+    _write_cell_with_commit_rate(
+        tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 2, 0.8, 1.0
+    )
+    summary = aggregate_cell_jsons(tmp_path)
+    scorers = summary["scenarios"]["omakase_mission_open_ended"]["providers"]["openai/gpt-4o-mini"][
+        "scorers"
+    ]
+    assert "committed_itinerary_rate" in scorers, (
+        "D-11-02: committed_itinerary_rate must appear in summary scorers after 3 runs"
+    )
+    block = scorers["committed_itinerary_rate"]
+    assert block["n"] == 3, "n must equal the number of runs (3)"
+    # median of [0.0, 1.0, 1.0] = 1.0
+    assert block["median"] == pytest.approx(1.0), "D-11-02: median of [1.0, 0.0, 1.0] must be 1.0"
+
+
+def test_committed_itinerary_rate_missing_key_no_scorer_no_crash(tmp_path: Path) -> None:
+    """D-11-02 back-compat: a cell whose aggregate block has NO committed_itinerary_rate
+    key (legacy cell JSON) must NOT add a committed_itinerary_rate scorer key and
+    must not raise any exception.
+    """
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    # Use _write_cell (no commit_rate) to simulate a legacy cell.
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8)
+    summary = aggregate_cell_jsons(tmp_path)
+    scorers = summary["scenarios"]["omakase_mission_open_ended"]["providers"]["openai/gpt-4o-mini"][
+        "scorers"
+    ]
+    assert "committed_itinerary_rate" not in scorers, (
+        "D-11-02: committed_itinerary_rate must NOT appear when cell has no such key"
+    )
