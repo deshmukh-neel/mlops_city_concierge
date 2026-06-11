@@ -431,3 +431,105 @@ def test_run_git_still_returns_stdout_on_success(
 # stays available for any future test that wants to patch the stdlib module
 # directly).
 _ = subprocess
+
+
+# ---------------------------------------------------------------------------
+# D-11-21: Watch-set extension tests (BASE-04)
+# ---------------------------------------------------------------------------
+
+
+def test_llm_factory_change_triggers_stale_gate(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], script: ModuleType
+) -> None:
+    """D-11-21: a diff touching app/llm_factory.py without a baseline refresh exits 1.
+
+    Provider branches, thinking policies, and temperature clamps live in
+    llm_factory.py — these affect measured behavior just as much as agent/ files.
+    """
+    _stub_git(
+        monkeypatch,
+        script,
+        changed_paths=["app/llm_factory.py"],
+        last_commit_message="fix: update provider temperature clamp",
+    )
+    rc = script.main(["origin/main"])
+    assert rc == 1, "app/llm_factory.py change without baseline refresh must exit 1"
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "make eval-matrix" in combined
+
+
+def test_eval_matrix_yaml_change_triggers_stale_gate(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], script: ModuleType
+) -> None:
+    """D-11-21: a diff touching configs/eval_matrix.yaml without a baseline refresh exits 1."""
+    _stub_git(
+        monkeypatch,
+        script,
+        changed_paths=["configs/eval_matrix.yaml"],
+        last_commit_message="feat: add gpt-5-mini entry",
+    )
+    rc = script.main(["origin/main"])
+    assert rc == 1, "configs/eval_matrix.yaml change without baseline refresh must exit 1"
+
+
+def test_eval_matrix_refinement_yaml_change_triggers_stale_gate(
+    monkeypatch: pytest.MonkeyPatch, script: ModuleType
+) -> None:
+    """D-11-21: configs/eval_matrix_refinement.yaml is also in the watch-set.
+
+    The 'configs/eval_matrix' bare prefix matches both *.yaml files.
+    """
+    _stub_git(
+        monkeypatch,
+        script,
+        changed_paths=["configs/eval_matrix_refinement.yaml"],
+        last_commit_message="feat: add deepseek-reasoner to refinement matrix",
+    )
+    rc = script.main(["origin/main"])
+    assert rc == 1, (
+        "configs/eval_matrix_refinement.yaml change without baseline refresh must exit 1"
+    )
+
+
+def test_agent_file_change_still_triggers_stale_gate_no_regression(
+    monkeypatch: pytest.MonkeyPatch, script: ModuleType
+) -> None:
+    """D-11-21: app/agent/ prefix still triggers the gate (no regression on existing behavior)."""
+    _stub_git(
+        monkeypatch,
+        script,
+        changed_paths=["app/agent/agent.py"],
+        last_commit_message="refactor: tweak agent internals",
+    )
+    rc = script.main(["origin/main"])
+    assert rc == 1, "app/agent/ change without baseline refresh must still exit 1 (no regression)"
+
+
+def test_llm_factory_change_with_baseline_refresh_passes(
+    monkeypatch: pytest.MonkeyPatch, script: ModuleType
+) -> None:
+    """D-11-21: app/llm_factory.py change WITH a baseline refresh exits 0."""
+    _stub_git(
+        monkeypatch,
+        script,
+        changed_paths=[
+            "app/llm_factory.py",
+            "configs/eval_baselines/omakase_mission_open_ended.json",
+        ],
+        last_commit_message="fix: update factory + refresh baselines",
+    )
+    rc = script.main(["origin/main"])
+    assert rc == 0, "llm_factory.py + baseline refresh must exit 0"
+
+
+def test_unrelated_change_still_passes(monkeypatch: pytest.MonkeyPatch, script: ModuleType) -> None:
+    """D-11-21: an unrelated diff (e.g. README.md only) still exits 0."""
+    _stub_git(
+        monkeypatch,
+        script,
+        changed_paths=["README.md", "docs/some_doc.md"],
+        last_commit_message="docs: update README",
+    )
+    rc = script.main(["origin/main"])
+    assert rc == 0, "unrelated file changes must exit 0"
