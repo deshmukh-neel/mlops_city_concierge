@@ -40,6 +40,9 @@ Baselines mode (D-11-15):
     configs/eval_baselines/*.json and synthesises a summary-shaped dict via
     _build_summary_from_baselines.  The _check_gate loop is unchanged — only
     the input source is swapped.  _snapshots/ subdirectory files are skipped.
+    Per-scenario ``baseline_eligible`` flags are resolved from
+    --eval-queries (WR-03) the same way summary-mode's aggregate_cell_jsons
+    does, so D-10-09 quarantined scenarios neither satisfy nor violate gates.
 """
 
 from __future__ import annotations
@@ -93,7 +96,42 @@ def _load_gates(gates_path: str) -> dict:
     return data
 
 
-def _build_summary_from_baselines(baselines_dir: Path) -> dict:
+def _load_baseline_eligibility(eval_queries_path: str) -> dict[str, bool]:
+    """Resolve scenario_id -> baseline_eligible from eval_queries.yaml (D-10-09).
+
+    WR-03: baselines-mode must honor the quarantine the same way summary-mode
+    does (aggregate_cell_jsons resolves the flag from the eval-queries config).
+    Scenario IDs absent from the lookup default to True downstream — failing
+    toward enforcement, not silent exclusion (T-10-03-03).
+
+    Raises OSError on missing file, ValueError on parse failure.
+    """
+    try:
+        import yaml  # noqa: PLC0415
+    except ImportError as exc:
+        raise OSError("PyYAML not available — install with 'poetry install'") from exc
+
+    p = Path(eval_queries_path)
+    if not p.exists():
+        raise OSError(f"eval queries config not found: {eval_queries_path}")
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(
+            f"could not parse eval queries YAML at {eval_queries_path}: {exc}"
+        ) from exc
+    lookup: dict[str, bool] = {}
+    if isinstance(data, dict):
+        for case in data.get("hand_written") or []:
+            if isinstance(case, dict) and case.get("id"):
+                lookup[str(case["id"])] = bool(case.get("baseline_eligible", True))
+    return lookup
+
+
+def _build_summary_from_baselines(
+    baselines_dir: Path,
+    baseline_eligibility: dict[str, bool] | None = None,
+) -> dict:
     """Synthesise a summary-shaped dict from committed baseline JSONs (D-11-15).
 
     Shape matches aggregate_cell_jsons output exactly so _check_gate can
@@ -108,11 +146,17 @@ def _build_summary_from_baselines(baselines_dir: Path) -> dict:
     never read as green (deleted baselines, renamed dir, typo'd
     --baselines-dir would all silently pass otherwise).
 
+    Per-scenario ``baseline_eligible`` flags come from ``baseline_eligibility``
+    (WR-03: resolved from eval_queries.yaml via _load_baseline_eligibility, so
+    D-10-09 quarantined scenarios are skipped by _check_gate exactly as in
+    summary-mode). Unknown scenario IDs default to True (T-10-03-03).
+
     Raises OSError on missing/unreadable directory, ValueError on malformed
     JSON or an empty baselines directory.
     """
     if not baselines_dir.is_dir():
         raise OSError(f"baselines directory not found: {baselines_dir}")
+    eligibility = baseline_eligibility or {}
     scenarios_out: dict[str, Any] = {}
     for baseline_path in sorted(baselines_dir.glob("*.json")):
         # Skip any file whose immediate parent is _snapshots (pre-phase snapshots).
@@ -149,7 +193,7 @@ def _build_summary_from_baselines(baselines_dir: Path) -> dict:
                 "cell_valid": True,
             }
         scenarios_out[scenario_id] = {
-            "baseline_eligible": True,
+            "baseline_eligible": eligibility.get(scenario_id, True),
             "providers": providers_out,
         }
     if not scenarios_out:
@@ -377,6 +421,14 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default="configs/eval_baselines",
         help="Baseline JSON directory (used with --baselines-mode; default: configs/eval_baselines).",
     )
+    parser.add_argument(
+        "--eval-queries",
+        default="configs/eval_queries.yaml",
+        help=(
+            "Path to eval_queries.yaml for D-10-09 baseline_eligible resolution "
+            "(used with --baselines-mode; default: configs/eval_queries.yaml)."
+        ),
+    )
     return parser.parse_args(list(argv))
 
 
@@ -394,7 +446,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         gates_cfg = _load_gates(args.gates_config)
         if args.baselines_mode:
             # D-11-15: read committed baseline JSONs instead of a live summary.json.
-            summary = _build_summary_from_baselines(Path(args.baselines_dir))
+            # WR-03: resolve D-10-09 quarantine flags from eval_queries.yaml so a
+            # quarantined baseline file neither satisfies nor violates a gate.
+            eligibility = _load_baseline_eligibility(args.eval_queries)
+            summary = _build_summary_from_baselines(Path(args.baselines_dir), eligibility)
         else:
             if args.summary is None:
                 sys.stderr.write(

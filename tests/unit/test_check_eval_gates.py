@@ -1031,6 +1031,123 @@ def test_baselines_mode_no_positional_summary_does_not_error(
         pytest.fail(f"--baselines-mode without positional summary must not SystemExit: {e}")
 
 
+def test_load_baseline_eligibility_resolves_quarantine_from_eval_queries(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """WR-03: _load_baseline_eligibility reads baseline_eligible per scenario id."""
+    eval_queries = tmp_path / "eval_queries.yaml"
+    eval_queries.write_text(
+        """\
+hand_written:
+  - id: omakase_mission_open_ended
+    query: "omakase in the mission"
+  - id: late_night_closure_cascade
+    query: "late night plan"
+    baseline_eligible: false
+""",
+        encoding="utf-8",
+    )
+
+    lookup = script._load_baseline_eligibility(str(eval_queries))
+
+    assert lookup["late_night_closure_cascade"] is False
+    assert lookup["omakase_mission_open_ended"] is True
+
+
+def test_baselines_mode_quarantined_scenario_neither_satisfies_nor_violates(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """WR-03: a D-10-09 quarantined scenario's committed baseline must not
+    satisfy or violate hard gates in baselines-mode.
+
+    Before the fix, _build_summary_from_baselines hardcoded
+    baseline_eligible=True for every file — the moment a quarantined file
+    (late_night_closure_cascade.json) gained committed_itinerary_rate, its
+    legacy-threading numbers would start driving CI hard gates.
+    """
+    baselines_dir = tmp_path / "eval_baselines"
+    baselines_dir.mkdir()
+
+    # Quarantined scenario with a HARD-FAILING rate (0.0 < 0.8) for the anchor.
+    quarantined = _make_baseline_json(
+        "late_night_closure_cascade",
+        {"openai/gpt-4o-mini": _baseline_provider_cell(0.0, 5)},
+    )
+    (baselines_dir / "late_night_closure_cascade.json").write_text(
+        json.dumps(quarantined), encoding="utf-8"
+    )
+    # Eligible scenario with a passing rate so the gate stays evaluable.
+    eligible = _make_baseline_json(
+        "omakase_mission_open_ended",
+        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+    )
+    (baselines_dir / "omakase_mission_open_ended.json").write_text(
+        json.dumps(eligible), encoding="utf-8"
+    )
+
+    eval_queries = tmp_path / "eval_queries.yaml"
+    eval_queries.write_text(
+        """\
+hand_written:
+  - id: omakase_mission_open_ended
+    query: "omakase in the mission"
+  - id: late_night_closure_cascade
+    query: "late night plan"
+    baseline_eligible: false
+""",
+        encoding="utf-8",
+    )
+
+    gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
+    rc = script.main(
+        [
+            "--baselines-mode",
+            "--baselines-dir",
+            str(baselines_dir),
+            "--gates-config",
+            str(gates_file),
+            "--eval-queries",
+            str(eval_queries),
+        ]
+    )
+    assert rc == 0, (
+        f"quarantined scenario's failing cell must NOT trip the hard gate (got rc={rc}) — "
+        "D-10-09 'neither satisfies nor violates'"
+    )
+
+
+def test_baselines_mode_missing_eval_queries_exits_2(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """WR-03: a missing --eval-queries file is an infra failure (exit 2) —
+    the quarantine record would be unenforceable, so fail closed."""
+    baselines_dir = tmp_path / "eval_baselines"
+    baselines_dir.mkdir()
+    payload = _make_baseline_json(
+        "omakase_mission_open_ended",
+        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+    )
+    (baselines_dir / "omakase_mission_open_ended.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+    gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
+    rc = script.main(
+        [
+            "--baselines-mode",
+            "--baselines-dir",
+            str(baselines_dir),
+            "--gates-config",
+            str(gates_file),
+            "--eval-queries",
+            str(tmp_path / "MISSING.yaml"),
+        ]
+    )
+    assert rc == 2, f"missing eval_queries.yaml must exit 2 (fail-closed), got {rc}"
+
+
 def test_baselines_mode_missing_dir_exits_2_fail_closed(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
