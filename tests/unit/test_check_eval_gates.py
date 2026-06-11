@@ -409,3 +409,132 @@ def test_main_returns_int(tmp_path: Path, script: ModuleType) -> None:
 
     result = script.main([str(summary_file), "--gates-config", str(gates_file)])
     assert isinstance(result, int), f"main() must return int, got {type(result)}"
+
+
+# ---------------------------------------------------------------------------
+# TDD RED: _check_gate must walk nested scenarios->providers shape (CR-01)
+# ---------------------------------------------------------------------------
+
+
+def test_check_gate_fires_on_nested_scenarios_providers_shape(script: ModuleType) -> None:
+    """_check_gate must locate a cell under summary['scenarios'][*]['providers'][family].
+
+    CR-01: the old flat summary.get('providers', {}) lookup never finds the cell
+    because aggregate_cell_jsons writes the nested shape.  This test is the RED
+    gate — it fails against the broken implementation and passes after the fix.
+    """
+    gate = {
+        "family": "openai/gpt-4o-mini",
+        "status": "active",
+        "hard": {
+            "metric": "committed_itinerary_rate",
+            "op": ">=",
+            "value": 0.8,
+        },
+    }
+    # Real aggregate_cell_jsons shape — nested under scenarios->providers.
+    nested_summary = {
+        "generated_at": "2026-01-01T00:00:00Z",
+        "scenarios": {
+            "refinement_cheaper": {
+                "providers": {
+                    "openai/gpt-4o-mini": _cell_with_rate(0.4),
+                }
+            }
+        },
+    }
+    result = script._check_gate(gate, nested_summary)
+    assert result == "violation", (
+        f"_check_gate must return 'violation' for below-gate cell in nested shape; got {result!r}"
+    )
+
+
+def test_check_gate_passes_on_nested_shape_above_gate(script: ModuleType) -> None:
+    """_check_gate returns 'pass' when cell is at or above gate in nested shape."""
+    gate = {
+        "family": "openai/gpt-4o-mini",
+        "status": "active",
+        "hard": {
+            "metric": "committed_itinerary_rate",
+            "op": ">=",
+            "value": 0.8,
+        },
+    }
+    nested_summary = {
+        "scenarios": {
+            "refinement_cheaper": {
+                "providers": {
+                    "openai/gpt-4o-mini": _cell_with_rate(1.0),
+                }
+            }
+        }
+    }
+    result = script._check_gate(gate, nested_summary)
+    assert result == "pass", (
+        f"_check_gate must return 'pass' for above-gate cell in nested shape; got {result!r}"
+    )
+
+
+def test_check_gate_not_evaluable_when_family_absent_from_all_scenarios(
+    script: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_check_gate returns 'not_evaluable' when no scenario's providers map contains the family."""
+    gate = {
+        "family": "openai/gpt-4o-mini",
+        "status": "active",
+        "hard": {
+            "metric": "committed_itinerary_rate",
+            "op": ">=",
+            "value": 0.8,
+        },
+    }
+    nested_summary = {
+        "scenarios": {
+            "refinement_cheaper": {
+                "providers": {
+                    "deepseek/deepseek-chat": _cell_with_rate(0.9),
+                }
+            }
+        }
+    }
+    result = script._check_gate(gate, nested_summary)
+    assert result == "not_evaluable", f"absent family must return 'not_evaluable', got {result!r}"
+    captured = capsys.readouterr()
+    assert "NOT-EVALUABLE" in captured.out, (
+        f"NOT-EVALUABLE must be printed to stdout; got: {captured.out!r}"
+    )
+    assert "openai/gpt-4o-mini" in captured.out, (
+        f"family name must appear in NOT-EVALUABLE message; got: {captured.out!r}"
+    )
+
+
+def test_check_gate_skips_quarantined_scenario_for_cell_lookup(script: ModuleType) -> None:
+    """_check_gate must skip scenarios where baseline_eligible is explicitly False.
+
+    A quarantined scenario's cell must not satisfy a gate — if the only cell
+    for the family is in a quarantined scenario, the result is not_evaluable.
+    """
+    gate = {
+        "family": "openai/gpt-4o-mini",
+        "status": "active",
+        "hard": {
+            "metric": "committed_itinerary_rate",
+            "op": ">=",
+            "value": 0.8,
+        },
+    }
+    nested_summary = {
+        "scenarios": {
+            "late_night_closure_cascade": {
+                "baseline_eligible": False,
+                "providers": {
+                    "openai/gpt-4o-mini": _cell_with_rate(1.0),  # above gate but quarantined
+                },
+            }
+        }
+    }
+    result = script._check_gate(gate, nested_summary)
+    assert result == "not_evaluable", (
+        f"quarantined scenario's cell must not satisfy gate; got {result!r}"
+    )
