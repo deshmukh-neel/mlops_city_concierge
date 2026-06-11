@@ -217,7 +217,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Extract fields for the fixture. Redact everything defensively.
     add_kwargs_keys = sorted(message.additional_kwargs.keys())
-    add_kwargs_values = {k: _redact(message.additional_kwargs[k]) for k in add_kwargs_keys}
+    # WR-10: route additional_kwargs values through the same type-faithful redaction
+    # pattern used for response_metadata/usage_metadata/tool_calls.  The prior
+    # `_redact(message.additional_kwargs[k])` called str() on the value, collapsing
+    # dict/list/number to a Python repr string like "{'k': 'v'}".  Instead, serialize
+    # then redact then re-parse so dict/list/number values round-trip as real JSON
+    # types and only genuinely non-JSON-serializable leaves fall back to str() via
+    # `default=str`.  Redaction still routes through _redact — type fidelity never
+    # bypasses the secret-scan path (T-11-18).
+    add_kwargs_values = {
+        k: json.loads(_redact(json.dumps(message.additional_kwargs[k], default=str)))
+        for k in add_kwargs_keys
+    }
 
     # CR-05: all value-bearing fixture fields must pass through _redact.
     # response_metadata: first sanitize known token-bearing keys (defense in depth),
@@ -235,8 +246,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     tool_calls = json.loads(_redact(json.dumps(raw_tool_calls, default=str)))
 
     # D-10-11 fixture shape: provider, model, library_version, probe_query,
-    # additional_kwargs_keys, redacted additional_kwargs_values, sanitized+redacted
-    # response_metadata, content_shape, redacted usage_metadata, redacted tool_calls.
+    # additional_kwargs_keys, type-faithful redacted additional_kwargs_values (WR-10),
+    # sanitized+redacted response_metadata, content_shape, redacted usage_metadata,
+    # redacted tool_calls.
     fixture: dict[str, object] = {
         "provider": provider,
         "model": model_name,
