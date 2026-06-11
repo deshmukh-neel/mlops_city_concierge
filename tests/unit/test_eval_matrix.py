@@ -1921,3 +1921,176 @@ def test_committed_itinerary_rate_missing_key_no_scorer_no_crash(tmp_path: Path)
     assert "committed_itinerary_rate" not in scorers, (
         "D-11-02: committed_itinerary_rate must NOT appear when cell has no such key"
     )
+
+
+# ─── 11-03 Task 2: run_matrix exit classification + WR-11 structural-check ────
+
+
+def test_run_matrix_classifies_rc1_as_violation_cell(mocker, monkeypatch, tmp_path) -> None:
+    """D-11-16: run_matrix classifies returncode==1 as a violation-cell (model
+    behavior violation, non-blocking) and returncode==0 as a success.
+
+    The new 3-tuple return is (rc, violation_cells, error_cells).
+    rc==1 when violation cells present and no errors.
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    fake_results = [
+        mocker.Mock(returncode=1, stdout="", stderr="violation"),
+        mocker.Mock(returncode=0, stdout="{}", stderr=""),
+    ]
+    mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_results)
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["a", "b"],
+    )
+    rc, violation_cells, error_cells = run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    # returncode==1 → violation cell; returncode==0 → clean
+    assert len(violation_cells) == 1, "rc==1 must be recorded as a violation cell"
+    assert violation_cells[0]["returncode"] == 1
+    assert violation_cells[0]["stderr"] == "violation"
+    assert len(error_cells) == 0, "rc==0 must not appear in error_cells"
+    # Violations alone: matrix rc==1
+    assert rc == 1, "run_matrix rc must be 1 when violation cells present and no errors"
+
+
+def test_run_matrix_classifies_rc2_as_error_cell(mocker, monkeypatch, tmp_path) -> None:
+    """D-11-16: run_matrix classifies returncode>=2 as an error-cell (infra failure).
+
+    error-cells dominate: matrix rc==2 when any error-cell present.
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    fake_results = [
+        mocker.Mock(returncode=0, stdout="{}", stderr=""),
+        mocker.Mock(returncode=2, stdout="", stderr="infra-fail"),
+        mocker.Mock(returncode=0, stdout="{}", stderr=""),
+    ]
+    mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_results)
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["a", "b", "c"],
+    )
+    rc, violation_cells, error_cells = run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    assert len(error_cells) == 1, "rc>=2 must be recorded as an error cell"
+    assert error_cells[0]["returncode"] == 2
+    assert error_cells[0]["stderr"] == "infra-fail"
+    assert len(violation_cells) == 0, "rc==0 must not appear in violation_cells"
+    # error cells dominate: matrix rc must be 2
+    assert rc == 2, "run_matrix rc must be 2 when any error cell present"
+
+
+def test_run_matrix_rc0_clean_no_cells(mocker, monkeypatch, tmp_path) -> None:
+    """D-11-16: all cells succeed (rc==0) → run_matrix returns (0, [], [])."""
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    mocker.patch(
+        "scripts.eval_matrix.subprocess.run",
+        return_value=mocker.Mock(returncode=0, stdout="{}", stderr=""),
+    )
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["scenario_a"],
+    )
+    rc, violation_cells, error_cells = run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    assert rc == 0
+    assert violation_cells == []
+    assert error_cells == []
+
+
+def test_run_matrix_error_dominates_violation(mocker, monkeypatch, tmp_path) -> None:
+    """D-11-16: when both violation cells (rc==1) and error cells (rc>=2) are
+    present, the matrix rc must be 2 (error dominates).
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import run_matrix
+
+    fake_results = [
+        mocker.Mock(returncode=1, stdout="", stderr="violation"),
+        mocker.Mock(returncode=2, stdout="", stderr="error"),
+    ]
+    mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_results)
+    from app.eval.config import EvalMatrixConfig, MatrixEntry
+
+    matrix = EvalMatrixConfig(
+        entries=[MatrixEntry(provider="scripted", model="placeholder")],
+        scenarios=["a", "b"],
+    )
+    rc, violation_cells, error_cells = run_matrix(
+        matrix=matrix,
+        runs=1,
+        output_dir=tmp_path,
+        llm_provider_override=None,
+        eval_queries_path="configs/eval_queries.yaml",
+    )
+    assert len(violation_cells) == 1
+    assert len(error_cells) == 1
+    assert rc == 2, "error cells dominate violations: rc must be 2"
+
+
+def test_structural_check_check6_uses_real_make_error_record(tmp_path: Path) -> None:
+    """WR-11: structural-check Check 6 must call the REAL make_error_record
+    with a real EvalQuery and validate status=='error' and stage in valid set.
+
+    Passes when make_error_record is wired in and the schema is intact.
+    """
+    from scripts import eval_matrix as eval_matrix_mod
+
+    yaml_path = tmp_path / "matrix.yaml"
+    yaml_path.write_text(
+        "entries:\n"
+        "  - provider: openai\n"
+        "    model: gpt-4o-mini\n"
+        "    env:\n"
+        '      REFINEMENT_STRUCTURED_PLAN_ENABLED: "true"\n'
+        "scenarios:\n"
+        "  - refinement_cheaper\n",
+        encoding="utf-8",
+    )
+    rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
+    assert rc == 0, "WR-11: structural-check must exit 0 after Check 6 calls real make_error_record"
+
+
+def test_structural_check_check6_invokes_make_error_record_in_source() -> None:
+    """WR-11: the structural-check block must contain a call to make_error_record(
+    with a real EvalQuery, not just a synthetic dict.
+    """
+    import inspect
+
+    import scripts.eval_matrix as mod
+
+    src = inspect.getsource(mod.main)
+    assert "make_error_record(" in src, (
+        "WR-11: structural-check Check 6 must call make_error_record() — "
+        "the tautological synthetic-dict check must be replaced"
+    )
+    assert "EvalQuery" in src, (
+        "WR-11: structural-check Check 6 must use EvalQuery to build the synthetic case"
+    )
