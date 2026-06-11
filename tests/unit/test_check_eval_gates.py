@@ -1,0 +1,411 @@
+"""Unit tests for scripts/check_eval_gates.py (EVAL-03 / D-10-05).
+
+Gate-check script that reads a matrix summary.json and exits non-zero on
+any hard-gate violation.
+
+Exit-code conventions (matching check_baselines_fresh.py exactly):
+    0 = all hard gates passed (aspirational misses printed, non-blocking)
+    1 = one or more hard-gate violations
+    2 = infrastructure failure (missing YAML, malformed summary.json)
+
+Tests use tmp_path fixtures with synthetic YAML + JSON so they never
+need a live eval run.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_PATH = REPO_ROOT / "scripts" / "check_eval_gates.py"
+
+
+def _load_script() -> ModuleType:
+    """Load scripts/check_eval_gates.py as a module without sys.path mutation."""
+    spec = importlib.util.spec_from_file_location("check_eval_gates", SCRIPT_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load {SCRIPT_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["check_eval_gates"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def script() -> ModuleType:
+    """The check_eval_gates module under test."""
+    return _load_script()
+
+
+# ---------------------------------------------------------------------------
+# Synthetic YAML / JSON helpers
+# ---------------------------------------------------------------------------
+
+_MINIMAL_GATES_YAML = """\
+gates:
+  - family: openai/gpt-4o-mini
+    status: active
+    rationale: "D-10-07: anchor"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.8
+    advisory: []
+
+  - family: openai/gpt-5-mini
+    status: aspirational
+    rationale: "D-10-07: v2.2 target"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.6
+    advisory: []
+
+  - family: deepseek/deepseek-chat
+    status: logged
+    rationale: "D-10-07: logged-not-gated"
+    hard: null
+    advisory: []
+
+  - family: late_night_closure_cascade
+    status: quarantined-legacy-threading
+    rationale: "D-10-09: legacy"
+    hard: null
+    advisory: []
+"""
+
+
+def _make_summary(
+    providers: dict[str, dict],
+    extra_top_level: dict | None = None,
+) -> dict:
+    """Build a minimal summary.json-shaped dict.
+
+    providers: mapping of provider_key → per-cell dict (at minimum
+    {"scorers": {}, "n_scored": N, "n_errored": 0}).
+    """
+    out: dict = {
+        "providers": providers,
+        "errors": [],
+    }
+    if extra_top_level:
+        out.update(extra_top_level)
+    return out
+
+
+def _cell_with_rate(rate: float, n: int = 5) -> dict:
+    """A cell dict with committed_itinerary_rate populated."""
+    return {
+        "scorers": {
+            "committed_itinerary_rate": {"median": rate, "mean": rate},
+        },
+        "n_scored": n,
+        "n_errored": 0,
+        "cell_valid": True,
+    }
+
+
+def _cell_no_rate(n: int = 5) -> dict:
+    """A cell dict WITHOUT committed_itinerary_rate — metric not yet wired."""
+    return {
+        "scorers": {
+            "refinement_minimal_edit": {"median": 0.5, "mean": 0.5},
+        },
+        "n_scored": n,
+        "n_errored": 0,
+        "cell_valid": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Exit-code test: exit 0 when all active gates pass
+# ---------------------------------------------------------------------------
+
+
+def test_all_gates_pass_returns_exit_0(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """All active/provisional hard gates satisfied → exit 0."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    summary = _make_summary(
+        {
+            "openai/gpt-4o-mini": _cell_with_rate(1.0),
+            "openai/gpt-5-mini": _cell_with_rate(0.7),  # above aspirational floor too
+            "deepseek/deepseek-chat": _cell_with_rate(0.2),  # logged; ignored
+            "late_night_closure_cascade": _cell_with_rate(0.0),  # quarantined; ignored
+        }
+    )
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 0, "all active gates passing must return exit 0"
+    captured = capsys.readouterr()
+    assert "OK" in captured.out or "ok" in captured.out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Exit-code test: exit 1 when active gate fails
+# ---------------------------------------------------------------------------
+
+
+def test_active_hard_gate_violation_returns_exit_1_with_family_in_stderr(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """Active gpt-4o-mini cell below gate → exit 1 with family name in stderr."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    summary = _make_summary(
+        {
+            "openai/gpt-4o-mini": _cell_with_rate(0.4),  # BELOW 0.8 gate
+            "openai/gpt-5-mini": _cell_with_rate(0.7),
+        }
+    )
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 1, "active gate violation must return exit 1"
+    captured = capsys.readouterr()
+    assert "openai/gpt-4o-mini" in captured.err, (
+        f"family name must appear in stderr: {captured.err!r}"
+    )
+    assert "HARD GATE VIOLATION" in captured.err or "VIOLATION" in captured.err, (
+        f"violation signal must appear in stderr: {captured.err!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Exit-code test: aspirational miss returns exit 0 with ASPIRATIONAL line
+# ---------------------------------------------------------------------------
+
+
+def test_aspirational_gate_miss_returns_exit_0_with_aspirational_line(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """Aspirational gpt-5-mini below its floor → exit 0, ASPIRATIONAL line in stdout."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    summary = _make_summary(
+        {
+            "openai/gpt-4o-mini": _cell_with_rate(1.0),  # passes active gate
+            "openai/gpt-5-mini": _cell_with_rate(0.4),  # BELOW aspirational 0.6
+        }
+    )
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 0, "aspirational gate miss must NOT hard-fail (exit 0)"
+    captured = capsys.readouterr()
+    assert "ASPIRATIONAL" in captured.out, (
+        f"ASPIRATIONAL miss must be reported to stdout: {captured.out!r}"
+    )
+    # Must NOT appear in stderr (would imply it's being treated as a hard fail)
+    assert "openai/gpt-5-mini" not in captured.err, (
+        f"aspirational family must not appear in stderr: {captured.err!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Exit-code test: infrastructure failure returns exit 2
+# ---------------------------------------------------------------------------
+
+
+def test_missing_gates_yaml_returns_exit_2(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """Missing gates YAML → exit 2 (infrastructure failure)."""
+    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(1.0)})
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    nonexistent = tmp_path / "nonexistent_gates.yaml"
+
+    rc = script.main([str(summary_file), "--gates-config", str(nonexistent)])
+    assert rc == 2, "missing gates YAML must return exit 2"
+
+
+def test_missing_summary_json_returns_exit_2(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """Missing summary.json → exit 2 (infrastructure failure)."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    nonexistent = tmp_path / "nonexistent_summary.json"
+
+    rc = script.main([str(nonexistent), "--gates-config", str(gates_file)])
+    assert rc == 2, "missing summary.json must return exit 2"
+
+
+def test_malformed_summary_json_returns_exit_2(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """Malformed (non-JSON) summary.json → exit 2 (fail-closed, not silent pass)."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text("this is not valid JSON {{{")
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 2, "malformed summary.json must fail closed with exit 2"
+
+
+# ---------------------------------------------------------------------------
+# logged and quarantined families never block
+# ---------------------------------------------------------------------------
+
+
+def test_logged_family_with_low_rate_never_blocks(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """logged families are skipped entirely — even a 0.0 rate must not block."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    summary = _make_summary(
+        {
+            "openai/gpt-4o-mini": _cell_with_rate(1.0),
+            "deepseek/deepseek-chat": _cell_with_rate(0.0),  # logged; must not block
+        }
+    )
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 0, "logged family with low rate must not block (exit 0)"
+
+
+def test_quarantined_family_never_blocks(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """quarantined-legacy-threading families are skipped entirely."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    summary = _make_summary(
+        {
+            "openai/gpt-4o-mini": _cell_with_rate(1.0),
+            "late_night_closure_cascade": _cell_with_rate(0.0),  # quarantined; must not block
+        }
+    )
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 0, "quarantined family must not block (exit 0)"
+
+
+# ---------------------------------------------------------------------------
+# Not-evaluable: metric absent from summary → reported, not silent pass
+# ---------------------------------------------------------------------------
+
+
+def test_metric_not_in_summary_is_not_evaluable_not_silent_pass(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """When committed_itinerary_rate is absent from the cell, the gate is
+    reported as not-evaluable — not treated as a silent pass (T-10-04-01)."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    # Cell only has refinement_minimal_edit; committed_itinerary_rate absent
+    summary = _make_summary(
+        {
+            "openai/gpt-4o-mini": _cell_no_rate(),
+        }
+    )
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    script.main([str(summary_file), "--gates-config", str(gates_file)])
+    # Must NOT silently pass (exit 0 without reporting) — must report not-evaluable
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert (
+        "not-evaluable" in combined.lower()
+        or "not evaluable" in combined.lower()
+        or "evaluable" in combined.lower()
+    ), f"not-evaluable condition must be reported: out={captured.out!r} err={captured.err!r}"
+    # Not-evaluable is a non-zero exit (not a silent pass) — either 0-with-warning
+    # or 1/2; the key contract is it's REPORTED, not silently pass.
+    # Per plan: "reported (not a silent pass)" — checking the report above is sufficient.
+
+
+# ---------------------------------------------------------------------------
+# Family absent from summary (cell not run) → treated as not-evaluable
+# ---------------------------------------------------------------------------
+
+
+def test_family_absent_from_summary_is_not_evaluable(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """If a family with an active hard gate has no cell in the summary,
+    the gate is not-evaluable (not a silent pass)."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    # gpt-4o-mini is missing from summary entirely
+    summary = _make_summary(
+        {
+            "openai/gpt-5-mini": _cell_with_rate(0.7),
+        }
+    )
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    script.main([str(summary_file), "--gates-config", str(gates_file)])
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert (
+        "not-evaluable" in combined.lower()
+        or "evaluable" in combined.lower()
+        or "missing" in combined.lower()
+    ), f"absent family must not be a silent pass: out={captured.out!r} err={captured.err!r}"
+
+
+# ---------------------------------------------------------------------------
+# main() signature: returns int, callable with argv list
+# ---------------------------------------------------------------------------
+
+
+def test_main_returns_int(tmp_path: Path, script: ModuleType) -> None:
+    """main(argv) must return an int (not raise SystemExit directly)."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(1.0)})
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    result = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert isinstance(result, int), f"main() must return int, got {type(result)}"
