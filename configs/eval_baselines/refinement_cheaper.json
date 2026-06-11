@@ -1,6 +1,6 @@
 {
   "closure_check_confirmed": "2026-06-05",
-  "generated_at": "2026-06-11T20-56-26Z",
+  "generated_at": "2026-06-11T22-54-39Z",
   "generated_by": "scripts/write_baselines.py",
   "providers": {
     "anthropic/claude-sonnet-4-6": {
@@ -73,18 +73,20 @@
     },
     "deepseek/deepseek-chat": {
       "_observations": "Phase 9 PROV-03 reference cell (logged-not-gated). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, OpenAI quota intact for the full cell. refinement_minimal_edit median=0.0, distribution=[0.0]*5. committed_itinerary_rate=0.0 (0/5) \u2014 DeepSeek's known decisiveness gap (project_deepseek_decisiveness_gap) persists, unchanged by PROV-03. deepseek-chat stays under extra_body={'thinking': {'type': 'disabled'}} via the _DEEPSEEK_REASONER_THINKING_ENABLED frozenset carve-out (T-09-02-T4 regression guard intact via test_deepseek_chat_keeps_thinking_disabled).",
+      "generated_at": "2026-06-11T22-54-39Z",
+      "generated_by": "scripts/write_baselines.py",
       "scorers": {
-        "category_compliance": {
+        "category_compliance_strict": {
           "max": 1.0,
           "median": 1.0,
           "min": 1.0,
           "n": 5,
           "stdev": 0.0
         },
-        "category_compliance_strict": {
-          "max": 1.0,
-          "median": 1.0,
-          "min": 1.0,
+        "committed_itinerary_rate": {
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0,
           "n": 5,
           "stdev": 0.0
         },
@@ -141,16 +143,9 @@
     },
     "deepseek/deepseek-reasoner": {
       "_observations": "Phase 9 PROV-03 reference cell (PROV-02 SHIPPED-WITH-GAP retained, lower-bar \u22650.6 measurement). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, DeepSeekReasonerAdapter active, thinking ENABLED via _DEEPSEEK_REASONER_THINKING_ENABLED frozenset per D-09-04. refinement_minimal_edit median=0.0, distribution=[0.0]*5. committed_itinerary_rate=0.0 (0/5) \u2014 every run hits 'low_similarity' / 'empty_results' critique-loop + step-limit termination, identical signature to project_deepseek_decisiveness_gap. Adapter wire correctness orthogonal to gate failure (test_reason_02_deepseek_real_adapter passes); carry-forward to v2.1 phases 2-4 (prompt-rubric refinement / critique-loop tuning). No regression from PROV-02 baseline.",
-      "generated_at": "2026-06-11T20-56-26Z",
+      "generated_at": "2026-06-11T22-54-39Z",
       "generated_by": "scripts/write_baselines.py",
       "scorers": {
-        "category_compliance": {
-          "max": 0.0,
-          "median": 0.0,
-          "min": 0.0,
-          "n": 5,
-          "stdev": 0.0
-        },
         "category_compliance_strict": {
           "max": 1.0,
           "median": 1.0,
@@ -218,29 +213,29 @@
     },
     "openai/gpt-4o-mini": {
       "_observations": "Phase 9 PROV-03 reference cell (v2.0 anchor; logged-not-gated). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true. refinement_minimal_edit median=0.0, max=0.5, distribution=[0.0, 0.0, 0.5, 0.0, 0.0]. committed_itinerary_rate=1.0 (5/5 commits) \u2014 v2.0 anchor non-regression CONFIRMED, identical to PROV-02 Wave 2 measurement. The PROV-03 changes (new anthropic provider + AnthropicAdapter swap + 4 bug fixes inside the anthropic branch) are correctly scoped to provider==\"anthropic\" and do not spill onto the openai dispatch. committed_stops_mean=2.8 (one 2-stop commit + four 3-stop commits) tracks the v2.0 anchor's known refinement-turn variance.",
-      "generated_at": "2026-06-11T20-56-26Z",
+      "generated_at": "2026-06-11T22-54-39Z",
       "generated_by": "scripts/write_baselines.py",
       "scorers": {
         "category_compliance": {
-          "max": 1.0,
-          "median": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "median": 0.0,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.4472135954999579
+          "stdev": 0.18257418583505536
         },
         "category_compliance_strict": {
-          "max": 1.0,
-          "median": 1.0,
-          "min": 0.3333333333333333,
+          "max": 0.3333333333333333,
+          "median": 0.0,
+          "min": 0.0,
           "n": 5,
-          "stdev": 0.36514837167011077
+          "stdev": 0.18257418583505536
         },
         "committed_itinerary_rate": {
           "max": 1.0,
           "median": 1.0,
-          "min": 0.0,
+          "min": 1.0,
           "n": 5,
-          "stdev": 0.4472135954999579
+          "stdev": 0.0
         },
         "constraints_satisfied": {
           "max": 1.0,
@@ -266,9 +261,9 @@
         "rationale_stop_alignment": {
           "max": 1.0,
           "median": 1.0,
-          "min": 0.5,
+          "min": 1.0,
           "n": 5,
-          "stdev": 0.22360679774997896
+          "stdev": 0.0
         },
         "refinement_minimal_edit": {
           "max": 0.0,
@@ -295,16 +290,9 @@
     },
     "openai/gpt-5-mini": {
       "_observations": "Phase 9 PROV-03 reference cell (PROV-01 SHIPPED-WITH-GAP retained; D-09-02 re-scoped 2-part gate). n=5 runs at temp=1.0, REFINEMENT_STRUCTURED_PLAN_ENABLED=true, OpenAIReasoningAdapter active. refinement_minimal_edit median=0.0, distribution=[0.0]*5. committed_itinerary_rate=0.4 (2/5) \u2014 IDENTICAL to PROV-01 Wave 1 SHIPPED-WITH-GAP measurement; Part A hard gate still fails at 0.4 vs \u22650.6, Part B advisory at 0.0 vs \u22650.5. PROV-01 SHIPPED-WITH-GAP verdict (Option 3, D-06-09 precedent) unchanged. Critique-loop dominates on reasoning-family models per project_reasoning_models_break_agent_loop; carry-forward to v2.1 phases 2-4.",
-      "generated_at": "2026-06-11T20-56-26Z",
+      "generated_at": "2026-06-11T22-54-39Z",
       "generated_by": "scripts/write_baselines.py",
       "scorers": {
-        "category_compliance": {
-          "max": 0.0,
-          "median": 0.0,
-          "min": 0.0,
-          "n": 5,
-          "stdev": 0.0
-        },
         "category_compliance_strict": {
           "max": 1.0,
           "median": 1.0,

@@ -1,19 +1,19 @@
 {
   "closure_check_confirmed": "2026-05-21",
-  "generated_at": "2026-06-11T19-37-42Z",
+  "generated_at": "2026-06-11T22-54-36Z",
   "generated_by": "scripts/write_baselines.py",
   "providers": {
     "deepseek/deepseek-chat": {
       "_observations": "Post-Phase-4 baseline (DeepSeek, tracked but not gated per D-04-11). Same Phase 4 changes apply, but DeepSeek's known decisiveness gap (project memory: project_deepseek_decisiveness_gap.md) means most runs still fail to call commit_itinerary and the scorers may remain in fail-open territory. Reported here for cross-provider visibility; do not gate merges on these numbers.",
-      "generated_at": "2026-06-11T19-37-42Z",
+      "generated_at": "2026-06-11T22-54-36Z",
       "generated_by": "scripts/write_baselines.py",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
-          "median": 0.0,
-          "min": 0.0,
-          "n": 5,
-          "stdev": 0.4472135954999579
+          "median": 1.0,
+          "min": 1.0,
+          "n": 1,
+          "stdev": 0.0
         },
         "category_compliance_strict": {
           "max": 1.0,
@@ -81,16 +81,9 @@
       }
     },
     "deepseek/deepseek-reasoner": {
-      "generated_at": "2026-06-11T19-37-42Z",
+      "generated_at": "2026-06-11T22-54-36Z",
       "generated_by": "scripts/write_baselines.py",
       "scorers": {
-        "category_compliance": {
-          "max": 0.0,
-          "median": 0.0,
-          "min": 0.0,
-          "n": 5,
-          "stdev": 0.0
-        },
         "category_compliance_strict": {
           "max": 1.0,
           "median": 1.0,
@@ -234,15 +227,15 @@
       }
     },
     "openai/gpt-5-mini": {
-      "generated_at": "2026-06-11T19-37-42Z",
+      "generated_at": "2026-06-11T22-54-36Z",
       "generated_by": "scripts/write_baselines.py",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
-          "median": 0.3333333333333333,
-          "min": 0.0,
-          "n": 5,
-          "stdev": 0.4346134936801766
+          "median": 0.8333333333333333,
+          "min": 0.3333333333333333,
+          "n": 4,
+          "stdev": 0.3191423692521127
         },
         "category_compliance_strict": {
           "max": 1.0,
@@ -256,7 +249,7 @@
           "median": 1.0,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.5477225575051661
+          "stdev": 0.4472135954999579
         },
         "constraints_satisfied": {
           "max": 1.0,
@@ -268,9 +261,9 @@
         "geographic_coherence": {
           "max": 1.0,
           "median": 1.0,
-          "min": 1.0,
+          "min": 0.5,
           "n": 5,
-          "stdev": 0.0
+          "stdev": 0.22360679774997896
         },
         "no_hallucinated_place_ids": {
           "max": 1.0,
