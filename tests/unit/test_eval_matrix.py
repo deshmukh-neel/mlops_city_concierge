@@ -90,6 +90,65 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
         )
 
 
+# ─── baseline JSON ↔ matrix YAML provider-cell parity ────────────────────────
+
+# Matrix entries whose baseline cell is intentionally absent. The only
+# sanctioned deferral is gemini/gemini-3.1-pro-preview: its first n=5
+# measurement is deferred to the baseline-regen phase (see the PROV-04
+# comment block in configs/eval_matrix_refinement.yaml). Shrink this set
+# when the deferred cell lands; never grow it without a matching comment
+# in the matrix YAML.
+_DEFERRED_BASELINE_CELLS: dict[str, set[str]] = {
+    "eval_matrix_refinement.yaml": {"gemini/gemini-3.1-pro-preview"},
+    "eval_matrix.yaml": set(),
+}
+
+_MATRIX_TO_BASELINES: dict[str, list[str]] = {
+    "eval_matrix_refinement.yaml": ["refinement_cheaper.json"],
+    "eval_matrix.yaml": [
+        "omakase_mission_open_ended.json",
+        "late_night_closure_cascade.json",
+    ],
+}
+
+
+@pytest.mark.parametrize("matrix_name", sorted(_MATRIX_TO_BASELINES))
+def test_baseline_provider_cells_match_matrix_entries(matrix_name: str) -> None:
+    """Every baseline provider cell maps to a matrix entry and vice versa.
+
+    Phase 9's revertability audit (09-05-AUDIT.md, finding pair 4) found that
+    the matrix YAML and its baseline JSON can drift SILENTLY: reverting a
+    single data(09-0x) baseline commit leaves baseline keys ≠ matrix entries
+    with no test detection. This locks the parity in both directions:
+    no orphan baseline cells, and no matrix entry without a baseline cell
+    unless listed in _DEFERRED_BASELINE_CELLS.
+    """
+    matrix = load_eval_matrix(REPO_ROOT / "configs" / matrix_name)
+    matrix_keys = {f"{e.provider}/{e.model}" for e in matrix.entries}
+    deferred = _DEFERRED_BASELINE_CELLS[matrix_name]
+    assert deferred <= matrix_keys, (
+        f"{matrix_name}: deferred cells {deferred - matrix_keys} are not matrix"
+        " entries — stale deferral, remove them from _DEFERRED_BASELINE_CELLS"
+    )
+    for baseline_name in _MATRIX_TO_BASELINES[matrix_name]:
+        baseline_path = REPO_ROOT / "configs" / "eval_baselines" / baseline_name
+        payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+        baseline_keys = set(payload["providers"])
+        orphans = baseline_keys - matrix_keys
+        assert not orphans, (
+            f"{baseline_name} has provider cells with no matching entry in"
+            f" {matrix_name}: {sorted(orphans)} — remove the stale baseline"
+            " cell or add the matrix entry in the same commit"
+        )
+        missing = matrix_keys - baseline_keys
+        assert missing == deferred, (
+            f"{matrix_name} entries missing a baseline cell in {baseline_name}:"
+            f" {sorted(missing - deferred)} — regenerate the baseline for the"
+            " new cell in the same commit, or document the deferral in the"
+            " matrix YAML and _DEFERRED_BASELINE_CELLS"
+        )
+
+
 # ─── scripts/eval_matrix.py imports without env vars ─────────────────────────
 
 
