@@ -168,6 +168,18 @@ Plans:
   3. The per-family merge gates re-derived in Phase 10 (EVAL-03) are enforced via named Makefile targets and a CI step; the `gpt-5-mini × refinement_cheaper` anchor gate is one of them and fires on a synthetic regression (BASE-03).
   4. A staleness check analogous to `scripts/check_baselines_fresh.py` covers the new cross-model baselines; a code change touching the agent loop without regenerating the new baselines causes CI to fail, verified by a dry-run test of the staleness script (BASE-04).
 
+**Carry-over from Phase 10 code review** (`.planning/phases/10-eval-harness-honesty/10-REVIEW.md` — WR-01..04 fixed in Phase 10; the rest deferred here because they change scorer/exit-code semantics that BASE-01's regen will re-anchor anyway):
+
+  - WR-06: single-turn eval path lacks D-10-01 error capture — one transient failure aborts the whole run (`evaluate_case` single-turn branch needs `make_error_record`, stage `"setup"`)
+  - WR-07: `eval_agent` exit code conflates model-behavior violations with infra failures; `run_matrix` records both as cell failures — fold into BASE-03 gate wiring
+  - WR-08: prod-threading scratch keys (`prior_committed_stops`, `prior_stops_obj`) counted as phantom tool calls — fix before regenerating baselines or `tool_calls_mean` bakes in the skew
+  - WR-09: all-errored cell (`n_scored == 0`) publishes `deterministic_pass_rate: 1.0` / `tool_success_rate: 1.0` — emit None/0.0; fix before BASE-01 regen
+  - WR-10: `additional_kwargs_values` stringified in probe fixtures — adapter fixture test never exercises real-typed bytes/dict paths (D-10-12 residual)
+  - WR-11: eval-matrix structural-check "Check 6" is a tautology — exercise the real `make_error_record` schema
+  - WR-12: `category_compliance` returns 1.0 on zero committed stops, contradicting its own docstring — scorer-semantics change; coordinate with baseline regen (also relevant to v2.2 decisiveness work)
+  - WR-05: `advisory` gate entries never evaluated (dead config, unresolvable metric name) — implement or delete during BASE-03 gate promotion
+  - Info items IN-01..IN-06 (error-record metadata, aggregation logging, redaction edge cases) — see 10-REVIEW.md
+
 **Plans**: TBD
 
 ## Progress
