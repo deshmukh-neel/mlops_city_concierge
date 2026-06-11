@@ -4,7 +4,7 @@ milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 9
 status: verifying
-last_updated: "2026-06-11T00:40:07.050Z"
+last_updated: "2026-06-11T00:55:24.148Z"
 last_activity: 2026-06-05
 progress:
   total_phases: 6
