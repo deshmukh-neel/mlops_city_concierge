@@ -21,6 +21,7 @@ must_haves:
     - "make eval-gates-check exits non-zero when a summary's hard-gated cell drops below its gate value"
     - "Aspirational gates (gpt-5-mini commit_rate >= 0.6) are reported distinctly, not hard-failing the build"
     - "docs/eval_gates.md explains gate semantics and links to the YAML without duplicating numbers"
+    - "Hard gates on committed_itinerary_rate report as not-evaluable (not a silent pass) until Phase 11 wires the metric into summary.json; the gate infra itself is complete and functioning as designed"
   artifacts:
     - path: "configs/eval_gates.yaml"
       provides: "per-family gates with hard/advisory/status/rationale fields (D-10-08)"
