@@ -629,10 +629,16 @@ class TestPhase6EvalConfigAdditions:
         assert len(config.hand_written) >= 30
 
     def test_existing_eval_matrix_yaml_still_loads(self) -> None:
-        """The two anchored entries in configs/eval_matrix.yaml still validate
-        (env defaults to None for both)."""
+        """The anchored entries in configs/eval_matrix.yaml still validate.
+
+        Phase 11 / D-11-12: 3 new cross-model entries added (flag-OFF — env=None);
+        total is now 5 (was 2 at Phase 6 time). All entries remain flag-OFF so the
+        `all(env is None)` invariant holds.
+        """
         config = load_eval_matrix()
-        assert len(config.entries) == 2
+        assert (
+            len(config.entries) == 5
+        )  # D-11-12: was 2; gpt-5-mini, claude-sonnet-4-6, deepseek-reasoner added
         assert all(entry.env is None for entry in config.entries)
 
     def test_threading_mode_invariant_after_plan_06_07(self) -> None:
