@@ -646,7 +646,7 @@ def _constraints_for_case(case: EvalQuery) -> UserConstraints:
     """
     requested_primary_types = list(case.expected_constraints.requested_primary_types)
     num_stops: int | None = explicit_num_stops_from_text(case.query)
-    if num_stops is None:
+    if num_stops is None and case.expected_results is not None:
         min_s = case.expected_results.min_stops
         max_s = case.expected_results.max_stops
         if min_s is not None and max_s is not None and min_s == max_s:
