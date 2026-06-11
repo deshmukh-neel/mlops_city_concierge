@@ -863,14 +863,15 @@ async def test_multi_turn_latency_sums(mocker) -> None:
 
 @pytest.mark.asyncio
 async def test_multi_turn_intermediate_failure_captured(mocker) -> None:
-    """EVAL-06 fail-open contract: if any turn raises, the helper records a
-    synthetic `multi_turn_runner` tool error and returns a partial
-    QueryEvalResult instead of crashing the whole eval run (mirrors the
-    existing fail-open pattern in evaluate_cases).
+    """D-10-02 error-status contract: if any turn raises, the helper returns an
+    ERROR-status QueryEvalResult rather than a partial scored result. Scorers
+    are NOT invoked on the failed run.
 
     We force turn 2 to raise by scripting only one AIMessage — the second
     invocation pops from an empty list and raises IndexError. The plan()
-    coroutine propagates it; our helper's try/except catches it."""
+    coroutine propagates it; our helper's try/except catches it and returns
+    an error record (replacing the old partial-state fail-open path).
+    """
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
     llm = RecordingScriptedLLM(scripted=[_finalize_msg("turn1 reply")])
     graph = build_agent_graph(llm, max_steps=4)
@@ -880,13 +881,14 @@ async def test_multi_turn_intermediate_failure_captured(mocker) -> None:
 
     # The run did NOT crash — we have a result.
     assert isinstance(result, QueryEvalResult)
-    # Turn 1's reply survives in the partial state's final_reply.
-    assert result.final_reply == "turn1 reply"
-    # The synthetic multi_turn_runner error is in tool_errors with the
-    # failing turn's index threaded through the message.
-    assert any(
-        "multi_turn_runner" in err and "turn 1" in err for err in result.deterministic.tool_errors
-    )
+    # D-10-02: result is an ERROR record (turn 1 raised IndexError).
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error["stage"] == "turnN"  # index=1 → "turnN"
+    assert result.error["type"] == "IndexError"
+    # Scorers must NOT have been called — all check scores should be None.
+    for check_result in result.deterministic.checks.values():
+        assert check_result.score is None
     # Two plan() invocations were attempted (the second is the one that
     # raised). The recorder shows turn 1 succeeded.
     assert len(llm.seen) >= 1
@@ -1043,20 +1045,26 @@ def test_selected_cases_scenario_ids_preserves_yaml_order() -> None:
 # ============================================================================
 
 
-def test_no_partial_state_references_in_eval_agent() -> None:
-    """D-10-02: The partial_state scoring path must be fully removed from
-    eval_agent.py. grep for 'partial_state' must return zero matches.
+def test_no_partial_state_scoring_in_eval_agent() -> None:
+    """D-10-02: The partial_state SCORING path must be fully removed from
+    eval_agent.py — no call to query_result_from_state on a partial_state
+    inside an except block. Comments mentioning the old pattern are fine.
     """
     import ast
     from pathlib import Path
 
     source = Path("scripts/eval_agent.py").read_text(encoding="utf-8")
     # AST parse first to ensure no syntax errors crept in.
-    ast.parse(source)
-    assert "partial_state" not in source, (
-        "D-10-02: 'partial_state' must not appear in eval_agent.py — "
-        "the partial-state scoring path was removed in Plan 10-01 Task 2."
-    )
+    tree = ast.parse(source)
+
+    # Walk all except handlers and verify none call query_result_from_state.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler):
+            handler_src = ast.get_source_segment(source, node) or ""
+            assert "query_result_from_state" not in handler_src, (
+                "D-10-02: query_result_from_state must NOT be called inside an "
+                "except handler — use make_error_record instead."
+            )
 
 
 def test_make_error_record_called_in_prod_threading_except() -> None:
@@ -1751,8 +1759,9 @@ class TestEvaluateMultiTurnProdThreading:
 
     @pytest.mark.asyncio
     async def test_prod_mode_preserves_fail_open_on_exception(self, mocker, monkeypatch) -> None:
-        """Fail-open contract preserved in prod branch: a per-turn exception
-        records the synthetic `multi_turn_runner` scratch entry.
+        """D-10-02 error-status contract in prod branch: a per-turn exception
+        returns an ERROR-status QueryEvalResult (not a partial scored record).
+        Replaces the old 'synthetic multi_turn_runner scratch entry' behavior.
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
@@ -1763,10 +1772,13 @@ class TestEvaluateMultiTurnProdThreading:
         case = self._prod_case()
         result = await evaluate_multi_turn_case(graph, case)
 
-        assert any(
-            "multi_turn_runner" in err and "turn 1" in err
-            for err in result.deterministic.tool_errors
-        )
+        # D-10-02: exception on turn 1 produces an ERROR record.
+        assert result.status == "error"
+        assert result.error is not None
+        assert result.error["stage"] == "turnN"  # index=1 → "turnN"
+        # Scorers were NOT invoked.
+        for check_result in result.deterministic.checks.values():
+            assert check_result.score is None
 
     @pytest.mark.asyncio
     async def test_prod_mode_synthesized_history_includes_user_and_assistant(

@@ -765,36 +765,12 @@ async def _run_legacy_threading(
                 )
             )
         except Exception as exc:  # noqa: BLE001
+            # D-10-02: exceptions never reach scorers. Return an ERROR-status
+            # record instead of building a partial_state and scoring it.
+            # Stage is "turn0" for index 0, "turnN" for any subsequent turn.
             total_latency += time.monotonic() - start_time
-            # Surface the failure as a synthetic tool error on whichever
-            # state we last have a handle on; do NOT short-circuit the
-            # whole eval run (mirror the existing fail-open pattern in
-            # evaluate_cases). raw is unbound on this branch, so we report
-            # against the prior turn's state (or a fresh one if turn 0
-            # raised — first-turn failures still get a JSON row, not a
-            # bubbled exception).
-            # WR-05: deep-copy the prior turn's state before mutating its
-            # scratch dict, so a future debug hook that keeps per-turn state
-            # snapshots does not see the synthetic error injected backwards
-            # into turn N-1's diagnostics. The error logically belongs to
-            # turn N's partial state; the copy makes that explicit.
-            partial_state = (
-                state.model_copy(deep=True)
-                if state is not None
-                else ItineraryState(
-                    messages=messages_in,
-                    constraints=_constraints_for_case(case),
-                )
-            )
-            partial_state.scratch.setdefault("multi_turn_runner", []).append(
-                {
-                    "args": {"turn_index": index, "turn": turn_text},
-                    "result": {"error": f"turn {index} raised: {exc}"},
-                    "step": index,
-                    "id": f"multi_turn_runner_{index}",
-                }
-            )
-            return query_result_from_state(case, partial_state, latency_seconds=total_latency)
+            stage = "turn0" if index == 0 else "turnN"
+            return make_error_record(case, stage, exc)
         total_latency += time.monotonic() - start_time
         state = state_from_graph_output(raw)
     assert state is not None
@@ -908,30 +884,15 @@ async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalRes
                 )
             )
         except Exception as exc:  # noqa: BLE001
+            # D-10-02: exceptions never reach scorers. Return an ERROR-status
+            # record instead of building a partial_state and scoring it.
+            # Stage is "turn0" for index 0, "turnN" for any subsequent turn.
             total_latency += time.monotonic() - start_time
-            partial_state = (
-                state.model_copy(deep=True)
-                if state is not None
-                else ItineraryState(
-                    messages=messages_in,
-                    constraints=_constraints_for_case(case),
-                )
-            )
-            # Re-stamp scratch on the partial state too — the scorer reads
-            # the partial state for the failed-run report.
-            partial_state.scratch.update(prior_scratch)
-            partial_state.scratch.setdefault("multi_turn_runner", []).append(
-                {
-                    "args": {"turn_index": index, "turn": turn_text},
-                    "result": {"error": f"turn {index} raised: {exc}"},
-                    "step": index,
-                    "id": f"multi_turn_runner_{index}",
-                }
-            )
-            return (
-                query_result_from_state(case, partial_state, latency_seconds=total_latency),
-                partial_state,
-            )
+            stage = "turn0" if index == 0 else "turnN"
+            error_record = make_error_record(case, stage, exc)
+            # Return the tuple shape _run_prod_threading always returns; the
+            # state sentinel is a fresh ItineraryState (not scored).
+            return (error_record, ItineraryState())
         total_latency += time.monotonic() - start_time
         state = state_from_graph_output(raw)
 
