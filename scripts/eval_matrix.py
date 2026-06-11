@@ -45,6 +45,7 @@ from app.agent.critique.checks import CRITIQUE_THRESHOLDS
 from app.eval.config import (
     DEFAULT_EVAL_MATRIX_PATH,
     EvalMatrixConfig,
+    EvalQueriesConfig,
     MatrixEntry,
     load_eval_matrix,
 )
@@ -208,6 +209,7 @@ def _stats_for_values(values: Sequence[float]) -> dict[str, float | int]:
 def aggregate_cell_jsons(
     output_dir: Path,
     llm_provider_override: str | None = None,
+    eval_queries_config: EvalQueriesConfig | None = None,
 ) -> dict[str, Any]:
     """Build the cross-provider summary.json content from a directory of
     per-cell JSON reports (D-10 shape).
@@ -224,6 +226,7 @@ def aggregate_cell_jsons(
           "generated_at": "2026-05-21T18-00-00Z",
           "scenarios": {
             "<scenario_id>": {
+              "baseline_eligible": <bool>,  # D-10-09: False for quarantined scenarios
               "providers": {
                 "<provider>/<model>": {
                   "scorers": {
@@ -243,6 +246,14 @@ def aggregate_cell_jsons(
     override target instead of the originally configured provider. The
     per-provider scorer keys are NOT re-mapped by this field — they keep
     whatever name `_apply_override` wrote into the cell filenames.
+
+    When `eval_queries_config` is provided (D-10-09), per-scenario
+    `baseline_eligible` flags are resolved from the eval-queries config and
+    surfaced in each scenario block. Quarantined scenarios (baseline_eligible=False)
+    still appear in the output with full scorer data — they run as diagnostics —
+    but the flag tells Phase 11 baseline tooling to skip them automatically.
+    Unknown scenario IDs (not in eval_queries_config) default to eligible (True),
+    failing toward inclusion in parity enforcement (T-10-03-03).
     """
     # Group raw scorer scores per (scenario_id, provider_label, scorer).
     # Also accumulate n_scored / n_errored and the per-run errors list per
@@ -306,6 +317,14 @@ def aggregate_cell_jsons(
                 entry["message"] = err["message"]
             top_level_errors.append(entry)
 
+    # D-10-09: build a scenario_id -> baseline_eligible lookup from the
+    # eval_queries_config when provided. Unknown IDs default to True
+    # (fail toward enforcement, not silent exclusion; T-10-03-03).
+    _baseline_eligible_lookup: dict[str, bool] = {}
+    if eval_queries_config is not None:
+        for case in eval_queries_config.hand_written:
+            _baseline_eligible_lookup[case.id] = case.baseline_eligible
+
     # Compute per-(scenario, provider, scorer) stats.
     scenarios_out: dict[str, Any] = {}
     for scenario_id, scenario_providers in grouped.items():
@@ -323,12 +342,27 @@ def aggregate_cell_jsons(
                 "n_errored": n_errored,
                 "cell_valid": n_errored == 0,
             }
-        scenarios_out[scenario_id] = {"providers": providers_out}
+        # D-10-09: surface baseline_eligible in the scenario block when the
+        # eval_queries_config was provided. Default True for unknown scenarios.
+        scenario_block: dict[str, Any] = {"providers": providers_out}
+        if eval_queries_config is not None:
+            scenario_block["baseline_eligible"] = _baseline_eligible_lookup.get(scenario_id, True)
+        scenarios_out[scenario_id] = scenario_block
 
     # Include provider-key blocks that only have errored runs (no scored runs
     # means no entries in `grouped`, but error_counts has them).
     for scenario_id, scenario_err_providers in error_counts.items():
-        scenario_block_out = scenarios_out.setdefault(scenario_id, {"providers": {}})
+        scenario_block_out = scenarios_out.setdefault(
+            scenario_id,
+            {
+                "providers": {},
+                **(
+                    {"baseline_eligible": _baseline_eligible_lookup.get(scenario_id, True)}
+                    if eval_queries_config is not None
+                    else {}
+                ),
+            },
+        )
         providers_out = scenario_block_out["providers"]
         for provider_key, err_block in scenario_err_providers.items():
             if provider_key not in providers_out:

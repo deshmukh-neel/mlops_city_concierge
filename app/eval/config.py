@@ -174,6 +174,16 @@ class EvalQuery(BaseModel):
     # Phase 6 / D-06-08: nested refinement expectations, only meaningful for
     # refinement-turn scenarios. `None` default = backward compat.
     expected_refinement: ExpectedRefinement | None = None
+    # Phase 10 / D-10-09: opt-in quarantine flag. When False the scenario still
+    # runs as a diagnostic but is excluded from baseline aggregation and merge
+    # gates. The late_night_closure_cascade scenario sets this to False because
+    # its turn-2 scorers were designed against the full-tool-history threading
+    # shape (project_eval_multi_turn_threading_bug); migrating to prod threading
+    # redesigns the scenario, which is out of scope for a harness-honesty phase.
+    # Default True keeps all 30 legacy cases and omakase_mission_open_ended
+    # baseline-eligible; extra="forbid" is satisfied because the field is
+    # declared (so YAML keys that set it are accepted, not rejected).
+    baseline_eligible: bool = True
 
     @field_validator("id", "query", "reference", mode="before")
     @classmethod
