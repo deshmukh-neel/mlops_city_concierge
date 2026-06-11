@@ -829,3 +829,290 @@ def test_null_median_in_summary_exits_2_not_traceback(
 
     rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
     assert rc == 2, f"null median must exit 2 (infra failure), got rc={rc}"
+
+
+# ---------------------------------------------------------------------------
+# D-11-15: --baselines-mode synthesis + advisory (WR-05) — TDD RED
+# ---------------------------------------------------------------------------
+
+
+def _make_baseline_json(scenario_id: str, providers: dict) -> dict:
+    """Build a minimal committed-baseline JSON payload."""
+    return {
+        "scenario_id": scenario_id,
+        "generated_at": "2026-01-01T00-00-00Z",
+        "generated_by": "scripts/write_baselines.py",
+        "providers": providers,
+    }
+
+
+def _baseline_provider_cell(rate: float, n: int = 5) -> dict:
+    """A provider cell as written into a baseline JSON by write_baselines.py."""
+    return {
+        "scorers": {
+            "committed_itinerary_rate": {
+                "median": rate,
+                "min": rate,
+                "max": rate,
+                "stdev": 0.0,
+                "n": n,
+            }
+        }
+    }
+
+
+def test_build_summary_from_baselines_produces_correct_shape(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """_build_summary_from_baselines synthesises summary shape from baseline JSONs.
+
+    D-11-15: The output must match aggregate_cell_jsons exactly so _check_gate
+    can consume it without modification.
+    """
+    baselines_dir = tmp_path / "eval_baselines"
+    baselines_dir.mkdir()
+
+    scenario_id = "omakase_mission_open_ended"
+    provider_key = "openai/gpt-4o-mini"
+    rate = 0.8
+    n = 5
+
+    payload = _make_baseline_json(scenario_id, {provider_key: _baseline_provider_cell(rate, n)})
+    (baselines_dir / f"{scenario_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    summary = script._build_summary_from_baselines(baselines_dir)
+
+    # Top-level key
+    assert "scenarios" in summary, "_build_summary_from_baselines must produce 'scenarios' key"
+    assert scenario_id in summary["scenarios"], f"scenario_id '{scenario_id}' must be present"
+
+    scenario_block = summary["scenarios"][scenario_id]
+    assert scenario_block.get("baseline_eligible") is True, "baseline_eligible must be True"
+    assert provider_key in scenario_block["providers"], f"'{provider_key}' must be in providers"
+
+    cell = scenario_block["providers"][provider_key]
+    # Scorers block is verbatim from the baseline JSON
+    assert "scorers" in cell, "cell must have 'scorers'"
+    assert "committed_itinerary_rate" in cell["scorers"], "scorer must be present verbatim"
+    assert cell["scorers"]["committed_itinerary_rate"]["median"] == pytest.approx(rate)
+
+    # n_scored derived from scorers.*.n
+    assert cell["n_scored"] == n, f"n_scored must equal {n}, got {cell['n_scored']}"
+    assert cell["n_errored"] == 0, "n_errored must be 0"
+    assert cell["cell_valid"] is True, "cell_valid must be True"
+
+
+def test_build_summary_from_baselines_skips_snapshots_subdir(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """_build_summary_from_baselines must skip any file inside _snapshots/."""
+    baselines_dir = tmp_path / "eval_baselines"
+    baselines_dir.mkdir()
+    snapshots_dir = baselines_dir / "_snapshots"
+    snapshots_dir.mkdir()
+
+    # Write a JSON in _snapshots that would fail the gate if synthesised
+    snap_payload = _make_baseline_json(
+        "refinement_cheaper",
+        {"openai/gpt-4o-mini": _baseline_provider_cell(0.0, 5)},
+    )
+    (snapshots_dir / "refinement_cheaper.pre-phase11.json").write_text(
+        json.dumps(snap_payload), encoding="utf-8"
+    )
+
+    # Also write a clean baseline in the real dir — should be the only one found
+    real_payload = _make_baseline_json(
+        "omakase_mission_open_ended",
+        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+    )
+    (baselines_dir / "omakase_mission_open_ended.json").write_text(
+        json.dumps(real_payload), encoding="utf-8"
+    )
+
+    summary = script._build_summary_from_baselines(baselines_dir)
+    scenarios = summary["scenarios"]
+    assert "refinement_cheaper" not in scenarios, "_snapshots content must be excluded"
+    assert "omakase_mission_open_ended" in scenarios, "real baseline must be present"
+
+
+def test_baselines_mode_hard_gate_regression_exits_1(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """D-11-15b / main acceptance test: committed gpt-4o-mini baseline below 0.8 exits 1.
+
+    This is the synthetic-regression test proving the gate fires.
+    """
+    baselines_dir = tmp_path / "eval_baselines"
+    baselines_dir.mkdir()
+
+    # gpt-4o-mini: 0.4 < 0.8 (active hard gate) → violation
+    payload = _make_baseline_json(
+        "refinement_cheaper",
+        {"openai/gpt-4o-mini": _baseline_provider_cell(0.4, 5)},
+    )
+    (baselines_dir / "refinement_cheaper.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
+    rc = script.main(
+        [
+            "--baselines-mode",
+            "--baselines-dir",
+            str(baselines_dir),
+            "--gates-config",
+            str(gates_file),
+        ]
+    )
+    assert rc == 1, f"committed gpt-4o-mini regression below 0.8 must exit 1 (got {rc})"
+
+
+def test_baselines_mode_aspirational_miss_exits_0(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """D-11-20: aspirational (gpt-5-mini) miss is non-blocking → exit 0."""
+    baselines_dir = tmp_path / "eval_baselines"
+    baselines_dir.mkdir()
+
+    # gpt-5-mini: 0.0 < 0.6 (aspirational) — must NOT block
+    payload = _make_baseline_json(
+        "refinement_cheaper",
+        {"openai/gpt-5-mini": _baseline_provider_cell(0.0, 5)},
+    )
+    (baselines_dir / "refinement_cheaper.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
+    rc = script.main(
+        [
+            "--baselines-mode",
+            "--baselines-dir",
+            str(baselines_dir),
+            "--gates-config",
+            str(gates_file),
+        ]
+    )
+    assert rc == 0, f"aspirational miss must be non-blocking (exit 0), got {rc} — D-11-20"
+
+
+def test_baselines_mode_no_positional_summary_does_not_error(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """--baselines-mode with no positional summary arg must not crash on missing arg.
+
+    summary becomes nargs='?' (optional) when --baselines-mode is added.
+    """
+    baselines_dir = tmp_path / "eval_baselines"
+    baselines_dir.mkdir()
+    # Empty baselines dir → no scenarios → all gates not-evaluable → exit 0
+    gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
+    try:
+        rc = script.main(
+            [
+                "--baselines-mode",
+                "--baselines-dir",
+                str(baselines_dir),
+                "--gates-config",
+                str(gates_file),
+            ]
+        )
+        assert isinstance(rc, int), "main() must return int, not raise"
+    except SystemExit as e:
+        pytest.fail(f"--baselines-mode without positional summary must not SystemExit: {e}")
+
+
+def test_advisory_miss_prints_warn_line_but_does_not_change_exit_code(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """WR-05 / D-11-17: advisory miss prints ADVISORY line but never changes exit code.
+
+    Uses a gate YAML with an advisory entry on refinement_minimal_edit_median
+    to exercise the metric-name resolution path.
+    """
+    gates_yaml = """\
+gates:
+  - family: openai/gpt-4o-mini
+    status: active
+    rationale: "D-10-07: anchor"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.8
+    advisory:
+      - metric: refinement_minimal_edit_median
+        op: ">="
+        value: 0.5
+"""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(gates_yaml)
+
+    # Cell passes the hard gate but the advisory metric is below 0.5
+    cell = {
+        "scorers": {
+            "committed_itinerary_rate": {"median": 1.0},
+            "refinement_minimal_edit": {"median": 0.0},  # below advisory floor
+        },
+        "n_scored": 5,
+        "n_errored": 0,
+        "cell_valid": True,
+    }
+    summary = _make_summary({"openai/gpt-4o-mini": cell})
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 0, "advisory miss must not change exit code (must stay 0)"
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "ADVISORY" in combined, f"advisory miss must print ADVISORY line; got: {combined!r}"
+    assert "non-blocking" in combined.lower(), (
+        f"advisory message must say non-blocking; got: {combined!r}"
+    )
+
+
+def test_advisory_metric_name_resolution_refinement_minimal_edit_median(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """D-11-17: 'refinement_minimal_edit_median' advisory metric resolves to
+    'refinement_minimal_edit' scorer in the cell's scorers block.
+    """
+    gates_yaml = """\
+gates:
+  - family: openai/gpt-4o-mini
+    status: active
+    rationale: "D-10-07: anchor"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.8
+    advisory:
+      - metric: refinement_minimal_edit_median
+        op: ">="
+        value: 0.5
+"""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(gates_yaml)
+
+    # Cell passes hard gate; refinement_minimal_edit (the resolved name) is above advisory floor
+    cell = {
+        "scorers": {
+            "committed_itinerary_rate": {"median": 1.0},
+            "refinement_minimal_edit": {"median": 0.9},  # above advisory floor → no ADVISORY msg
+        },
+        "n_scored": 5,
+        "n_errored": 0,
+        "cell_valid": True,
+    }
+    summary = _make_summary({"openai/gpt-4o-mini": cell})
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    # Both hard gate and advisory pass → exit 0, no ADVISORY warning
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 0
