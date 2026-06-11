@@ -14,6 +14,10 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+# CR-04: repo-root-relative path — mirrors tests/unit/test_check_eval_gates.py:25.
+# tests/unit/ is parents[0], tests/ is parents[1], repo root is parents[2].
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def test_redact_removes_openai_key() -> None:
     """D-10-13: _redact removes OpenAI sk- key patterns."""
@@ -153,9 +157,9 @@ def test_main_help_exits_zero() -> None:
     import subprocess
     import sys
 
-    result = subprocess.run(
-        [sys.executable, "scripts/probe_provider_capture.py", "--help"],
-        cwd="/Users/pnhek/usf msds/msds-603-mlops/mlops_city_concierge",
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, str(REPO_ROOT / "scripts" / "probe_provider_capture.py"), "--help"],
+        cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
     )
