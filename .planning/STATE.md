@@ -4,7 +4,7 @@ milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 11
 status: "Phase 10 shipped — PR #105"
-last_updated: "2026-06-11T05:48:08.857Z"
+last_updated: "2026-06-11T06:04:49.011Z"
 last_activity: 2026-06-10
 progress:
   total_phases: 6
