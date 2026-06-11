@@ -1477,3 +1477,119 @@ class TestStructuralCheckErrorSchema:
             "Check 6 error-schema membership guard not found in main() source — "
             "structural-check block missing the stage membership assertion"
         )
+
+
+# ─── 10-03: baseline_eligible quarantine flag (EVAL-02) ──────────────────────
+
+
+def test_eval_query_baseline_eligible_defaults_to_true() -> None:
+    """D-10-09: EvalQuery must carry baseline_eligible: bool = True.
+    All 30 legacy cases omit this field — the default preserves them."""
+    from app.eval.config import EvalQuery
+
+    case = EvalQuery.model_validate(
+        {
+            "id": "test_case",
+            "query": "coffee in soma",
+            "reference": "Recommend a cafe in SOMA.",
+            "expected_results": {"min_stops": 1, "max_stops": 3},
+        }
+    )
+    assert case.baseline_eligible is True
+
+
+def test_eval_query_baseline_eligible_can_be_set_to_false() -> None:
+    """D-10-09: baseline_eligible: false must parse when explicitly set."""
+    from app.eval.config import EvalQuery
+
+    case = EvalQuery.model_validate(
+        {
+            "id": "test_case_quarantined",
+            "query": "late-night mission plan",
+            "reference": "A closure-cascade multi-turn scenario.",
+            "expected_results": {"min_stops": 3, "max_stops": 3},
+            "turns": ["yes accept the alternative"],
+            "baseline_eligible": False,
+        }
+    )
+    assert case.baseline_eligible is False
+
+
+def test_late_night_closure_cascade_is_baseline_ineligible() -> None:
+    """D-10-09: the late_night_closure_cascade case in eval_queries.yaml must
+    parse with baseline_eligible=False, quarantined from baseline aggregation.
+    The legacy threading shape means its turn-2 scorers are not prod-comparable."""
+    from app.eval.config import REPO_ROOT, load_eval_queries
+
+    cfg = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    ln_cases = [c for c in cfg.hand_written if c.id == "late_night_closure_cascade"]
+    assert len(ln_cases) == 1, "expected exactly one late_night_closure_cascade case"
+    assert ln_cases[0].baseline_eligible is False, (
+        "late_night_closure_cascade must have baseline_eligible: false in eval_queries.yaml "
+        "(D-10-09 quarantine — legacy threading shape, not comparable to prod)"
+    )
+
+
+def test_omakase_mission_open_ended_is_baseline_eligible() -> None:
+    """D-10-09 guard: omakase_mission_open_ended must NOT be quarantined.
+    The quarantine is opt-in and explicit (T-10-03-03: fail toward enforcement)."""
+    from app.eval.config import REPO_ROOT, load_eval_queries
+
+    cfg = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    om_cases = [c for c in cfg.hand_written if c.id == "omakase_mission_open_ended"]
+    assert len(om_cases) >= 1, "expected at least one omakase_mission_open_ended case"
+    assert all(c.baseline_eligible is True for c in om_cases), (
+        "omakase_mission_open_ended must remain baseline_eligible=True — quarantine is opt-in"
+    )
+
+
+def test_aggregate_cell_jsons_surfaces_baseline_ineligible_in_scenario_block(
+    tmp_path: Path,
+) -> None:
+    """D-10-09: aggregate_cell_jsons marks a scenario's summary block with
+    baseline_eligible=False when the scenario config has that flag.
+
+    The scenario still RUNS (cell counts are present); only the baseline-eligibility
+    marker distinguishes it so Phase 11 tooling can skip it automatically.
+    """
+    from app.eval.config import REPO_ROOT, load_eval_queries
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    # Write a cell for late_night_closure_cascade (the quarantined scenario).
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5)
+
+    eval_queries = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    summary = aggregate_cell_jsons(
+        tmp_path,
+        eval_queries_config=eval_queries,
+    )
+
+    # The scenario block must carry baseline_eligible=False.
+    scenario_block = summary["scenarios"].get("late_night_closure_cascade", {})
+    assert scenario_block.get("baseline_eligible") is False, (
+        "late_night_closure_cascade scenario block must have baseline_eligible=False "
+        "in summary.json so Phase 11 regen tooling can skip it automatically"
+    )
+
+
+def test_aggregate_cell_jsons_omakase_scenario_is_baseline_eligible(
+    tmp_path: Path,
+) -> None:
+    """D-10-09 guard: aggregate_cell_jsons does NOT mark omakase as ineligible."""
+    from app.eval.config import REPO_ROOT, load_eval_queries
+    from scripts.eval_matrix import aggregate_cell_jsons
+
+    _write_cell(tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8)
+
+    eval_queries = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
+    summary = aggregate_cell_jsons(
+        tmp_path,
+        eval_queries_config=eval_queries,
+    )
+
+    scenario_block = summary["scenarios"].get("omakase_mission_open_ended", {})
+    # Must be True (eligible) or absent (defaults to eligible for unknown scenarios).
+    baseline_eligible = scenario_block.get("baseline_eligible", True)
+    assert baseline_eligible is True, (
+        "omakase_mission_open_ended must be baseline_eligible=True in summary.json"
+    )
