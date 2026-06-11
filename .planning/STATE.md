@@ -3,15 +3,16 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 11
-status: "Phase 10 shipped — PR #105"
-last_updated: "2026-06-11T06:04:49.011Z"
-last_activity: 2026-06-10
+status: milestone_complete
+last_updated: 2026-06-11T23:04:07.634Z
+last_activity: 2026-06-11
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 26
-  completed_plans: 26
-  percent: 67
+  completed_phases: 5
+  total_plans: 35
+  completed_plans: 35
+  percent: 83
+stopped_at: Milestone complete (Phase 11 was final phase)
 ---
 
 # Project State
@@ -28,7 +29,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0)
 See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 11 — cross model baseline regen matrix expansion
+**Current focus:** Milestone complete
 
 ## Status
 
@@ -62,10 +63,11 @@ Working branch: `gsd/phase-11-cross-model-baseline-regen-matrix-expansion` (off 
 
 ## Current Position
 
-Phase: 11 (cross-model-baseline-regen-matrix-expansion) — CONTEXT GATHERED
+Phase: 11 (cross-model-baseline-regen-matrix-expansion) — EXECUTING
 Plan: Not started
-Status: Phase 11 context gathered
+Status: Milestone complete
 Last activity: 2026-06-11
+Last session: 2026-06-11T22:58:25.396Z
 
 ### Blockers
 
@@ -92,6 +94,15 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 | Phase 10 P07 | 10m | 2 tasks | 2 files |
 | Phase 10 P08 | 15m | 2 tasks | 4 files |
 | Phase 10 P09 | 5m | 2 tasks | 2 files |
+| Phase 11 P11-01 | 20m | 2 tasks | 2 files |
+| Phase 11 P02 | 3m | 1 tasks | 2 files |
+| Phase 11 P07 | 5m | 2 tasks | 4 files |
+| Phase 11 P03 | 6m | 2 tasks | 2 files |
+| Phase 11 P04 | 10m | 2 tasks | 3 files |
+| Phase 11 PP05 | 12m | 2 tasks | 3 files |
+| Phase 11 P06 | 25m | 2 tasks | 4 files |
+| Phase 11 PP08 | 90m | 4 tasks | 7 files |
+| Phase 11 P09 | 150 | 4 tasks | 2 files |
 
 ## Decisions
 
@@ -119,6 +130,24 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 - [Phase 10 P10-08]: CR-02 closed: _constraints_for_case None-guards expected_results dereference; all 30 hand_written cases including clarification cases build constraints without AttributeError
 - [Phase ?]: CR-05 closed: response_metadata, usage_metadata, tool_calls all pass through _redact(json.dumps); _scan_fixture_for_secrets helper covers regex + _SECRET_ENV_VARS; EVAL-05 fail-closed claim now accurate
 - [Phase ?]: CR-04 closed: REPO_ROOT = Path(__file__).resolve().parents[2] replaces hardcoded author path in test_main_help_exits_zero; test passes from any cwd/machine
+- [Phase 11 P11-01]: D-11-05: _NON_TOOL_SCRATCH_KEYS frozenset excludes prior_committed_stops + prior_stops_obj from tool-call counting in eval_agent.py (WR-08)
+- [Phase 11 P11-01]: D-11-06: single-turn error capture in evaluate_case wraps ainvoke in try/except, returns make_error_record(case, 'turn0', exc); scorers never invoked on failure (WR-06)
+- [Phase 11 P11-01]: D-11-04: all five derived rates in aggregate_results guarded with `if n_scored > 0 else None` — None not fail-open 1.0 on all-errored cells (WR-09)
+- [Phase 11 P11-01]: D-11-16: main() exit-code contract: 0=clean, 1=model-behavior violations, 2=infra failure (build_report exception or n_errored>0) (WR-07)
+- [Phase ?]: D-11-03: category_compliance zero-stop guard returns None (abstain) not 1.0; zero-stop guard fires before D-03 empty-requested guard
+- [Phase ?]: D-11-21: WATCH_PREFIXES extends staleness gate to cover app/llm_factory.py and configs/eval_matrix* (BASE-04)
+- [Phase ?]: WR-10: probe_provider_capture.py additional_kwargs use type-faithful json.loads(_redact(json.dumps(v, default=str))) redaction; T-11-18 mitigated
+- [Phase 11 P11-03]: D-11-02: committed_itinerary_rate threaded into summary.json scorers block as supplemental scalar bypassing CRITIQUE_THRESHOLDS whitelist; hard gates flip from NOT-EVALUABLE to enforced
+- [Phase 11 P11-03]: D-11-16 (matrix half): run_matrix returns 3-tuple (rc, violation_cells, error_cells); rc==2 on errors, rc==1 on violations-only, rc==0 clean; error dominates violation in precedence
+- [Phase 11 P11-03]: WR-11: structural-check Check 6 replaced tautological synthetic-dict with real make_error_record(EvalQuery, 'turn0', RuntimeError) schema validation
+- [Phase 11 P11-04]: D-11-12: eval_matrix.yaml gains gpt-5-mini, claude-sonnet-4-6, deepseek-reasoner flag-OFF entries; gemini excluded per PROV-04; Wave-1 deferrals in _DEFERRED_BASELINE_CELLS
+- [Phase 11 P11-04]: D-11-13: late_night_closure_cascade removed from default scenarios (stays runnable via SCENARIOS=); baseline JSON preserved per D-10-10
+- [Phase 11 P11-06]: D-11-15: baselines-mode input-source swap reuses _check_gate unchanged; _build_summary_from_baselines derives scenario_id from filename stem for legacy baseline JSONs
+- [Phase 11 P11-06]: D-11-17: advisory entries report-only WARN; refinement_minimal_edit_median resolved to refinement_minimal_edit scorer in _check_gate
+- [Phase 11 P11-06]: D-11-19: reasoning_conformance marker promoted to required CI step (no continue-on-error); mock-driven, no live keys
+- [Phase 11 P11-06]: D-11-20: aspirational misses (gpt-5-mini) remain non-blocking in baselines mode
+- [Phase ?]: D-11-20 complete: anthropic demoted to logged (billing exhaustion); gpt-5-mini refinement n=5 median=0.0 measured; gates re-ratified with live data
+- [Phase ?]: No eval_gates.yaml rationale edits needed: all gates key on committed_itinerary_rate (CR-01-clean); CR-01 contamination was confined to category_compliance; gap-closure regen delivered honest n=5 abstain-semantics baselines (D-11-09)
 
 ## Accumulated Context
 

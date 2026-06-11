@@ -180,7 +180,7 @@ Plans:
   - WR-05: `advisory` gate entries never evaluated (dead config, unresolvable metric name) — implement or delete during BASE-03 gate promotion
   - Info items IN-01..IN-06 (error-record metadata, aggregation logging, redaction edge cases) — see 10-REVIEW.md
 
-**Plans:** 8/8 base plans complete + 1 gap-closure plan (11-09) in progress
+**Plans:** 9/9 plans complete
 Plans:
 **Wave 0 — measurement-semantics pre-fixes (no live calls; D-11-01)**
 
@@ -204,7 +204,7 @@ Plans:
 
 **Gap-closure wave** *(verification 2026-06-11: 3/6 truths; CR-01/CR-02 code fixes already committed — fbd1174..054a20c; remaining gap is the contaminated empirical numbers those fixes exposed)*
 
-- [ ] 11-09-contaminated-cell-regen-PLAN.md — Re-measure ONLY the category_compliance-contaminated cells (omakase: gpt-5-mini/deepseek-chat/deepseek-reasoner; refinement: gpt-4o-mini/gpt-5-mini/deepseek-chat/deepseek-reasoner) live at n=5 under fixed abstain semantics via temp scoped matrix-configs + write_baselines + gate-rationale re-verify + closing verification (BASE-01, BASE-03)
+- [x] 11-09-contaminated-cell-regen-PLAN.md — Re-measure ONLY the category_compliance-contaminated cells (omakase: gpt-5-mini/deepseek-chat/deepseek-reasoner; refinement: gpt-4o-mini/gpt-5-mini/deepseek-chat/deepseek-reasoner) live at n=5 under fixed abstain semantics via temp scoped matrix-configs + write_baselines + gate-rationale re-verify + closing verification (BASE-01, BASE-03)
 
 ## Progress
 
@@ -220,7 +220,7 @@ Plans:
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
 | 10. Eval Harness Honesty                       | v2.1      | 9/9 | Complete    | 2026-06-11 |
-| 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 8/8 + gap-closure 11-09 | Verifying (gap-closure) | — |
+| 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 9/9 | Complete    | 2026-06-11 |
 
 ---
 
