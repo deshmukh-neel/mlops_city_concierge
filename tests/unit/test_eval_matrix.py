@@ -1601,7 +1601,7 @@ def test_aggregate_cell_jsons_omakase_scenario_is_baseline_eligible(
 # ─── CR-03: main() must wire eval_queries_config into aggregate_cell_jsons ───
 
 
-def _write_cell_with_aggregate(
+def _write_cell_scored(
     directory: Path,
     provider: str,
     model: str,
@@ -1609,7 +1609,7 @@ def _write_cell_with_aggregate(
     run_n: int,
     score_value: float,
 ) -> Path:
-    """Write a minimal cell JSON with aggregate block for aggregator tests."""
+    """Write a minimal scored cell JSON for CR-03 baseline_eligible tests."""
     fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
     path = directory / fname
     payload = {
@@ -1639,10 +1639,8 @@ def test_main_aggregation_surfaces_baseline_eligible(monkeypatch, mocker, tmp_pa
     from scripts.eval_matrix import main
 
     # Seed per-cell JSONs for two scenarios in the output dir.
-    _write_cell_with_aggregate(
-        tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5
-    )
-    _write_cell_with_aggregate(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5)
+    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
 
     # Mock run_matrix to return immediately (no subprocesses) and leave the
     # pre-seeded cell JSONs in place.
@@ -1697,7 +1695,7 @@ def test_main_aggregation_survives_missing_eval_queries_file(monkeypatch, mocker
     monkeypatch.setenv("APP_ENV", "eval")
     from scripts.eval_matrix import main
 
-    _write_cell_with_aggregate(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
 
     mocker.patch(
         "scripts.eval_matrix.run_matrix",

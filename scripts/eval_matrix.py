@@ -48,6 +48,7 @@ from app.eval.config import (
     EvalQueriesConfig,
     MatrixEntry,
     load_eval_matrix,
+    load_eval_queries,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -788,7 +789,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Write summary.json regardless of failures (partial results are still
     # informative for debugging). Thread the override through so summary.json
     # records `overridden_to` for IN-02 traceability.
-    summary = aggregate_cell_jsons(output_dir, llm_provider_override=args.llm_provider_override)
+    # CR-03: load the eval-queries config to surface baseline_eligible in each
+    # scenario block. A missing or malformed file must NOT block summary writing
+    # — fall back to None (no baseline_eligible keys) with a logged warning.
+    try:
+        _eval_queries_cfg: EvalQueriesConfig | None = load_eval_queries(args.eval_queries)
+    except (OSError, ValueError) as _exc:
+        _log.warning(
+            "eval_matrix: could not load eval-queries config %r (%s); "
+            "baseline_eligible will be omitted from summary.json",
+            args.eval_queries,
+            _exc,
+        )
+        _eval_queries_cfg = None
+    summary = aggregate_cell_jsons(
+        output_dir,
+        llm_provider_override=args.llm_provider_override,
+        eval_queries_config=_eval_queries_cfg,
+    )
     summary["failures"] = failures
 
     # D-10-03: compute total_errored across all provider-key blocks in summary.
