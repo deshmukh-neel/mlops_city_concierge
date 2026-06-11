@@ -4,13 +4,13 @@ milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 10
 status: executing
-last_updated: "2026-06-11T01:23:36.065Z"
-last_activity: 2026-06-11 -- Phase 10 planning complete
+last_updated: "2026-06-11T01:48:30.648Z"
+last_activity: 2026-06-11
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 23
-  completed_plans: 17
+  completed_plans: 20
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0)
 See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 10 — eval harness honesty (context gathered; ready to plan)
+**Current focus:** Phase 10 — eval-harness-honesty
 
 ## Status
 
@@ -60,10 +60,10 @@ Working branch: `gsd/phase-10-eval-harness-honesty` (off main @ e3dc6c2, post-PR
 
 ## Current Position
 
-Phase: 10 (eval-harness-honesty) — CONTEXT GATHERED
-Plan: 0 of TBD. Phase 9 COMPLETE (merged PR #103); pre-phase harness fixes merged PR #104.
+Phase: 10 (eval-harness-honesty) — EXECUTING
+Plan: 4 of 6
 Status: Ready to execute
-Last activity: 2026-06-11 -- Phase 10 planning complete
+Last activity: 2026-06-11
 
 ### Blockers
 
@@ -81,10 +81,22 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | Phase 9 P09-05 | 60m | 2 tasks | 1 files |
+| Phase 10 P10-01 | 60m | 3 tasks | 3 files |
+| Phase 10 P04 | 45m | 2 tasks | 6 files |
+| Phase 10 P06 | 5m | 2 tasks | 2 files |
 
 ## Decisions
 
 - [Phase ?]: Phase 9 PROV-05 atomicity audit: PASS-WITH-FINDINGS — import isolation PASS; cumulative reverse-pop revert preserves v2.0 anchor; PROV-02 chore 3800737 latent test-vs-data atomicity gap documented as note (D-06-09 precedent)
+- [Phase 10 P10-01]: D-10-01 QueryEvalResult gains status discriminator (default 'ok') + error dict field for error-run records per D-10-01 schema
+- [Phase 10 P10-01]: D-10-02 Exceptions in both threading branches return make_error_record() not partial-state scoring — scorers never reached on exception
+- [Phase 10 P10-01]: D-10-03 aggregate_results filters on status=='ok'; gains n_scored/n_errored/cell_valid — errored runs excluded from scorer means
+- [Phase ?]: D-10-05: configs/eval_gates.yaml is the single source of truth for per-family merge gates
+- [Phase ?]: D-10-06: strict refinement_minimal_edit == 1.0 gate formally retired; honest anchor median 0.0/max 0.5 post-Phase-7
+- [Phase ?]: D-10-07: gpt-4o-mini active committed_itinerary_rate >= 0.8; gpt-5-mini aspirational >= 0.6; anthropic provisional-n1 >= 0.8; deepseek/gemini logged-not-gated
+- [Phase 10 P10-06]: D-10-15: gpt-5-mini routes through OpenAIReasoningChatModel(use_responses_api=True); gpt-4o-mini stays on plain ChatOpenAI — both paths now test-locked (EVAL-06)
+- [Phase 10 P10-06]: D-10-16: ScriptedChatModel ainvoke works via BaseChatModel executor fallback proven by async test (EVAL-06)
+- [Phase 10 P10-06]: D-10-17: vibe_check sync invoke safe under LangGraph 1.2.0 ThreadPoolExecutor sync-node dispatch; doc-comment added, no code change (EVAL-06)
 
 ## Accumulated Context
 

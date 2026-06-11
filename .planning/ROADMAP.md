@@ -133,13 +133,13 @@ Plans:
   5. A per-provider live-probe Make target exists (one ~$0.01 call per provider), is documented as the mandatory pre-matrix step, and its captured real-wire responses are checked in as fixtures consumed by the adapter/conformance tests — closing the synthetic-vs-live gap that produced 4 live-only Anthropic bugs and the Gemini lcgg key-shape miss in Phase 9 (EVAL-05).
   6. The untested `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`, `app/llm_factory.py:350-361`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph (`app/agent/critique/vibe.py:78`) is made non-blocking or explicitly flag-documented as eval-only (EVAL-06).
 
-**Plans:** 6 plans (3 waves)
+**Plans:** 3/6 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 10-01-error-status-runner-PLAN.md — Error-status records in the eval runner; remove partial-state scoring; 21-14-30Z replay test (EVAL-01)
-- [ ] 10-04-eval-gates-PLAN.md — configs/eval_gates.yaml + check_eval_gates.py + docs + Make target; retire strict-1.0 gate (EVAL-03)
-- [ ] 10-06-sync-async-test-debt-PLAN.md — gpt-5 dispatch tests + ScriptedChatModel ainvoke + vibe_check executor doc (EVAL-06)
+- [x] 10-01-error-status-runner-PLAN.md — Error-status records in the eval runner; remove partial-state scoring; 21-14-30Z replay test (EVAL-01)
+- [x] 10-04-eval-gates-PLAN.md — configs/eval_gates.yaml + check_eval_gates.py + docs + Make target; retire strict-1.0 gate (EVAL-03)
+- [x] 10-06-sync-async-test-debt-PLAN.md — gpt-5 dispatch tests + ScriptedChatModel ainvoke + vibe_check executor doc (EVAL-06)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -177,7 +177,7 @@ Plans:
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
-| 10. Eval Harness Honesty                       | v2.1      | 0/TBD          | Pending     | -          |
+| 10. Eval Harness Honesty                       | v2.1      | 3/6 | In Progress|  |
 | 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
 ---
