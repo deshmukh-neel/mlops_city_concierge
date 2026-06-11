@@ -391,16 +391,27 @@ def state_from_graph_output(raw: Any) -> ItineraryState:
     raise TypeError(f"Unexpected graph output type: {type(raw).__name__}")
 
 
+# WR-08 / D-11-05: prod-threading injects these scratch keys as conversation-state
+# serialization helpers — they are NOT tool invocations. Exclude them from all
+# tool-call counting and tool-name listing so they don't inflate tool_calls_mean
+# in committed baselines.
+_NON_TOOL_SCRATCH_KEYS = frozenset({"prior_committed_stops", "prior_stops_obj"})
+
+
 def count_tool_calls(state: ItineraryState) -> int:
     """Count captured tool calls from the agent scratchpad."""
-    return sum(len(entries) for entries in state.scratch.values() if isinstance(entries, list))
+    return sum(
+        len(entries)
+        for key, entries in state.scratch.items()
+        if isinstance(entries, list) and key not in _NON_TOOL_SCRATCH_KEYS
+    )
 
 
 def tool_names_from_state(state: ItineraryState) -> list[str]:
     """Return tool names that appear in scratchpad insertion order."""
     names: list[str] = []
     for tool_name, entries in state.scratch.items():
-        if isinstance(entries, list) and entries:
+        if isinstance(entries, list) and entries and tool_name not in _NON_TOOL_SCRATCH_KEYS:
             names.append(tool_name)
     return names
 
@@ -672,15 +683,18 @@ async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
     eval_context = _eval_context_for(case)
     start_time = time.monotonic()
     try:
-        raw = await graph.ainvoke(
-            ItineraryState(
-                messages=[
-                    SystemMessage(content=eval_context),
-                    HumanMessage(content=case.query),
-                ],
-                constraints=_constraints_for_case(case),
+        try:
+            raw = await graph.ainvoke(
+                ItineraryState(
+                    messages=[
+                        SystemMessage(content=eval_context),
+                        HumanMessage(content=case.query),
+                    ],
+                    constraints=_constraints_for_case(case),
+                )
             )
-        )
+        except Exception as exc:  # noqa: BLE001 — D-11-06: mirror multi-turn error capture
+            return make_error_record(case, "turn0", exc)
     finally:
         latency_seconds = time.monotonic() - start_time
     state = state_from_graph_output(raw)
@@ -1060,16 +1074,27 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
         # Standard aggregate fields — computed over scored_results only.
         "query_count": query_count,
         "queries_with_violations": queries_with_violations,
-        "deterministic_pass_rate": 1.0 - rate(queries_with_violations, n_scored),
-        "deterministic_violation_rate": rate(queries_with_violations, n_scored),
+        # WR-09 / D-11-04: guard all derived rates against n_scored == 0.
+        # An all-errored cell publishes None, never the fail-open 1.0 that
+        # rate(0, 0)==0.0 would produce via the (1.0 - 0.0) expression.
+        "deterministic_pass_rate": (
+            (1.0 - rate(queries_with_violations, n_scored)) if n_scored > 0 else None
+        ),
+        "deterministic_violation_rate": (
+            rate(queries_with_violations, n_scored) if n_scored > 0 else None
+        ),
         "expected_results_mismatch_count": expected_results_mismatch_count,
-        "expected_results_mismatch_rate": rate(expected_results_mismatch_count, n_scored),
+        "expected_results_mismatch_rate": (
+            rate(expected_results_mismatch_count, n_scored) if n_scored > 0 else None
+        ),
         "tool_error_count": sum(
             len(result.deterministic.tool_errors) for result in scored_results
         ),
         "queries_with_tool_errors": queries_with_tool_errors,
-        "tool_error_rate": rate(queries_with_tool_errors, n_scored),
-        "tool_success_rate": 1.0 - rate(queries_with_tool_errors, n_scored),
+        "tool_error_rate": rate(queries_with_tool_errors, n_scored) if n_scored > 0 else None,
+        "tool_success_rate": (
+            (1.0 - rate(queries_with_tool_errors, n_scored)) if n_scored > 0 else None
+        ),
         # check_error_count: individual scorer exceptions on COMPLETED runs.
         # Distinct from n_errored (whole-run failures) per D-10-03 / PATTERNS.md.
         "check_error_count": sum(
@@ -1186,19 +1211,30 @@ def write_report(path: str | Path, report: EvalRunReport) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run deterministic evals from the command line."""
+    """Run deterministic evals from the command line.
+
+    Exit codes:
+        0 = clean — no infra failures, no model-behavior violations
+        1 = model-behavior violations (expected in exploratory runs; rerun not needed)
+        2 = infra failure (embedding quota, DB down, etc.; rerun needed)
+    """
     args = parse_args(argv)
     try:
         report = asyncio.run(build_report(args))
     except Exception as exc:  # noqa: BLE001
         print(f"eval_agent failed: {exc}", file=sys.stderr)
-        return 1
+        return 2  # D-11-16: infrastructure failure — was 1 before D-11-16
 
     rendered = json.dumps(report_to_dict(report), indent=2, sort_keys=True)
     print(rendered)
     if args.output:
         write_report(args.output, report)
-    return 1 if report_has_errors(report) or report_has_violations(report) else 0
+
+    if report_has_errors(report):
+        return 2  # infra failure: errored runs need a rerun
+    if report_has_violations(report):
+        return 1  # model-behavior violations: expected, non-blocking
+    return 0
 
 
 if __name__ == "__main__":
