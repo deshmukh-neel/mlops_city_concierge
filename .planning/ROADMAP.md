@@ -133,7 +133,22 @@ Plans:
   5. A per-provider live-probe Make target exists (one ~$0.01 call per provider), is documented as the mandatory pre-matrix step, and its captured real-wire responses are checked in as fixtures consumed by the adapter/conformance tests — closing the synthetic-vs-live gap that produced 4 live-only Anthropic bugs and the Gemini lcgg key-shape miss in Phase 9 (EVAL-05).
   6. The untested `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`, `app/llm_factory.py:350-361`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph (`app/agent/critique/vibe.py:78`) is made non-blocking or explicitly flag-documented as eval-only (EVAL-06).
 
-**Plans**: TBD
+**Plans:** 6 plans (3 waves)
+Plans:
+**Wave 1**
+
+- [ ] 10-01-error-status-runner-PLAN.md — Error-status records in the eval runner; remove partial-state scoring; 21-14-30Z replay test (EVAL-01)
+- [ ] 10-04-eval-gates-PLAN.md — configs/eval_gates.yaml + check_eval_gates.py + docs + Make target; retire strict-1.0 gate (EVAL-03)
+- [ ] 10-06-sync-async-test-debt-PLAN.md — gpt-5 dispatch tests + ScriptedChatModel ainvoke + vibe_check executor doc (EVAL-06)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 10-02-summary-error-threading-PLAN.md — Thread n_scored/n_errored/errors through summary.json + structural-check (EVAL-01) [depends 10-01]
+- [ ] 10-05-live-probe-fixtures-PLAN.md — Generalized probe_provider_capture + redacted fixtures + adapter fixture tests (EVAL-05) [depends 10-04]
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 10-03-quarantine-and-parity-PLAN.md — Quarantine late_night (baseline_eligible) + verify PR #104 parity test (EVAL-02, EVAL-04) [depends 10-02]
 
 ### Phase 11: Cross-Model Baseline Regen + Matrix Expansion
 
