@@ -2,17 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Reasoning-Model Compat
-current_phase: 10
-status: ready_to_plan
-last_updated: 2026-06-11T05:27:12.980Z
-last_activity: 2026-06-11
+current_phase: 11
+status: "Phase 10 shipped — PR #105"
+last_updated: "2026-06-11T05:48:08.857Z"
+last_activity: 2026-06-10
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 26
   completed_plans: 26
   percent: 67
-stopped_at: Phase 10 complete (9/9) — ready to discuss Phase 11
 ---
 
 # Project State
@@ -63,8 +62,8 @@ Working branch: `gsd/phase-10-eval-harness-honesty` (off main @ e3dc6c2, post-PR
 
 Phase: 10 (eval-harness-honesty) — EXECUTING
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-06-11
+Status: Phase 10 shipped — PR #105
+Last activity: 2026-06-10
 
 ### Blockers
 
