@@ -173,8 +173,11 @@ make eval-gates-check-baselines
 This runs the same code path that CI uses (D-11-15). It reads the committed
 `configs/eval_baselines/*.json` and checks them against `configs/eval_gates.yaml`.
 
-Expected result: exit 0. The only acceptable non-zero exit is a **non-blocking aspirational
-miss** on `openai/gpt-5-mini` — that gap is a known v2.2 target, not a regen failure.
+Expected result: exit 0 (an `ASPIRATIONAL miss` line for `openai/gpt-5-mini` on stdout is
+acceptable and does **not** change the exit code — that gap is a known v2.2 target, not a
+regen failure). **ANY non-zero exit is a stop condition:** 1 = hard-gate violation (see
+"gpt-4o-mini `committed_itinerary_rate` below 0.8" below), 2 = infra failure (missing or
+empty baselines dir, malformed JSON).
 
 ### Step 7 — Commit baselines and snapshots together
 
