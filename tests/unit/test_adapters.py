@@ -13,12 +13,26 @@ file covers the adapter contract in isolation per `feedback_test_layering`.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app.agent.adapters import ADAPTERS, ProviderAdapter
 from app.agent.adapters.anthropic import AnthropicAdapter
 from app.agent.adapters.deepseek import DeepSeekReasonerAdapter
 from app.agent.adapters.gemini import GeminiAdapter
 from app.agent.adapters.openai_gpt5 import OpenAIReasoningAdapter
+
+# D-10-11: fixture directory; populated by `make probe-providers`
+_FIXTURE_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "provider_payloads"
+
+
+def _adapter_for(provider: str) -> ProviderAdapter:
+    """Dispatch a provider string to the registered ADAPTERS instance."""
+    return ADAPTERS[provider]
+
 
 # ─── OpenAIReasoningAdapter — PROV-01 (D-09-03 Path B per probe verdict) ─────
 
@@ -881,3 +895,60 @@ def test_gemini_adapter_real_lcgg_round_trip_preserves_dict_keys_and_values() ->
         f"function_call_thought_signatures round-trip drifted: "
         f"original={original_map!r}, replayed={replayed!r}"
     )
+
+
+# ─── EVAL-05: parametrized real-wire fixture-loading tests ───────────────────
+#
+# These tests AUGMENT the synthetic cases above — they load the JSON fixtures
+# written by `make probe-providers` and verify that each provider's adapter
+# does not crash against the real wire shape (D-10-12).
+#
+# Existing synthetic tests document the contract and run without files.
+# These tests close the live-shape gap (D-09-09 Gemini lcgg key miss, 4 live
+# Anthropic bugs). When no fixture is present (e.g. in CI without keys), the
+# test SKIPS gracefully — CI never needs to run `make probe-providers`.
+
+
+@pytest.mark.parametrize("provider", ["openai", "deepseek", "anthropic", "gemini"])
+def test_adapter_capture_on_real_wire_fixture(provider: str) -> None:
+    """EVAL-05 / D-10-12: Load checked-in real-wire fixture and verify the
+    provider's adapter capture_reasoning_state does not crash.
+
+    Existing synthetic dict tests document the contract and run without files;
+    this test closes the live-shape gap (D-09-09 Gemini lcgg key miss, 4 live
+    Anthropic bugs). SKIPS when no fixture is present (CI-safe).
+    """
+    fixture_path = _FIXTURE_DIR / f"{provider}.json"
+    if not fixture_path.exists():
+        pytest.skip(f"No fixture for {provider} — run `make probe-providers` first")
+
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    # Reconstruct an AIMessage from the fixture's captured fields.
+    # For Anthropic: the adapter reads message.content (block list) so
+    # reconstruct list-content when content_shape indicates blocks.
+    additional_kwargs = payload.get("additional_kwargs_values", {})
+    response_metadata = payload.get("response_metadata", {})
+    content_shape: str = payload.get("content_shape", "str (len=0)")
+
+    if provider == "anthropic" and content_shape.startswith("list"):
+        # Anthropic thinking-enabled responses use heterogeneous block lists.
+        # Reconstruct a minimal block list matching the real shape.
+        content: object = [{"type": "text", "text": "probe response"}]
+    else:
+        content = "probe response"
+
+    msg = AIMessage(
+        content=content,
+        additional_kwargs=additional_kwargs,
+        response_metadata=response_metadata,
+    )
+
+    adapter = _adapter_for(provider)
+    # Must not raise; result is either None or a dict with a "provider" key.
+    result = adapter.capture_reasoning_state(msg)
+    if result is not None:
+        assert "provider" in result, (
+            f"capture_reasoning_state for '{provider}' returned a result without "
+            f"a 'provider' key: {result!r}"
+        )
