@@ -1242,6 +1242,146 @@ def test_query_eval_result_with_error_serializes_via_asdict() -> None:
     assert decoded["error"]["stage"] == "turn0"
 
 
+# ============================================================================
+# EVAL-01 / Plan 10-01 Task 3: aggregate_results filters on status=="ok";
+# n_scored / n_errored / errors[] added; 21-14-30Z replay acceptance test
+# ============================================================================
+
+
+def test_aggregate_results_filters_scored_only() -> None:
+    """D-10-03: aggregate_results must compute scorer means over ONLY results
+    with status=='ok'. An all-error result list yields n_scored==0 and scorer
+    means of 0.0 (not 1.0 from Branch-1 abstain).
+    """
+    from scripts.eval_agent import aggregate_results, make_error_record
+
+    error_record = make_error_record(eval_case(), "turn0", Exception("quota"))
+    aggregate = aggregate_results([error_record])
+
+    assert aggregate["n_scored"] == 0
+    assert aggregate["n_errored"] == 1
+    # Scorer means must be 0.0 (empty list → mean returns 0.0), NOT 1.0.
+    assert aggregate["refinement_minimal_edit_mean"] == 0.0
+    assert aggregate["category_compliance_mean"] == 0.0
+
+
+def test_aggregate_results_n_scored_and_n_errored_counts() -> None:
+    """D-10-03: aggregate dict gains n_scored, n_errored, errors list."""
+    from scripts.eval_agent import aggregate_results, make_error_record
+
+    ok_record = query_result()
+    error_record = make_error_record(eval_case(id="fail_case"), "turnN", ValueError("db down"))
+    aggregate = aggregate_results([ok_record, error_record])
+
+    assert aggregate["n_scored"] == 1
+    assert aggregate["n_errored"] == 1
+    assert isinstance(aggregate["errors"], list)
+    assert len(aggregate["errors"]) == 1
+    err = aggregate["errors"][0]
+    assert err["stage"] == "turnN"
+    assert err["type"] == "ValueError"
+
+
+def test_aggregate_results_ok_only_excludes_errored_from_means() -> None:
+    """D-10-03: scored means only include status=='ok' results."""
+    from scripts.eval_agent import aggregate_results, make_error_record
+
+    ok_record = query_result()  # all scores=1.0
+    error_record = make_error_record(eval_case(), "turn0", Exception("fail"))
+    aggregate = aggregate_results([ok_record, error_record])
+
+    # Only the ok_record contributes to refinement_minimal_edit_mean.
+    assert aggregate["refinement_minimal_edit_mean"] == 1.0
+    assert aggregate["n_scored"] == 1
+    assert aggregate["n_errored"] == 1
+
+
+def test_report_has_errors_detects_n_errored() -> None:
+    """D-10-03: report_has_errors returns True when n_errored > 0."""
+    from scripts.eval_agent import make_error_record
+
+    error_record = make_error_record(eval_case(), "turn0", Exception("fail"))
+    report = EvalRunReport(
+        eval_queries_path="configs/eval_queries.yaml",
+        llm_provider="openai",
+        chat_model="gpt-4o-mini",
+        query_count=1,
+        aggregate={"check_error_count": 0, "n_errored": 1},
+        queries=[error_record],
+    )
+    assert report_has_errors(report) is True
+
+
+@pytest.mark.asyncio
+async def test_21_14_30z_replay_turn0_exception_produces_error_record(mocker) -> None:
+    """D-10-04: 21-14-30Z replay — turn-0 LLM exception must produce a
+    status='error' record. The former fail-open outcome (Branch-1 abstain 1.0)
+    must NOT appear on the all-error report.
+    """
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    llm = RaisingChatModel(raise_exc=RuntimeError, raise_msg="429 quota exceeded")
+    graph = build_agent_graph(llm, max_steps=4)
+
+    case = eval_case(turns=["this should error on turn 0"])
+    result = await evaluate_case(graph, case)
+
+    assert result.status == "error"
+    assert result.error["stage"] == "turn0"
+    assert result.error["type"] == "RuntimeError"
+    # Former fail-open outcome: Branch-1 abstain returned 1.0 on partial state.
+    # Now scorers must NOT be called; all scores are None.
+    for check_result in result.deterministic.checks.values():
+        assert check_result.score is None
+
+
+@pytest.mark.asyncio
+async def test_21_14_30z_replay_all_error_report_has_zero_scored(mocker) -> None:
+    """D-10-04: 21-14-30Z replay — an all-error run produces n_scored==0
+    and refinement_minimal_edit_mean != 1.0. This directly proves the
+    Branch-1-abstain-1.0 fail-open is gone.
+    """
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    from scripts.eval_agent import aggregate_results, make_error_record
+
+    # Simulate the 21-14-30Z scenario: all three cases errored.
+    error_records = [
+        make_error_record(eval_case(id="case_a"), "turn0", RuntimeError("429")),
+        make_error_record(eval_case(id="case_b"), "turn0", RuntimeError("429")),
+        make_error_record(eval_case(id="case_c"), "turnN", RuntimeError("db down")),
+    ]
+    aggregate = aggregate_results(error_records)
+
+    # D-10-04: n_scored must be 0.
+    assert aggregate["n_scored"] == 0
+    assert aggregate["n_errored"] == 3
+    # Former fail-open: refinement_minimal_edit_mean was 1.0 due to Branch-1
+    # abstain returning 1.0 on partial state. Now it must be 0.0.
+    assert aggregate["refinement_minimal_edit_mean"] != 1.0
+    assert aggregate["refinement_minimal_edit_mean"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_21_14_30z_replay_turn_n_exception_produces_error_record(mocker) -> None:
+    """D-10-04: 21-14-30Z replay — turn-N (N>=1) exception produces status='error'
+    with error.stage='turnN'.
+    """
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+
+    # Turn 0 succeeds (scripted), turn 1 raises.
+    from tests._helpers.scripted_llm import ScriptedLLM
+
+    # Turn 0: scripted to produce a final reply; turn 1 will raise via exhaustion.
+    llm_turn0 = ScriptedLLM(scripted=[_finalize_msg("turn0 reply")])
+    graph = build_agent_graph(llm_turn0, max_steps=4)
+
+    case = eval_case(turns=["this turn should error"])
+    result = await evaluate_case(graph, case)
+
+    assert result.status == "error"
+    assert result.error["stage"] == "turnN"
+    assert result.error["type"] == "IndexError"  # ScriptedLLM exhaustion
+
+
 def test_selected_cases_scenario_ids_returns_empty_when_no_match() -> None:
     """Unknown scenario id returns an empty list (rather than crashing) so
     the matrix runner sees zero queries and writes a clean empty report."""
