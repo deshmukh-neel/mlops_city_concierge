@@ -37,9 +37,9 @@ Each requirement maps to exactly one phase. Categories align 1:1 with phases for
 ### Eval Harness Honesty (Phase 10 — re-scoped 2026-06-10)
 
 - [x] **EVAL-01**: Eval runs whose turn-0 or turn-1 raises an exception produce an ERROR-status record excluded from score aggregation and surfaced in `summary.json` as an error count — never a fail-open 1.0 or fail-loud 0.0. Closes the three infra-failure scoring paths proven by `eval_reports/2026-06-05T21-14-30Z/` (all 25 cells were quota/temperature failures yet medians read 1.0).
-- [ ] **EVAL-02**: `late_night_closure_cascade` runs prod threading (text-only history, mirroring `/chat`) or is explicitly quarantined from baselines and merge gates, with the decision recorded next to the scenario config.
+- [x] **EVAL-02**: `late_night_closure_cascade` runs prod threading (text-only history, mirroring `/chat`) or is explicitly quarantined from baselines and merge gates, with the decision recorded next to the scenario config.
 - [x] **EVAL-03**: Per-family merge gates are re-derived from honest anchor data (the documented strict `refinement_minimal_edit == 1.0` gate is unsatisfiable — anchor median is 0.0/max 0.5 post-Phase-7) and enforced by an executable Makefile target that exits non-zero on regression.
-- [ ] **EVAL-04**: A test asserts baseline JSON provider cells match matrix YAML entries in both directions, modulo documented deferrals (initial test shipped in PR #104).
+- [x] **EVAL-04**: A test asserts baseline JSON provider cells match matrix YAML entries in both directions, modulo documented deferrals (initial test shipped in PR #104).
 - [x] **EVAL-05**: A per-provider live-probe Make target (~$0.01/call) is the documented mandatory pre-matrix step; captured real-wire responses are checked in as fixtures consumed by adapter/conformance tests.
 - [x] **EVAL-06**: The `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph is made non-blocking or flag-documented as eval-only.
 
@@ -108,9 +108,9 @@ Updated during roadmap creation (Phase 10 of this workflow).
 | PROV-04 | Phase 9 | Complete |
 | PROV-05 | Phase 9 | Complete |
 | EVAL-01 | Phase 10 | Complete |
-| EVAL-02 | Phase 10 | Pending |
+| EVAL-02 | Phase 10 | Complete |
 | EVAL-03 | Phase 10 | Complete |
-| EVAL-04 | Phase 10 | Pending |
+| EVAL-04 | Phase 10 | Complete |
 | EVAL-05 | Phase 10 | Complete |
 | EVAL-06 | Phase 10 | Complete |
 | BASE-01 | Phase 11 | Pending |
