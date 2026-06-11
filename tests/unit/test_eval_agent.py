@@ -679,6 +679,7 @@ def test_evaluate_multi_turn_case_is_async_helper() -> None:
 #     (turn N's AIMessages are re-injected into turn N+1's input state).
 
 
+from langchain_core.language_models import BaseChatModel  # noqa: E402
 from langchain_core.messages import (  # noqa: E402
     AIMessage,
     HumanMessage,
@@ -688,6 +689,27 @@ from langchain_core.messages import (  # noqa: E402
 from app.agent.graph import build_agent_graph  # noqa: E402
 from scripts.eval_agent import evaluate_case  # noqa: E402
 from tests._helpers.scripted_llm import RecordingScriptedLLM  # noqa: E402
+
+
+class RaisingChatModel(BaseChatModel):
+    """Test stub that raises on every _generate call.
+
+    Simulates infra failures: 429 quota, DB-down, 400 config errors.
+    Used for the 21-14-30Z replay acceptance tests (D-10-04, EVAL-01).
+    """
+
+    raise_exc: type[Exception] = Exception
+    raise_msg: str = "simulated infra failure"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        raise self.raise_exc(self.raise_msg)
+
+    @property
+    def _llm_type(self) -> str:
+        return "raising"
+
+    def bind_tools(self, tools, **kwargs):
+        return self
 
 
 def _finalize_msg(content: str) -> AIMessage:
@@ -1013,6 +1035,91 @@ def test_selected_cases_scenario_ids_preserves_yaml_order() -> None:
     cases = [eval_case(id="a"), eval_case(id="b"), eval_case(id="c")]
     filtered = selected_cases(cases, None, scenario_ids=["c", "a"])
     assert [c.id for c in filtered] == ["a", "c"]
+
+
+# ============================================================================
+# EVAL-01 / Plan 10-01 Task 2: partial_state scoring REMOVED; error records on
+# exception in both threading branches (D-10-02)
+# ============================================================================
+
+
+def test_no_partial_state_references_in_eval_agent() -> None:
+    """D-10-02: The partial_state scoring path must be fully removed from
+    eval_agent.py. grep for 'partial_state' must return zero matches.
+    """
+    import ast
+    from pathlib import Path
+
+    source = Path("scripts/eval_agent.py").read_text(encoding="utf-8")
+    # AST parse first to ensure no syntax errors crept in.
+    ast.parse(source)
+    assert "partial_state" not in source, (
+        "D-10-02: 'partial_state' must not appear in eval_agent.py — "
+        "the partial-state scoring path was removed in Plan 10-01 Task 2."
+    )
+
+
+def test_make_error_record_called_in_prod_threading_except() -> None:
+    """D-10-02: _run_prod_threading except clause must call make_error_record,
+    not query_result_from_state on partial state.
+    """
+    import ast
+    from pathlib import Path
+
+    source = Path("scripts/eval_agent.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    # Find _run_prod_threading function and check its except handlers.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_prod_threading":
+            source_segment = ast.get_source_segment(source, node) or ""
+            assert "make_error_record" in source_segment, (
+                "_run_prod_threading except clause must call make_error_record"
+            )
+            break
+    else:
+        pytest.fail("_run_prod_threading not found in eval_agent.py")
+
+
+def test_make_error_record_called_in_legacy_threading_except() -> None:
+    """D-10-02: _run_legacy_threading except clause must call make_error_record."""
+    import ast
+    from pathlib import Path
+
+    source = Path("scripts/eval_agent.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_legacy_threading":
+            source_segment = ast.get_source_segment(source, node) or ""
+            assert "make_error_record" in source_segment, (
+                "_run_legacy_threading except clause must call make_error_record"
+            )
+            break
+    else:
+        pytest.fail("_run_legacy_threading not found in eval_agent.py")
+
+
+@pytest.mark.asyncio
+async def test_legacy_threading_turn0_exception_produces_error_record(mocker) -> None:
+    """D-10-02 / EVAL-01: A turn-0 exception in _run_legacy_threading returns
+    a QueryEvalResult with status='error' and error.stage='turn0'.
+    Scorers are NOT invoked on the failed run.
+    """
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    llm = RaisingChatModel(raise_exc=RuntimeError, raise_msg="quota exceeded")
+    graph = build_agent_graph(llm, max_steps=4)
+
+    case = eval_case(turns=["make it cheaper"])
+    result = await evaluate_case(graph, case)
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error["stage"] == "turn0"
+    assert result.error["type"] == "RuntimeError"
+    # Scorers must NOT have been called — all check scores should be None.
+    for check_result in result.deterministic.checks.values():
+        assert check_result.score is None, f"Scorer ran on a failed turn: {check_result}"
 
 
 # ============================================================================
