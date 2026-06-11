@@ -133,7 +133,7 @@ Plans:
   5. A per-provider live-probe Make target exists (one ~$0.01 call per provider), is documented as the mandatory pre-matrix step, and its captured real-wire responses are checked in as fixtures consumed by the adapter/conformance tests — closing the synthetic-vs-live gap that produced 4 live-only Anthropic bugs and the Gemini lcgg key-shape miss in Phase 9 (EVAL-05).
   6. The untested `build_chat_model` gpt-5 dispatch branch (`use_responses_api=True`, `app/llm_factory.py:350-361`) has factory-level tests; `ScriptedChatModel` is exercised via `ainvoke`; the blocking sync `vibe_check` LLM call inside the async graph (`app/agent/critique/vibe.py:78`) is made non-blocking or explicitly flag-documented as eval-only (EVAL-06).
 
-**Plans:** 3/6 plans executed
+**Plans:** 4/6 plans executed
 Plans:
 **Wave 1**
 
@@ -143,7 +143,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 10-02-summary-error-threading-PLAN.md — Thread n_scored/n_errored/errors through summary.json + structural-check (EVAL-01) [depends 10-01]
+- [x] 10-02-summary-error-threading-PLAN.md — Thread n_scored/n_errored/errors through summary.json + structural-check (EVAL-01) [depends 10-01]
 - [ ] 10-05-live-probe-fixtures-PLAN.md — Generalized probe_provider_capture + redacted fixtures + adapter fixture tests (EVAL-05) [depends 10-04]
 
 **Wave 3** *(blocked on Wave 2)*
@@ -177,7 +177,7 @@ Plans:
 | 7. Prompt/Rubric Decoupling                    | v2.1      | 7/7 | Complete   | 2026-06-04 |
 | 8. Reasoning-State Contract + Harness          | v2.1      | 5/5 | Complete    | 2026-06-04 |
 | 9. Per-Provider State Preservation Impls       | v2.1      | 5/5 | Complete   | 2026-06-05 |
-| 10. Eval Harness Honesty                       | v2.1      | 3/6 | In Progress|  |
+| 10. Eval Harness Honesty                       | v2.1      | 4/6 | In Progress|  |
 | 11. Cross-Model Baseline Regen + Matrix        | v2.1      | 0/TBD          | Pending     | -          |
 
 ---

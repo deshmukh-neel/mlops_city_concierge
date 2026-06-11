@@ -4,13 +4,13 @@ milestone: v2.1
 milestone_name: Reasoning-Model Compat
 current_phase: 10
 status: executing
-last_updated: "2026-06-11T01:48:30.648Z"
+last_updated: "2026-06-11T01:55:38.033Z"
 last_activity: 2026-06-11
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 23
-  completed_plans: 20
+  completed_plans: 21
   percent: 50
 ---
 
@@ -61,7 +61,7 @@ Working branch: `gsd/phase-10-eval-harness-honesty` (off main @ e3dc6c2, post-PR
 ## Current Position
 
 Phase: 10 (eval-harness-honesty) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-06-11
 
@@ -84,6 +84,7 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 | Phase 10 P10-01 | 60m | 3 tasks | 3 files |
 | Phase 10 P04 | 45m | 2 tasks | 6 files |
 | Phase 10 P06 | 5m | 2 tasks | 2 files |
+| Phase 10 P02 | 30m | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -97,6 +98,9 @@ None active for Phase 9 completion. PROV-05 atomicity audit completed (`.plannin
 - [Phase 10 P10-06]: D-10-15: gpt-5-mini routes through OpenAIReasoningChatModel(use_responses_api=True); gpt-4o-mini stays on plain ChatOpenAI — both paths now test-locked (EVAL-06)
 - [Phase 10 P10-06]: D-10-16: ScriptedChatModel ainvoke works via BaseChatModel executor fallback proven by async test (EVAL-06)
 - [Phase 10 P10-06]: D-10-17: vibe_check sync invoke safe under LangGraph 1.2.0 ThreadPoolExecutor sync-node dispatch; doc-comment added, no code change (EVAL-06)
+- [Phase 10 P10-02]: D-10-03 (aggregator half): aggregate_cell_jsons reads n_scored/n_errored/errors from each cell JSON; per-provider block gains n_scored/n_errored/cell_valid in summary.json
+- [Phase 10 P10-02]: T-10-02-02: total_errored>0 forces non-zero exit with distinct INVALID_FOR_BASELINE stderr line; error count separate from violation count
+- [Phase 10 P10-02]: structural-check Check 6: synthetic error cell validates stage in {'setup','turn0','turnN'} — error-schema contract enforced in CI without live calls
 
 ## Accumulated Context
 
