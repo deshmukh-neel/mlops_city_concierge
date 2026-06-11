@@ -2,16 +2,15 @@
 phase: 10-eval-harness-honesty
 reviewed: 2026-06-10T00:00:00Z
 depth: standard
-files_reviewed: 20
+files_reviewed: 19
 files_reviewed_list:
-  - Makefile
   - app/agent/critique/checks.py
   - app/agent/critique/vibe.py
   - app/eval/config.py
   - configs/eval_baselines/late_night_closure_cascade.json
   - configs/eval_gates.yaml
-  - configs/eval_matrix.yaml
   - configs/eval_matrix_refinement.yaml
+  - configs/eval_matrix.yaml
   - configs/eval_queries.yaml
   - docs/eval_gates.md
   - scripts/check_eval_gates.py
@@ -25,382 +24,269 @@ files_reviewed_list:
   - tests/unit/test_llm_factory.py
   - tests/unit/test_probe_provider_capture.py
 findings:
-  critical: 5
-  warning: 9
-  info: 5
-  total: 19
+  critical: 0
+  warning: 12
+  info: 6
+  total: 18
 status: issues_found
 ---
 
-# Phase 10: Code Review Report
+# Phase 10: Code Review Report (Re-Review after Gap Closure 10-07..10-09)
 
 **Reviewed:** 2026-06-10
 **Depth:** standard
-**Files Reviewed:** 20
+**Files Reviewed:** 19
 **Status:** issues_found
 
 ## Summary
 
-Phase 10's stated contract is harness honesty: ERROR-status records excluded from
-aggregation, late_night quarantine honored, satisfiable gates enforced via
-`eval_gates.yaml` + `check_eval_gates.py`, and fail-closed API-key redaction in the
-provider probe. The error-record plumbing (D-10-01..04) is well built and well tested.
-However, three of the phase's headline deliverables do not actually work end-to-end:
+This is a re-review after gap-closure plans 10-07..10-09 shipped fixes for the prior
+review's five Critical findings. **All five Critical fixes are verified sound:**
 
-1. The gate checker reads a **summary.json schema that the matrix runner never
-   produces** — every gate is permanently NOT-EVALUABLE and the checker exits 0
-   (verified empirically). The unit tests bake in the same wrong schema, so CI is green.
-2. The **D-10-09 quarantine flag is inert in the real pipeline** — `main()` never passes
-   `eval_queries_config` to `aggregate_cell_jsons`, so no real summary.json ever carries
-   `baseline_eligible`.
-3. The **probe's fail-closed redaction claim does not hold** — three of the written
-   fixture fields bypass `_redact` entirely, and the post-write guard does not check
-   env-var-sourced secret values.
+- **CR-01 (gate checker schema) — FIXED.** `_check_gate` now walks the real
+  `summary['scenarios'][*]['providers'][family]` shape (`scripts/check_eval_gates.py:161-179`),
+  skips `baseline_eligible: false` scenarios, and reports NOT-EVALUABLE on absent
+  cells. The test suite was rewritten to the nested shape and gained a true integration
+  test (`test_integration_real_aggregate_output_fires_hard_gate`) that feeds the checker
+  actual `aggregate_cell_jsons()` output and asserts exit 1 — exactly the test class
+  whose absence let CR-01 ship. Verified by direct execution.
+- **CR-02 (`_constraints_for_case` crash) — FIXED.** The YAML fallback at
+  `scripts/eval_agent.py:649-653` now guards `case.expected_results is not None`.
+  Regression tests cover the specific clarification case and a loop over every
+  checked-in case (`TestConstraintsForCaseClarificationGuard`).
+- **CR-03 (quarantine flag never wired) — FIXED, with one residual gap (WR-01 below).**
+  `main()` now loads the eval-queries config and threads it into `aggregate_cell_jsons`
+  (`scripts/eval_matrix.py:795-809`), with an `(OSError, ValueError)` fallback. New tests
+  invoke `main()` end-to-end and assert `baseline_eligible` appears in the written
+  summary.json for both quarantined and eligible scenarios.
+- **CR-04 (hardcoded absolute path) — FIXED.** `tests/unit/test_probe_provider_capture.py:19`
+  derives `REPO_ROOT` from `Path(__file__).resolve().parents[2]`; the subprocess smoke
+  test is now portable.
+- **CR-05 (probe redaction not fail-closed) — FIXED.** `response_metadata`,
+  `usage_metadata`, and `tool_calls` are all routed through
+  `json.dumps → _redact → json.loads` (structure-preserving redaction,
+  `scripts/probe_provider_capture.py:225-235`), and the post-write guard is now the
+  extracted production helper `_scan_fixture_for_secrets` which checks BOTH the regex
+  patterns AND the runtime values of `_SECRET_ENV_VARS`. A new test plants a
+  non-regex-shaped rotated key and proves the env-var channel catches it.
 
-Additionally, the full eval suite **crashes on 4 of 30 checked-in scenarios** (verified
-by execution), and a hardcoded user-specific absolute path in a test guarantees CI
-failure on any other machine.
-
-## Critical Issues
-
-### CR-01: check_eval_gates.py reads a summary.json shape eval_matrix.py never produces — all gates permanently NOT-EVALUABLE
-
-**File:** `scripts/check_eval_gates.py:155` (vs `scripts/eval_matrix.py:376-384`)
-**Issue:** `_check_gate` looks up cells via `summary.get("providers", {})` — a
-**top-level** `providers` key. But `aggregate_cell_jsons` (the function that writes
-`summary.json`, the checker's documented input per `docs/eval_gates.md` and the
-Makefile target) produces `{"generated_at", "scenarios": {<scenario_id>: {"providers":
-{...}}}}` — providers are nested **under each scenario**, never at top level.
-Empirically verified: running `check_eval_gates.py` against a freshly generated
-`summary.json` prints `NOT-EVALUABLE — family '<x>' has no cell in summary` for every
-hard-gated family and exits 0. This means:
-- The active gate on `openai/gpt-4o-mini` and the provisional-n1 gate on
-  `anthropic/claude-sonnet-4-6` can **never fire**, even after Phase 11 wires
-  `committed_itinerary_rate` into the scorers block — the checker will still find no cell.
-- `make eval-gates-check` (EVAL-03 / D-10-05) is structurally a no-op against its
-  documented input.
-
-The unit tests in `tests/unit/test_check_eval_gates.py:84-99` (`_make_summary`) construct
-summaries with a top-level `providers` key — the same wrong schema — so all tests pass
-while the integration is broken. The only artifact with top-level `providers` is the
-baseline JSON (`configs/eval_baselines/*.json`), which is not what the Makefile target
-or docs feed the checker.
-**Fix:**
-```python
-# In _check_gate, walk the real summary shape. A family may appear under
-# multiple scenarios; restrict to baseline-eligible scenarios (or take an
-# explicit scenario from the gate entry):
-cell = None
-for scenario_id, scenario_block in summary.get("scenarios", {}).items():
-    if not scenario_block.get("baseline_eligible", True):
-        continue
-    candidate = scenario_block.get("providers", {}).get(family)
-    if candidate is not None:
-        cell = candidate
-        break
-```
-Then rewrite `_make_summary` in the tests to produce the real
-`{"scenarios": {...: {"providers": {...}}}}` shape, and add one integration test that
-feeds the checker an actual `aggregate_cell_jsons(...)` output (that test would have
-caught this).
-
-### CR-02: `_constraints_for_case` crashes on every clarification case without an explicit stop count — full eval suite cannot run
-
-**File:** `scripts/eval_agent.py:648-653`
-**Issue:** When `explicit_num_stops_from_text(case.query)` returns `None`, the fallback
-unconditionally dereferences `case.expected_results.min_stops`. `expected_results` is
-`None` by design for `expects_clarification_or_relaxation: true` cases. Verified by
-execution against the checked-in `configs/eval_queries.yaml`: **4 of 30 cases crash**
-(`impossible_four_am_five_star`, `impossible_cheap_michelin`,
-`impossible_north_beach_sushi_4am`, `closed_monday_brunch`) with
-`AttributeError: 'NoneType' object has no attribute 'min_stops'`.
-
-In the single-turn path this exception escapes `evaluate_case` (the `try` at line 674
-has only `finally`, no `except`), propagates through `evaluate_cases` → `build_report`
-→ `main`, and **aborts the entire run** ("eval_agent failed: ..."), losing all other
-cases' results. Running `python scripts/eval_agent.py` over the default full suite (the
-documented default: "run all hand_written cases") is currently impossible. The matrix
-runner dodges it only because it always passes `--scenario-ids` + `--max-queries 1`
-scoped to cases that have `expected_results`.
-**Fix:**
-```python
-if num_stops is None and case.expected_results is not None:
-    min_s = case.expected_results.min_stops
-    max_s = case.expected_results.max_stops
-    if min_s == max_s:
-        num_stops = min_s
-```
-Add a regression test that runs `_constraints_for_case` over every case in the
-checked-in YAML (the 5-line loop used to verify this finding).
-
-### CR-03: D-10-09 quarantine flag never reaches real summary.json — `main()` omits `eval_queries_config`
-
-**File:** `scripts/eval_matrix.py:791`
-**Issue:** `aggregate_cell_jsons` only emits `baseline_eligible` per scenario when its
-`eval_queries_config` parameter is provided. The single production callsite —
-`main()` — calls `aggregate_cell_jsons(output_dir, llm_provider_override=...)` with no
-config, so **every real summary.json omits `baseline_eligible` entirely**. The
-quarantine of `late_night_closure_cascade` (D-10-09, EVAL-02) is therefore inert in the
-actual pipeline; Phase 11 baseline tooling reading summary.json will see no flag and
-default the scenario to eligible. The comments in `configs/eval_matrix.yaml:35-36` and
-`configs/eval_queries.yaml` claim the flag "is honored by aggregate_cell_jsons" — the
-capability exists but is never wired. The unit tests
-(`test_aggregate_cell_jsons_surfaces_baseline_ineligible_in_scenario_block`) pass the
-config explicitly, so they pass while `main()` does not.
-**Fix:**
-```python
-from app.eval.config import load_eval_queries
-...
-summary = aggregate_cell_jsons(
-    output_dir,
-    llm_provider_override=args.llm_provider_override,
-    eval_queries_config=load_eval_queries(args.eval_queries),
-)
-```
-(Wrap the load in try/except if a missing queries file should not block summary
-writing.) Add a test that invokes `main()` (with mocked `subprocess.run`) and asserts
-`baseline_eligible` appears in the written summary.json.
-
-### CR-04: Hardcoded user-specific absolute path in test — guaranteed failure on CI and every other machine
-
-**File:** `tests/unit/test_probe_provider_capture.py:158`
-**Issue:** `test_main_help_exits_zero` runs `subprocess.run(..., cwd="/Users/pnhek/usf
-msds/msds-603-mlops/mlops_city_concierge", ...)`. On CI (Ubuntu) or any teammate's
-machine that directory does not exist, so `subprocess.run` raises
-`FileNotFoundError` and the unit suite goes red. This breaks `make test` everywhere
-except the author's laptop.
-**Fix:**
-```python
-REPO_ROOT = Path(__file__).resolve().parents[2]
-...
-result = subprocess.run(
-    [sys.executable, str(REPO_ROOT / "scripts" / "probe_provider_capture.py"), "--help"],
-    cwd=str(REPO_ROOT),
-    capture_output=True,
-    text=True,
-)
-```
-
-### CR-05: Probe redaction is not fail-closed — three fixture fields bypass `_redact`, and the post-write guard skips env-var secret values
-
-**File:** `scripts/probe_provider_capture.py:196-233`
-**Issue:** The phase's security mandate is "API-key redaction must be fail-closed."
-Two gaps break that:
-
-1. **Unredacted write paths.** Only `additional_kwargs_values` go through `_redact`
-   (line 195). `response_metadata` (line 196), `usage_metadata` (line 198), and
-   `tool_calls` (line 199) are written raw. `_sanitize_response_metadata` blanks only
-   two fixed keys (`system_fingerprint`, `id`) and does not recurse into nested dicts.
-   `tool_calls` args are model-generated content — exactly the "model could echo one
-   back" scenario the `_redact` docstring warns about — yet they never pass through
-   redaction.
-2. **Post-write guard omits T-10-05-02.** The guard (lines 224-233) scans only the four
-   `_SECRET_PATTERNS` regexes. The env-var-sourced secret check (the `_SECRET_ENV_VARS`
-   substitution that D-10-13 added precisely because "the actual key value doesn't
-   match a regex but is still a secret") is **absent from the post-write scan**. A
-   non-pattern-shaped key (e.g., a `GOOGLE_API_KEY` not in `AIzaSy` form, a rotated
-   DeepSeek key format) appearing in `response_metadata` or `tool_calls` would be
-   written to a checked-in fixture and survive the guard. The module docstring's claim
-   ("refuses to keep it if any secret pattern is found — fail-closed") is only true for
-   regex-shaped secrets.
-
-The unit tests reimplement the guard logic inline (`any(p.search(text) ...)`) instead of
-invoking `main`'s actual guard, so neither gap is test-visible.
-**Fix:**
-```python
-# 1. Route every value-bearing field through _redact before writing:
-fixture = {
-    ...
-    "response_metadata": json.loads(_redact(json.dumps(response_metadata, default=str))),
-    "usage_metadata": _redact(usage_metadata) if usage_metadata is not None else None,
-    "tool_calls": json.loads(_redact(json.dumps(tool_calls, default=str))),
-}
-# 2. Extend the post-write guard with the env-var check:
-for env_var in _SECRET_ENV_VARS:
-    secret_val = os.environ.get(env_var, "")
-    if secret_val and len(secret_val) >= 10 and secret_val in text:
-        fixture_file.unlink(missing_ok=True)
-        ...
-        return 2
-```
+No new Critical issues were introduced. However, one residual gap exists inside the
+CR-03 fix itself (WR-01), the CR-01 fix introduces an order-dependent cell-selection
+ambiguity (WR-02), and nine of the prior review's Warnings/Info items remain open —
+the gap-closure plans scoped only the five CRs. All carry-overs were re-verified by
+execution against the current code, not assumed.
 
 ## Warnings
 
-### WR-01: Single-turn eval path has no D-10-01 error capture — one transient failure aborts the whole run
+### WR-01: CR-03 fallback does not catch malformed YAML — `yaml.YAMLError` escapes and kills summary.json writing
 
-**File:** `scripts/eval_agent.py:674-687`
-**Issue:** `evaluate_case`'s single-turn branch wraps `graph.ainvoke` in `try/finally`
-only — no `except` → no `make_error_record`. Both multi-turn branches were converted to
-the D-10-01 ERROR-record contract, but a 429/DB-down on any single-turn case still
-propagates and kills the entire multi-case run (and CR-02's crash rides this same
-path). The `evaluate_multi_turn_case` docstring still claims "Fail-open semantics
-mirror `evaluate_cases` in BOTH branches" — stale. The `"setup"` stage documented in
-`make_error_record` is never used anywhere.
-**Fix:** Wrap the single-turn `graph.ainvoke` in the same `except Exception →
-make_error_record(case, "turn0", exc)` pattern (and use stage `"setup"` for failures
-before invocation, e.g. constraint building). Update the stale docstring.
+**File:** `scripts/eval_matrix.py:795-804`
+**Issue:** The CR-03 comment states "A missing or malformed file must NOT block summary
+writing," but the `except (OSError, ValueError)` clause only covers missing files
+(`FileNotFoundError`) and Pydantic validation failures (`ValidationError ⊂ ValueError`).
+Syntactically malformed YAML raises `yaml.parser.ParserError` (a `yaml.YAMLError`,
+which subclasses neither `OSError` nor `ValueError` — verified by execution). The
+exception then propagates out of `main()` AFTER `run_matrix` has completed, so the
+`failures` list and all cell aggregation are lost and `summary.json` is never written —
+the operator gets a raw traceback instead of the partial-results report the comment
+promises. The new test only covers the missing-file path
+(`test_main_aggregation_survives_missing_eval_queries_file`), so the malformed-YAML
+branch is untested and broken.
+**Fix:**
+```python
+import yaml
+...
+except (OSError, ValueError, yaml.YAMLError) as _exc:
+```
+(or mirror `check_eval_gates._load_gates`, which wraps the parse in
+`except Exception → ValueError`). Add a test that writes `hand_written: [unclosed`
+to the `--eval-queries` path and asserts summary.json is still written.
 
-### WR-02: eval_agent exit code conflates model-behavior violations with infra failures — matrix "failures" list polluted
+### WR-02: Gate cell lookup is first-match-wins across scenarios — same data can yield opposite verdicts depending on key order
 
-**File:** `scripts/eval_agent.py:1201`, `scripts/eval_matrix.py:520-527`
-**Issue:** `main` returns 1 when `report_has_violations(report)` — i.e., when the model
-merely scored below a threshold (normal: refinement medians sit at 0.0). The matrix
-runner records **any** nonzero subprocess returncode as a cell failure (`failures` list,
-matrix rc=1), with empty stderr, indistinguishable from a crash. So every live matrix
-run with a sub-threshold score exits 1 and reports "N cell(s) failed" — exactly the
-infra-vs-model conflation Phase 10 exists to eliminate (and it undermines T-10-02-02's
-"distinct stderr lines" intent, since the violation-driven rc and the error-driven rc
-collapse into the same `failures` channel).
-**Fix:** Either (a) make `eval_agent.main` return distinct exit codes (0 ok, 1
-violations, 2 errors) and have `run_matrix` classify rc==1 as "violation (expected)"
-vs rc>=2 as "failure", or (b) have `run_matrix` read the written cell JSON's
-`n_errored`/`cell_valid` to classify, recording violations separately from failures.
+**File:** `scripts/check_eval_gates.py:166-173`
+**Issue:** When a family has cells under more than one eligible scenario, `_check_gate`
+takes the first scenario (dict iteration order — i.e., alphabetical, since summary.json
+is written with `sort_keys=True`) and `break`s. Verified by execution: a summary where
+the family passes in scenario `a_first` and fails in `b_second` returns `"pass"`, while
+the same cells with the failing scenario first returns `"violation"`. Today's configs
+have at most one eligible scenario per summary, so no live verdict is wrong yet — but
+Phase 11 wires `committed_itinerary_rate` into all scenarios, at which point a multi-
+scenario summary makes the hard gate's verdict depend on scenario-id spelling. A merge
+gate must not have order-dependent semantics.
+**Fix:** Evaluate the gate against EVERY eligible scenario that carries the family and
+return `"violation"` if any fails (fail-closed), or add an explicit `scenario` field to
+the gate entry schema and look up exactly that cell.
 
-### WR-03: check_eval_gates fail-open on unknown gate status — a typo silently disables a hard gate
+### WR-03: Unknown gate status silently converts a failing hard gate into a pass (carry-over, verified still present)
 
-**File:** `scripts/check_eval_gates.py:183-189`
+**File:** `scripts/check_eval_gates.py:199-206`
 **Issue:** When a gate fails and its status is not in `_HARD_STATUSES` or
-`"aspirational"`, `_check_gate` returns `"pass"` with no output. A typo'd status
-(`activ`, `Active`, trailing whitespace) converts a hard gate into a silent pass —
-fail-open in the one tool whose job is fail-closed enforcement. There is no
-status-vocabulary validation at load time either.
-**Fix:** Validate `status` against the known set when loading gates; treat unknown
-statuses as an infrastructure failure (exit 2) or at minimum print a loud
-`UNKNOWN-STATUS` line and count it as a violation.
+`"aspirational"`, `_check_gate` returns `"pass"` with no output. Verified by execution:
+`status: activ` (typo) with a cell at 0.0 against a `>= 0.8` gate exits 0 and prints
+"OK — 1 gates checked". A one-character typo disables a hard gate with zero diagnostics
+— fail-open in the tool whose entire purpose is fail-closed enforcement. There is no
+status-vocabulary validation at load time.
+**Fix:** Validate `status` against
+`_HARD_STATUSES | _SKIP_STATUSES | {"aspirational"}` in `_load_gates` and raise
+`ValueError` (→ exit 2) on anything else.
 
-### WR-04: `advisory` gate entries are never evaluated or reported — dead config contradicting docs
+### WR-04: Malformed gates YAML or summary values crash the checker with exit 1 — misreported as "hard-gate violation" (carry-over, verified)
+
+**File:** `scripts/check_eval_gates.py:66-67, 99-103, 156-159, 250`
+**Issue:** Verified by execution: `gates:` with a null value raises `TypeError` (iterating
+`None`); a gate entry missing `family` raises `KeyError` — both escape `main()` and the
+process exits 1, which the documented exit-code contract (and any Makefile/CI caller)
+reads as "hard-gate violation," not "infrastructure failure" (exit 2). Same class:
+`hard` missing `metric`/`op`/`value` (KeyError), unknown `op` (`_evaluate_op` ValueError),
+`"median": null` in summary (`float(None)` TypeError at line 102), and a non-dict
+scenario block (AttributeError at line 168).
+**Fix:** Validate `isinstance(data["gates"], list)` in `_load_gates`, and wrap the
+gate-iteration loop in `main()` with
+`except (KeyError, TypeError, ValueError, AttributeError) → stderr + return 2`.
+
+### WR-05: `advisory` gate entries are never evaluated — dead config with an unresolvable metric name (carry-over)
 
 **File:** `scripts/check_eval_gates.py` (whole file), `configs/eval_gates.yaml:29-32`, `docs/eval_gates.md:10-21`
-**Issue:** The YAML schema comment and docs say `advisory: list of {metric, op, value}
-— reported but never blocking`. The checker never reads the `advisory` key at all — the
-gpt-4o-mini advisory on `refinement_minimal_edit_median` is dead config. Additionally,
-the advisory metric name `refinement_minimal_edit_median` would not resolve through
-`_get_metric_value` even if implemented (summary stores the metric as
-`refinement_minimal_edit` with a `median` subkey).
+**Issue:** The YAML schema comment and gates doc say advisory entries are "reported but
+never blocking." The checker never reads the `advisory` key — the gpt-4o-mini advisory
+on `refinement_minimal_edit_median` is dead config. The metric name would also not
+resolve via `_get_metric_value` even if implemented (the summary stores
+`refinement_minimal_edit` with a `median` subkey, not `refinement_minimal_edit_median`).
 **Fix:** Implement advisory evaluation (print `ADVISORY miss` lines, never affect exit
-code) and change the YAML metric name to `refinement_minimal_edit`, or delete the
-`advisory` blocks and the doc claim until implemented.
+code) and rename the YAML metric to `refinement_minimal_edit`, or delete the `advisory`
+blocks and the doc claim until implemented.
 
-### WR-05: Malformed gates YAML or summary values crash the checker with exit 1 — misreported as "hard-gate violation"
+### WR-06: Single-turn eval path still has no D-10-01 error capture — one transient failure aborts the whole run (carry-over)
 
-**File:** `scripts/check_eval_gates.py:149-152, 92-97, 233`
-**Issue:** The documented exit-code contract is 2 = infra failure. But several malformed
-inputs raise uncaught exceptions, and an uncaught Python exception exits with code 1 —
-which the contract (and the Makefile caller) reads as "hard-gate violation":
-`gate["family"]` / `hard["metric"]` / `hard["op"]` / `hard["value"]` KeyError on a
-malformed entry; `gates: null` → `TypeError` iterating `None` (the loader checks only
-`"gates" in data`, not that it's a list); `float(metric_block["median"])` TypeError when
-`median` is `null` in the JSON.
-**Fix:** Wrap the gate-iteration loop in `try/except (KeyError, TypeError, ValueError)`
-→ stderr + `return 2`, and validate `isinstance(data["gates"], list)` in `_load_gates`.
+**File:** `scripts/eval_agent.py:672-687`
+**Issue:** `evaluate_case`'s single-turn branch wraps `graph.ainvoke` in `try/finally`
+only — no `except` → no `make_error_record`. Both multi-turn branches honor the D-10-01
+ERROR-record contract, but a 429/DB-down on any single-turn case still propagates
+through `evaluate_cases → build_report → main` and aborts the entire multi-case run.
+The `"setup"` stage documented in `make_error_record` is still never used anywhere. The
+`evaluate_multi_turn_case` docstring's "Fail-open semantics mirror `evaluate_cases` in
+BOTH branches" claim remains stale (the helper now returns error records, and the
+single-turn path doesn't fail open at all — it crashes).
+**Fix:** Wrap the single-turn `graph.ainvoke` in the same
+`except Exception → make_error_record(case, "turn0", exc)` pattern; use stage `"setup"`
+for pre-invocation failures (e.g., constraint building). Update the stale docstring.
 
-### WR-06: Prod-threading scratch keys pollute tool-call metrics
+### WR-07: eval_agent exit code still conflates model-behavior violations with infra failures (carry-over)
 
-**File:** `scripts/eval_agent.py:394-405` (vs `:903-944`)
-**Issue:** `count_tool_calls` sums `len(entries)` for **every** list-valued
-`state.scratch` entry, and `tool_names_from_state` reports every non-empty list key as a
-tool name. `_run_prod_threading` stamps `prior_committed_stops` (list of dicts) and
+**File:** `scripts/eval_agent.py:1201`, `scripts/eval_matrix.py:521-528`
+**Issue:** `main` returns 1 when `report_has_violations(report)` — i.e., when the model
+merely scored below a threshold (normal: refinement medians sit at 0.0). The matrix
+runner records ANY nonzero subprocess returncode as a cell failure (`failures` list,
+matrix rc=1), indistinguishable from a crash. Every live matrix run with a
+sub-threshold score therefore exits 1 and reports "N cell(s) failed" — the
+infra-vs-model conflation Phase 10 exists to eliminate.
+**Fix:** Make `eval_agent.main` return distinct exit codes (0 ok, 1 violations,
+2 errors) and have `run_matrix` classify rc==1 as "violation (expected)" vs rc>=2 as
+"failure"; or have `run_matrix` read the written cell JSON's `n_errored`/`cell_valid`
+to classify.
+
+### WR-08: Prod-threading scratch keys still pollute tool-call metrics (carry-over)
+
+**File:** `scripts/eval_agent.py:394-405` (vs `:902-944`)
+**Issue:** `count_tool_calls` sums `len(entries)` for every list-valued `state.scratch`
+entry, and `tool_names_from_state` reports every non-empty list key as a tool name.
+`_run_prod_threading` stamps `prior_committed_stops` (list of dicts) and
 `prior_stops_obj` (list of Stops) into `state.scratch` on every turn. A 3-stop prod
-refinement run therefore reports ~6 phantom tool calls and lists
-`prior_committed_stops` / `prior_stops_obj` as "tools" in `tool_names`, skewing
-`tool_calls_mean` for exactly the prod-shaped cells the phase wants to measure honestly.
-**Fix:** Exclude the known Phase-6/7 scratch keys in both helpers, e.g.:
+refinement run reports ~6 phantom tool calls and lists those scratch keys as "tools" in
+`tool_names`, skewing `tool_calls_mean` for exactly the prod-shaped cells this phase
+wants measured honestly.
+**Fix:** Exclude the known Phase-6/7 scratch keys in both helpers:
 ```python
 _NON_TOOL_SCRATCH_KEYS = {"prior_committed_stops", "prior_stops_obj"}
-... if isinstance(entries, list) and tool_name not in _NON_TOOL_SCRATCH_KEYS
 ```
 
-### WR-07: All-errored cell reports `deterministic_pass_rate: 1.0` and `tool_success_rate: 1.0`
+### WR-09: All-errored cell still reports `deterministic_pass_rate: 1.0` and `tool_success_rate: 1.0` (carry-over, verified)
 
 **File:** `scripts/eval_agent.py:1063, 1072` (with `rate()` at `:984`)
-**Issue:** With `n_scored == 0` (every run errored), `rate(x, 0)` returns 0.0 so
-`1.0 - rate(...)` yields **1.0** — an all-failure cell publishes perfect pass/success
-headline rates in its aggregate. `cell_valid: false` is present, but a human or a
-future tool scanning the rates reads "100% pass" on a cell where nothing was measured.
-This is the same fail-open shape D-10-04 was written to kill for scorer means.
-**Fix:** Emit `None` (or 0.0) for the derived rates when `n_scored == 0`:
-```python
-"deterministic_pass_rate": None if n_scored == 0 else 1.0 - rate(queries_with_violations, n_scored),
-```
-(Mirror for `deterministic_violation_rate`, `tool_error_rate`, `tool_success_rate`.)
+**Issue:** Verified by execution: with `n_scored == 0` (every run errored),
+`1.0 - rate(x, 0)` yields **1.0** — an all-failure cell publishes perfect pass/success
+headline rates. `cell_valid: false` is present, but a human or Phase 11 tooling scanning
+the rates reads "100% pass" on a cell where nothing was measured — the same fail-open
+shape D-10-04 killed for scorer means.
+**Fix:** Emit `None` (or 0.0) for the derived rates when `n_scored == 0`, mirroring for
+`deterministic_violation_rate`, `tool_error_rate`, and `tool_success_rate`.
 
-### WR-08: Fixture pipeline stringifies all wire values — adapter fixture tests pass vacuously
+### WR-10: `additional_kwargs_values` still stringified — the adapter fixture test's primary input remains vacuous (carry-over, partially addressed)
 
-**File:** `scripts/probe_provider_capture.py:79-98, 195`; `tests/unit/test_adapters.py:912-954`
-**Issue:** `_redact` begins with `s = str(value)`, so every `additional_kwargs` value in
-the fixture is a Python-repr **string** — bytes become `"b'\\x00...'"`, the Gemini
-`__gemini_function_call_thought_signatures__` dict becomes `"{'tc_1': '...'}"`. The
-EVAL-05 test `test_adapter_capture_on_real_wire_fixture` reconstructs an `AIMessage`
-from those stringified values; every adapter's `isinstance(bytes)`/`isinstance(dict)`
-guard then short-circuits to `None`, and the "must not crash against the real wire
-shape" assertion passes without ever exercising the real-typed capture path. D-10-12's
-claim of closing the live-shape gap (the D-09-09 lcgg key miss class) is mostly not
-delivered: a wire-shape change that crashes on real types would not be caught.
-**Fix:** Preserve JSON-representable structure in the fixture — redact recursively
-instead of stringifying:
-```python
-def _redact_obj(value):
-    if isinstance(value, str): return _redact_str(value)
-    if isinstance(value, bytes): return {"__bytes_b64__": base64.b64encode(value).decode()}
-    if isinstance(value, dict): return {k: _redact_obj(v) for k, v in value.items()}
-    if isinstance(value, list): return [_redact_obj(v) for v in value]
-    return value
-```
-and have the test decode `__bytes_b64__` markers back to bytes when reconstructing the
-message.
+**File:** `scripts/probe_provider_capture.py:219-220`; `tests/unit/test_adapters.py:930-949`
+**Issue:** The CR-05 fix made `response_metadata`/`usage_metadata`/`tool_calls`
+structure-preserving, but `additional_kwargs_values` — the ONE field
+`test_adapter_capture_on_real_wire_fixture` reconstructs into `AIMessage.additional_kwargs`
+and the field every adapter actually reads — still goes through `_redact(value)`, whose
+first line is `str(value)`. Bytes become `"b'\\x00...'"` and the Gemini
+`__gemini_function_call_thought_signatures__` dict becomes a repr string, so every
+adapter's `isinstance(bytes)`/`isinstance(dict)` guard short-circuits to `None` and the
+"must not crash against the real wire shape" assertion passes without exercising the
+real-typed capture path. D-10-12's live-shape gap closure is still mostly undelivered.
+**Fix:** Apply the same recursive structure-preserving redaction to
+`additional_kwargs_values` (bytes → `{"__bytes_b64__": ...}` marker), and have the test
+decode markers back to bytes when reconstructing the message.
 
-### WR-09: Structural-check "Check 6" is a tautology — asserts hardcoded literals about hardcoded literals
+### WR-11: Structural-check "Check 6" is still a tautology (carry-over)
 
-**File:** `scripts/eval_matrix.py:731-749`
-**Issue:** Check 6 builds a synthetic dict
-`{"status": "error", "error": {"stage": "turn0", ...}}` in-line and then checks that
-this literal contains the keys it was just given and that its literal stage is in a
-literal set. It cannot fail and validates nothing about the real code; the comment
-claims it "ensures CI catches schema drift before any live run is attempted
-(T-10-02-01 mitigation)" — false confidence in a CI **hard gate**. The companion test
-`test_structural_check_error_schema_check_is_present_in_source` only greps the source
-for the literal, compounding the illusion.
-**Fix:** Exercise the real schema:
-```python
-from scripts.eval_agent import make_error_record
-from app.eval.config import EvalQuery
-probe_case = EvalQuery.model_validate({"id": "x", "query": "q", "reference": "r",
-                                       "expected_results": {"min_stops": 1, "max_stops": 1}})
-rec = make_error_record(probe_case, "turn0", RuntimeError("probe"))
-if rec.status != "error" or rec.error.get("stage") not in {"setup", "turn0", "turnN"}:
-    ... return 1
-```
+**File:** `scripts/eval_matrix.py:726-750`
+**Issue:** Check 6 builds a synthetic literal dict
+`{"status": "error", "error": {"stage": "turn0", ...}}` and asserts the literal contains
+the keys it was just given. It cannot fail and validates nothing about the real
+`make_error_record` schema, while claiming to be a T-10-02-01 CI hard-gate mitigation —
+false confidence in a hard gate.
+**Fix:** Exercise the real schema: call `scripts.eval_agent.make_error_record` on a
+probe case and assert `rec.status == "error"` and
+`rec.error["stage"] in {"setup", "turn0", "turnN"}`.
+
+### WR-12: `category_compliance` returns 1.0 on zero committed stops — code contradicts its own docstring's stated design
+
+**File:** `app/agent/critique/checks.py:253-255` (and `:280-281` for the strict variant)
+**Issue:** The docstring explicitly documents that the abstain-on-length-mismatch
+alternative was "rejected because it would let an agent commit zero stops or extra
+stops and still score 1.0, defeating the scorer's purpose" — yet line 254
+(`if not state.stops: return 1.0`) implements exactly that outcome for the zero-stop
+case. Verified by execution: with 3 requested category slots and zero committed stops,
+both `category_compliance` and `category_compliance_strict` return 1.0. A model that
+commits nothing scores perfect category compliance, inflating the scorer mean for
+exactly the non-committing failure mode (DeepSeek decisiveness gap) this harness is
+supposed to measure honestly. Without the early return, the existing denominator math
+(`max(len(requested), len(stops))`) would naturally yield 0.0.
+**Fix:** Either remove the `if not state.stops: return 1.0` early return (the denominator
+already handles it; confirm baseline impact since this changes scorer semantics) or
+rewrite the docstring to document the zero-stop fail-open honestly and note that
+`stop_count_satisfied` / `expected_results` carry that signal instead. The code and the
+docstring cannot both stand as written.
 
 ## Info
 
-### IN-01: `make_error_record` discards case metadata
+### IN-01: `make_error_record` discards case metadata (carry-over)
 
 **File:** `scripts/eval_agent.py:190, 202`
 **Issue:** `expects_clarification_or_relaxation` is hardcoded `False` instead of
 `case.expects_clarification_or_relaxation`, and every check's `threshold` is written as
 `0.0` instead of `CRITIQUE_THRESHOLDS[name]` — error records misreport expected-behavior
 metadata in the audit trail.
-**Fix:** Use `case.expects_clarification_or_relaxation` and
-`CheckResult(score=None, threshold=CRITIQUE_THRESHOLDS[name], passed=False)`.
+**Fix:** Use the case's real flag and `CheckResult(score=None, threshold=CRITIQUE_THRESHOLDS[name], passed=False)`.
 
-### IN-02: Redundant `sk-ant-` pattern
+### IN-02: Redundant `sk-ant-` pattern (carry-over)
 
-**File:** `scripts/probe_provider_capture.py:62-63`
+**File:** `scripts/probe_provider_capture.py:65-66`
 **Issue:** `sk-[A-Za-z0-9_-]{20,}` already matches `sk-ant-...` (the char class includes
-`-`), so the dedicated Anthropic pattern is dead. Harmless, but it overstates coverage
-when reading the list.
-**Fix:** Drop it or add a comment noting it is subsumed (keep for documentation value).
+`-`), so the dedicated Anthropic pattern is dead. Harmless.
+**Fix:** Add a comment noting it is subsumed (keep for documentation value) or drop it.
 
-### IN-03: Corrupt/unreadable cell JSON silently skipped during aggregation
+### IN-03: Corrupt/unreadable cell JSON silently skipped during aggregation (carry-over)
 
-**File:** `scripts/eval_matrix.py:282-285`
+**File:** `scripts/eval_matrix.py:283-286`
 **Issue:** `except (OSError, json.JSONDecodeError): continue` drops the cell from both
-scorers and the `n_errored` accounting with no log line — inconsistent with the WR-01
-warning emitted for unparseable filenames, and a quiet undercount path for a
-harness-honesty phase.
+scorers and `n_errored` accounting with no log line — inconsistent with the WR-01
+warning emitted for unparseable filenames; a quiet undercount path in a harness-honesty
+phase.
 **Fix:** Log a warning naming the file (mirror the filename-parse warning).
 
-### IN-04: Error records always report `latency_seconds = 0.0`
+### IN-04: Error records always report `latency_seconds = 0.0` (carry-over)
 
 **File:** `scripts/eval_agent.py:170-227, 771-773, 890-895`
 **Issue:** Both threading branches accumulate `total_latency` up to the failing turn,
@@ -409,17 +295,30 @@ before the failure (useful for diagnosing timeout-class errors) is dropped.
 **Fix:** Add a `latency_seconds: float = 0.0` parameter to `make_error_record` and pass
 `total_latency`.
 
-### IN-05: `make_judge` key map omits `anthropic` despite it being a supported provider
+### IN-05: `make_judge` key map omits `anthropic` despite it being a supported provider (carry-over)
 
 **File:** `app/agent/critique/vibe.py:112-117`
 **Issue:** The provider→key-attr map covers openai/gemini/deepseek/kimi only. Setting
 `EVAL_JUDGE_PROVIDER=anthropic` (a member of `SUPPORTED_PROVIDERS` since Phase 9) logs
-"unknown vibe judge provider" and disables the judge. Graceful degradation, but the
-message is misleading and the gap is undocumented.
+"unknown vibe judge provider" and disables the judge — graceful, but misleading and
+undocumented.
 **Fix:** Add `"anthropic": "anthropic_api_key"` to the map, or document the exclusion.
+
+### IN-06: Secrets containing `"` or `\` evade both the env-var redaction and the post-write guard
+
+**File:** `scripts/probe_provider_capture.py:93-97, 119-122, 226-235`
+**Issue:** The redaction and the guard both operate on JSON-dumped text, where `"` and
+`\` in a secret value appear JSON-escaped — so a raw `os.environ` secret containing
+either character never matches `s.replace(secret_val, ...)` in `_redact` nor
+`secret_val in text` in `_scan_fixture_for_secrets`. Real API keys are URL-safe and do
+not contain these characters today, so practical risk is low, but the fail-closed claim
+has this boundary.
+**Fix:** Compare against `json.dumps(secret_val)[1:-1]` (the escaped form) in addition
+to the raw value in both helpers, or note the limitation in the module docstring.
 
 ---
 
 _Reviewed: 2026-06-10_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Re-review of gap-closure plans 10-07..10-09 (CR-01..CR-05)_
