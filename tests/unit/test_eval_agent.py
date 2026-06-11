@@ -2223,8 +2223,21 @@ class TestZeroNDerivedRateGuards:
 
         assert agg["tool_success_rate"] is None
 
-    def test_all_errored_cell_all_five_rates_are_none(self) -> None:
-        """D-11-04: all five derived rates are None on an all-errored cell."""
+    def test_all_errored_cell_committed_itinerary_rate_is_none(self) -> None:
+        """WR-01: committed_itinerary_rate — the hard-gate metric — must be
+        None on an all-errored cell, never the fabricated mean([]) == 0.0
+        that would read as a hard decisiveness regression of the anchor."""
+        from scripts.eval_agent import aggregate_results, make_error_record
+
+        error_record = make_error_record(eval_case(), "turn0", Exception("quota"))
+        agg = aggregate_results([error_record])
+
+        assert agg["committed_itinerary_rate"] is None, (
+            "an infra-dead cell must publish None, not 0.0, for the hard-gate metric"
+        )
+
+    def test_all_errored_cell_all_derived_rates_are_none(self) -> None:
+        """D-11-04 + WR-01: all six derived rates are None on an all-errored cell."""
         from scripts.eval_agent import aggregate_results, make_error_record
 
         records = [
@@ -2238,6 +2251,7 @@ class TestZeroNDerivedRateGuards:
         assert agg["expected_results_mismatch_rate"] is None
         assert agg["tool_error_rate"] is None
         assert agg["tool_success_rate"] is None
+        assert agg["committed_itinerary_rate"] is None
 
     def test_normal_scored_cell_still_returns_float_rates(self) -> None:
         """D-11-04: non-regression — float derived rates still work when n_scored > 0."""
@@ -2248,6 +2262,7 @@ class TestZeroNDerivedRateGuards:
         assert isinstance(agg["expected_results_mismatch_rate"], float)
         assert isinstance(agg["tool_error_rate"], float)
         assert isinstance(agg["tool_success_rate"], float)
+        assert isinstance(agg["committed_itinerary_rate"], float)
 
 
 class TestZeroStopAbstainPipeline:

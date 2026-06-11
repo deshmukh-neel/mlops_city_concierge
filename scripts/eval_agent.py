@@ -1127,11 +1127,19 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
         "committed_stops_mean": mean(
             [float(result.actual.committed_stop_count) for result in scored_results]
         ),
-        "committed_itinerary_rate": mean(
-            [
-                1.0 if result.actual.committed_stop_count > 0 else 0.0
-                for result in scored_results
-            ]
+        # WR-01: committed_itinerary_rate is THE hard-gate metric — it gets the
+        # same zero-n guard as the five derived rates above. An all-errored
+        # cell must publish None, never the fabricated mean([]) == 0.0 that
+        # would read as a hard decisiveness regression of the anchor.
+        "committed_itinerary_rate": (
+            mean(
+                [
+                    1.0 if result.actual.committed_stop_count > 0 else 0.0
+                    for result in scored_results
+                ]
+            )
+            if n_scored > 0
+            else None
         ),
         "contexts_mean": mean([float(len(result.contexts)) for result in scored_results]),
         "context_presence_rate": mean(
