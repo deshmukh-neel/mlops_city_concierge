@@ -29,8 +29,8 @@ Run a single `semantic_search` call and confirm it returns results, **not a 429*
 # Quick sanity check — expects JSON output with at least one result, not an error:
 APP_ENV=eval poetry run python -c "
 import asyncio
-from app.retriever import semantic_search
-results = asyncio.run(semantic_search('ramen Mission District', top_k=1))
+from app.tools.retrieval import semantic_search
+results = asyncio.run(semantic_search('ramen Mission District', k=1))
 assert results, 'embeddings probe returned no results — check quota'
 print('embeddings OK:', results[0].get('name', '?'))
 "
@@ -70,7 +70,7 @@ Export all four before running any matrix step:
 export OPENAI_API_KEY=...      # OpenAI dashboard — also covers shared embeddings quota
 export DEEPSEEK_API_KEY=...    # DeepSeek dashboard
 export ANTHROPIC_API_KEY=...   # Anthropic console
-export GOOGLE_API_KEY=...      # Google AI Studio (gemini logged-not-gated)
+export GEMINI_API_KEY=...      # Google AI Studio (gemini logged-not-gated)
 ```
 
 ---
@@ -214,7 +214,7 @@ _DEFERRED_BASELINE_CELLS = {
 ```
 
 Add a matching comment in `configs/eval_matrix_refinement.yaml` citing D-11-11. Retry once
-after verifying the `GOOGLE_API_KEY` is live and the embeddings probe still passes. If gemini
+after verifying the `GEMINI_API_KEY` is live and the embeddings probe still passes. If gemini
 continues to error after one retry, proceed without it.
 
 ### Gated provider errors (openai or anthropic)
