@@ -42,7 +42,11 @@ def semantic_search(
 
     Use this for queries like "romantic italian in north beach under $$$ open
     Sunday at 7pm". Prefer the structured `filters` argument over packing
-    constraints into `query`.
+    constraints into `query` — but filters REFINE the query, they DO NOT
+    replace it. `query` must always stay descriptive: include at minimum the
+    cuisine or vibe, the place type, and the neighborhood, even when the same
+    information is also passed as a filter. A bare query like "lunch" embeds
+    poorly and retrieves weak matches.
     Pass `slot_index = i` (0-based) when retrieving for stop *i* in a query
     that named per-slot categories (e.g., 'omakase, then drinks, then dessert').
     Leave None for free-text queries.

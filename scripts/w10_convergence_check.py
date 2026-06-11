@@ -96,7 +96,7 @@ async def main() -> int:
     args = parser.parse_args()
 
     llm, model_name = make_llm(args.provider, args.chat_model, args.temperature)
-    graph = build_agent_graph(llm, max_steps=args.max_steps)
+    graph = build_agent_graph(llm, max_steps=args.max_steps, provider=args.provider)
 
     print(
         f"W10 convergence: {args.provider}/{model_name} temp={args.temperature} runs={args.runs}\n"
