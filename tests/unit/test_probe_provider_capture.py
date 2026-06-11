@@ -154,12 +154,19 @@ def test_fixture_output_path_uses_provider_payloads(tmp_path: Path) -> None:
 
 def test_main_help_exits_zero() -> None:
     """Smoke: `--help` exits 0 and lists --provider choices."""
+    import os
     import subprocess
     import sys
 
+    # CI's unit-test job installs with --no-root, so `app` is not a package in
+    # that venv; the script's `from app...` import only resolves under pytest
+    # because pytest puts the repo root on sys.path. A bare subprocess gets
+    # neither — provision PYTHONPATH so the smoke test works in both modes.
+    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
     result = subprocess.run(  # noqa: S603
         [sys.executable, str(REPO_ROOT / "scripts" / "probe_provider_capture.py"), "--help"],
         cwd=str(REPO_ROOT),
+        env=env,
         capture_output=True,
         text=True,
     )
