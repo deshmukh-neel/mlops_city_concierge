@@ -54,16 +54,18 @@ See: .planning/milestones/v2.0-{ROADMAP,REQUIREMENTS}.md for v2.0 archive
 
 ## Resume
 
-Next step: `/gsd-plan-phase 10` to plan Phase 10 (Eval Harness Honesty). Context is in
-`.planning/phases/10-eval-harness-honesty/10-CONTEXT.md` (D-10-01..17, all areas decided).
-Working branch: `gsd/phase-10-eval-harness-honesty` (off main @ e3dc6c2, post-PR #104).
+Next step: `/gsd-plan-phase 11` to plan Phase 11 (Cross-Model Baseline Regen + Matrix
+Expansion). Context is in
+`.planning/phases/11-cross-model-baseline-regen-matrix-expansion/11-CONTEXT.md`
+(D-11-01..21, all areas decided in auto mode 2026-06-11).
+Working branch: `gsd/phase-11-cross-model-baseline-regen-matrix-expansion` (off main @ cc1407c, post-PR #105).
 
 ## Current Position
 
-Phase: 10 (eval-harness-honesty) — EXECUTING
+Phase: 11 (cross-model-baseline-regen-matrix-expansion) — CONTEXT GATHERED
 Plan: Not started
-Status: Phase 10 shipped — PR #105
-Last activity: 2026-06-10
+Status: Phase 11 context gathered
+Last activity: 2026-06-11
 
 ### Blockers
 
