@@ -1967,3 +1967,51 @@ class TestEvaluateMultiTurnProdThreading:
         result = await evaluate_multi_turn_case(graph, case)
 
         assert result.deterministic.checks["refinement_minimal_edit"].score == 1.0
+
+
+# ─── CR-02: _constraints_for_case must not crash on clarification cases ──────
+
+
+class TestConstraintsForCaseClarificationGuard:
+    """CR-02 (EVAL-01 harness trustworthiness): _constraints_for_case must
+    not raise AttributeError when case.expected_results is None.
+
+    Five hand_written cases have expected_results=None by design
+    (expects_clarification_or_relaxation=True): impossible_four_am_five_star,
+    impossible_cheap_michelin, impossible_north_beach_sushi_4am,
+    overconstrained_walkable_three_neighborhoods, closed_monday_brunch.
+
+    Without the None-guard the default full-suite run aborts with
+    AttributeError on the first clarification case encountered.
+    """
+
+    def test_no_crash_on_known_clarification_case(self) -> None:
+        """Focused regression: _constraints_for_case must return UserConstraints
+        (not raise) for impossible_four_am_five_star (expected_results=None)."""
+        from app.agent.state import UserConstraints
+
+        cases = {c.id: c for c in load_eval_queries("configs/eval_queries.yaml").hand_written}
+        case = cases["impossible_four_am_five_star"]
+        assert case.expected_results is None, (
+            "test pre-condition: impossible_four_am_five_star must have expected_results=None"
+        )
+        result = _constraints_for_case(case)
+        assert isinstance(result, UserConstraints)
+        assert result.num_stops is None, (
+            "clarification case with no text-extracted stops must yield num_stops=None"
+        )
+
+    def test_no_crash_over_all_hand_written_cases(self) -> None:
+        """Regression: _constraints_for_case must not raise for ANY case in
+        configs/eval_queries.yaml — including all 5 clarification cases that
+        have expected_results=None.
+        """
+        from app.agent.state import UserConstraints
+
+        cases = load_eval_queries("configs/eval_queries.yaml").hand_written
+        assert len(cases) > 0, "hand_written cases must be non-empty"
+        for case in cases:
+            result = _constraints_for_case(case)
+            assert isinstance(result, UserConstraints), (
+                f"_constraints_for_case({case.id!r}) must return UserConstraints, got {type(result)}"
+            )
