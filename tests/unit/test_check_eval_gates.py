@@ -1006,7 +1006,15 @@ def test_baselines_mode_no_positional_summary_does_not_error(
     """
     baselines_dir = tmp_path / "eval_baselines"
     baselines_dir.mkdir()
-    # Empty baselines dir → no scenarios → all gates not-evaluable → exit 0
+    # CR-02: an empty baselines dir now exits 2 (fail-closed), so seed one
+    # valid baseline — this test is about the missing positional arg only.
+    payload = _make_baseline_json(
+        "omakase_mission_open_ended",
+        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+    )
+    (baselines_dir / "omakase_mission_open_ended.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
     gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
     try:
         rc = script.main(
@@ -1021,6 +1029,61 @@ def test_baselines_mode_no_positional_summary_does_not_error(
         assert isinstance(rc, int), "main() must return int, not raise"
     except SystemExit as e:
         pytest.fail(f"--baselines-mode without positional summary must not SystemExit: {e}")
+
+
+def test_baselines_mode_missing_dir_exits_2_fail_closed(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """CR-02: a nonexistent --baselines-dir must exit 2 (infra), never 0.
+
+    Before the fix, Path.glob on a missing directory returned an empty
+    iterator, every gate resolved to not-evaluable, and the HARD CI gate
+    passed silently — deleting the baselines defeated the gate entirely.
+    """
+    gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
+    rc = script.main(
+        [
+            "--baselines-mode",
+            "--baselines-dir",
+            str(tmp_path / "DOES_NOT_EXIST"),
+            "--gates-config",
+            str(gates_file),
+        ]
+    )
+    assert rc == 2, f"missing baselines dir must exit 2 (fail-closed), got {rc}"
+    captured = capsys.readouterr()
+    assert "baselines directory not found" in captured.err
+
+
+def test_baselines_mode_empty_dir_exits_2_fail_closed(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """CR-02: an existing-but-empty baselines dir must exit 2 (infra), never 0.
+
+    Composes with check_baselines_fresh.py: git diff reports deleted baseline
+    JSONs as changed paths, so a PR deleting configs/eval_baselines/*.json
+    would satisfy the staleness lint AND (before this fix) pass the gate check.
+    """
+    baselines_dir = tmp_path / "eval_baselines"
+    baselines_dir.mkdir()
+    gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
+    rc = script.main(
+        [
+            "--baselines-mode",
+            "--baselines-dir",
+            str(baselines_dir),
+            "--gates-config",
+            str(gates_file),
+        ]
+    )
+    assert rc == 2, f"empty baselines dir must exit 2 (fail-closed), got {rc}"
+    captured = capsys.readouterr()
+    assert "no baseline JSONs found" in captured.err
+    assert "fail-closed" in captured.err
 
 
 def test_advisory_miss_prints_warn_line_but_does_not_change_exit_code(

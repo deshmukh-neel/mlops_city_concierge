@@ -100,8 +100,19 @@ def _build_summary_from_baselines(baselines_dir: Path) -> dict:
     consume it without modification.  Files inside a ``_snapshots``
     subdirectory are skipped.
 
-    Raises OSError on unreadable directory, ValueError on malformed JSON.
+    Fail-closed contract (CR-02): this feeds the HARD CI gate. A missing
+    baselines directory raises OSError and an empty result raises ValueError —
+    both route through main's (OSError, ValueError) handler to exit 2. The
+    T-10-04-01 "not-evaluable is non-blocking" design covers a single missing
+    metric in an otherwise-present summary; an entirely missing input must
+    never read as green (deleted baselines, renamed dir, typo'd
+    --baselines-dir would all silently pass otherwise).
+
+    Raises OSError on missing/unreadable directory, ValueError on malformed
+    JSON or an empty baselines directory.
     """
+    if not baselines_dir.is_dir():
+        raise OSError(f"baselines directory not found: {baselines_dir}")
     scenarios_out: dict[str, Any] = {}
     for baseline_path in sorted(baselines_dir.glob("*.json")):
         # Skip any file whose immediate parent is _snapshots (pre-phase snapshots).
@@ -141,6 +152,11 @@ def _build_summary_from_baselines(baselines_dir: Path) -> dict:
             "baseline_eligible": True,
             "providers": providers_out,
         }
+    if not scenarios_out:
+        raise ValueError(
+            f"no baseline JSONs found in {baselines_dir} — refusing to pass "
+            "hard gates against an empty record (D-11-15 fail-closed)"
+        )
     return {"scenarios": scenarios_out}
 
 
