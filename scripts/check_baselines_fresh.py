@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Stale-baseline CI lint (Plan 03-07 / EVAL-07 / P9 mitigation).
 
-Hard-fails PRs that touch ``app/agent/`` without refreshing
+Hard-fails PRs that touch any file in the watch-set without refreshing
 ``configs/eval_baselines/*.json`` — unless the latest commit message carries
 an explicit ``[skip-baseline]`` bypass token.
+
+Watch-set (D-11-21 / BASE-04): ``app/agent/``, ``app/llm_factory.py``,
+and ``configs/eval_matrix`` (bare prefix matching both
+``configs/eval_matrix.yaml`` and ``configs/eval_matrix_refinement.yaml``).
 
 The script intentionally uses only the standard library
 (``subprocess``, ``sys``, ``pathlib``, ``argparse``, ``os``, ``re``) so the
@@ -22,11 +26,11 @@ Local invocation (defaults to ``origin/main`` as the diff base)::
 
 Truth table (per plan 03-07 task 1 <behavior>):
 
-    | agent_changed | baselines_changed | [skip-baseline] | exit |
-    |     T         |        F          |       F         |  1   |  ← stale
-    |     T         |        T          |       F         |  0   |  ← updated
-    |     F         |        *          |       *         |  0   |  ← no agent change
-    |     T         |        F          |       T         |  0   |  ← explicit bypass
+    | watch_set_changed | baselines_changed | [skip-baseline] | exit |
+    |        T          |        F          |       F         |  1   |  ← stale
+    |        T          |        T          |       F         |  0   |  ← updated
+    |        F          |        *          |       *         |  0   |  ← no watch-set change
+    |        T          |        F          |       T         |  0   |  ← explicit bypass
 
 Exit code conventions (Plan 03-10 / WR-02 hardening):
 
@@ -45,7 +49,17 @@ import subprocess  # noqa: S404 - this is the script; subprocess is the whole po
 import sys
 from collections.abc import Sequence
 
-AGENT_PREFIX = "app/agent/"
+# D-11-21 / BASE-04: extended watch-set.
+# - app/agent/         : agent graph, critique scorers, state, tools
+# - app/llm_factory.py : provider branches, thinking policies, temperature clamps
+# - configs/eval_matrix: bare prefix matches both eval_matrix.yaml and
+#                        eval_matrix_refinement.yaml (entries directly change
+#                        which models are measured)
+WATCH_PREFIXES = [
+    "app/agent/",
+    "app/llm_factory.py",
+    "configs/eval_matrix",
+]
 BASELINES_PREFIX = "configs/eval_baselines/"
 BASELINE_SUFFIX = ".json"
 SKIP_BASELINE_TOKEN = "[skip-baseline]"  # noqa: S105 - bypass marker, not a credential
@@ -114,8 +128,12 @@ def _last_commit_message() -> str:
 
 
 def _agent_changed(paths: set[str]) -> list[str]:
-    """Return changed paths under ``app/agent/`` (sorted for deterministic msg)."""
-    return sorted(p for p in paths if p.startswith(AGENT_PREFIX))
+    """Return changed paths under any watch-set prefix (sorted for determinism).
+
+    Watch-set (D-11-21 / BASE-04): ``app/agent/``, ``app/llm_factory.py``,
+    and ``configs/eval_matrix`` (bare prefix matching both eval_matrix*.yaml).
+    """
+    return sorted(p for p in paths if any(p.startswith(prefix) for prefix in WATCH_PREFIXES))
 
 
 def _baselines_changed(paths: set[str]) -> list[str]:
@@ -133,10 +151,11 @@ def _baselines_changed(paths: set[str]) -> list[str]:
 def _format_stale_error(agent_paths: list[str]) -> str:
     """Render the actionable error message for the stale-baseline gate."""
     lines = [
-        "ERROR: lint-baselines gate (Plan 03-07 / EVAL-07 / P9):",
+        "ERROR: lint-baselines gate (Plan 03-07 / EVAL-07 / P9 / D-11-21):",
         "",
-        "  The following app/agent/ files changed in this PR but no",
+        "  The following watch-set files changed in this PR but no",
         "  configs/eval_baselines/*.json was updated to match:",
+        "  (watch-set: app/agent/, app/llm_factory.py, configs/eval_matrix*)",
         "",
     ]
     for path in agent_paths:
@@ -165,7 +184,8 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="check_baselines_fresh",
         description=(
-            "Stale-baseline CI lint (Plan 03-07). Exits 1 when app/agent/ "
+            "Stale-baseline CI lint (Plan 03-07 / D-11-21). Exits 1 when any "
+            "watch-set file (app/agent/, app/llm_factory.py, configs/eval_matrix*) "
             "changed without a configs/eval_baselines/*.json refresh, unless "
             "the latest commit message carries the [skip-baseline] bypass."
         ),
@@ -237,10 +257,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     baseline_paths = _baselines_changed(paths)
     bypass_used = bool(_SKIP_BASELINE_RE.search(commit_msg))
 
-    # Branch 3: no agent change at all → trivially pass.
+    # Branch 3: no watch-set change at all → trivially pass.
     if not agent_paths:
         print(
-            f"check_baselines_fresh: OK — no app/agent/ changes vs {base} "
+            f"check_baselines_fresh: OK — no watch-set changes vs {base} "
             f"({len(paths)} paths changed total)"
         )
         return 0
