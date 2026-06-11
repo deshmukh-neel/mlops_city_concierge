@@ -1598,6 +1598,138 @@ def test_aggregate_cell_jsons_omakase_scenario_is_baseline_eligible(
 # ─── 10-03 Task 2: late_night baseline JSON annotation + EVAL-04 parity ──────
 
 
+# ─── CR-03: main() must wire eval_queries_config into aggregate_cell_jsons ───
+
+
+def _write_cell_with_aggregate(
+    directory: Path,
+    provider: str,
+    model: str,
+    scenario_id: str,
+    run_n: int,
+    score_value: float,
+) -> Path:
+    """Write a minimal cell JSON with aggregate block for aggregator tests."""
+    fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
+    path = directory / fname
+    payload = {
+        "llm_provider": provider,
+        "chat_model": model,
+        "query_count": 1,
+        "aggregate": {
+            "category_compliance_mean": score_value,
+            "rationale_stop_alignment_mean": score_value,
+            "n_scored": 1,
+            "n_errored": 0,
+        },
+        "queries": [{"id": scenario_id}],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def test_main_aggregation_surfaces_baseline_eligible(monkeypatch, mocker, tmp_path) -> None:
+    """CR-03: main() must pass eval_queries_config to aggregate_cell_jsons so
+    baseline_eligible appears in summary.json scenario blocks.
+
+    The late_night_closure_cascade scenario must surface baseline_eligible=False;
+    a regular scenario must surface baseline_eligible=True.
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import main
+
+    # Seed per-cell JSONs for two scenarios in the output dir.
+    _write_cell_with_aggregate(
+        tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5
+    )
+    _write_cell_with_aggregate(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+
+    # Mock run_matrix to return immediately (no subprocesses) and leave the
+    # pre-seeded cell JSONs in place.
+    mocker.patch(
+        "scripts.eval_matrix.run_matrix",
+        return_value=(0, []),
+    )
+
+    summary_path = tmp_path / "summary.json"
+    assert not summary_path.exists()
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--output-dir",
+            str(tmp_path),
+            "--eval-queries",
+            str(REPO_ROOT / "configs/eval_queries.yaml"),
+            "--llm-provider-override",
+            "scripted",
+        ]
+    )
+
+    assert rc == 0, f"main() returned non-zero: {rc}"
+    assert summary_path.exists(), "summary.json was not written"
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    scenarios = summary.get("scenarios", {})
+
+    # CR-03: quarantined scenario must have baseline_eligible=False
+    assert "late_night_closure_cascade" in scenarios, (
+        "late_night_closure_cascade scenario missing from summary.json"
+    )
+    assert scenarios["late_night_closure_cascade"].get("baseline_eligible") is False, (
+        "CR-03: late_night_closure_cascade must have baseline_eligible=False in summary.json"
+    )
+
+    # Regular scenario must have baseline_eligible=True
+    assert "refinement_cheaper" in scenarios, (
+        "refinement_cheaper scenario missing from summary.json"
+    )
+    assert scenarios["refinement_cheaper"].get("baseline_eligible") is True, (
+        "CR-03: refinement_cheaper must have baseline_eligible=True in summary.json"
+    )
+
+
+def test_main_aggregation_survives_missing_eval_queries_file(monkeypatch, mocker, tmp_path) -> None:
+    """CR-03 fallback: when --eval-queries points to a nonexistent path, main()
+    must still write summary.json (no baseline_eligible keys, but no crash).
+    """
+    monkeypatch.setenv("APP_ENV", "eval")
+    from scripts.eval_matrix import main
+
+    _write_cell_with_aggregate(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+
+    mocker.patch(
+        "scripts.eval_matrix.run_matrix",
+        return_value=(0, []),
+    )
+
+    rc = main(
+        [
+            "--matrix-config",
+            str(REPO_ROOT / "configs/eval_matrix.yaml"),
+            "--output-dir",
+            str(tmp_path),
+            "--eval-queries",
+            str(tmp_path / "does_not_exist.yaml"),
+            "--llm-provider-override",
+            "scripted",
+        ]
+    )
+
+    assert rc == 0, f"main() returned non-zero on missing eval-queries: {rc}"
+    summary_path = tmp_path / "summary.json"
+    assert summary_path.exists(), (
+        "summary.json must still be written even when eval-queries missing"
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    # No baseline_eligible key when config was missing (fallback to None path)
+    for scenario_block in summary.get("scenarios", {}).values():
+        assert "baseline_eligible" not in scenario_block, (
+            "baseline_eligible must NOT appear when eval_queries_config fallback fires"
+        )
+
+
 def test_late_night_scenario_is_baseline_ineligible() -> None:
     """10-03 / D-10-09 + D-10-10: verify both the quarantine flag AND the
     baseline JSON annotation are in place.
