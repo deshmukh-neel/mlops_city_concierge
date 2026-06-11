@@ -140,6 +140,69 @@ class TestWriteBaselines:
         assert "D-10-03" in captured.err, "D-10-03 refusal code must appear in stderr"
         assert "REFUSED" in captured.err, "REFUSED keyword must appear in stderr"
 
+    def test_all_cells_refused_with_prior_file_leaves_file_byte_identical(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """WR-02: prior baseline exists + ALL summary cells refused → the file
+        must stay byte-identical (no provenance restamp over stale data); exit 1.
+
+        Before the fix, `if any_written or updated_providers:` rewrote the file
+        whenever a prior baseline existed: top-level generated_at/generated_by
+        were bumped while every provider cell carried old data — a lying
+        provenance stamp that also satisfied the check_baselines_fresh.py
+        staleness gate without any actual data refresh.
+        """
+        wb = _load_script()
+
+        scenario_id = "omakase_test"
+        provider_key = "openai/gpt-4o-mini"
+
+        # Prior baseline on disk (makes updated_providers non-empty).
+        prior_baseline = {
+            "scenario_id": scenario_id,
+            "generated_at": "2026-01-01T00-00-00Z",
+            "generated_by": "scripts/write_baselines.py",
+            "providers": {
+                provider_key: {
+                    "scorers": {
+                        "category_compliance": {
+                            "median": 1.0,
+                            "min": 1.0,
+                            "max": 1.0,
+                            "stdev": 0.0,
+                            "n": 5,
+                        }
+                    }
+                }
+            },
+        }
+        baselines_dir = tmp_path / "baselines"
+        baselines_dir.mkdir()
+        baseline_path = baselines_dir / f"{scenario_id}.json"
+        baseline_path.write_text(json.dumps(prior_baseline, indent=2), encoding="utf-8")
+        prior_bytes = baseline_path.read_bytes()
+
+        # New summary: n_scored=3 < n_requested=5 → ALL cells refused.
+        summary_data = _make_summary(
+            scenario_id=scenario_id,
+            provider_key=provider_key,
+            n_scored=3,
+        )
+        summary_path = tmp_path / "summary.json"
+        summary_path.write_text(json.dumps(summary_data), encoding="utf-8")
+
+        rc = wb.main(
+            [str(summary_path), "--n-requested", "5", "--baselines-dir", str(baselines_dir)]
+        )
+
+        assert rc == 1, f"Expected exit 1 when all cells refused; got {rc}"
+        assert baseline_path.read_bytes() == prior_bytes, (
+            "prior baseline file must remain byte-identical when every cell was refused"
+        )
+
+        captured = capsys.readouterr()
+        assert "REFUSED" in captured.err
+
     def test_quarantined_scenario_refused_and_exits_one(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:

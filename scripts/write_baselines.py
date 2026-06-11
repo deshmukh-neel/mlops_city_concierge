@@ -202,10 +202,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         payload["generated_by"] = "scripts/write_baselines.py"
         payload["providers"] = updated_providers
 
-        # Only write if at least one provider cell was successfully processed
-        # (i.e. at least one non-refused cell exists for this scenario).
-        any_written = any(f"{scenario_id}/{pk}" not in refused for pk in providers_block)
-        if any_written or updated_providers:
+        # WR-02: write ONLY if at least one summary cell was actually accepted.
+        # When every cell of this scenario was refused (e.g. a partial run),
+        # the file must stay byte-identical — rewriting it would bump the
+        # top-level generated_at/generated_by provenance stamp over stale
+        # numbers AND satisfy the check_baselines_fresh.py staleness gate
+        # without any actual data refresh.
+        accepted = [pk for pk in providers_block if f"{scenario_id}/{pk}" not in refused]
+        if accepted:
             baselines_dir.mkdir(parents=True, exist_ok=True)
             baseline_path.write_text(
                 json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
