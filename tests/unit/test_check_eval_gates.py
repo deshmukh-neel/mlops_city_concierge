@@ -695,3 +695,137 @@ def test_hard_gate_passes_when_all_eligible_scenarios_pass(
 
     rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
     assert rc == 0, f"all eligible scenarios above gate must exit 0 (got rc={rc})"
+
+
+# ---------------------------------------------------------------------------
+# WR-03: unknown gate status must be rejected at load time, never fail-open
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_gate_status_exits_2_not_silent_pass(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """WR-03: a typo'd status ('activ') must NOT silently disable a hard gate.
+    Unknown status vocabulary is an infrastructure failure → exit 2 with a
+    diagnostic, never exit 0.
+    """
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(
+        """\
+gates:
+  - family: openai/gpt-4o-mini
+    status: activ
+    rationale: "typo'd status"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.8
+    advisory: []
+"""
+    )
+
+    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(0.0)})
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 2, (
+        f"unknown status 'activ' must exit 2 (infra failure), got rc={rc} — "
+        "a one-character typo must never disable a hard gate"
+    )
+    captured = capsys.readouterr()
+    assert "activ" in captured.err, "diagnostic must name the unknown status"
+
+
+# ---------------------------------------------------------------------------
+# WR-04: malformed gates YAML / summary values → exit 2, never exit 1
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "gates_yaml"),
+    [
+        ("null_gates_list", "gates:\n"),
+        (
+            "entry_missing_family",
+            """\
+gates:
+  - status: active
+    rationale: "no family key"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.8
+""",
+        ),
+        (
+            "hard_missing_metric",
+            """\
+gates:
+  - family: openai/gpt-4o-mini
+    status: active
+    rationale: "hard block missing metric"
+    hard:
+      op: ">="
+      value: 0.8
+""",
+        ),
+        (
+            "unknown_op",
+            """\
+gates:
+  - family: openai/gpt-4o-mini
+    status: active
+    rationale: "bad op"
+    hard:
+      metric: committed_itinerary_rate
+      op: "~="
+      value: 0.8
+""",
+        ),
+    ],
+)
+def test_malformed_gates_yaml_exits_2_not_1(
+    tmp_path: Path,
+    script: ModuleType,
+    label: str,
+    gates_yaml: str,
+) -> None:
+    """WR-04: structural defects in the gates config are infrastructure
+    failures (exit 2), not hard-gate violations (exit 1) and not raw
+    tracebacks. CI callers distinguish the two.
+    """
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(gates_yaml)
+
+    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(1.0)})
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 2, f"{label}: malformed gates config must exit 2, got rc={rc}"
+
+
+def test_null_median_in_summary_exits_2_not_traceback(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """WR-04: a null median in the summary (float(None) → TypeError) must be
+    reported as infra failure exit 2, not escape as a traceback."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    cell = {
+        "scorers": {"committed_itinerary_rate": {"median": None}},
+        "n_scored": 5,
+        "n_errored": 0,
+        "cell_valid": True,
+    }
+    summary = _make_summary({"openai/gpt-4o-mini": cell})
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 2, f"null median must exit 2 (infra failure), got rc={rc}"
