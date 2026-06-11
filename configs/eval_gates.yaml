@@ -32,7 +32,7 @@ gates:
 
   - family: openai/gpt-5-mini
     status: aspirational             # FAILS at 0.4; reported but not hard-failing
-    rationale: "D-10-07 + D-09-02 Part A: v2.2 decisiveness target; D-11-20: remains aspirational — omakase median 1.0 but n=5 stdev high; v2.2 anchor pending refinement run"
+    rationale: "D-10-07 + D-09-02 Part A: v2.2 decisiveness target; D-11-20: remains aspirational — omakase committed_itinerary_rate median 1.0 (2026-06-11T19-09-10Z n=5); refinement committed_itinerary_rate median 0.0 (2026-06-11T19-38-23Z n=5); v2.2 anchor pending decisiveness work"
     hard:
       metric: committed_itinerary_rate
       op: ">="
