@@ -10,7 +10,8 @@ Usage:
 Exit codes (matching check_baselines_fresh.py exactly):
     0 = all hard gates passed (aspirational misses printed, non-blocking)
     1 = one or more hard-gate violations
-    2 = infrastructure failure (missing YAML, bad summary.json shape)
+    2 = infrastructure failure (missing YAML, bad summary.json shape, unknown
+        gate status, malformed gate entry, or null/non-numeric metric values)
 
 Gate semantics:
     active / provisional-n1 — hard gate; violation → exit 1
@@ -46,6 +47,9 @@ from pathlib import Path
 
 _HARD_STATUSES = {"active", "provisional-n1"}
 _SKIP_STATUSES = {"logged", "quarantined-legacy-threading"}
+# WR-03: the full status vocabulary. Anything else is rejected at load time —
+# a typo'd status must surface as exit 2, never silently disable a hard gate.
+_VALID_STATUSES = _HARD_STATUSES | _SKIP_STATUSES | {"aspirational"}
 
 
 def _load_gates(gates_path: str) -> dict:
@@ -67,6 +71,17 @@ def _load_gates(gates_path: str) -> dict:
         raise ValueError(f"could not parse gates YAML at {gates_path}: {exc}") from exc
     if not isinstance(data, dict) or "gates" not in data:
         raise ValueError(f"gates YAML at {gates_path} missing top-level 'gates' key")
+    if not isinstance(data["gates"], list):
+        raise ValueError(f"gates YAML at {gates_path}: 'gates' must be a list of gate entries")
+    for idx, gate in enumerate(data["gates"]):
+        if not isinstance(gate, dict):
+            raise ValueError(f"gates YAML at {gates_path}: gate entry #{idx} is not a mapping")
+        status = gate.get("status", "logged")
+        if status not in _VALID_STATUSES:
+            raise ValueError(
+                f"gates YAML at {gates_path}: unknown status {status!r} on gate entry "
+                f"{gate.get('family', f'#{idx}')!r}; valid statuses: {sorted(_VALID_STATUSES)}"
+            )
     return data
 
 
@@ -219,8 +234,9 @@ def _check_gate(
     if status == "aspirational":
         return "aspirational_miss"
 
-    # Unknown status treated as non-blocking.
-    return "pass"
+    # Statuses are validated at load time (_load_gates, WR-03); reaching here
+    # means a caller bypassed validation — fail closed, never silently pass.
+    raise ValueError(f"unknown gate status {status!r} for family {family!r}")
 
 
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -264,12 +280,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     violations: list[str] = []
     aspirational_misses: list[str] = []
 
-    for gate in gates_cfg["gates"]:
-        result = _check_gate(gate, summary)
-        if result == "violation":
-            violations.append(gate["family"])
-        elif result == "aspirational_miss":
-            aspirational_misses.append(gate["family"])
+    # WR-04: structural defects in a gate entry or in summary cell values
+    # (missing keys, null medians, non-dict scenario blocks, unknown ops) are
+    # infrastructure failures — they must exit 2, never masquerade as a
+    # hard-gate violation (exit 1) or escape as a raw traceback.
+    try:
+        for gate in gates_cfg["gates"]:
+            result = _check_gate(gate, summary)
+            if result == "violation":
+                violations.append(gate["family"])
+            elif result == "aspirational_miss":
+                aspirational_misses.append(gate["family"])
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        sys.stderr.write(f"check_eval_gates: malformed gates config or summary shape: {exc!r}\n")
+        return 2
 
     if aspirational_misses:
         print(f"check_eval_gates: ASPIRATIONAL miss (not blocking): {sorted(aspirational_misses)}")
