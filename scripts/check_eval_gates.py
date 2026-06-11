@@ -23,6 +23,13 @@ Not-evaluable condition:
     reported as not-evaluable rather than silently passing (T-10-04-01).
     Similarly, if a family with a hard gate has no cell in the summary at
     all, it is treated as not-evaluable and reported.
+
+    The cell for a family is located by walking each scenario block under
+    ``summary['scenarios']`` and looking up the family under
+    ``scenario_block['providers']``.  Scenarios whose ``baseline_eligible``
+    flag is explicitly ``False`` (D-10-09 quarantined scenarios) are skipped
+    during this walk — a quarantined scenario's cell neither satisfies nor
+    violates a gate.
 """
 
 from __future__ import annotations
@@ -151,12 +158,22 @@ def _check_gate(
     op = hard["op"]
     threshold = hard["value"]
 
-    # Locate the cell for this family in the summary.
-    providers: dict = summary.get("providers", {})
-    cell = providers.get(family)
+    # Locate the cell for this family by walking the nested scenarios->providers shape
+    # produced by aggregate_cell_jsons:
+    #   summary['scenarios'][<scenario_id>]['providers'][<family>]
+    # Quarantined scenarios (baseline_eligible=False, D-10-09) are skipped so their
+    # cells neither satisfy nor violate a gate.
+    cell = None
+    for _scenario_id, scenario_block in summary.get("scenarios", {}).items():
+        if scenario_block.get("baseline_eligible", True) is False:
+            continue
+        candidate = scenario_block.get("providers", {}).get(family)
+        if candidate is not None:
+            cell = candidate
+            break
 
     if cell is None:
-        # Family has no cell in the summary — not-evaluable, not a silent pass.
+        # Family has no cell in any eligible scenario — not-evaluable, not a silent pass.
         note = f"check_eval_gates: NOT-EVALUABLE — family '{family}' has no cell in summary"
         print(note)
         return "not_evaluable"
