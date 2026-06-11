@@ -75,6 +75,15 @@ def vibe_check(state: ItineraryState, judge_llm: Any | None) -> float | None:
         user_query=user_query,
         stops_text=stops_text,
     )
+    # D-10-17 / EVAL-06: this is a SYNC call inside a SYNC LangGraph node
+    # (`critique` in app/agent/graph.py). Verified against this repo's pinned
+    # LangGraph 1.2.0: sync nodes execute inside a ThreadPoolExecutor thread
+    # under `graph.ainvoke` (confirmed via a minimal repro — a sync node
+    # returning threading.get_ident() through ainvoke returns a thread id
+    # distinct from the main thread's). Therefore this blocking sync
+    # judge_llm.invoke does NOT block the asyncio event loop. No async refactor
+    # is required; this call stays sync by design. Re-evaluate only if
+    # LangGraph is upgraded to a version that changes sync-node dispatch.
     raw = judge_llm.invoke([HumanMessage(content=prompt)]).content
     if not isinstance(raw, str):
         return None
