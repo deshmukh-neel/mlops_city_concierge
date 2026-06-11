@@ -5,10 +5,13 @@ to a `--provider {openai|deepseek|anthropic|gemini}` CLI. Makes one
 tool-call-shaped request per provider and writes a redacted JSON fixture to
 `tests/fixtures/provider_payloads/{provider}.json`.
 
-Redaction covers OpenAI (sk-), Anthropic (sk-ant-), and Google (AIzaSy...)
-key shapes PLUS env-var-sourced secret values (D-10-13 / IN-04). A post-write
-secret-scan guard re-reads the written fixture and refuses to keep it if any
-secret pattern is found — fail-closed (T-10-05-01).
+Redaction is genuinely fail-closed (CR-05 / T-10-09-01..03):
+  - All value-bearing fixture fields — response_metadata, usage_metadata, and
+    tool_calls — are routed through `_redact` (env-var substitution + regex).
+  - The post-write secret-scan guard (_scan_fixture_for_secrets) re-reads the
+    written fixture and checks BOTH _SECRET_PATTERNS regexes AND the actual
+    runtime values of _SECRET_ENV_VARS, so a rotated key that doesn't match any
+    regex is still caught and the fixture is deleted (return 2).
 
 Per `project_app_editable_install`: `from app.llm_factory import build_chat_model`
 works as-is via poetry editable install; no sys.path bootstrap is needed.
@@ -96,6 +99,28 @@ def _redact(value: object) -> str:
     for pat in _SECRET_PATTERNS:
         s = pat.sub("<REDACTED>", s)
     return s
+
+
+def _scan_fixture_for_secrets(text: str) -> bool:
+    """Return True if `text` contains any detectable secret.
+
+    Checks two independent channels (mirroring `_redact`):
+      1. _SECRET_PATTERNS regexes (sk-, sk-ant-, AIzaSy..., generic long token).
+      2. Runtime values of _SECRET_ENV_VARS (catches rotated/non-regex-shaped keys).
+
+    Called by main() as the post-write guard. Extracted as a standalone helper so
+    tests can exercise the production guard logic directly without re-implementing it.
+    """
+    # Channel 1: regex-shaped secrets.
+    for pat in _SECRET_PATTERNS:
+        if pat.search(text):
+            return True
+    # Channel 2: env-var-sourced secret values (mirrors _redact lines 90-94).
+    for env_var in _SECRET_ENV_VARS:
+        secret_val = os.environ.get(env_var, "")
+        if secret_val and len(secret_val) >= 10 and secret_val in text:
+            return True
+    return False
 
 
 def _content_shape(content: object) -> str:
@@ -193,14 +218,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Extract fields for the fixture. Redact everything defensively.
     add_kwargs_keys = sorted(message.additional_kwargs.keys())
     add_kwargs_values = {k: _redact(message.additional_kwargs[k]) for k in add_kwargs_keys}
-    response_metadata = _sanitize_response_metadata(dict(message.response_metadata or {}))
+
+    # CR-05: all value-bearing fixture fields must pass through _redact.
+    # response_metadata: first sanitize known token-bearing keys (defense in depth),
+    # then redact the serialized form so env-var secrets and regex patterns are removed.
+    _sanitized_meta = _sanitize_response_metadata(dict(message.response_metadata or {}))
+    response_metadata = json.loads(_redact(json.dumps(_sanitized_meta, default=str)))
     content_shape = _content_shape(message.content)
-    usage_metadata = getattr(message, "usage_metadata", None)
-    tool_calls = getattr(message, "tool_calls", None) or []
+    raw_usage_metadata = getattr(message, "usage_metadata", None)
+    usage_metadata = (
+        json.loads(_redact(json.dumps(raw_usage_metadata, default=str)))
+        if raw_usage_metadata is not None
+        else None
+    )
+    raw_tool_calls = getattr(message, "tool_calls", None) or []
+    tool_calls = json.loads(_redact(json.dumps(raw_tool_calls, default=str)))
 
     # D-10-11 fixture shape: provider, model, library_version, probe_query,
-    # additional_kwargs_keys, redacted additional_kwargs_values, sanitized
-    # response_metadata, content_shape, usage_metadata, tool_calls.
+    # additional_kwargs_keys, redacted additional_kwargs_values, sanitized+redacted
+    # response_metadata, content_shape, redacted usage_metadata, redacted tool_calls.
     fixture: dict[str, object] = {
         "provider": provider,
         "model": model_name,
@@ -218,19 +254,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     fixture_file = _fixture_path(provider)
     fixture_file.write_text(json.dumps(fixture, indent=2, default=str), encoding="utf-8")
 
-    # T-10-05-01: post-write secret-scan guard — re-read and refuse if any
-    # secret pattern survived. Fail-closed: delete the file and return non-zero.
+    # T-10-05-01 / T-10-09-02: post-write secret-scan guard — re-read and refuse if
+    # any secret survived (regex OR env-var value). Fail-closed: delete + return 2.
     text = fixture_file.read_text(encoding="utf-8")
-    for pat in _SECRET_PATTERNS:
-        if pat.search(text):
-            fixture_file.unlink(missing_ok=True)
-            print(
-                f"FATAL: fixture at {fixture_file} contains a secret pattern "
-                "(T-10-05-01 secret-redaction check failed). "
-                "Fixture deleted — NOT committing.",
-                file=sys.stderr,
-            )
-            return 2
+    if _scan_fixture_for_secrets(text):
+        fixture_file.unlink(missing_ok=True)
+        print(
+            f"FATAL: fixture at {fixture_file} contains a secret "
+            "(T-10-05-01 / T-10-09-02 secret-redaction check failed — "
+            "regex pattern or env-var-sourced value detected). "
+            "Fixture deleted — NOT committing.",
+            file=sys.stderr,
+        )
+        return 2
 
     print(f"probe_provider_capture: wrote fixture to {fixture_file}")
     print(f"probe_provider_capture: additional_kwargs_keys = {add_kwargs_keys}")
