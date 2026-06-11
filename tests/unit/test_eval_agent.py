@@ -1015,6 +1015,118 @@ def test_selected_cases_scenario_ids_preserves_yaml_order() -> None:
     assert [c.id for c in filtered] == ["a", "c"]
 
 
+# ============================================================================
+# EVAL-01 / Plan 10-01: ERROR-status record schema + make_error_record builder
+# ============================================================================
+
+
+def test_query_eval_result_has_status_field_with_default_ok() -> None:
+    """D-10-01: QueryEvalResult must have a `status` field defaulting to 'ok'.
+
+    This is the discriminator field that aggregate_results uses to filter out
+    errored runs. Existing scored-row construction (no status arg) must still
+    work without change.
+    """
+    import dataclasses
+
+    from scripts.eval_agent import QueryEvalResult
+
+    field_names = {f.name for f in dataclasses.fields(QueryEvalResult)}
+    assert "status" in field_names, "QueryEvalResult must have a 'status' field"
+
+    # Default must be "ok" so existing scored rows keep status="ok" unchanged.
+    result = query_result()  # built by the existing helper — no status arg
+    assert result.status == "ok"
+
+
+def test_make_error_record_builds_error_schema_record() -> None:
+    """D-10-01: make_error_record returns a QueryEvalResult with status='error'
+    and an error dict with keys {stage, type, message}.
+    """
+    from scripts.eval_agent import make_error_record
+
+    case = eval_case()
+    exc = RuntimeError("db connection failed")
+    record = make_error_record(case, "turn0", exc)
+
+    assert record.status == "error"
+    assert isinstance(record.error, dict)
+    assert record.error["stage"] == "turn0"
+    assert record.error["type"] == "RuntimeError"
+    assert "db connection failed" in record.error["message"]
+
+
+def test_make_error_record_truncates_message_to_500_chars() -> None:
+    """D-10-01: error.message is truncated to 500 chars per the schema."""
+    from scripts.eval_agent import make_error_record
+
+    long_msg = "x" * 1000
+    exc = ValueError(long_msg)
+    record = make_error_record(eval_case(), "turnN", exc)
+
+    assert len(record.error["message"]) <= 500
+
+
+def test_make_error_record_stage_values_are_valid() -> None:
+    """D-10-01: make_error_record accepts stage in {setup, turn0, turnN}."""
+    from scripts.eval_agent import make_error_record
+
+    valid_stages = {"setup", "turn0", "turnN"}
+    case = eval_case()
+    exc = Exception("oops")
+
+    for stage in valid_stages:
+        record = make_error_record(case, stage, exc)
+        assert record.error["stage"] == stage
+
+
+def test_make_error_record_carries_no_scored_checks() -> None:
+    """D-10-01: error records carry no scored check data — scorers NEVER run
+    on failed turns. The deterministic.checks dict may be empty or have
+    None scores, but must not contain real scorer scores.
+    """
+    from scripts.eval_agent import make_error_record
+
+    record = make_error_record(eval_case(), "turn0", Exception("fail"))
+
+    # Error record's deterministic.checks must all have score=None (or be empty).
+    for check_result in record.deterministic.checks.values():
+        assert check_result.score is None, (
+            f"Error record should not carry scored checks; got score={check_result.score}"
+        )
+
+
+def test_make_error_record_type_is_exception_class_name() -> None:
+    """D-10-01: error.type is type(exc).__name__, not the string representation."""
+    from scripts.eval_agent import make_error_record
+
+    class CustomError(Exception):
+        pass
+
+    exc = CustomError("custom failure")
+    record = make_error_record(eval_case(), "setup", exc)
+
+    assert record.error["type"] == "CustomError"
+
+
+def test_query_eval_result_with_error_serializes_via_asdict() -> None:
+    """Error records must serialize cleanly via asdict() -> json.dumps()
+    (same contract as test_query_result_serializes_to_json_via_asdict).
+    """
+    import json
+    from dataclasses import asdict
+
+    from scripts.eval_agent import make_error_record
+
+    record = make_error_record(eval_case(), "turn0", Exception("quota exceeded"))
+    payload = asdict(record)
+    encoded = json.dumps(payload)
+    decoded = json.loads(encoded)
+
+    assert decoded["status"] == "error"
+    assert decoded["error"]["stage"] == "turn0"
+
+
 def test_selected_cases_scenario_ids_returns_empty_when_no_match() -> None:
     """Unknown scenario id returns an empty list (rather than crashing) so
     the matrix runner sees zero queries and writes a clean empty report."""
