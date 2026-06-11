@@ -102,3 +102,5 @@ None — no new network endpoints, auth paths, or trust boundaries introduced. T
 ### Modified files committed:
 - `scripts/check_eval_gates.py` — commit 2a58a43 FOUND
 - `tests/unit/test_check_eval_gates.py` — commits e2e9edf + 1c3aaba FOUND
+
+## Self-Check: PASSED
