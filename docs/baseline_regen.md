@@ -217,15 +217,31 @@ Add a matching comment in `configs/eval_matrix_refinement.yaml` citing D-11-11. 
 after verifying the `GEMINI_API_KEY` is live and the embeddings probe still passes. If gemini
 continues to error after one retry, proceed without it.
 
-### Gated provider errors (openai or anthropic)
+### Gated provider errors (openai)
 
-If `openai/gpt-4o-mini` or `anthropic/claude-sonnet-4-6` cells error, **do not proceed**.
-These are gated families — an errored cell is not acceptable for the committed baseline.
-Rerun the affected matrix until those cells complete cleanly. Check:
+If `openai/gpt-4o-mini` cells error, **do not proceed**. This is the primary gated
+family — an errored cell is not acceptable for the committed baseline. Rerun the affected
+matrix until those cells complete cleanly. Check:
 
 1. The embeddings sanity probe still returns results (Step 1 precondition may have expired).
-2. The relevant API key is still exported (`echo $OPENAI_API_KEY` / `echo $ANTHROPIC_API_KEY`).
+2. The relevant API key is still exported (`echo $OPENAI_API_KEY`).
 3. The DB is still reachable (`psql "$DATABASE_URL" -c "SELECT 1"`).
+
+### Anthropic deferral (D-11-20)
+
+`anthropic/claude-sonnet-4-6` was demoted to `logged` (same treatment as gemini) on
+2026-06-11 because all 5 omakase cells returned HTTP 400 "credit balance too low". This
+is a billing-side blocker — the code and wiring are correct. `write_baselines.py` will
+REFUSE the anthropic cells (n_scored=0 < n_requested=5 per D-10-03), which is the
+correct documented outcome.
+
+**Do not re-run the matrix on depleted Anthropic credits** — the error is deterministic
+and burns no useful compute. Proceed without the anthropic cell; record the deferral in
+`_DEFERRED_BASELINE_CELLS` in `tests/unit/test_eval_matrix.py`.
+
+To promote anthropic back to an active gate when billing is restored, see
+`docs/eval_gates.md § Anthropic deferral (2026-06-11)` for the step-by-step promotion
+path.
 
 ### gpt-4o-mini committed_itinerary_rate below 0.8
 

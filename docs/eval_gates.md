@@ -54,10 +54,10 @@ classifies each gate entry:
 - `aspirational` with a failing hard gate → exit 0 with ASPIRATIONAL miss printed
 - `logged` / `quarantined-legacy-threading` → skipped entirely
 
-If `committed_itinerary_rate` is not yet present in the summary (Phase 10 — the metric
-is wired by Phase 11 BASE-01), the gate is reported as not-evaluable rather than
-silently passing. This is by design: the gate infrastructure is complete and Phase 11
-will wire the metric.
+If `committed_itinerary_rate` is absent from the summary (legacy run before Phase 11
+BASE-01), the gate is reported as not-evaluable rather than silently passing. Phase 11
+Plan 03 (D-11-02) wired this metric into the eval scorers; all runs produced by
+`APP_ENV=eval make eval-matrix RUNS=5` after Phase 11 Plan 03 include it.
 
 Exit codes match `check_baselines_fresh.py`:
 
@@ -66,6 +66,28 @@ Exit codes match `check_baselines_fresh.py`:
 | 0    | All hard gates passed (aspirational misses are printed but non-blocking) |
 | 1    | One or more hard-gate violations |
 | 2    | Infrastructure failure (missing YAML, unreadable summary.json) |
+
+## Anthropic deferral (2026-06-11)
+
+`anthropic/claude-sonnet-4-6` was demoted from `provisional-n1` to `logged` (D-11-20)
+because all 5 omakase cells returned HTTP 400 "credit balance too low" during the
+Phase 11 Wave-2 live regen on 2026-06-11. This is a billing-side blocker, not a code
+or model-quality issue.
+
+**Promotion path:** once billing is restored:
+
+1. Top up Anthropic API credits at console.anthropic.com.
+2. Run `APP_ENV=eval make eval-matrix RUNS=5` (anthropic cells will complete).
+3. Run `make write-baselines SUMMARY=eval_reports/{ts}/summary.json RUNS=5`.
+4. Confirm `committed_itinerary_rate` median >= 0.8 for anthropic (the intended floor
+   carried from the prior `provisional-n1` entry).
+5. Edit `configs/eval_gates.yaml`: set `status: active`, restore the hard gate
+   `metric: committed_itinerary_rate, op: ">=", value: 0.8`, add a new D-ID rationale.
+6. Verify `make eval-gates-check-baselines` passes, then commit and open a PR.
+
+The anchor definition (family key and intended gate value) is intentionally preserved in
+`configs/eval_gates.yaml` under the `logged` status so the promotion path is mechanical
+— change `status`, restore the `hard:` block, add rationale.
 
 ## Adding a new gate
 

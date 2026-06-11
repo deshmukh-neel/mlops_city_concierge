@@ -105,19 +105,26 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
 # Matrix entries whose baseline cell is intentionally absent. Sanctioned
 # deferrals:
 #   - eval_matrix_refinement.yaml: gemini/gemini-3.1-pro-preview — first n=5
-#     measurement deferred (see PROV-04 comment in eval_matrix_refinement.yaml)
-#   - eval_matrix.yaml: three Phase-11 / D-11-12 cross-model entries — baseline
-#     cells not yet written; Wave-2 live regen (BASE-01) will remove them.
+#     measurement deferred per D-11-11 (PROV-04; gemini errored during regen).
+#     anthropic/claude-sonnet-4-6 is NOT listed here — its PROV-03 SHIPPED-WITH-GAP
+#     n=1 cell is preserved in refinement_cheaper.json (historical record); write_baselines
+#     refuses to overwrite it with n=0 results per D-10-03 (no data loss).
+#   - eval_matrix.yaml: anthropic/claude-sonnet-4-6 — D-11-20 deferral; status demoted
+#     to logged-not-gated in configs/eval_gates.yaml; API billing exhausted 2026-06-11
+#     (HTTP 400 "credit balance too low" on all 5 omakase cells). Promotable when
+#     Anthropic credits are restored. See docs/eval_gates.md § Anthropic deferral.
 # Shrink each set when the deferred cell lands; never grow it without a matching
 # comment in the matrix YAML.
 _DEFERRED_BASELINE_CELLS: dict[str, set[str]] = {
-    "eval_matrix_refinement.yaml": {"gemini/gemini-3.1-pro-preview"},
+    "eval_matrix_refinement.yaml": {
+        # D-11-11: gemini deferred — errored during regen; retry when GEMINI_API_KEY quota permits.
+        "gemini/gemini-3.1-pro-preview",
+    },
     "eval_matrix.yaml": {
-        # D-11-12 Phase 11 expansion: new entries exist in YAML but baselines
-        # not yet written (Wave-2 live regen). Remove after Wave-2 completes.
-        "openai/gpt-5-mini",
+        # D-11-20: anthropic deferred to logged-not-gated — API billing exhausted 2026-06-11;
+        # all 5 omakase cells HTTP 400; promotable when Anthropic credits are restored.
+        # See docs/eval_gates.md § Anthropic deferral for promotion path.
         "anthropic/claude-sonnet-4-6",
-        "deepseek/deepseek-reasoner",
     },
 }
 
