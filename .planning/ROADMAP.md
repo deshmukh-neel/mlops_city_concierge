@@ -96,7 +96,7 @@
 
 **Wave 1**
 
-- [ ] 13-01-viability-predicate-and-telemetry-PLAN.md — Shared viability predicate (app/agent/viability.py) + commit_forced/forced_commit_step state fields + arm_flags run-JSON self-description
+- [x] 13-01-viability-predicate-and-telemetry-PLAN.md — Shared viability predicate (app/agent/viability.py) + commit_forced/forced_commit_step state fields + arm_flags run-JSON self-description
 - [ ] 13-02-viability-contract-prompt-PLAN.md — DEC-01 additive rule-8 viability addendum (flag-gated, both-flag-states prompt locks)
 
 **Wave 2** *(blocked on Wave 1)*
@@ -156,7 +156,7 @@
 | 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 13. Decisiveness Experiment Arms | v2.2 | 0/TBD | Not started | - |
+| 13. Decisiveness Experiment Arms | v2.2 | 1/7 | In Progress|  |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
