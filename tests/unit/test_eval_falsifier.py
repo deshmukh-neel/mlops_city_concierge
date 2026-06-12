@@ -835,6 +835,259 @@ class TestZeroOverlapRefusesWithExit2:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Unit tests: --matrix-config flag + _commit_split_from_run_dir (Phase 13 / D-13-04)
+# ---------------------------------------------------------------------------
+
+
+class TestMatrixConfigFlag:
+    """Tests for the --matrix-config argument and zero-overlap guard behavior."""
+
+    def _write_run_summary_with_scenario(self, tmp_path: Path, scenario_id: str) -> Path:
+        """Write a summary.json containing only the given scenario id."""
+        summary = _make_summary(
+            {
+                scenario_id: {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
+                },
+            }
+        )
+        run_dir = tmp_path / "2026-01-01T00-00-00Z"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "summary.json").write_text(json.dumps(summary))
+        return run_dir
+
+    def test_matrix_config_flag_accepted(self, script: ModuleType) -> None:
+        """--matrix-config is a recognized argument (does not raise SystemExit)."""
+        # Parse --matrix-config without running (just test arg parsing)
+        args = script._parse_args(
+            [
+                "--matrix-config",
+                "configs/eval_matrix_arm.yaml",
+            ]
+        )
+        assert args.matrix_config == "configs/eval_matrix_arm.yaml"
+
+    def test_matrix_config_default_is_none(self, script: ModuleType) -> None:
+        """--matrix-config defaults to None when not provided."""
+        args = script._parse_args([])
+        assert args.matrix_config is None
+
+    def test_arm_run_dir_with_refinement_cheaper_passes_overlap_guard(
+        self, tmp_path: Path, script: ModuleType
+    ) -> None:
+        """With --matrix-config configs/eval_matrix_arm.yaml, a run dir containing
+        only refinement_cheaper (not in default eval_matrix.yaml) should NOT exit 2."""
+        # refinement_cheaper is NOT in default eval_matrix.yaml
+        assert "refinement_cheaper" not in script._expected_matrix_scenarios()
+
+        run_dir = self._write_run_summary_with_scenario(tmp_path, "refinement_cheaper")
+        arm_config = str(REPO_ROOT / "configs" / "eval_matrix_arm.yaml")
+        rc = script.main(
+            [
+                "--run-dir",
+                str(run_dir),
+                "--baselines-dir",
+                str(REPO_ROOT / "configs" / "eval_baselines"),
+                "--matrix-config",
+                arm_config,
+            ]
+        )
+        # Must not be exit 2 (zero-overlap guard must not fire)
+        assert rc != 2, (
+            "refinement_cheaper is in eval_matrix_arm.yaml — the zero-overlap guard "
+            f"must accept this run dir; got exit {rc}"
+        )
+
+    def test_default_matrix_config_rejects_refinement_cheaper(
+        self, tmp_path: Path, script: ModuleType
+    ) -> None:
+        """Without --matrix-config, a run dir with only refinement_cheaper still exits 2."""
+        run_dir = self._write_run_summary_with_scenario(tmp_path, "refinement_cheaper")
+        rc = script.main(
+            [
+                "--run-dir",
+                str(run_dir),
+                "--baselines-dir",
+                str(REPO_ROOT / "configs" / "eval_baselines"),
+                # No --matrix-config → uses default eval_matrix.yaml
+            ]
+        )
+        assert rc == 2, (
+            "refinement_cheaper is NOT in default eval_matrix.yaml — "
+            f"zero-overlap guard must fire and return exit 2; got {rc}"
+        )
+
+    def test_expected_matrix_scenarios_reads_arm_config(self, script: ModuleType) -> None:
+        """_expected_matrix_scenarios with arm config path returns both arm scenarios."""
+        arm_path = REPO_ROOT / "configs" / "eval_matrix_arm.yaml"
+        scenarios = script._expected_matrix_scenarios(arm_path)
+        assert "omakase_mission_open_ended" in scenarios
+        assert "refinement_cheaper" in scenarios
+
+
+class TestCommitSplitFromRunDir:
+    """Tests for _commit_split_from_run_dir helper (D-13-04)."""
+
+    def _write_run_file(
+        self,
+        run_dir: Path,
+        provider: str,
+        model: str,
+        scenario: str,
+        run_n: int,
+        commit_forced: bool,
+        first_commit_call_step: int | None,
+    ) -> Path:
+        """Write an individual run JSON file following the eval_agent.py filename pattern."""
+        provider_slug = f"{provider}--{model}"
+        filename = f"{provider_slug}--{scenario}--run-{run_n}.json"
+        payload = {
+            "provider": provider,
+            "model": model,
+            "scenario_id": scenario,
+            "run_index": run_n,
+            "deterministic": {
+                "commit_forced": commit_forced,
+                "first_commit_call_step": first_commit_call_step,
+                "committed_itinerary_rate": 1.0
+                if first_commit_call_step is not None or commit_forced
+                else 0.0,
+            },
+        }
+        (run_dir / filename).write_text(json.dumps(payload))
+        return run_dir / filename
+
+    def _make_run_dir(self, tmp_path: Path) -> Path:
+        run_dir = tmp_path / "run_dir"
+        run_dir.mkdir()
+        return run_dir
+
+    def test_split_counts_forced_and_model_initiated(
+        self, tmp_path: Path, script: ModuleType
+    ) -> None:
+        """2 forced + 2 model-initiated + 1 never-committed → returns (2, 2)."""
+        run_dir = self._make_run_dir(tmp_path)
+        provider_key = "openai/gpt-5-mini"
+        provider, model = "openai", "gpt-5-mini"
+
+        # 2 forced commits
+        self._write_run_file(run_dir, provider, model, "omakase_mission_open_ended", 0, True, None)
+        self._write_run_file(run_dir, provider, model, "omakase_mission_open_ended", 1, True, None)
+        # 2 model-initiated commits
+        self._write_run_file(run_dir, provider, model, "omakase_mission_open_ended", 2, False, 3)
+        self._write_run_file(run_dir, provider, model, "omakase_mission_open_ended", 3, False, 5)
+        # 1 never committed
+        self._write_run_file(run_dir, provider, model, "omakase_mission_open_ended", 4, False, None)
+
+        mi, forced = script._commit_split_from_run_dir(run_dir, provider_key)
+        assert mi == 2, f"expected 2 model-initiated, got {mi}"
+        assert forced == 2, f"expected 2 forced, got {forced}"
+
+    def test_split_all_forced(self, tmp_path: Path, script: ModuleType) -> None:
+        """All forced commits → returns (0, n)."""
+        run_dir = self._make_run_dir(tmp_path)
+        provider_key = "openai/gpt-5-mini"
+        provider, model = "openai", "gpt-5-mini"
+
+        for i in range(3):
+            self._write_run_file(
+                run_dir, provider, model, "omakase_mission_open_ended", i, True, None
+            )
+
+        mi, forced = script._commit_split_from_run_dir(run_dir, provider_key)
+        assert mi == 0
+        assert forced == 3
+
+    def test_split_none_committed(self, tmp_path: Path, script: ModuleType) -> None:
+        """No commits at all → returns (0, 0)."""
+        run_dir = self._make_run_dir(tmp_path)
+        provider_key = "openai/gpt-5-mini"
+        provider, model = "openai", "gpt-5-mini"
+
+        for i in range(3):
+            self._write_run_file(
+                run_dir, provider, model, "omakase_mission_open_ended", i, False, None
+            )
+
+        mi, forced = script._commit_split_from_run_dir(run_dir, provider_key)
+        assert mi == 0
+        assert forced == 0
+
+    def test_split_ignores_other_providers(self, tmp_path: Path, script: ModuleType) -> None:
+        """Files from other providers are not counted."""
+        run_dir = self._make_run_dir(tmp_path)
+        provider_key = "openai/gpt-5-mini"
+
+        # Write files for gpt-5-mini (2 forced) and gpt-4o-mini (3 model-initiated)
+        self._write_run_file(
+            run_dir, "openai", "gpt-5-mini", "omakase_mission_open_ended", 0, True, None
+        )
+        self._write_run_file(
+            run_dir, "openai", "gpt-5-mini", "omakase_mission_open_ended", 1, True, None
+        )
+        self._write_run_file(
+            run_dir, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, False, 2
+        )
+        self._write_run_file(
+            run_dir, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 1, False, 3
+        )
+        self._write_run_file(
+            run_dir, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 2, False, 4
+        )
+
+        mi, forced = script._commit_split_from_run_dir(run_dir, provider_key)
+        assert mi == 0
+        assert forced == 2  # only gpt-5-mini files
+
+    def test_split_skips_malformed_json(self, tmp_path: Path, script: ModuleType) -> None:
+        """Malformed JSON files are silently skipped (T-13-05-01)."""
+        run_dir = self._make_run_dir(tmp_path)
+        provider_key = "openai/gpt-5-mini"
+
+        # Write one valid file and one malformed file
+        self._write_run_file(
+            run_dir, "openai", "gpt-5-mini", "omakase_mission_open_ended", 0, True, None
+        )
+        (run_dir / "openai--gpt-5-mini--omakase_mission_open_ended--run-1.json").write_text(
+            "not valid json {"
+        )
+
+        # Should not raise, should count the one valid forced file
+        mi, forced = script._commit_split_from_run_dir(run_dir, provider_key)
+        assert forced == 1
+        assert mi == 0
+
+    def test_split_skips_summary_json(self, tmp_path: Path, script: ModuleType) -> None:
+        """summary.json is not counted as an individual run file."""
+        run_dir = self._make_run_dir(tmp_path)
+        provider_key = "openai/gpt-5-mini"
+
+        # Write a summary.json (should be ignored) and a real run file
+        (run_dir / "summary.json").write_text(json.dumps({"scenarios": {}}))
+        self._write_run_file(
+            run_dir, "openai", "gpt-5-mini", "omakase_mission_open_ended", 0, False, 2
+        )
+
+        mi, forced = script._commit_split_from_run_dir(run_dir, provider_key)
+        assert mi == 1
+        assert forced == 0
+
+    def test_split_empty_dir_returns_zeros(self, tmp_path: Path, script: ModuleType) -> None:
+        """Empty run dir returns (0, 0) without raising."""
+        run_dir = self._make_run_dir(tmp_path)
+        mi, forced = script._commit_split_from_run_dir(run_dir, "openai/gpt-5-mini")
+        assert mi == 0
+        assert forced == 0
+
+
+# ---------------------------------------------------------------------------
+# Smoke test: real configs/eval_baselines (COMMITTED TEST ARTIFACT)
+# Satisfies feedback_test_layering: smoke + unit + functional coverage.
+# ---------------------------------------------------------------------------
+
+
 def test_smoke_runs_against_real_baselines(script: ModuleType) -> None:
     """SMOKE: falsifier runs against real configs/eval_baselines without infra error.
 
