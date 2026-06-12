@@ -92,7 +92,26 @@
   4. The critique-recalibration arm (DEC-03) is co-tuned with DEC-01 (not tuned in isolation), with the `LOW_SIMILARITY_THRESHOLD` change direction and the `low_similarity` scoping decision both documented before any threshold change lands
   5. DEC-05 arm-verdict document records per-arm n=5 commit-rate numbers for gpt-5-mini, deepseek-reasoner, and gpt-4o-mini anchor, and explicitly states which arm (if any) cleared the INST-05 falsifier bar — or records an honest null result
 
-**Plans**: TBD
+**Plans**: 7 plans
+
+**Wave 1**
+
+- [ ] 13-01-viability-predicate-and-telemetry-PLAN.md — Shared viability predicate (app/agent/viability.py) + commit_forced/forced_commit_step state fields + arm_flags run-JSON self-description
+- [ ] 13-02-viability-contract-prompt-PLAN.md — DEC-01 additive rule-8 viability addendum (flag-gated, both-flag-states prompt locks)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 13-03-dec03-doc-and-critique-scoping-PLAN.md — DEC-03 decision doc FIRST, then env-overridable threshold + flag-gated low_similarity scoping (co-tuned with DEC-01)
+- [ ] 13-04-graph-arms-forced-commit-and-parallel-PLAN.md — A2 forced-commit-at-step-N branch + A3 parallel act() + A1 prompt wiring in graph.py
+- [ ] 13-05-arm-matrix-config-and-falsifier-PLAN.md — configs/eval_matrix_arm.yaml (3 models x 2 scenarios) + falsifier --matrix-config + forced-split reader + Makefile arm targets
+
+**Wave 3** *(live runs — checkpoints, real API spend)*
+
+- [ ] 13-06-run-judged-arms-PLAN.md — Run A1/A2/A3 smoke-first at n=5 temp=1.0; record verdict sections in docs/decisiveness_arm_verdicts.md
+
+**Wave 4**
+
+- [ ] 13-07-a4-combo-and-closing-verdict-PLAN.md — A4 conditional combo decision (D-13-01, <=4-run cap) + closing INST-05 verdict + bookkeeping
 
 ### Phase 14: Richer State Replay (CONDITIONAL)
 
