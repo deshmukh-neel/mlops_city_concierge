@@ -50,7 +50,7 @@
 
 - [x] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the v2.2 comparison floor confirmed (BOTH anthropic AND gemini cells deferred at user decision — D-12-09; non-deferred cells honest n=5) (completed 2026-06-12)
 - [x] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier (completed 2026-06-12; honest null result — no arm cleared INST-05; Phase 14 entry gate OPEN)
-- [ ] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar
+- [x] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar (completed 2026-06-12)
 - [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
 
 ## Phase Details
@@ -117,7 +117,7 @@
 
 - [x] 13-08-cr01-forced-commit-synthesizer-fix-PLAN.md — CR-01: fix viability.py typed-path PlaceHit→dict + synthesizer rationale so the A2 forced-commit branch works; non-mocked regression test; annotate A2 verdict (mechanism was inoperative; 0.500 model-initiated stands; forced untested at n=5)
 - [x] 13-09-cr02-falsifier-split-reader-fix-PLAN.md — CR-02: fix eval_falsifier split reader to read queries[i].deterministic; fixture to real EvalRunReport shape + regression test; annotate verdict that pasted 0/0 was a tool bug (hand-computed tables correct)
-- [ ] 13-10-sc3-respecify-and-flag-hygiene-PLAN.md — SC-3 zero-spend respecify (criterion 3 → absolute latency for future baseline; constraint annotated) + WR-09 env_flag DRY helper + WR-02 VIABILITY_CONTRACT_ENABLED single-read co-tuning fix
+- [x] 13-10-sc3-respecify-and-flag-hygiene-PLAN.md — SC-3 zero-spend respecify (criterion 3 → absolute latency for future baseline; constraint annotated) + WR-09 env_flag DRY helper + WR-02 VIABILITY_CONTRACT_ENABLED single-read co-tuning fix
 
 ### Phase 14: Richer State Replay (CONDITIONAL)
 
@@ -162,7 +162,7 @@
 | 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 13. Decisiveness Experiment Arms | v2.2 | 9/10 | In Progress|  |
+| 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete   | 2026-06-12 |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
