@@ -108,6 +108,7 @@ RUNS ?= 1
 QUERIES ?= 1
 SCENARIOS ?=
 LLM_OVERRIDE ?=
+RUN_DIR ?=
 
 .PHONY: eval-agent
 eval-agent: ## Run scripts/eval_agent.py once (PROVIDER/MODEL/QUERIES/SCENARIOS params)
@@ -205,6 +206,17 @@ snapshot-baselines: ## Snapshot current canonical baselines to _snapshots/ as pr
 	   configs/eval_baselines/_snapshots/refinement_cheaper.pre-phase11.json
 	cp configs/eval_baselines/late_night_closure_cascade.json \
 	   configs/eval_baselines/_snapshots/late_night_closure_cascade.pre-phase11.json
+
+# Phase 12 / INST-05 / D-12-06..08: falsifier report — reads eval artifacts
+# and answers whether gpt-5-mini hit the pooled >= 0.6 committed_itinerary_rate
+# bar and gpt-4o-mini held its anchor baseline. Never fans out live API calls.
+# Run AFTER make eval-matrix. Override the run dir with RUN_DIR=.
+.PHONY: eval-falsifier
+eval-falsifier: ## INST-05: falsifier report — did gpt-5-mini hit >=0.6 and gpt-4o-mini hold baseline? (RUN_DIR= to override latest)
+	$(POETRY_RUN) python scripts/eval_falsifier.py \
+	  $(if $(RUN_DIR),--run-dir $(RUN_DIR),) \
+	  --baselines-dir configs/eval_baselines \
+	  --gates-config configs/eval_gates.yaml
 
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
