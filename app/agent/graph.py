@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any, Literal
 
@@ -31,7 +32,7 @@ from app.agent.adapters import ADAPTERS, NoOpAdapter, ProviderAdapter
 from app.agent.commit import commit_stops
 from app.agent.critique import vibe
 from app.agent.planning import chain_arrival_times
-from app.agent.prompts import SYSTEM_PROMPT, current_datetime_str
+from app.agent.prompts import SYSTEM_PROMPT, current_datetime_str, rule8_viability_addendum
 from app.agent.revision import (
     critique_final_with_stops,
     critique_step,
@@ -281,6 +282,33 @@ def build_agent_graph(
     if judge_llm is None and vibe.is_enabled():
         judge_llm = vibe.make_judge()
 
+    # Phase 13 / DEC arm-flag reads — resolved ONCE at graph-build time and
+    # closed over the inner functions. With all three flags unset/0, behavior
+    # is byte-identical to the baseline path (flag-off is the default state).
+    #
+    # FORCED_COMMIT_STEP (int, default 0 = off): A2 arm — at step N, if the
+    #   model has not committed AND every slot has a viable candidate, synthesize
+    #   a commit from best-so-far and route it through the normal commit path.
+    #   Default value documented here: 6 (max_steps=8, leaves headroom for
+    #   revision loops); the firing condition reads the env value, never hardcodes.
+    #
+    # VIABILITY_CONTRACT_ENABLED (bool, default off): A1 arm — appends the
+    #   rule8_viability_addendum to the system prompt so the model sees the exact
+    #   cosine threshold that determines viability.
+    #
+    # PARALLEL_TOOL_EXECUTION_ENABLED (bool, default off): A3 arm — runs all
+    #   tool calls in one act() step concurrently via asyncio.gather with
+    #   results appended in ORIGINAL tool_call order.
+    _forced_commit_step: int = int(os.environ.get("FORCED_COMMIT_STEP", "0") or "0")
+    _viability_contract_enabled: bool = os.environ.get(
+        "VIABILITY_CONTRACT_ENABLED", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    _parallel_tool_execution_enabled: bool = os.environ.get(
+        "PARALLEL_TOOL_EXECUTION_ENABLED", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    # Pre-compute the prompt addendum at build time (pure string; empty when flag off).
+    _viability_prompt_addendum: str = rule8_viability_addendum(_viability_contract_enabled)
+
     async def plan(state: ItineraryState) -> dict[str, Any]:
         messages_in: list[BaseMessage] = list(state.messages)
         if state.step_count == 0 and not any(isinstance(m, SystemMessage) for m in messages_in):
@@ -290,6 +318,7 @@ def build_agent_graph(
                         max_steps=max_steps,
                         current_datetime=current_datetime_str(),
                     )
+                    + _viability_prompt_addendum
                     + _constraints_context(state)
                 ),
                 *messages_in,
