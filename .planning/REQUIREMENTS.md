@@ -29,7 +29,7 @@ ANCH-01 (anthropic n=5) deferred at milestone start — see Future Requirements.
 
 Joint experiments over three coupled levers — prompt contract, critique pressure, state richness — never one lever in isolation. Arms judged with Phase-10 honest gates, n=5, temp=1.0, against the ANCH comparison floor.
 
-- [ ] **DEC-01**: Viability-contract arm: explicit viability definition in the commit precondition ("a result above X cosine with matching primary_type IS viable — do not keep searching past it"), without violating the Phase-7 prompt/rubric-decoupling CI grep gate
+- [x] **DEC-01**: Viability-contract arm: explicit viability definition in the commit precondition ("a result above X cosine with matching primary_type IS viable — do not keep searching past it"), without violating the Phase-7 prompt/rubric-decoupling CI grep gate
 - [x] **DEC-02**: Forced-commit-at-step-N arm: graph-level, model-independent mechanism that ends exploration with a commit from best-so-far candidates
 - [ ] **DEC-03**: Critique-recalibration arm co-tuned with DEC-01 (threshold below 0.55 and/or `low_similarity` scoped to pre-candidate steps only — never tuned in isolation per `critique-loop-and-commit-tool-conflict`)
 - [ ] **DEC-04**: Parallel tool execution in `act()` — the all-provider latency arm; tool calls within one plan step execute concurrently with results order-stable
@@ -86,7 +86,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INST-05 | Phase 12 | Complete |
 | ANCH-02 | Phase 12 | Complete (deferred-with-note, D-12-09) |
 | ANCH-03 | Phase 12 | Complete (reinterpreted per D-12-09) |
-| DEC-01 | Phase 13 | Pending |
+| DEC-01 | Phase 13 | Complete |
 | DEC-02 | Phase 13 | Complete |
 | DEC-03 | Phase 13 | Pending |
 | DEC-04 | Phase 13 | Pending |
