@@ -78,6 +78,10 @@ scoped to pre-candidate steps only), both gated by the same flag (D-13-05).
 
 **Falsifier per-scenario breakdown (pasted verbatim from falsifier output):**
 
+> **Note:** The `(model-initiated 0/0, forced 0/0)` split lines below are a tool bug (CR-02).
+> See the CR-02 annotation in the A2 section for full details. The hand-computed split numbers
+> in the per-model table above are correct.
+
 ```
 ============================================================
 eval_falsifier: INST-05 Milestone Falsifier Report
@@ -177,6 +181,32 @@ eval_falsifier: VERDICT = FAIL
 ============================================================
 ```
 
+> **CR-02 POST-RUN ANNOTATION (Plan 13-09, 2026-06-12): Pasted falsifier 0/0 split lines are
+> a tool bug.** The `(model-initiated 0/0, forced 0/0)` lines in the pasted verbatim falsifier
+> output above — and in all other pasted falsifier output blocks in this document (A1, A3) — were
+> produced by a bug in `_commit_split_from_run_dir` (`scripts/eval_falsifier.py`). The reader
+> called `data.get("deterministic")` at the top level of each per-run JSON file, but the real
+> `EvalRunReport` (written by `eval_agent.py`) nests `deterministic` under each `queries[i]`,
+> not at the top level. Because the top-level key does not exist, the reader always returned
+> `{}`, yielding 0/0 for every model and every arm. **This is a pure reporting tool bug (CR-02)
+> — it did not affect the actual eval runs, the committed_itinerary_rate values, or the
+> falsifier exit codes (0/1/2).**
+>
+> **The hand-computed split numbers in the per-model tables are CORRECT.** For example, the A2
+> gpt-5-mini row "model-initiated 4/10, forced 0/10" was verified directly from the run-dir
+> JSON files' `queries[i].deterministic.first_commit_call_step` and
+> `queries[i].deterministic.commit_forced` fields, bypassing the buggy reader. Those numbers
+> are the ground truth; the pasted falsifier 0/0 lines are the incorrect output of the broken
+> tool and are preserved here as a historical record only.
+>
+> **The bug is fixed in `scripts/eval_falsifier.py` (Plan 13-09):** `_commit_split_from_run_dir`
+> now iterates `data.get("queries") or []` and reads `query.get("deterministic")` from each
+> entry. Re-running `eval-falsifier-arm` on the recorded run dirs now reproduces the
+> hand-computed table numbers, not 0/0. A regression test (`tests/unit/test_eval_falsifier.py
+> ::TestCommitSplitFromRunDir::test_cr02_real_shape_returns_nonzero_counts`) verifies the
+> fixed reader returns non-zero counts on the real EvalRunReport shape and returns (0,0) on
+> the old top-level-only shape.
+
 **Key finding — FORCED_COMMIT_STEP=6 mechanism NEVER FIRED:** Raw per-file analysis
 confirms forced=0 for ALL models across all 10 episodes each. The mechanism requires all
 slots to have a viable candidate (cosine >= threshold AND matching primary_type) at step 6.
@@ -275,6 +305,10 @@ anchor regression (gpt-4o-mini refinement_cheaper 0.000 vs baseline 1.000) is it
 scorer regression (committed_itinerary_rate is a quality signal).
 
 **Falsifier per-scenario breakdown (pasted verbatim, for scorer non-regression evidence):**
+
+> **Note:** The `(model-initiated 0/0, forced 0/0)` split lines below are a tool bug (CR-02).
+> See the CR-02 annotation in the A2 section for full details. The hand-computed split numbers
+> in the per-model table above are correct.
 
 ```
 ============================================================
