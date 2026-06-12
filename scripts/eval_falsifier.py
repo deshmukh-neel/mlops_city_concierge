@@ -176,6 +176,50 @@ def _pooled_commit_rate(
     return pooled, per_scenario
 
 
+def _commit_split_from_run_dir(
+    run_dir: Path,
+    provider_key: str,
+    scenario_ids: set[str] | None = None,
+) -> tuple[int, int]:
+    """Return (model_initiated_commits, forced_commits) for one provider.
+
+    Reads individual *.json run files (not summary.json) because commit_forced
+    is a per-run field, not aggregated into scorers blocks.
+    D-13-04: forced commits count toward committed_itinerary_rate (product-honest)
+    but the split must be printed explicitly in the A2 verdict line.
+
+    T-13-05-01: malformed JSON or OSError → file silently skipped; never raises.
+    """
+    model_initiated = 0
+    forced = 0
+    # Convert "openai/gpt-5-mini" to "openai--gpt-5-mini" for glob matching
+    provider_slug = provider_key.replace("/", "--")
+    for path in run_dir.glob(f"{provider_slug}--*.json"):
+        # Skip the summary file (not an individual run file)
+        if path.name == "summary.json":
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        det = data.get("deterministic") or {}
+        if scenario_ids:
+            # Filter by scenario parsed from the filename
+            # Filename pattern: provider--model--scenario--run-N.json
+            # e.g. openai--gpt-5-mini--omakase_mission_open_ended--run-0
+            # Since provider_slug may contain --, strip it from the front
+            suffix = path.stem[len(provider_slug) + 2 :]  # skip "provider_slug--"
+            # suffix is now "scenario--run-N"
+            scenario_in_name = suffix.rsplit("--", 1)[0] if "--" in suffix else suffix
+            if scenario_in_name not in scenario_ids:
+                continue
+        if det.get("commit_forced"):
+            forced += 1
+        elif det.get("first_commit_call_step") is not None:
+            model_initiated += 1
+    return model_initiated, forced
+
+
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     """Parse argv for the falsifier report."""
     parser = argparse.ArgumentParser(
@@ -211,6 +255,19 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         help=(
             "Path to eval_queries.yaml for D-10-09 baseline_eligible resolution "
             "(default: configs/eval_queries.yaml)."
+        ),
+    )
+    # Phase 13 / D-13-02: arm matrix config path for the zero-overlap exit-2 guard.
+    # When grading an arm run dir (which covers both omakase + refinement_cheaper),
+    # pass --matrix-config configs/eval_matrix_arm.yaml so the guard reads the arm
+    # scenario universe instead of the default eval_matrix.yaml (omakase-only).
+    parser.add_argument(
+        "--matrix-config",
+        default=None,
+        help=(
+            "Path to the matrix YAML whose scenario universe the zero-overlap exit-2 guard "
+            "reads (default: configs/eval_matrix.yaml). "
+            "Use configs/eval_matrix_arm.yaml for Phase 13 arm run dirs."
         ),
     )
     return parser.parse_args(list(argv))
@@ -256,6 +313,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     failed = False
 
+    # ── Resolve the matrix config for the zero-overlap guard ───────────────
+    # Phase 13 / D-13-02: --matrix-config lets arm run dirs be graded against
+    # the arm scenario universe (omakase + refinement_cheaper) instead of the
+    # default eval_matrix.yaml (omakase-only). The guard reads whichever config
+    # is given; the default is the production matrix.
+    matrix_config_path: Path = (
+        Path(args.matrix_config) if args.matrix_config else _DEFAULT_MATRIX_CONFIG
+    )
+
     # ── Check 1: gpt-5-mini pooled committed_itinerary_rate >= 0.6 ─────────
     gpt5_pooled, gpt5_per_scenario = _pooled_commit_rate(summary, _GPT5_KEY)
 
@@ -269,20 +335,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"source: committed baselines at {args.baselines_dir}")
     else:
         print(f"source: run dir {run_dir}")
-        expected_scenarios = _expected_matrix_scenarios()
+        expected_scenarios = _expected_matrix_scenarios(matrix_config_path)
         scenarios_block = summary.get("scenarios")
         found_scenarios = set(scenarios_block) if isinstance(scenarios_block, dict) else set()
         if expected_scenarios and not (found_scenarios & expected_scenarios):
+            matrix_label = matrix_config_path.name
             print(
-                "  WARNING: none of configs/eval_matrix.yaml's scenarios "
+                f"  WARNING: none of {matrix_label}'s scenarios "
                 f"({', '.join(sorted(expected_scenarios))}) appear in this summary "
                 f"({', '.join(sorted(found_scenarios)) or 'none'}). The latest run dir may "
                 "belong to a different matrix (e.g. eval_matrix_refinement.yaml) — "
                 "pass --run-dir explicitly if so."
             )
             sys.stderr.write(
-                "eval_falsifier: refusing to grade — resolved run dir shares zero scenarios "
-                "with configs/eval_matrix.yaml (wrong-matrix run); exit 2, no verdict.\n"
+                f"eval_falsifier: refusing to grade — resolved run dir shares zero scenarios "
+                f"with {matrix_label} (wrong-matrix run); exit 2, no verdict.\n"
             )
             return 2
 
@@ -292,6 +359,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         rate_str = f"{rate:.3f}" if rate is not None else "N/A"
         print(f"  {scenario_id}: {rate_str}")
 
+    # D-13-04: forced-commit split annotation (run-dir mode only — baselines mode has no per-run files)
+    gpt5_split_str = ""
+    if run_dir is not None:
+        gpt5_mi, gpt5_fc = _commit_split_from_run_dir(run_dir, _GPT5_KEY)
+        gpt5_total = gpt5_mi + gpt5_fc
+        gpt5_split_str = f" (model-initiated {gpt5_mi}/{gpt5_total}, forced {gpt5_fc}/{gpt5_total})"
+
     if gpt5_pooled is None:
         print(
             f"\n{_GPT5_KEY}: median-weighted committed_itinerary_rate = N/A (no evaluable cells)  FAIL"
@@ -300,12 +374,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif gpt5_pooled >= _FALSIFIER_BAR:
         print(
             f"\n{_GPT5_KEY}: median-weighted committed_itinerary_rate = {gpt5_pooled:.3f}"
-            f" >= {_FALSIFIER_BAR}  PASS"
+            f" >= {_FALSIFIER_BAR}{gpt5_split_str}  PASS"
         )
     else:
         print(
             f"\n{_GPT5_KEY}: median-weighted committed_itinerary_rate = {gpt5_pooled:.3f}"
-            f" < {_FALSIFIER_BAR}  FAIL"
+            f" < {_FALSIFIER_BAR}{gpt5_split_str}  FAIL"
         )
         failed = True
 
@@ -370,6 +444,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             baselines_summary, _ANCHOR_KEY, scenario_ids=common
         )
 
+        # D-13-04: forced-commit split annotation for anchor (run-dir mode only)
+        anchor_split_str = ""
+        if run_dir is not None:
+            anchor_mi, anchor_fc = _commit_split_from_run_dir(run_dir, _ANCHOR_KEY)
+            anchor_total = anchor_mi + anchor_fc
+            anchor_split_str = (
+                f" (model-initiated {anchor_mi}/{anchor_total}, forced {anchor_fc}/{anchor_total})"
+            )
+
         anchor_has_cells = any(v is not None for v in anchor_per_scenario.values())
         if not anchor_has_cells:
             print(
@@ -384,12 +467,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif anchor_pooled >= baseline_pooled:
             print(
                 f"\n{_ANCHOR_KEY}: median-weighted = {anchor_pooled:.3f}"
-                f" >= baseline {baseline_pooled:.3f}  PASS"
+                f" >= baseline {baseline_pooled:.3f}{anchor_split_str}  PASS"
             )
         else:
             print(
                 f"\n{_ANCHOR_KEY}: median-weighted = {anchor_pooled:.3f}"
-                f" < baseline {baseline_pooled:.3f}  FAIL (anchor regression)"
+                f" < baseline {baseline_pooled:.3f}{anchor_split_str}  FAIL (anchor regression)"
             )
             failed = True
 
