@@ -106,6 +106,9 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
 # deferrals:
 #   - eval_matrix_refinement.yaml: gemini/gemini-3.1-pro-preview — first n=5
 #     measurement deferred per D-11-11 (PROV-04; gemini errored during regen).
+#     Extended to a v2.2 user-decision deferral at D-12-09 (2026-06-11): user declined
+#     quota/billing top-up — same treatment as anthropic ANCH-01. Gemini stays
+#     logged-not-gated with this entry intact; revisit when budget allows.
 #     anthropic/claude-sonnet-4-6 is NOT listed here — its PROV-03 SHIPPED-WITH-GAP
 #     n=1 cell is preserved in refinement_cheaper.json (historical record); write_baselines
 #     refuses to overwrite it with n=0 results per D-10-03 (no data loss).
@@ -118,6 +121,9 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
 _DEFERRED_BASELINE_CELLS: dict[str, set[str]] = {
     "eval_matrix_refinement.yaml": {
         # D-11-11: gemini deferred — errored during regen; retry when GEMINI_API_KEY quota permits.
+        # D-12-09: gemini n=5 baseline deferred at user decision (2026-06-11) — no quota/billing
+        # top-up; same treatment as anthropic ANCH-01. Single scored gemini run already hit
+        # commit-rate 1.0 (measurement debt, not unknown risk). Revisit when budget allows.
         "gemini/gemini-3.1-pro-preview",
     },
     "eval_matrix.yaml": {
