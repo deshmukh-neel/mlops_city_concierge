@@ -50,7 +50,7 @@
 
 - [x] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the v2.2 comparison floor confirmed (BOTH anthropic AND gemini cells deferred at user decision — D-12-09; non-deferred cells honest n=5) (completed 2026-06-12)
 - [x] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier (completed 2026-06-12; honest null result — no arm cleared INST-05; Phase 14 entry gate OPEN)
-- [ ] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar (planned 2026-06-12; entry gate OPEN; 5 plans)
+- [x] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar (completed 2026-06-12; honest plateau — no replay arm cleared INST-05; ARCH-FUT-01 evaluation written; Phase 15 scope is a USER CHECKPOINT)
 - [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
 
 ## Phase Details
@@ -148,7 +148,7 @@
 
 **Wave 4**
 
-- [ ] 14-05-combo-closing-verdict-and-archfut-PLAN.md — Conditional R3 combo + discretionary stack valve (D-14-01) + Closing Verdict + ARCH-FUT-01 Evaluation (on plateau) or winning-arm promotion inputs (on clear) + Phase-15 user checkpoint + stale ROADMAP line-53 bookkeeping fix
+- [x] 14-05-combo-closing-verdict-and-archfut-PLAN.md — Conditional R3 combo + discretionary stack valve (D-14-01) + Closing Verdict + ARCH-FUT-01 Evaluation (on plateau) or winning-arm promotion inputs (on clear) + Phase-15 user checkpoint + stale ROADMAP line-53 bookkeeping fix
 
 ### Phase 15: Gate Promotion + Baseline Regen
 
@@ -180,9 +180,9 @@
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
-| 14. Richer State Replay (CONDITIONAL) | v2.2 | 4/5 | In Progress|  |
+| 14. Richer State Replay (CONDITIONAL) | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
 ---
 
-*Last updated: 2026-06-12 — Phase 14 (Richer State Replay) planned: 5 plans across 4 waves; entry gate OPEN per Phase-13 DEC-05 null result. Stale Phase-14 milestone-bullet completion marker corrected to [ ] (planned, not complete).*
+*Last updated: 2026-06-12 — Phase 14 (Richer State Replay) closed: 5/5 plans complete; all REPLAY arms plateaued below INST-05 bar (R1=0.500, R2=NEGATIVE, R3/valve NOT RUN); ARCH-FUT-01 evaluation written with recommendation to ratify anchor + defer ARCH-FUT-01; Phase 15 scope is USER CHECKPOINT per D-14-08.*

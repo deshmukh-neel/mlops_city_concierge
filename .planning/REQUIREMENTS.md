@@ -91,8 +91,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEC-03 | Phase 13 | Complete |
 | DEC-04 | Phase 13 | Complete |
 | DEC-05 | Phase 13 | Complete — honest null result; no arm cleared INST-05 bar; docs/decisiveness_arm_verdicts.md closing verdict: Phase 14 entry gate OPEN |
-| REPLAY-01 | Phase 14 | Complete |
-| REPLAY-02 | Phase 14 | Complete |
+| REPLAY-01 | Phase 14 | Complete — R1 (multi-message replay) measured at n=5: gpt-5-mini 0.500 (delta vs A2 = ±0.000); no arm cleared INST-05 bar; docs/replay_arm_verdicts.md is the canonical record |
+| REPLAY-02 | Phase 14 | Complete — R2 (content-block preservation) measured at n=5: NEGATIVE (gpt-5-mini 10/10 provider 400s; str() collapse was load-bearing); docs/replay_arm_verdicts.md is the canonical record |
 | PROMO-01 | Phase 15 | Pending |
 | PROMO-02 | Phase 15 | Pending |
 | PROMO-03 | Phase 15 | Pending |
@@ -107,4 +107,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-11*
-*Last updated: 2026-06-12 — DEC-05 traceability updated with closing verdict note: no arm cleared INST-05 bar (honest null result); Phase 14 entry gate OPEN; docs/decisiveness_arm_verdicts.md is the canonical record. ANCH-02/ANCH-03 marked Complete (deferred-with-note) per D-12-09: gemini n=5 baseline deferred at user budget decision; comparison floor = matrix minus anthropic AND gemini; parity test confirms non-deferred floor honest n=5*
+*Last updated: 2026-06-12 — REPLAY-01/REPLAY-02 traceability updated: Phase 14 closed with plateau (no REPLAY arm cleared INST-05); canonical verdict at docs/replay_arm_verdicts.md. ARCH-FUT-01 evaluation written; Phase 15 scope is USER CHECKPOINT per D-14-08.*
