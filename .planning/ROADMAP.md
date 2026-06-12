@@ -136,7 +136,7 @@
 **Wave 1**
 
 - [x] 14-01-replay-flag-wiring-and-graph-branches-PLAN.md — REPLAY-01/02 flag wiring: replay_reasoning_state_multi ABC default + plan() multi-replay branch + _prune_for_llm content-preservation branch + arm_flags extension + flag-gated graph tests (flag-off byte-identical)
-- [ ] 14-02-evidence-audit-and-verdict-scaffold-PLAN.md — REPLAY-02 D-14-05 evidence audit (zero-spend) + docs/replay_arm_verdicts.md scaffold mirroring the DEC-05 record
+- [x] 14-02-evidence-audit-and-verdict-scaffold-PLAN.md — REPLAY-02 D-14-05 evidence audit (zero-spend) + docs/replay_arm_verdicts.md scaffold mirroring the DEC-05 record
 
 **Wave 2** *(blocked on 14-01)*
 
@@ -180,7 +180,7 @@
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
-| 14. Richer State Replay (CONDITIONAL) | v2.2 | 1/5 | In Progress|  |
+| 14. Richer State Replay (CONDITIONAL) | v2.2 | 2/5 | In Progress|  |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
 ---

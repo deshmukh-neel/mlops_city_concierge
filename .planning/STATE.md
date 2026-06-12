@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 14
 status: executing
-last_updated: "2026-06-12T19:31:25.227Z"
+last_updated: "2026-06-12T19:40:39.664Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 20
-  completed_plans: 16
+  completed_plans: 17
   percent: 50
 ---
 
@@ -32,11 +32,11 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 ## Current Position
 
 Phase: 14 (richer-state-replay-conditional) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-06-12
 
-Progress: [████████░░] 80%
+Progress: [█████████░] 85%
 
 ## Blockers / Readiness Notes
 
@@ -67,8 +67,8 @@ Progress: [████████░░] 80%
 
 ## Session Continuity
 
-Last session: 2026-06-12T19:31:25.222Z
-Stopped at: Phase 14 context gathered
+Last session: 2026-06-12T19:40:39.659Z
+Stopped at: Completed 14-02-evidence-audit-and-verdict-scaffold-PLAN.md
 Resume file: None
 Next step: `/gsd-plan-phase 12`
 
@@ -88,6 +88,7 @@ Next step: `/gsd-plan-phase 12`
 | Phase Phase 13 P06 P110min | 3 tasks | 1 files tasks | - files |
 | Phase 13 P10 | 5m | 3 tasks | 7 files |
 | Phase 14 P14-01 | 15min | 3 tasks | 5 files |
+| Phase 14 P14-02 | 15min | 2 tasks | 3 files |
 
 ## Decisions
 
@@ -99,3 +100,4 @@ Next step: `/gsd-plan-phase 12`
 - [Phase ?]: A2 FORCED_COMMIT_STEP=6: gpt-5-mini 0.500 pooled (positive signal); forced mechanism never fired
 - [Phase ?]: A3 PARALLEL_TOOL_EXECUTION: anchor regression refinement_cheaper 0.000 vs 1.000 baseline; latency unmeasurable (Phase-12 no telemetry)
 - [Phase ?]: A4 conditional: A1 no signal (0.0), A2 positive (0.5); A4 qualification deferred to plan 13-07
+- [Phase ?]: D-14-05: R2 EXPECTED-NULL on tested cells — str() collapse is NO-OP for all three RUN models; only AnthropicAdapter uses list-content and is deferred (D-12-09)
