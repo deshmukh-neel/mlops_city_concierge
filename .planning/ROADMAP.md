@@ -107,7 +107,7 @@
 
 **Wave 3** *(live runs — checkpoints, real API spend)*
 
-- [ ] 13-06-run-judged-arms-PLAN.md — Run A1/A2/A3 smoke-first at n=5 temp=1.0; record verdict sections in docs/decisiveness_arm_verdicts.md
+- [x] 13-06-run-judged-arms-PLAN.md — Run A1/A2/A3 smoke-first at n=5 temp=1.0; record verdict sections in docs/decisiveness_arm_verdicts.md
 
 **Wave 4**
 
@@ -156,7 +156,7 @@
 | 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 13. Decisiveness Experiment Arms | v2.2 | 5/7 | In Progress|  |
+| 13. Decisiveness Experiment Arms | v2.2 | 6/7 | In Progress|  |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
