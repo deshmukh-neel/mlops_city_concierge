@@ -90,7 +90,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEC-02 | Phase 13 | Complete |
 | DEC-03 | Phase 13 | Complete |
 | DEC-04 | Phase 13 | Complete |
-| DEC-05 | Phase 13 | Complete |
+| DEC-05 | Phase 13 | Complete — honest null result; no arm cleared INST-05 bar; docs/decisiveness_arm_verdicts.md closing verdict: Phase 14 entry gate OPEN |
 | REPLAY-01 | Phase 14 | Pending |
 | REPLAY-02 | Phase 14 | Pending |
 | PROMO-01 | Phase 15 | Pending |
@@ -107,4 +107,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-11*
-*Last updated: 2026-06-12 — ANCH-02/ANCH-03 marked Complete (deferred-with-note) per D-12-09: gemini n=5 baseline deferred at user budget decision; comparison floor = matrix minus anthropic AND gemini; parity test confirms non-deferred floor honest n=5*
+*Last updated: 2026-06-12 — DEC-05 traceability updated with closing verdict note: no arm cleared INST-05 bar (honest null result); Phase 14 entry gate OPEN; docs/decisiveness_arm_verdicts.md is the canonical record. ANCH-02/ANCH-03 marked Complete (deferred-with-note) per D-12-09: gemini n=5 baseline deferred at user budget decision; comparison floor = matrix minus anthropic AND gemini; parity test confirms non-deferred floor honest n=5*

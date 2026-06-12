@@ -49,7 +49,7 @@
 **Milestone Goal:** Make reasoning models decisive on the tool loop — pass gpt-5-mini commit rate ≥ 0.6 at n=5 with no gpt-4o-mini anchor regression, and reduce per-turn latency via decisiveness (step-count).
 
 - [x] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the v2.2 comparison floor confirmed (BOTH anthropic AND gemini cells deferred at user decision — D-12-09; non-deferred cells honest n=5) (completed 2026-06-12)
-- [ ] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier
+- [x] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier (completed 2026-06-12; honest null result — no arm cleared INST-05; Phase 14 entry gate OPEN)
 - [ ] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar
 - [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
 
@@ -111,7 +111,7 @@
 
 **Wave 4**
 
-- [ ] 13-07-a4-combo-and-closing-verdict-PLAN.md — A4 conditional combo decision (D-13-01, <=4-run cap) + closing INST-05 verdict + bookkeeping
+- [x] 13-07-a4-combo-and-closing-verdict-PLAN.md — A4 conditional combo decision (D-13-01, <=4-run cap) + closing INST-05 verdict + bookkeeping
 
 ### Phase 14: Richer State Replay (CONDITIONAL)
 
@@ -156,10 +156,10 @@
 | 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 13. Decisiveness Experiment Arms | v2.2 | 6/7 | In Progress|  |
+| 13. Decisiveness Experiment Arms | v2.2 | 7/7 | Complete | 2026-06-12 |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
 ---
 
-*Last updated: 2026-06-11 — v2.2 Reasoning-Model Decisiveness roadmap created (Phases 12-15). Phase 14 is conditional on Phase 13 arm plateau.*
+*Last updated: 2026-06-12 — Phase 13 complete (7/7 plans); honest null result — no arm cleared INST-05 bar; Phase 14 (Richer State Replay) entry gate OPEN per DEC-05 closing verdict.*
