@@ -1084,3 +1084,367 @@ def test_wr10_synthetic_fixture_roundtrips_dict_value(probe, tmp_path: Path) -> 
         f"got {type(additional_kwargs['reasoning_config']).__name__!r}"
     )
     assert additional_kwargs["reasoning_config"] == structured_value
+
+
+# ─── Multi-replay (REPLAY-01) — per-adapter conformance ──────────────────────
+#
+# D-14-04: All four adapters get additive multi-replay coverage even though
+# only three models run in the experiment. The generic ABC default covers
+# OpenAI and DeepSeek (both use additional_kwargs["reasoning_content"]);
+# Anthropic and Gemini tests verify their wire-format asymmetry is preserved
+# through per-message multi-replay.
+#
+# Three tests per adapter:
+#   1. Per-message injection (flag-on): each AIMessage receives its own state.
+#   2. Skip on no state: AIMessages without _reasoning_state are untouched.
+#   3. Flag-off non-interference: the existing single-message
+#      replay_reasoning_state is byte-identical — documents the contract that
+#      enables per-adapter revertability (Phase 9 precedent).
+#
+# All tests instantiate adapters directly with synthesized AIMessages.
+# No graph, no LLM, no DB.
+
+
+# ── OpenAIReasoningAdapter ────────────────────────────────────────────────────
+
+
+def test_openai_reasoning_adapter_multi_replay_injects_per_message_state() -> None:
+    """REPLAY-01: replay_reasoning_state_multi writes per-message _reasoning_state
+    onto each in-window AIMessage's additional_kwargs["reasoning_content"].
+
+    Verifies that msg1 receives r1 AND msg2 receives r2 — distinct values per
+    message, not the most-recent-only behavior of the single-message path.
+    """
+    adapter = OpenAIReasoningAdapter()
+    msg1 = AIMessage(
+        content="first turn",
+        additional_kwargs={"_reasoning_state": {"provider": "openai", "reasoning_content": "r1"}},
+    )
+    msg2 = AIMessage(
+        content="second turn",
+        additional_kwargs={"_reasoning_state": {"provider": "openai", "reasoning_content": "r2"}},
+    )
+    outbound = [HumanMessage(content="h"), msg1, msg2]
+
+    result = adapter.replay_reasoning_state_multi(outbound)
+
+    assert result is outbound
+    # Both messages received their own distinct reasoning_content (per-message injection).
+    assert msg1.additional_kwargs.get("reasoning_content") == "r1"
+    assert msg2.additional_kwargs.get("reasoning_content") == "r2"
+
+
+def test_openai_reasoning_adapter_multi_replay_skips_messages_without_state() -> None:
+    """REPLAY-01: messages with no _reasoning_state are left untouched.
+
+    An AIMessage that carries no _reasoning_state key must NOT get a
+    reasoning_content injected — it stays None.
+    """
+    adapter = OpenAIReasoningAdapter()
+    msg_no_state = AIMessage(content="no state")
+    outbound = [HumanMessage(content="h"), msg_no_state]
+
+    result = adapter.replay_reasoning_state_multi(outbound)
+
+    assert result is outbound
+    assert msg_no_state.additional_kwargs.get("reasoning_content") is None
+
+
+def test_openai_reasoning_adapter_multi_replay_flag_off_path_unchanged() -> None:
+    """REPLAY-01 flag-off non-interference: the existing single-message
+    replay_reasoning_state signature is UNTOUCHED. This documents the
+    contract that keeps the Phase-13 plateau byte-identical when the flag is
+    off. Per-adapter revertability: removing the ABC default restores flag-off
+    byte-identity without any other changes.
+    """
+    adapter = OpenAIReasoningAdapter()
+    outbound = [HumanMessage(content="h"), AIMessage(content="a"), AIMessage(content="b")]
+    state = {"provider": "openai", "reasoning_content": "r"}
+
+    result = adapter.replay_reasoning_state(outbound, state)
+
+    # Same list spine; most-recent AIMessage got reasoning_content.
+    assert result is outbound
+    assert outbound[-1].additional_kwargs.get("reasoning_content") == "r"
+    # The earlier AIMessage was NOT tagged (single-message path only targets most-recent).
+    assert outbound[1].additional_kwargs.get("reasoning_content") is None
+
+
+# ── DeepSeekReasonerAdapter ───────────────────────────────────────────────────
+
+
+def test_deepseek_reasoner_adapter_multi_replay_injects_per_message_state() -> None:
+    """REPLAY-01: replay_reasoning_state_multi writes per-message _reasoning_state
+    onto each in-window AIMessage's additional_kwargs["reasoning_content"].
+
+    DeepSeek uses the same additional_kwargs wire shape as OpenAI — the ABC
+    generic default via replay_reasoning_state applies correctly per message.
+    """
+    adapter = DeepSeekReasonerAdapter()
+    msg1 = AIMessage(
+        content="first turn",
+        additional_kwargs={
+            "_reasoning_state": {"provider": "deepseek", "reasoning_content": "ds_r1"}
+        },
+    )
+    msg2 = AIMessage(
+        content="second turn",
+        additional_kwargs={
+            "_reasoning_state": {"provider": "deepseek", "reasoning_content": "ds_r2"}
+        },
+    )
+    outbound = [HumanMessage(content="h"), msg1, msg2]
+
+    result = adapter.replay_reasoning_state_multi(outbound)
+
+    assert result is outbound
+    # Both messages received their own distinct reasoning_content.
+    assert msg1.additional_kwargs.get("reasoning_content") == "ds_r1"
+    assert msg2.additional_kwargs.get("reasoning_content") == "ds_r2"
+
+
+def test_deepseek_reasoner_adapter_multi_replay_skips_messages_without_state() -> None:
+    """REPLAY-01: messages with no _reasoning_state are left untouched.
+
+    An AIMessage carrying no _reasoning_state must NOT receive reasoning_content
+    — covers deepseek-chat (non-reasoner) messages that may be in-window but
+    carry no captured state.
+    """
+    adapter = DeepSeekReasonerAdapter()
+    msg_no_state = AIMessage(content="no state")
+    outbound = [HumanMessage(content="h"), msg_no_state]
+
+    result = adapter.replay_reasoning_state_multi(outbound)
+
+    assert result is outbound
+    assert msg_no_state.additional_kwargs.get("reasoning_content") is None
+
+
+def test_deepseek_reasoner_adapter_multi_replay_flag_off_path_unchanged() -> None:
+    """REPLAY-01 flag-off non-interference: the existing single-message
+    replay_reasoning_state signature is UNTOUCHED — documents the contract
+    that enables per-adapter revertability (Phase 9 precedent).
+    """
+    adapter = DeepSeekReasonerAdapter()
+    outbound = [HumanMessage(content="h"), AIMessage(content="a"), AIMessage(content="b")]
+    state = {"provider": "deepseek", "reasoning_content": "r"}
+
+    result = adapter.replay_reasoning_state(outbound, state)
+
+    assert result is outbound
+    assert outbound[-1].additional_kwargs.get("reasoning_content") == "r"
+    assert outbound[1].additional_kwargs.get("reasoning_content") is None
+
+
+# ── AnthropicAdapter ──────────────────────────────────────────────────────────
+#
+# Critical asymmetry: AnthropicAdapter writes onto message.content (block list),
+# NOT additional_kwargs. The ABC generic default calls the single-message
+# replay_reasoning_state per message, which in turn uses the content-list
+# injection path — so the multi-replay test must assert content-list state,
+# not additional_kwargs["reasoning_content"].
+#
+# The idempotency guard (PROV-03 live-run fix 2026-06-05) applies per message:
+# if a target AIMessage already has thinking blocks in its content, the replay
+# skips that message's inject step.
+
+
+def test_anthropic_adapter_multi_replay_injects_per_message_thinking_blocks() -> None:
+    """REPLAY-01 Anthropic: replay_reasoning_state_multi injects thinking blocks
+    onto EACH targeted AIMessage's content list via content-list injection (NOT
+    additional_kwargs), respecting the PROV-03 wire-format asymmetry.
+
+    Both msg1 (str content) and msg2 (list content without thinking) receive
+    their own captured thinking_blocks prepended/promoted into content.
+    """
+    adapter = AnthropicAdapter()
+    # msg1: str content — will be promoted to block list.
+    msg1 = AIMessage(
+        content="first str reply",
+        additional_kwargs={
+            "_reasoning_state": {
+                "provider": "anthropic",
+                "thinking_blocks": [{"type": "thinking", "signature": "sig1", "thinking": "t1"}],
+            }
+        },
+    )
+    # msg2: list content with no thinking blocks — thinking blocks will be prepended.
+    msg2 = AIMessage(
+        content=[{"type": "text", "text": "second list reply"}],
+        additional_kwargs={
+            "_reasoning_state": {
+                "provider": "anthropic",
+                "thinking_blocks": [{"type": "thinking", "signature": "sig2", "thinking": "t2"}],
+            }
+        },
+    )
+    outbound = [HumanMessage(content="h"), msg1, msg2]
+
+    result = adapter.replay_reasoning_state_multi(outbound)
+
+    assert result is outbound
+    # msg1: str was promoted to [thinking_block, text_block].
+    assert isinstance(msg1.content, list)
+    assert len(msg1.content) == 2
+    assert msg1.content[0] == {"type": "thinking", "signature": "sig1", "thinking": "t1"}
+    assert msg1.content[1] == {"type": "text", "text": "first str reply"}
+    # msg2: thinking block prepended to existing list content.
+    assert isinstance(msg2.content, list)
+    assert len(msg2.content) == 2
+    assert msg2.content[0] == {"type": "thinking", "signature": "sig2", "thinking": "t2"}
+    assert msg2.content[1] == {"type": "text", "text": "second list reply"}
+
+
+def test_anthropic_adapter_multi_replay_idempotency_guard_per_message() -> None:
+    """REPLAY-01 Anthropic idempotency: the idempotency guard applies per message
+    in the multi-replay path. A message already carrying thinking blocks in its
+    content is not given duplicate blocks — the existing blocks win.
+
+    This is the PROV-03 live-run idempotency fix applied through the multi path:
+    the ABC generic default calls the single-message replay per message, which
+    contains the idempotency guard, so duplicates are impossible.
+    """
+    adapter = AnthropicAdapter()
+    existing_thinking = {"type": "thinking", "signature": "existing_sig", "thinking": "already"}
+    # msg already has thinking blocks in content — idempotency guard should skip replay.
+    msg_with_blocks = AIMessage(
+        content=[existing_thinking, {"type": "text", "text": "reply"}],
+        additional_kwargs={
+            "_reasoning_state": {
+                "provider": "anthropic",
+                "thinking_blocks": [
+                    {"type": "thinking", "signature": "existing_sig", "thinking": "already"}
+                ],
+            }
+        },
+    )
+    outbound = [HumanMessage(content="h"), msg_with_blocks]
+
+    result = adapter.replay_reasoning_state_multi(outbound)
+
+    assert result is outbound
+    # Content unchanged — no duplicate thinking block prepended.
+    assert isinstance(msg_with_blocks.content, list)
+    assert len(msg_with_blocks.content) == 2, (
+        f"idempotency guard did not fire: content has {len(msg_with_blocks.content)} "
+        "blocks but should still have 2 (no duplicate thinking block)"
+    )
+    assert msg_with_blocks.content[0] == existing_thinking
+    # Exactly one thinking block — guard prevented duplication.
+    thinking_count = sum(
+        1 for b in msg_with_blocks.content if isinstance(b, dict) and b.get("type") == "thinking"
+    )
+    assert thinking_count == 1
+
+
+def test_anthropic_adapter_multi_replay_flag_off_path_unchanged() -> None:
+    """REPLAY-01 flag-off non-interference: the existing single-message
+    replay_reasoning_state writes content-list injection on the most-recent
+    AIMessage ONLY — multi-replay does not alter this signature.
+    """
+    adapter = AnthropicAdapter()
+    msg_old = AIMessage(content=[{"type": "text", "text": "old turn"}])
+    msg_recent = AIMessage(content="recent str reply")
+    outbound = [HumanMessage(content="h"), msg_old, msg_recent]
+    state = {
+        "provider": "anthropic",
+        "thinking_blocks": [{"type": "thinking", "signature": "abc", "thinking": "..."}],
+    }
+
+    result = adapter.replay_reasoning_state(outbound, state)
+
+    assert result is outbound
+    # Most-recent AIMessage (msg_recent) was promoted from str → block list.
+    assert isinstance(msg_recent.content, list)
+    assert len(msg_recent.content) == 2
+    assert msg_recent.content[0]["type"] == "thinking"
+    # Earlier msg_old was NOT touched.
+    assert msg_old.content == [{"type": "text", "text": "old turn"}]
+
+
+# ── GeminiAdapter ─────────────────────────────────────────────────────────────
+#
+# GeminiAdapter has two wire shapes; each multi-replay test covers one shape:
+#   - Real lcgg 4.x: additional_kwargs["__gemini_function_call_thought_signatures__"] (dict)
+#   - Synthetic fixture: additional_kwargs["thought_signature"] (bytes)
+# The multi-replay test verifies the correct provider key is injected per message
+# via the ABC generic default (which delegates to the single-message replay per
+# message, which writes to the correct wire-shape key).
+
+
+def test_gemini_adapter_multi_replay_injects_per_message_real_lcgg_path() -> None:
+    """REPLAY-01 Gemini (real-wire path): replay_reasoning_state_multi injects
+    the correct provider key (__gemini_function_call_thought_signatures__) per
+    message for the real lcgg 4.x wire shape.
+
+    Both msg1 and msg2 receive their own captured fc_map at the lcgg key — per
+    message, not just the most-recent.
+    """
+    adapter = GeminiAdapter()
+    fc_map1 = {"tc_aaa": "sig_str_1"}
+    fc_map2 = {"tc_bbb": "sig_str_2"}
+    msg1 = AIMessage(
+        content="first turn",
+        additional_kwargs={
+            "_reasoning_state": {
+                "provider": "gemini",
+                "function_call_thought_signatures": fc_map1,
+            }
+        },
+    )
+    msg2 = AIMessage(
+        content="second turn",
+        additional_kwargs={
+            "_reasoning_state": {
+                "provider": "gemini",
+                "function_call_thought_signatures": fc_map2,
+            }
+        },
+    )
+    outbound = [HumanMessage(content="h"), msg1, msg2]
+
+    result = adapter.replay_reasoning_state_multi(outbound)
+
+    assert result is outbound
+    # Both messages received their own fc_map at the correct lcgg key.
+    assert msg1.additional_kwargs.get("__gemini_function_call_thought_signatures__") == fc_map1
+    assert msg2.additional_kwargs.get("__gemini_function_call_thought_signatures__") == fc_map2
+
+
+def test_gemini_adapter_multi_replay_skips_messages_without_state() -> None:
+    """REPLAY-01 Gemini: messages with no _reasoning_state are left untouched.
+
+    An AIMessage with no _reasoning_state must NOT get any thought signature
+    key injected — covers non-tool-calling Gemini turns in-window.
+    """
+    adapter = GeminiAdapter()
+    msg_no_state = AIMessage(content="no state")
+    outbound = [HumanMessage(content="h"), msg_no_state]
+
+    result = adapter.replay_reasoning_state_multi(outbound)
+
+    assert result is outbound
+    assert msg_no_state.additional_kwargs.get("__gemini_function_call_thought_signatures__") is None
+    assert msg_no_state.additional_kwargs.get("thought_signature") is None
+
+
+def test_gemini_adapter_multi_replay_flag_off_path_unchanged() -> None:
+    """REPLAY-01 flag-off non-interference: the existing single-message
+    replay_reasoning_state writes the lcgg key to the most-recent AIMessage ONLY —
+    multi-replay does not alter this signature. Documents the non-interference
+    contract that keeps the Phase-13 plateau byte-identical when the flag is off.
+    """
+    adapter = GeminiAdapter()
+    msg_old = AIMessage(content="a")
+    msg_recent = AIMessage(content="b")
+    outbound = [HumanMessage(content="h"), msg_old, msg_recent]
+    fc_map = {"tc_xyz": "base64_sig"}
+    state = {"provider": "gemini", "function_call_thought_signatures": fc_map}
+
+    result = adapter.replay_reasoning_state(outbound, state)
+
+    assert result is outbound
+    # Most-recent AIMessage received the fc_map at the lcgg key.
+    assert msg_recent.additional_kwargs.get("__gemini_function_call_thought_signatures__") == fc_map
+    # Earlier AIMessage was NOT tagged (single-message path only targets most-recent).
+    assert msg_old.additional_kwargs.get("__gemini_function_call_thought_signatures__") is None
