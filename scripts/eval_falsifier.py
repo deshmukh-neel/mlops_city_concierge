@@ -173,11 +173,10 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default="configs/eval_baselines",
         help="Baseline JSON directory for anchor non-regression (default: configs/eval_baselines).",
     )
-    parser.add_argument(
-        "--gates-config",
-        default="configs/eval_gates.yaml",
-        help="Path to eval_gates.yaml (default: configs/eval_gates.yaml).",
-    )
+    # WR-05: no --gates-config flag. The 0.6 bar is _FALSIFIER_BAR (INST-05 /
+    # D-12-08) and the anchor floor comes from --baselines-dir; accepting a
+    # gates-config path here would imply eval_gates.yaml drives the falsifier
+    # when it does not.
     parser.add_argument(
         "--eval-queries",
         default="configs/eval_queries.yaml",

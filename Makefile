@@ -215,8 +215,7 @@ snapshot-baselines: ## Snapshot current canonical baselines to _snapshots/ as pr
 eval-falsifier: ## INST-05: falsifier report — did gpt-5-mini hit >=0.6 and gpt-4o-mini hold baseline? (RUN_DIR= to override latest)
 	$(POETRY_RUN) python scripts/eval_falsifier.py \
 	  $(if $(RUN_DIR),--run-dir $(RUN_DIR),) \
-	  --baselines-dir configs/eval_baselines \
-	  --gates-config configs/eval_gates.yaml
+	  --baselines-dir configs/eval_baselines
 
 # ─── Testing ──────────────────────────────────────────────────────────────────
 .PHONY: test
