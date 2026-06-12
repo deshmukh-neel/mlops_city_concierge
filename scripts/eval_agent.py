@@ -621,6 +621,7 @@ def rule8_met_per_step_from_state(
     state: ItineraryState,
     viable_per_step: list[int],
     requested_types: list[str],
+    viability_threshold: float,
 ) -> list[bool]:
     """Return per-step boolean: did every requested stop have >=1 viable candidate cumulatively.
 
@@ -656,9 +657,11 @@ def rule8_met_per_step_from_state(
     as the ``"step"`` key, matching step_telemetry from Plan 12-01.
     """
     # Build step -> hits map (same as viable_candidates_per_step_from_state;
-    # semantic_search only — WR-01)
+    # semantic_search only — WR-01). WR-09: viability_threshold is a caller
+    # parameter (threaded from query_result_from_state), never rebound to the
+    # module constant here — the report's self-describing viability_threshold
+    # field must provably bind BOTH per-step metrics.
     step_hits: dict[int, list[Any]] = {}
-    viability_threshold = LOW_SIMILARITY_THRESHOLD
     for tool_name in ("semantic_search",):
         entries = state.scratch.get(tool_name)
         if not isinstance(entries, list):
@@ -865,7 +868,11 @@ def query_result_from_state(
     threshold = LOW_SIMILARITY_THRESHOLD
     requested_types = list(state.constraints.requested_primary_types)
     viable_per_step = viable_candidates_per_step_from_state(state, threshold, requested_types)
-    rule8_per_step = rule8_met_per_step_from_state(state, viable_per_step, requested_types)
+    # WR-09: thread the SAME threshold local into both per-step metrics so the
+    # report's viability_threshold field describes both.
+    rule8_per_step = rule8_met_per_step_from_state(
+        state, viable_per_step, requested_types, threshold
+    )
     rule8_met_steps = [i for i, met in enumerate(rule8_per_step) if met]
     # Steps where rule8 was met but the model did NOT commit (the decisiveness gap)
     # WR-08: same int-step guard as first_commit_call_step_from_state — never

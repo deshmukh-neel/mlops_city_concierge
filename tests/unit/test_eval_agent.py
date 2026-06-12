@@ -2596,7 +2596,7 @@ class TestRule8MetPerStepFromState:
         )
         requested = ["cafe", "bar"]
         viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, requested)
-        result = rule8_met_per_step_from_state(state, viable, requested)
+        result = rule8_met_per_step_from_state(state, viable, requested, LOW_SIMILARITY_THRESHOLD)
         assert result == [False, True], f"expected [False, True], got {result}"
 
     def test_stays_false_when_only_one_of_two_types_covered(self) -> None:
@@ -2610,7 +2610,7 @@ class TestRule8MetPerStepFromState:
         )
         requested = ["cafe", "bar"]
         viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, requested)
-        result = rule8_met_per_step_from_state(state, viable, requested)
+        result = rule8_met_per_step_from_state(state, viable, requested, LOW_SIMILARITY_THRESHOLD)
         assert result == [False, False]
 
     def test_empty_requested_types_fallback_uses_cumulative_count(self) -> None:
@@ -2624,12 +2624,14 @@ class TestRule8MetPerStepFromState:
             }
         )
         viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, [])
-        result = rule8_met_per_step_from_state(state, viable, [])
+        result = rule8_met_per_step_from_state(state, viable, [], LOW_SIMILARITY_THRESHOLD)
         # Step 0: cumulative=0 → False; Step 1: cumulative=1 → True
         assert result == [False, True]
 
     def test_empty_state_returns_empty(self) -> None:
-        result = rule8_met_per_step_from_state(ItineraryState(), [], ["cafe"])
+        result = rule8_met_per_step_from_state(
+            ItineraryState(), [], ["cafe"], LOW_SIMILARITY_THRESHOLD
+        )
         assert result == []
 
     def test_duplicate_requested_types_need_distinct_place_ids(self) -> None:
@@ -2654,7 +2656,9 @@ class TestRule8MetPerStepFromState:
         viable = viable_candidates_per_step_from_state(
             one_restaurant, LOW_SIMILARITY_THRESHOLD, requested
         )
-        result = rule8_met_per_step_from_state(one_restaurant, viable, requested)
+        result = rule8_met_per_step_from_state(
+            one_restaurant, viable, requested, LOW_SIMILARITY_THRESHOLD
+        )
         assert result == [False], (
             "one viable restaurant must NOT cover two requested restaurant slots"
         )
@@ -2676,7 +2680,9 @@ class TestRule8MetPerStepFromState:
         viable = viable_candidates_per_step_from_state(
             two_restaurants, LOW_SIMILARITY_THRESHOLD, requested
         )
-        result = rule8_met_per_step_from_state(two_restaurants, viable, requested)
+        result = rule8_met_per_step_from_state(
+            two_restaurants, viable, requested, LOW_SIMILARITY_THRESHOLD
+        )
         assert result == [True], "two distinct viable restaurants + a bar cover all three slots"
 
     def test_same_place_id_at_one_step_counts_once_for_typed_coverage(self) -> None:
@@ -2698,7 +2704,7 @@ class TestRule8MetPerStepFromState:
             }
         )
         viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, requested)
-        result = rule8_met_per_step_from_state(state, viable, requested)
+        result = rule8_met_per_step_from_state(state, viable, requested, LOW_SIMILARITY_THRESHOLD)
         assert result == [False]
 
     def test_no_types_fallback_dedupes_repeated_venue_across_steps(self) -> None:
@@ -2719,7 +2725,7 @@ class TestRule8MetPerStepFromState:
             },
         )
         viable = viable_candidates_per_step_from_state(same_venue, LOW_SIMILARITY_THRESHOLD, [])
-        result = rule8_met_per_step_from_state(same_venue, viable, [])
+        result = rule8_met_per_step_from_state(same_venue, viable, [], LOW_SIMILARITY_THRESHOLD)
         assert result == [False, False, False], (
             f"one venue repeated 3x must not satisfy a 3-stop request, got {result}"
         )
@@ -2737,7 +2743,9 @@ class TestRule8MetPerStepFromState:
         viable = viable_candidates_per_step_from_state(
             distinct_venues, LOW_SIMILARITY_THRESHOLD, []
         )
-        result = rule8_met_per_step_from_state(distinct_venues, viable, [])
+        result = rule8_met_per_step_from_state(
+            distinct_venues, viable, [], LOW_SIMILARITY_THRESHOLD
+        )
         assert result == [False, False, True]
 
     def test_output_is_json_safe(self) -> None:
@@ -2749,5 +2757,68 @@ class TestRule8MetPerStepFromState:
             }
         )
         viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
-        result = rule8_met_per_step_from_state(state, viable, ["cafe"])
+        result = rule8_met_per_step_from_state(state, viable, ["cafe"], LOW_SIMILARITY_THRESHOLD)
         assert json.dumps(result) is not None
+
+    def test_caller_threshold_is_honored_not_module_constant(self) -> None:
+        """WR-09: the threshold is a caller parameter — a hit below the module
+        constant but above the caller's threshold must count."""
+        hit = {"similarity": 0.40, "primary_type": "cafe", "place_id": "p1"}
+        state = ItineraryState(scratch={"semantic_search": [{"step": 0, "result": [hit]}]})
+        viable_low = viable_candidates_per_step_from_state(state, 0.3, ["cafe"])
+        assert rule8_met_per_step_from_state(state, viable_low, ["cafe"], 0.3) == [True]
+        viable_high = viable_candidates_per_step_from_state(
+            state, LOW_SIMILARITY_THRESHOLD, ["cafe"]
+        )
+        assert rule8_met_per_step_from_state(
+            state, viable_high, ["cafe"], LOW_SIMILARITY_THRESHOLD
+        ) == [False]
+
+
+class TestKeptSearchingDerivation:
+    """WR-09: query_result_from_state's rule8_met_but_kept_searching_steps —
+    steps where rule 8 was met but the model did NOT commit (commit step
+    excluded)."""
+
+    def _hit(self, pid: str) -> dict:
+        return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "place_id": pid}
+
+    def test_commit_step_excluded_from_kept_searching(self) -> None:
+        """Rule 8 met at steps 0 and 1; commit at step 1 → only step 0 is a
+        decisiveness-gap step."""
+        state = ItineraryState(
+            constraints=UserConstraints(num_stops=1),
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [self._hit("p1")]},
+                    {"step": 1, "result": [self._hit("p2")]},
+                ],
+                "commit_itinerary": [{"step": 1, "args": {}, "result": {}, "id": "tc1"}],
+            },
+        )
+        result = query_result_from_state(eval_case(), state)
+        assert result.deterministic.rule8_met_per_step == [True, True]
+        assert result.deterministic.rule8_met_but_kept_searching_steps == [0], (
+            "the commit step (1) must be excluded; only step 0 is kept-searching"
+        )
+        assert result.deterministic.first_commit_call_step == 1
+
+    def test_no_commit_means_every_met_step_is_kept_searching(self) -> None:
+        state = ItineraryState(
+            constraints=UserConstraints(num_stops=1),
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [self._hit("p1")]},
+                    {"step": 1, "result": [self._hit("p2")]},
+                ],
+            },
+        )
+        result = query_result_from_state(eval_case(), state)
+        assert result.deterministic.rule8_met_but_kept_searching_steps == [0, 1]
+        assert result.deterministic.first_commit_call_step is None
+
+    def test_report_threshold_field_matches_module_constant(self) -> None:
+        """The self-describing viability_threshold field binds both per-step
+        metrics via the same threaded local (WR-09)."""
+        result = query_result_from_state(eval_case(), ItineraryState())
+        assert result.deterministic.viability_threshold == LOW_SIMILARITY_THRESHOLD
