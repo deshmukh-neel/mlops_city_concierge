@@ -88,34 +88,60 @@ already stashed in `additional_kwargs` by Phase 8/9; R1 uses what is already sto
 
 | Run | Dir |
 |-----|-----|
-| Smoke (n=1) | [fill in Wave 3/4] |
-| Full (n=5) | [fill in Wave 3/4] |
+| Smoke (n=1) | `eval_reports/2026-06-12T19-50-32Z` |
+| Full (n=5) | `eval_reports/2026-06-12T20-00-05Z` |
 
-**Smoke arm_flags verification:** [fill — paste `arm_flags` dict from smoke run JSON;
-expected shape: `{'viability_contract': False, 'forced_commit_step': 0, 'parallel_tool':
-False, 'viability_threshold_override': None, 'replay_multi_message': True,
-'replay_content_blocks': False}`]
+**Smoke arm_flags verification:** `{'forced_commit_step': 0, 'parallel_tool': False, 'replay_content_blocks': False, 'replay_multi_message': True, 'viability_contract': False, 'viability_threshold_override': None}`
+
+Confounded-run guard **PASS**: `replay_multi_message: True`, `replay_content_blocks: False`, all three DEC flags off. Full n=5 spend approved.
 
 ### Per-model results
 
 | Model | Pooled commit rate | Delta vs flag-off (0.000) | Delta vs A2 (0.500) | omakase | refinement_cheaper | Falsifier verdict |
 |---|---|---|---|---|---|---|
-| openai/gpt-5-mini | [fill] | [fill] | [fill] | [fill] | [fill] | [fill] |
-| openai/gpt-4o-mini (anchor) | [fill] | [fill] | [fill] | [fill] | [fill] | [fill] |
-| deepseek/deepseek-reasoner | [fill] | [fill] | [fill] | [fill] | [fill] | (informational) |
+| openai/gpt-5-mini | 0.500 (model-initiated 4/10, forced 0/10) | +0.500 | ±0.000 | 1.000 (median, 4/5 runs) | 0.000 (0/5) | FAIL — 0.500 < 0.6 bar |
+| openai/gpt-4o-mini (anchor) | 1.000 (model-initiated 10/10, forced 0/10) | +1.000 | +0.500 | 1.000 | 1.000 | PASS — non-regression (baseline 1.000) |
+| deepseek/deepseek-reasoner | 0.100 (model-initiated 1/10, forced 0/10) | +0.100 | -0.400 | 0.000 (median, 1/5 runs) | 0.000 (0/5) | (informational) |
 
-**Falsifier exit code:** [fill — 0 (PASS) or 1 (FAIL) or 2 (ERROR)]
+**Falsifier exit code:** `1 (FAIL)`
 
 **Falsifier per-scenario breakdown (pasted verbatim):**
 ```
-[fill — paste full eval_falsifier.py output from R1 full run dir]
+============================================================
+eval_falsifier: INST-05 Milestone Falsifier Report
+============================================================
+source: run dir eval_reports/2026-06-12T20-00-05Z
+
+[openai/gpt-5-mini] committed_itinerary_rate per scenario:
+  omakase_mission_open_ended: 1.000
+  refinement_cheaper: 0.000
+
+openai/gpt-5-mini: median-weighted committed_itinerary_rate = 0.500 < 0.6 (model-initiated 4/4, forced 0/4)  FAIL
+
+[openai/gpt-4o-mini] committed_itinerary_rate per scenario (run vs baseline):
+  omakase_mission_open_ended: run=1.000  baseline=1.000
+  refinement_cheaper: run=1.000  baseline=1.000
+
+openai/gpt-4o-mini: median-weighted = 1.000 >= baseline 1.000 (model-initiated 10/10, forced 0/10)  PASS
+
+============================================================
+eval_falsifier: VERDICT = FAIL
+============================================================
 ```
+
+**Note on deepseek-reasoner split:** The falsifier only reports gpt-5-mini and gpt-4o-mini (gated models). DeepSeek commit split verified from run-dir files: 1 committed omakase run (run-4, rate=1.0), 0 refinement runs → model-initiated 1/10, forced 0/10. Pooled = 0.100 (1/10 total episodes). Flagging that the falsifier "model-initiated 4/4" count reflects only the 4 episodes that had a committed result, consistent with Phase-13 CR-02 semantics (only committed episodes appear in the split).
 
 ### Closing verdict
 
-[fill — state whether R1 clears the INST-05 bar, gpt-5-mini pooled rate, anchor result,
-split (model-initiated vs forced), and the R1 contribution to the A2-positive-signal
-comparison point]
+R1 does NOT clear the INST-05 bar. gpt-5-mini pooled median-weighted commit rate = **0.500** (same as the best Phase-13 DEC arm A2, not an improvement). The R1 delta vs flag-off floor (0.000) is **+0.500** — this matches A2's positive signal exactly. The delta vs A2 (0.500) is **±0.000** — R1 brings no additional improvement over the best DEC arm.
+
+The pattern mirrors A2 exactly: gpt-5-mini commits strongly on omakase (4/5 runs, median=1.000) but fails entirely on refinement_cheaper (0/5 runs). Multi-message reasoning-state replay does NOT resolve the asymmetry between scenarios.
+
+**Anchor (gpt-4o-mini) non-regression: CONFIRMED.** Anchor held at 1.000 across both scenarios — no regression vs baseline 1.000. No red flag.
+
+**DeepSeek (informational):** 1/10 pooled = 0.100 (1 committed omakase run, 0 refinement runs). Modest positive signal over baseline 0.000 but informational only.
+
+R1 shows positive signal (matching A2's +0.500) without clearing the bar. Both R1 and R2 must be checked against the R3 qualification criteria after R2 completes.
 
 ---
 
