@@ -37,8 +37,9 @@ blocked: 0
 ## Gaps
 
 - truth: "When the resolved run dir's summary shares zero scenarios with configs/eval_matrix.yaml, eval_falsifier refuses to grade: prints the wrong-matrix diagnosis and exits 2 (no PASS/FAIL verdict line)"
-  status: failed
+  status: resolved
   reason: "User reported (via delegated judgment): warning prints but verdict + exit 1 still emitted; scripted consumers read exit code only — spurious FAIL today, spurious milestone PASS possible if a refinement run clears 0.6"
+  resolution: "Plan 12-05 executed (cb09ab3, 4a896be): zero-overlap guard now exits 2 before any verdict; TestZeroOverlapRefusesWithExit2 pins the contract (4 tests); live run confirmed refusal + make Error 2; --baselines-mode unaffected"
   severity: major
   test: 1
   artifacts: ["scripts/eval_falsifier.py", "tests/unit/test_eval_falsifier.py"]
