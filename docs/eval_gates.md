@@ -89,6 +89,37 @@ The anchor definition (family key and intended gate value) is intentionally pres
 `configs/eval_gates.yaml` under the `logged` status so the promotion path is mechanical
 — change `status`, restore the `hard:` block, add rationale.
 
+## Gemini deferral (2026-06-11)
+
+`gemini/gemini-3.1-pro-preview` n=5 baseline is deferred as a **v2.2 user budget
+decision** (D-12-09, 2026-06-11) — no quota or billing top-up; same treatment as the
+anthropic ANCH-01 deferral. Gemini stays `logged` (logged-not-gated) in
+`configs/eval_gates.yaml` with its `_DEFERRED_BASELINE_CELLS["eval_matrix_refinement.yaml"]`
+entry retained.
+
+The v2.2 Phase 13 comparison floor is the matrix minus BOTH deferred cells (anthropic AND
+gemini). Every non-deferred cell is honest n=5. This is measurement debt, not unknown risk:
+the single scored gemini run hit commit-rate 1.0, but one run is not a credible floor.
+
+**Promotion path:** once quota/budget allows:
+
+1. Top up Gemini API quota (or obtain a key with sufficient free tier).
+2. Run `APP_ENV=eval make eval-matrix-refinement RUNS=5` (gemini cells will complete).
+3. Run `make write-baselines SUMMARY=eval_reports/{refinement_ts}/summary.json RUNS=5`.
+4. Confirm `committed_itinerary_rate` is present in `configs/eval_baselines/refinement_cheaper.json`
+   for `gemini/gemini-3.1-pro-preview`.
+5. Remove `"gemini/gemini-3.1-pro-preview"` from
+   `_DEFERRED_BASELINE_CELLS["eval_matrix_refinement.yaml"]` in
+   `tests/unit/test_eval_matrix.py` and confirm the parity test passes.
+6. Edit `configs/eval_gates.yaml`: set the gemini family entry to `status: active` (or
+   `aspirational`), add the hard-gate block with the measured floor, add a new D-ID
+   rationale.
+7. Verify `make eval-gates-check-baselines` passes, then commit and open a PR.
+
+The gemini family key and its `logged` status are intentionally preserved in
+`configs/eval_gates.yaml` so the promotion path is mechanical — change `status`,
+restore the `hard:` block, add rationale.
+
 ## Adding a new gate
 
 1. Edit `configs/eval_gates.yaml` — add a new entry with all D-10-08 fields.

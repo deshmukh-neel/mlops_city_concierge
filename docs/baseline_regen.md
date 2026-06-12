@@ -246,6 +246,40 @@ To promote anthropic back to an active gate when billing is restored, see
 `docs/eval_gates.md § Anthropic deferral (2026-06-11)` for the step-by-step promotion
 path.
 
+### Gemini deferral (D-12-09)
+
+`gemini/gemini-3.1-pro-preview` n=5 baseline is **deferred as a v2.2 user budget
+decision** (D-12-09, 2026-06-11) — no quota or billing top-up; same treatment as the
+anthropic ANCH-01 deferral. Gemini stays `logged-not-gated` with its
+`_DEFERRED_BASELINE_CELLS["eval_matrix_refinement.yaml"]` entry intact.
+
+This is **measurement debt, not unknown risk**: the single scored gemini run already hit
+`committed_itinerary_rate 1.0` — first evidence the Phase-9 provider adapter fixed the
+Gemini loop issue. The comparison floor for v2.2 Phase 13 judging is the matrix minus
+BOTH deferred cells (anthropic AND gemini); every other (non-deferred) cell is honest n=5.
+
+**Do not run `write_baselines.py` for gemini cells until quota/billing allows** — the
+gemini cells in `eval_matrix_refinement.yaml` will be refused by `write_baselines.py`
+when they error (n_scored < n_requested per D-10-03), which is the correct outcome.
+
+**Promotion path:** when quota/budget allows:
+
+1. Verify `GEMINI_API_KEY` is live: run the embeddings probe (Step 1) and confirm it passes.
+2. Run `APP_ENV=eval make eval-matrix-refinement RUNS=5` — gemini cells should complete.
+3. Run `make write-baselines SUMMARY=eval_reports/{refinement_ts}/summary.json RUNS=5`.
+4. Confirm `committed_itinerary_rate` is present in `configs/eval_baselines/refinement_cheaper.json`
+   for the `gemini/gemini-3.1-pro-preview` provider.
+5. Remove `"gemini/gemini-3.1-pro-preview"` from
+   `_DEFERRED_BASELINE_CELLS["eval_matrix_refinement.yaml"]` in
+   `tests/unit/test_eval_matrix.py` — run the parity test to confirm `missing == deferred`
+   still holds (it should now equal the empty set for the refinement matrix).
+6. Edit `configs/eval_gates.yaml`: set the gemini family entry to `status: active` (or
+   `aspirational` if data warrants), add a hard-gate block with the measured floor, add
+   a D-ID rationale.
+7. Verify `make eval-gates-check-baselines` passes, then commit and open a PR.
+
+See `docs/eval_gates.md § Gemini deferral (2026-06-11)` for gate-semantics context.
+
 ### gpt-4o-mini committed_itinerary_rate below 0.8
 
 If `openai/gpt-4o-mini`'s `committed_itinerary_rate` median is below 0.8 on the honest regen,
