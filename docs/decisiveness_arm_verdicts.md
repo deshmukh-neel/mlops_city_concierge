@@ -333,42 +333,62 @@ or both arms show no positive signal), the 4th slot is preserved but not used.
 
 **Flag config (if run):** `VIABILITY_CONTRACT_ENABLED=1 FORCED_COMMIT_STEP=6`
 
-### Run Dirs (fill only if A4 qualifies)
+### A4 Decision: NOT RUN
 
-| Run | Dir |
-|-----|-----|
-| Smoke (n=1) | `eval_reports/[fill if A4 runs]` |
-| Full (n=5) | `eval_reports/[fill if A4 runs]` |
+**Decision:** skip-a4 (recorded 2026-06-12, plan 13-07)
 
-### Per-model results (fill only if A4 runs)
+**Rationale:** A1 showed zero signal (0.000 pooled — the viability contract had no measurable
+effect on gpt-5-mini), so the D-13-01 "both arms show positive signal" precondition is not
+satisfied. D-13-01 requires BOTH A1 AND A2 to show positive signal for A4 to be sanctioned;
+combining a zero-signal flag (A1) with a mechanism that never fired (A2 forced=0) has no
+expected synergy, so the 4th run slot is left unused and the phase closes on the honest null
+result.
 
-| Model | Pooled commit rate | omakase | refinement_cheaper | Falsifier verdict |
-|---|---|---|---|---|
-| openai/gpt-5-mini | [fill or N/A] | [fill or N/A] | [fill or N/A] | [fill or N/A] |
-| openai/gpt-4o-mini (anchor) | [fill or N/A] | [fill or N/A] | [fill or N/A] | [fill or N/A] |
-| deepseek/deepseek-reasoner | [fill or N/A] | [fill or N/A] | [fill or N/A] | (informational) |
+**D-13-01 precondition check:**
+1. Neither A1 nor A2 alone clears — SATISFIED (A1 exit=1, A2 exit=1).
+2. Both A1 AND A2 show positive signal — NOT SATISFIED. A1 = 0.000 (no improvement over
+   comparison floor of 0.000); A2 = 0.500 (improvement). A1 shows NO positive signal.
+   The precondition requires BOTH arms to be positive-but-short; A1 being at floor disqualifies
+   the combo.
 
-**Falsifier exit code:** `[fill or N/A — depends on A4 qualification decision in 13-07]`
+**Run budget:** 3/4 slots consumed (A1 + A2 + A3). The 4th slot is unused per this decision.
 
 ---
 
 ## Closing Verdict
 
-**Recorded after A1 + A2 + A3 (plan 13-06). A4 decision recorded in plan 13-07.**
+**Recorded in plan 13-07 (2026-06-12). A4 decision: skip-a4 (see above).**
 
-No arm (A1, A2, A3) cleared the INST-05 bar independently:
-- A1: gpt-5-mini = 0.000 (no signal; viability contract + critique recalibration showed zero effect)
-- A2: gpt-5-mini = 0.500 (positive signal, below 0.6; forced mechanism never fired)
-- A3: FAIL on scorer regression (anchor regressed on refinement_cheaper) + latency unmeasurable
+### Per-Arm Summary Table
 
-A4 conditional entry gate assessment (per verdicts.md spec):
-1. Neither A1 nor A2 clears alone — SATISFIED.
-2. Both A1 AND A2 show positive signal — PARTIALLY: A1 showed 0.000 (no improvement over
-   comparison floor), A2 showed 0.500 (improvement). A1 shows NO positive signal; A2 does.
-   Per the A4 qualification rule, BOTH arms must show positive signal. A1=0.0 means A1
-   shows no positive signal. A4 qualification is MARGINAL — depends on interpretation of
-   whether A1=0.000 (same as comparison floor) counts as "no positive signal."
+| Arm | Flag Config | gpt-5-mini pooled | deepseek-reasoner pooled | gpt-4o-mini anchor | Falsifier exit code |
+|-----|-------------|-------------------|--------------------------|--------------------|---------------------|
+| A1 | `VIABILITY_CONTRACT_ENABLED=1` | 0.000 (model-initiated 1/10, forced 0/10) | 0.000 (informational) | 1.000 — PASS (baseline 1.000) | 1 (FAIL) |
+| A2 | `FORCED_COMMIT_STEP=6` | 0.500 (model-initiated 4/10, forced 0/10) | 0.000 (informational) | 1.000 — PASS, behaviorally unchanged | 1 (FAIL) |
+| A3 | `PARALLEL_TOOL_EXECUTION_ENABLED=1` | 0.500 (model-initiated 5/10, forced 0/10) | 0.000 (informational) | 0.500 — REGRESSION (refinement_cheaper 0.000 vs baseline 1.000) | 1 (FAIL) |
+| A4 | NOT RUN | — | — | — | — |
 
-A4 DECISION: deferred to plan 13-07 (Closing Verdict and A4 Decision) with the above
-analysis as input. The A3 anchor regression is a separate finding that does not affect A4
-qualification (A4 combines A1+A2 flags only).
+**A2 split-qualification note (D-13-04(c)):** A2 gpt-5-mini rate is 0.500 with forced=0 for
+all models — the improvement is entirely model-initiated, not forced-inflated. Quality scorers
+(category_compliance, constraints_satisfied, geographic_coherence) held on committed omakase
+episodes. Anchor (gpt-4o-mini) was behaviorally unchanged at 1.000. The A2 rate is
+split-qualified; it does not clear the 0.6 bar regardless.
+
+### Explicit Closing Line
+
+**No arm cleared the INST-05 falsifier bar. All arms plateaued below gpt-5-mini >= 0.6.**
+
+- A1: 0.000 (viability contract + critique recalibration — zero effect on gpt-5-mini)
+- A2: 0.500 (best signal; model-initiated improvement on omakase only; refinement_cheaper = 0.000; forced mechanism never fired; split-qualified per D-13-04(c) but still below 0.6)
+- A3: FAIL on anchor regression (refinement_cheaper 0.000 vs 1.000 baseline) + latency unmeasurable
+- A4: NOT RUN (D-13-01 precondition not satisfied — A1 showed no positive signal)
+
+### Phase-14 Consequence
+
+**Phase 14 (Richer State Replay) entry gate: OPEN.**
+
+All DEC arms (A1, A2, A3) plateaued below the INST-05 falsifier bar at n=5. No arm cleared.
+Phase 14 is entered per the conditional entry gate: multi-message reasoning-state replay
+(REPLAY-01) and content-block preservation (REPLAY-02) A/B experiments proceed as the next
+escalation against this documented plateau baseline. Phase 14 is NOT skipped; Phase 15
+(Gate Promotion + Baseline Regen) does not proceed directly.
