@@ -99,7 +99,7 @@ threshold, flag-gated low_similarity scoping in revision.py, and tests.
     - app/agent/viability.py (all_slots_viable — the shared predicate from plan 13-01; import it to compute rule8-already-met)
     - app/main.py lines 753-763 (truthy-set env-flag parsing precedent for VIABILITY_CONTRACT_ENABLED)
     - .planning/phases/13-decisiveness-experiment-arms/13-PATTERNS.md "app/agent/revision.py — DEC-03 low_similarity scoping" (env-override pattern + flag-gated suppression shape)
-    - tests/unit/test_agent_revision.py (existing low_similarity / _diagnose_one test patterns to mirror)
+    - tests/unit/test_critique_checks.py (existing _diagnose_one-adjacent test patterns to mirror; tests/unit/test_agent_revision.py does NOT exist yet — this task creates it new)
   </read_first>
   <behavior>
     - LOW_SIMILARITY_THRESHOLD == 0.55 when LOW_SIMILARITY_THRESHOLD_OVERRIDE is unset; equals the override float when set (e.g. 0.45).
@@ -118,7 +118,7 @@ threshold, flag-gated low_similarity scoping in revision.py, and tests.
     - A test asserts that with VIABILITY_CONTRACT_ENABLED unset, a below-threshold semantic_search state yields a low_similarity hint (flag-off behavior unchanged).
     - A test asserts that with VIABILITY_CONTRACT_ENABLED=1 and a state where all_slots_viable is True, _diagnose_last_tool_result returns None (low_similarity suppressed).
     - A test asserts that with VIABILITY_CONTRACT_ENABLED=1 and all_slots_viable False, low_similarity still fires.
-    - `make typecheck` passes; existing test_agent_revision.py tests all still pass.
+    - `make typecheck` passes; existing tests/unit/test_critique_checks.py tests all still pass (test_agent_revision.py is created new by this task).
   </acceptance_criteria>
   <done>Threshold is env-overridable (default 0.55), low_similarity is suppressed once every slot is viable but only under the arm flag; flag-off is byte-identical; co-tuned with DEC-01 via the shared flag.</done>
 </task>
@@ -143,7 +143,7 @@ threshold, flag-gated low_similarity scoping in revision.py, and tests.
 </threat_model>
 
 <verification>
-- `poetry run pytest tests/unit/test_agent_revision.py -v` passes (including pre-existing tests).
+- `poetry run pytest tests/unit/test_agent_revision.py tests/unit/test_critique_checks.py -v` passes (new file plus the pre-existing critique-check suite).
 - `make typecheck` and `make lint` pass.
 - Flag-off path is byte-identical to current revision behavior (no all_slots_viable call when flag off).
 - docs/decisiveness_dec03_decision.md committed BEFORE the revision.py change (doc-first, roadmap criterion 4).
