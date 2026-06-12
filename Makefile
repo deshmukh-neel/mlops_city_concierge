@@ -109,6 +109,7 @@ QUERIES ?= 1
 SCENARIOS ?=
 LLM_OVERRIDE ?=
 RUN_DIR ?=
+MATRIX_CONFIG ?=
 
 .PHONY: eval-agent
 eval-agent: ## Run scripts/eval_agent.py once (PROVIDER/MODEL/QUERIES/SCENARIOS params)
@@ -215,6 +216,40 @@ snapshot-baselines: ## Snapshot current canonical baselines to _snapshots/ as pr
 eval-falsifier: ## INST-05: falsifier report — did gpt-5-mini hit >=0.6 and gpt-4o-mini hold baseline? (RUN_DIR= to override latest)
 	$(POETRY_RUN) python scripts/eval_falsifier.py \
 	  $(if $(RUN_DIR),--run-dir $(RUN_DIR),) \
+	  --baselines-dir configs/eval_baselines
+
+# Phase 13 / D-13-01..02: arm eval-matrix runner (3 providers × 2 scenarios × n=5).
+# Arm behavior is selected via env flags exported BEFORE invocation — the flags are
+# read at graph-build time inside build_agent_graph() (not via per-cell env here).
+#
+# Arm examples:
+#   A1 (Viability Contract):  VIABILITY_CONTRACT_ENABLED=1 make eval-matrix-arm RUNS=5
+#   A2 (Forced Commit):       FORCED_COMMIT_STEP=6 make eval-matrix-arm RUNS=5
+#   A3 (Parallel Tools):      PARALLEL_TOOL_EXECUTION_ENABLED=1 make eval-matrix-arm RUNS=5
+#   Control (all flags off):  make eval-matrix-arm RUNS=5
+#
+# CI smoke (no live keys):    make eval-matrix-arm RUNS=1 LLM_OVERRIDE=scripted
+# LIVE runs require:          APP_ENV=eval + OPENAI_API_KEY + DEEPSEEK_API_KEY
+.PHONY: eval-matrix-arm
+eval-matrix-arm: ## Phase 13: run arm matrix (RUNS=5; arm flags via env export; LLM_OVERRIDE=scripted for CI)
+	$(POETRY_RUN) python scripts/eval_matrix.py \
+	  --matrix-config configs/eval_matrix_arm.yaml \
+	  --runs $(RUNS) \
+	  $(if $(LLM_OVERRIDE),--llm-provider-override $(LLM_OVERRIDE),)
+
+# Phase 13 / D-13-02..04: falsifier verdict for an arm run dir.
+# Grades the run against the arm scenario universe (omakase + refinement_cheaper)
+# so the zero-overlap exit-2 guard accepts arm run dirs that include refinement_cheaper.
+# Prints the model-initiated vs forced commit split in the A2 verdict line (D-13-04).
+#
+# Usage:
+#   make eval-falsifier-arm RUN_DIR=eval_reports/2026-06-12T...  (required)
+#   make eval-falsifier-arm RUN_DIR=... MATRIX_CONFIG=configs/eval_matrix_arm.yaml
+.PHONY: eval-falsifier-arm
+eval-falsifier-arm: ## Phase 13: falsifier verdict for an arm run dir (RUN_DIR= required; MATRIX_CONFIG= optional)
+	$(POETRY_RUN) python scripts/eval_falsifier.py \
+	  $(if $(RUN_DIR),--run-dir $(RUN_DIR),) \
+	  --matrix-config $(if $(MATRIX_CONFIG),$(MATRIX_CONFIG),configs/eval_matrix_arm.yaml) \
 	  --baselines-dir configs/eval_baselines
 
 # ─── Testing ──────────────────────────────────────────────────────────────────
