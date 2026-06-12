@@ -29,11 +29,11 @@ ANCH-01 (anthropic n=5) deferred at milestone start — see Future Requirements.
 
 Joint experiments over three coupled levers — prompt contract, critique pressure, state richness — never one lever in isolation. Arms judged with Phase-10 honest gates, n=5, temp=1.0, against the ANCH comparison floor.
 
-- [ ] **DEC-01**: Viability-contract arm: explicit viability definition in the commit precondition ("a result above X cosine with matching primary_type IS viable — do not keep searching past it"), without violating the Phase-7 prompt/rubric-decoupling CI grep gate
-- [ ] **DEC-02**: Forced-commit-at-step-N arm: graph-level, model-independent mechanism that ends exploration with a commit from best-so-far candidates
-- [ ] **DEC-03**: Critique-recalibration arm co-tuned with DEC-01 (threshold below 0.55 and/or `low_similarity` scoped to pre-candidate steps only — never tuned in isolation per `critique-loop-and-commit-tool-conflict`)
-- [ ] **DEC-04**: Parallel tool execution in `act()` — the all-provider latency arm; tool calls within one plan step execute concurrently with results order-stable
-- [ ] **DEC-05**: Arm verdicts documented per the INST-05 falsifier: winning arm (or honest null result) recorded with per-arm n=5 numbers for gpt-5-mini, deepseek-reasoner, and the gpt-4o-mini anchor
+- [x] **DEC-01**: Viability-contract arm: explicit viability definition in the commit precondition ("a result above X cosine with matching primary_type IS viable — do not keep searching past it"), without violating the Phase-7 prompt/rubric-decoupling CI grep gate
+- [x] **DEC-02**: Forced-commit-at-step-N arm: graph-level, model-independent mechanism that ends exploration with a commit from best-so-far candidates
+- [x] **DEC-03**: Critique-recalibration arm co-tuned with DEC-01 (threshold below 0.55 and/or `low_similarity` scoped to pre-candidate steps only — never tuned in isolation per `critique-loop-and-commit-tool-conflict`)
+- [x] **DEC-04**: Parallel tool execution in `act()` — the all-provider latency arm; tool calls within one plan step execute concurrently with results order-stable
+- [x] **DEC-05**: Arm verdicts documented per the INST-05 falsifier: winning arm (or honest null result) recorded with per-arm n=5 numbers for gpt-5-mini, deepseek-reasoner, and the gpt-4o-mini anchor
 
 ### Richer State Replay (REPLAY) — conditional
 
@@ -86,11 +86,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INST-05 | Phase 12 | Complete |
 | ANCH-02 | Phase 12 | Complete (deferred-with-note, D-12-09) |
 | ANCH-03 | Phase 12 | Complete (reinterpreted per D-12-09) |
-| DEC-01 | Phase 13 | Pending |
-| DEC-02 | Phase 13 | Pending |
-| DEC-03 | Phase 13 | Pending |
-| DEC-04 | Phase 13 | Pending |
-| DEC-05 | Phase 13 | Pending |
+| DEC-01 | Phase 13 | Complete |
+| DEC-02 | Phase 13 | Complete |
+| DEC-03 | Phase 13 | Complete |
+| DEC-04 | Phase 13 | Complete |
+| DEC-05 | Phase 13 | Complete — honest null result; no arm cleared INST-05 bar; docs/decisiveness_arm_verdicts.md closing verdict: Phase 14 entry gate OPEN |
 | REPLAY-01 | Phase 14 | Pending |
 | REPLAY-02 | Phase 14 | Pending |
 | PROMO-01 | Phase 15 | Pending |
@@ -107,4 +107,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-11*
-*Last updated: 2026-06-12 — ANCH-02/ANCH-03 marked Complete (deferred-with-note) per D-12-09: gemini n=5 baseline deferred at user budget decision; comparison floor = matrix minus anthropic AND gemini; parity test confirms non-deferred floor honest n=5*
+*Last updated: 2026-06-12 — DEC-05 traceability updated with closing verdict note: no arm cleared INST-05 bar (honest null result); Phase 14 entry gate OPEN; docs/decisiveness_arm_verdicts.md is the canonical record. ANCH-02/ANCH-03 marked Complete (deferred-with-note) per D-12-09: gemini n=5 baseline deferred at user budget decision; comparison floor = matrix minus anthropic AND gemini; parity test confirms non-deferred floor honest n=5*

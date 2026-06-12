@@ -6,6 +6,7 @@ from app.agent.prompts import (
     CLARIFYING_STOPS_COUNT_TEMPLATE,
     REVISION_GUIDANCE,
     SYSTEM_PROMPT,
+    rule8_viability_addendum,
 )
 
 _FMT = {"max_steps": 8, "current_datetime": "2026-05-18 19:00 PDT (Monday)"}
@@ -249,3 +250,79 @@ def test_revision_guidance_covers_every_revision_reason_used_by_dispatch() -> No
 def test_clarifying_stops_template_is_a_static_string() -> None:
     assert isinstance(CLARIFYING_STOPS_COUNT_TEMPLATE, str)
     assert "stops" in CLARIFYING_STOPS_COUNT_TEMPLATE
+
+
+# ---------------------------------------------------------------------------
+# DEC-01: Viability-contract flag-state tests (VIABILITY_CONTRACT_ENABLED)
+# ---------------------------------------------------------------------------
+
+
+def test_rule8_viability_addendum_flag_off_returns_empty() -> None:
+    """rule8_viability_addendum(False) must return empty string (no prompt change)."""
+    result = rule8_viability_addendum(enabled=False)
+    assert result == ""
+
+
+def test_rule8_viability_addendum_flag_on_contains_cosine() -> None:
+    """rule8_viability_addendum(True) must contain the word 'cosine'."""
+    result = rule8_viability_addendum(enabled=True)
+    assert "cosine" in result.lower()
+
+
+def test_rule8_viability_addendum_flag_on_contains_is_viable() -> None:
+    """rule8_viability_addendum(True) must contain 'is viable'."""
+    result = rule8_viability_addendum(enabled=True)
+    assert "is viable" in result.lower()
+
+
+def test_rule8_viability_addendum_flag_on_contains_threshold_value() -> None:
+    """rule8_viability_addendum(True) must contain the LOW_SIMILARITY_THRESHOLD value."""
+    from app.agent.revision import LOW_SIMILARITY_THRESHOLD
+
+    result = rule8_viability_addendum(enabled=True)
+    assert str(LOW_SIMILARITY_THRESHOLD) in result
+
+
+def test_rule8_viability_addendum_no_forbidden_phrases() -> None:
+    """rule8_viability_addendum(True) must not contain forbidden behavioral-rubric phrases."""
+    result = rule8_viability_addendum(enabled=True)
+    for forbidden in ("byte-for-byte", "SAME primary_type"):
+        assert forbidden not in result, f"addendum contains forbidden phrase {forbidden!r}"
+
+
+def test_rule8_viability_addendum_custom_threshold() -> None:
+    """rule8_viability_addendum(True, threshold=0.7) must use the custom threshold."""
+    result = rule8_viability_addendum(enabled=True, threshold=0.7)
+    assert "0.7" in result
+    assert "cosine" in result.lower()
+
+
+def test_viability_contract_addendum_is_additive() -> None:
+    """When VIABILITY_CONTRACT_ENABLED=1, rule 8 gains the viability sentence
+    but all existing phrase locks still hold (D-13-06: additive only).
+
+    VIABILITY_CONTRACT_ENABLED — this comment makes the flag name greppable.
+    """
+    rendered = SYSTEM_PROMPT.format(**_FMT) + rule8_viability_addendum(enabled=True)
+    s = rendered.lower()
+    # Existing locks from test_system_prompt_has_decisive_commit_contract must still hold:
+    assert "commit_itinerary" in s
+    assert "one viable option" in s or "good enough" in s
+    assert "do not keep" in s or "don't keep" in s or "stop optimizing" in s
+    # Addendum present:
+    assert "cosine similarity" in s
+    assert "is viable" in s
+
+
+def test_viability_contract_flag_off_unchanged() -> None:
+    """When VIABILITY_CONTRACT_ENABLED is unset, the rendered prompt with empty
+    addendum is byte-identical to SYSTEM_PROMPT.format(...) alone.
+
+    VIABILITY_CONTRACT_ENABLED — this comment makes the flag name greppable.
+    """
+    base = SYSTEM_PROMPT.format(**_FMT)
+    with_empty_addendum = base + rule8_viability_addendum(enabled=False)
+    # Byte-identical: addendum is empty string
+    assert with_empty_addendum == base
+    # No cosine similarity text in flag-off state
+    assert "cosine similarity" not in base.lower()

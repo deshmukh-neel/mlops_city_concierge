@@ -49,8 +49,8 @@
 **Milestone Goal:** Make reasoning models decisive on the tool loop — pass gpt-5-mini commit rate ≥ 0.6 at n=5 with no gpt-4o-mini anchor regression, and reduce per-turn latency via decisiveness (step-count).
 
 - [x] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the v2.2 comparison floor confirmed (BOTH anthropic AND gemini cells deferred at user decision — D-12-09; non-deferred cells honest n=5) (completed 2026-06-12)
-- [ ] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier
-- [ ] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar
+- [x] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier (completed 2026-06-12; honest null result — no arm cleared INST-05; Phase 14 entry gate OPEN)
+- [x] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar (completed 2026-06-12)
 - [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
 
 ## Phase Details
@@ -88,11 +88,36 @@
 
   1. The viability-contract arm (DEC-01) ships without touching the text or structure of any prompt section covered by the Phase-7 CI grep gate — the grep gate stays green
   2. The forced-commit-at-step-N arm (DEC-02) is a graph-level mechanism that triggers independently of model identity — confirmed by a unit test that fires it on a mock that never calls `commit_itinerary`
-  3. The parallel-tool-execution arm (DEC-04) runs all tool calls within one `act()` plan step concurrently with results order-stable — measurable gpt-4o-mini latency reduction at n=5 recorded in run JSON
+  3. The parallel-tool-execution arm (DEC-04) runs all tool calls within one `act()` plan step concurrently with results order-stable — AND the absolute gpt-4o-mini tool-execution latency at n=5 (INST-04 `tool_exec_seconds`, summed per run) is recorded in run JSON for future-baseline use. (Discovered constraint: the reduction-vs-Phase-12-floor delta is structurally unmeasurable because the Phase-12 comparison-floor run dirs predate the INST-04 step_telemetry instrumentation — `tool_exec_seconds=None` there; a future phase that regenerates the floor with telemetry can compute the delta.)
   4. The critique-recalibration arm (DEC-03) is co-tuned with DEC-01 (not tuned in isolation), with the `LOW_SIMILARITY_THRESHOLD` change direction and the `low_similarity` scoping decision both documented before any threshold change lands
   5. DEC-05 arm-verdict document records per-arm n=5 commit-rate numbers for gpt-5-mini, deepseek-reasoner, and gpt-4o-mini anchor, and explicitly states which arm (if any) cleared the INST-05 falsifier bar — or records an honest null result
 
-**Plans**: TBD
+**Plans**: 7 plans + 3 gap-closure plans
+
+**Wave 1**
+
+- [x] 13-01-viability-predicate-and-telemetry-PLAN.md — Shared viability predicate (app/agent/viability.py) + commit_forced/forced_commit_step state fields + arm_flags run-JSON self-description
+- [x] 13-02-viability-contract-prompt-PLAN.md — DEC-01 additive rule-8 viability addendum (flag-gated, both-flag-states prompt locks)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [x] 13-03-dec03-doc-and-critique-scoping-PLAN.md — DEC-03 decision doc FIRST, then env-overridable threshold + flag-gated low_similarity scoping (co-tuned with DEC-01)
+- [x] 13-04-graph-arms-forced-commit-and-parallel-PLAN.md — A2 forced-commit-at-step-N branch + A3 parallel act() + A1 prompt wiring in graph.py
+- [x] 13-05-arm-matrix-config-and-falsifier-PLAN.md — configs/eval_matrix_arm.yaml (3 models x 2 scenarios) + falsifier --matrix-config + forced-split reader + Makefile arm targets
+
+**Wave 3** *(live runs — checkpoints, real API spend)*
+
+- [x] 13-06-run-judged-arms-PLAN.md — Run A1/A2/A3 smoke-first at n=5 temp=1.0; record verdict sections in docs/decisiveness_arm_verdicts.md
+
+**Wave 4**
+
+- [x] 13-07-a4-combo-and-closing-verdict-PLAN.md — A4 conditional combo decision (D-13-01, <=4-run cap) + closing INST-05 verdict + bookkeeping
+
+**Gap closure** *(post-verification: gaps_found 4/5 — repairs CR-01, CR-02, SC-3; honest null result unchanged)*
+
+- [x] 13-08-cr01-forced-commit-synthesizer-fix-PLAN.md — CR-01: fix viability.py typed-path PlaceHit→dict + synthesizer rationale so the A2 forced-commit branch works; non-mocked regression test; annotate A2 verdict (mechanism was inoperative; 0.500 model-initiated stands; forced untested at n=5)
+- [x] 13-09-cr02-falsifier-split-reader-fix-PLAN.md — CR-02: fix eval_falsifier split reader to read queries[i].deterministic; fixture to real EvalRunReport shape + regression test; annotate verdict that pasted 0/0 was a tool bug (hand-computed tables correct)
+- [x] 13-10-sc3-respecify-and-flag-hygiene-PLAN.md — SC-3 zero-spend respecify (criterion 3 → absolute latency for future baseline; constraint annotated) + WR-09 env_flag DRY helper + WR-02 VIABILITY_CONTRACT_ENABLED single-read co-tuning fix
 
 ### Phase 14: Richer State Replay (CONDITIONAL)
 
@@ -137,10 +162,10 @@
 | 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 13. Decisiveness Experiment Arms | v2.2 | 0/TBD | Not started | - |
+| 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
 ---
 
-*Last updated: 2026-06-11 — v2.2 Reasoning-Model Decisiveness roadmap created (Phases 12-15). Phase 14 is conditional on Phase 13 arm plateau.*
+*Last updated: 2026-06-12 — Phase 13 complete (7/7 plans); honest null result — no arm cleared INST-05 bar; Phase 14 (Richer State Replay) entry gate OPEN per DEC-05 closing verdict.*

@@ -9,6 +9,7 @@ private name, matching the existing test pattern.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -17,8 +18,17 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from app.agent.critique import CRITIQUE_ITINERARY, CRITIQUE_STEP, CRITIQUE_VIBE, vibe
 from app.agent.critique.checks import is_rationale_aligned, itinerary_violations
 from app.agent.state import ItineraryState, RevisionAction, RevisionHint
+from app.config import env_flag
 
-LOW_SIMILARITY_THRESHOLD = 0.55
+# D-13-07: code default stays 0.55 (seed finding 2 — it already is 0.55).
+# The experiment knob is LOW_SIMILARITY_THRESHOLD_OVERRIDE: used in the A1 arm
+# to test values BELOW 0.55. Empty/unset falls back to the code default.
+# T-13-03-01 mitigation: malformed value raises ValueError at import time
+# (operator-visible at process start), not silently at a runtime hotpath.
+LOW_SIMILARITY_THRESHOLD: float = float(
+    os.environ.get("LOW_SIMILARITY_THRESHOLD_OVERRIDE", "") or "0.55"
+)
+
 MAX_REVISIONS_PER_REASON = 2
 
 
@@ -170,12 +180,32 @@ def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
     """Diagnose every tool_call in the most recent issuing AIMessage and
     return the first hint in tool_call order. Returns None if every call was
     healthy. The agent revises one issue per round; later issues, if any,
-    will be diagnosed on the next round."""
+    will be diagnosed on the next round.
+
+    DEC-03 (A1 arm, D-13-07): When VIABILITY_CONTRACT_ENABLED is set AND every
+    requested stop already has a viable candidate, the low_similarity hint is
+    suppressed so the model can commit rather than rephrase. The suppression
+    applies ONLY to low_similarity; all other hint reasons fire unconditionally.
+    CRITICAL — flag-off byte-identity: the all_slots_viable call is gated
+    entirely behind the flag check so flag-off runs never reach it.
+    """
     low_similarity_count = state.revision_counts.get("low_similarity", 0)
     for tool_name, entry in _scratch_entries_for_last_round(state):
         hint = _diagnose_one(tool_name, entry, low_similarity_count=low_similarity_count)
-        if hint is not None:
-            return hint
+        if hint is None:
+            continue
+        # DEC-03 gate: suppress low_similarity once every slot has a viable candidate,
+        # but ONLY when the arm flag is ON (T-13-03-02 mitigation: flag-off path never
+        # calls all_slots_viable so current behavior is byte-identical when flag is off).
+        # WR-02: flag read live per call via env_flag so DEC-01 prompt addendum (graph.py
+        # build-time) and DEC-03 critique scoping both pick up env changes at the same
+        # effective time — the import-time freeze hazard is eliminated.
+        if hint.reason == "low_similarity" and env_flag("VIABILITY_CONTRACT_ENABLED"):
+            from app.agent.viability import all_slots_viable  # noqa: PLC0415
+
+            if all_slots_viable(state, LOW_SIMILARITY_THRESHOLD):
+                return None
+        return hint
     return None
 
 

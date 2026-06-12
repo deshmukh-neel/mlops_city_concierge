@@ -290,6 +290,26 @@ class ItineraryState(BaseModel):
             "D-12-01: always-on; cheap enough for prod."
         ),
     )
+    # D-13-03 / D-13-04 (Plan 13-01): forced-commit telemetry fields.
+    # True only when the DEC-02 forced-commit branch synthesised a
+    # commit_itinerary call from best-so-far viable candidates.
+    # Both are plain JSON-safe primitives (never Pydantic instances).
+    commit_forced: bool = Field(
+        default=False,
+        description=(
+            "D-13-04: True when the DEC-02 forced-commit branch triggered a "
+            "synthetic commit_itinerary call.  False on default-path runs "
+            "(FORCED_COMMIT_STEP unset or 0).  Plain bool — JSON-safe invariant."
+        ),
+    )
+    forced_commit_step: int | None = Field(
+        default=None,
+        description=(
+            "D-13-04: Step index at which a forced commit was synthesised by "
+            "the DEC-02 mechanism.  None when commit_forced is False.  "
+            "Plain int | None — JSON-safe invariant."
+        ),
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

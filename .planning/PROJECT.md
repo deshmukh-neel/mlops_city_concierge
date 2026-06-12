@@ -34,7 +34,7 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 ## Current State
 
 **Shipped milestone:** v2.1 Reasoning-Model Compat (2026-06-11; PRs #103, #105, #106; 5 phases, 35 plans, 48 tasks; 156 files changed, +24k/−6.4k vs v2.0). Audit: 26/26 requirements, integration COMPLETE, status tech_debt (documented deferrals only) — see `milestones/v2.1-MILESTONE-AUDIT.md`.
-**Active milestone:** v2.2 Reasoning-Model Decisiveness (started 2026-06-11; seeded from `milestones/v2.2-MILESTONE-SEED.md`).
+**Active milestone:** v2.2 Reasoning-Model Decisiveness (started 2026-06-11; seeded from `milestones/v2.2-MILESTONE-SEED.md`). Phase 13 complete (2026-06-12): four decisiveness experiment arms run at n=5 — honest null result, no arm cleared the INST-05 falsifier bar; gap closure fixed the forced-commit synthesizer (CR-01), the falsifier split reader (CR-02), and respecified the A3 latency criterion; re-verification passed 5/5.
 **Agent driver:** still `openai/gpt-4o-mini` (anchor held commit-rate median 1.0 throughout v2.1). Reasoning-state loss is FIXED (adapters + conformance harness in CI), but reasoning-model *decisiveness* remains the gap — that's v2.2's scope, not an architecture problem.
 
 **v2.1 delivered:**
@@ -152,4 +152,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-11 at v2.2 milestone start (Reasoning-Model Decisiveness; seeded from the 2026-06-10 post-Phase-9 harness analysis).*
+*Last updated: 2026-06-12 after Phase 13 completion (decisiveness experiment arms — null result; gap closure re-verified 5/5).*

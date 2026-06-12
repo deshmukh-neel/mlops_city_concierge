@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any, Literal
 
@@ -31,8 +32,9 @@ from app.agent.adapters import ADAPTERS, NoOpAdapter, ProviderAdapter
 from app.agent.commit import commit_stops
 from app.agent.critique import vibe
 from app.agent.planning import chain_arrival_times
-from app.agent.prompts import SYSTEM_PROMPT, current_datetime_str
+from app.agent.prompts import SYSTEM_PROMPT, current_datetime_str, rule8_viability_addendum
 from app.agent.revision import (
+    LOW_SIMILARITY_THRESHOLD,
     critique_final_with_stops,
     critique_step,
     finalize_as_is,
@@ -41,6 +43,8 @@ from app.agent.revision import (
 from app.agent.state import ItineraryState, Stop
 from app.agent.swap import _inject_closure_exclusions, swap_closed_stops
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
+from app.agent.viability import all_slots_viable, best_viable_candidate_per_slot
+from app.config import env_flag
 from app.tools.directions import route_legs
 from app.tools.filters import SearchFilters, family_of
 
@@ -281,6 +285,29 @@ def build_agent_graph(
     if judge_llm is None and vibe.is_enabled():
         judge_llm = vibe.make_judge()
 
+    # Phase 13 / DEC arm-flag reads — resolved ONCE at graph-build time and
+    # closed over the inner functions. With all three flags unset/0, behavior
+    # is byte-identical to the baseline path (flag-off is the default state).
+    #
+    # FORCED_COMMIT_STEP (int, default 0 = off): A2 arm — at step N, if the
+    #   model has not committed AND every slot has a viable candidate, synthesize
+    #   a commit from best-so-far and route it through the normal commit path.
+    #   Default value documented here: 6 (max_steps=8, leaves headroom for
+    #   revision loops); the firing condition reads the env value, never hardcodes.
+    #
+    # VIABILITY_CONTRACT_ENABLED (bool, default off): A1 arm — appends the
+    #   rule8_viability_addendum to the system prompt so the model sees the exact
+    #   cosine threshold that determines viability.
+    #
+    # PARALLEL_TOOL_EXECUTION_ENABLED (bool, default off): A3 arm — runs all
+    #   tool calls in one act() step concurrently via asyncio.gather with
+    #   results appended in ORIGINAL tool_call order.
+    _forced_commit_step: int = int(os.environ.get("FORCED_COMMIT_STEP", "0") or "0")
+    _viability_contract_enabled: bool = env_flag("VIABILITY_CONTRACT_ENABLED")
+    _parallel_tool_execution_enabled: bool = env_flag("PARALLEL_TOOL_EXECUTION_ENABLED")
+    # Pre-compute the prompt addendum at build time (pure string; empty when flag off).
+    _viability_prompt_addendum: str = rule8_viability_addendum(_viability_contract_enabled)
+
     async def plan(state: ItineraryState) -> dict[str, Any]:
         messages_in: list[BaseMessage] = list(state.messages)
         if state.step_count == 0 and not any(isinstance(m, SystemMessage) for m in messages_in):
@@ -290,6 +317,7 @@ def build_agent_graph(
                         max_steps=max_steps,
                         current_datetime=current_datetime_str(),
                     )
+                    + _viability_prompt_addendum
                     + _constraints_context(state)
                 ),
                 *messages_in,
@@ -367,50 +395,41 @@ def build_agent_graph(
         scratch_updates: dict[str, list[dict[str, Any]]] = {}
         committed_stops: list[Stop] | None = None
 
-        # D-12-01: measure sequential tool-execution wall time for INST-04.
-        _tool_start = time.monotonic()
-        tool_calls_this_step = 0
-
-        for tc in ai.tool_calls:
+        # A3: inner async helper for one tool call — used by both paths.
+        # Returns a tuple of (ToolMessage, scratch_name|None, scratch_entry|None,
+        # committed_stops|None, was_commit: bool).
+        # CRITICAL: never reassign `tc["args"]`. `tc` references a dict INSIDE
+        # the AIMessage stored on state.messages — the next plan() step
+        # re-serializes that AIMessage for OpenAI's API via `json.dumps`, and a
+        # Pydantic SearchFilters instance there crashes with "Object of type
+        # SearchFilters is not JSON serializable". Compute `effective_args`
+        # locally instead (project memory `aimessage_tool_call_args_json_safe`).
+        async def _exec_one(
+            tc: Any,
+        ) -> tuple[ToolMessage, str | None, dict[str, Any] | None, list[Stop] | None, bool]:
             if tc["name"] == COMMIT_ITINERARY_TOOL_NAME:
                 stops, payload = commit_stops(state, tc["args"].get("stops"))
-                committed_stops = stops
-                new_messages.append(
-                    ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
-                )
-                scratch_updates.setdefault(tc["name"], []).append(
-                    {
-                        "args": tc["args"],
-                        "result": payload,
-                        "step": state.step_count,
-                        "id": tc["id"],
-                    }
-                )
-                tool_calls_this_step += 1
-                continue
+                msg = ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
+                entry: dict[str, Any] = {
+                    "args": tc["args"],
+                    "result": payload,
+                    "step": state.step_count,
+                    "id": tc["id"],
+                }
+                return msg, tc["name"], entry, stops, True
 
             tool = tool_by_name.get(tc["name"])
             if tool is None:
-                new_messages.append(
-                    ToolMessage(
-                        content=f"unknown tool {tc['name']}",
-                        tool_call_id=tc["id"],
-                    )
+                msg = ToolMessage(
+                    content=f"unknown tool {tc['name']}",
+                    tool_call_id=tc["id"],
                 )
-                continue
+                return msg, None, None, None, False
+
             # Belt-and-suspenders: merge closure-context exclusions AND
             # per-slot primary_type_family into the tool args at the SQL
             # layer. The prompt guidance in _constraints_context is an
             # optimization; this is enforcement.
-            #
-            # CRITICAL: never reassign `tc["args"]`. `tc` references a dict
-            # INSIDE the AIMessage stored on state.messages — the next plan()
-            # step re-serializes that AIMessage for OpenAI's API via
-            # `json.dumps`, and a Pydantic SearchFilters instance there
-            # crashes with "Object of type SearchFilters is not JSON
-            # serializable". Compute `effective_args` locally instead so the
-            # injected args drive `tool.invoke` and the scratch record while
-            # the AIMessage stays untouched.
             #
             # Phase 4 D-04-04: chain the primary_type_family helper on top of
             # closure-exclusions. Both helpers emit JSON-safe dicts so the
@@ -431,24 +450,99 @@ def build_agent_graph(
                 effective_args = {k: v for k, v in effective_args.items() if k != "slot_index"}
             else:
                 effective_args = tc["args"]
+
             try:
                 # psycopg2 + OpenAI are sync; offload to a worker thread so the
                 # event loop stays responsive while the tool blocks on I/O.
                 result: Any = await asyncio.to_thread(tool.invoke, effective_args)
             except Exception as e:  # noqa: BLE001
                 result = {"error": str(e)}
-            new_messages.append(
-                ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
-            )
-            scratch_updates.setdefault(tc["name"], []).append(
-                {
-                    "args": effective_args,
-                    "result": result,
-                    "step": state.step_count,
-                    "id": tc["id"],
-                }
-            )
-            tool_calls_this_step += 1
+
+            msg = ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
+            scratch_entry: dict[str, Any] = {
+                "args": effective_args,
+                "result": result,
+                "step": state.step_count,
+                "id": tc["id"],
+            }
+            return msg, tc["name"], scratch_entry, None, False
+
+        # D-12-01: measure tool-execution wall time for INST-04.
+        _tool_start = time.monotonic()
+        tool_calls_this_step = 0
+
+        if _parallel_tool_execution_enabled:
+            # A3: run all tool calls concurrently. asyncio.gather preserves INPUT
+            # ORDER in the results list (D-13-08) — results[i] corresponds to
+            # ai.tool_calls[i], so re-assembling in iteration order preserves the
+            # ORIGINAL tool_call order regardless of completion order.
+            par_results = await asyncio.gather(*[_exec_one(tc) for tc in ai.tool_calls])
+            for msg, scratch_name, scratch_entry, stops, was_commit in par_results:
+                new_messages.append(msg)
+                if scratch_name is not None and scratch_entry is not None:
+                    scratch_updates.setdefault(scratch_name, []).append(scratch_entry)
+                if was_commit and stops is not None:
+                    committed_stops = stops
+                if not (scratch_name is None and not was_commit):
+                    # Count all non-unknown-tool calls (mirrors sequential logic)
+                    tool_calls_this_step += 1
+        else:
+            # Sequential path — identical to pre-A3 behavior; branch is untouched.
+            for tc in ai.tool_calls:
+                if tc["name"] == COMMIT_ITINERARY_TOOL_NAME:
+                    stops, payload = commit_stops(state, tc["args"].get("stops"))
+                    committed_stops = stops
+                    new_messages.append(
+                        ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
+                    )
+                    scratch_updates.setdefault(tc["name"], []).append(
+                        {
+                            "args": tc["args"],
+                            "result": payload,
+                            "step": state.step_count,
+                            "id": tc["id"],
+                        }
+                    )
+                    tool_calls_this_step += 1
+                    continue
+
+                tool = tool_by_name.get(tc["name"])
+                if tool is None:
+                    new_messages.append(
+                        ToolMessage(
+                            content=f"unknown tool {tc['name']}",
+                            tool_call_id=tc["id"],
+                        )
+                    )
+                    continue
+                if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
+                    effective_args = _inject_closure_exclusions(
+                        tc["name"], tc["args"], state.closure_context
+                    )
+                    effective_args = _inject_primary_type_family(
+                        tc["name"],
+                        effective_args,
+                        list(state.constraints.requested_primary_types),
+                    )
+                    effective_args = {k: v for k, v in effective_args.items() if k != "slot_index"}
+                else:
+                    effective_args = tc["args"]
+                try:
+                    result = await asyncio.to_thread(tool.invoke, effective_args)
+                except Exception as e:  # noqa: BLE001
+                    result = {"error": str(e)}
+                new_messages.append(
+                    ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
+                )
+                scratch_updates.setdefault(tc["name"], []).append(
+                    {
+                        "args": effective_args,
+                        "result": result,
+                        "step": state.step_count,
+                        "id": tc["id"],
+                    }
+                )
+                tool_calls_this_step += 1
 
         _tool_elapsed = time.monotonic() - _tool_start
 
@@ -493,6 +587,75 @@ def build_agent_graph(
         + vibe) → finalizing-without-stops (clarifying question) → post-act
         per-step diagnose. Each branch is a pure function returning the
         LangGraph update dict."""
+        # A2: forced-commit gate (DEC-02 arm) — fires BEFORE the max_steps check.
+        #
+        # Conditions: flag enabled (_forced_commit_step > 0) AND the model has not
+        # committed yet (state.stops is empty) AND step_count has reached the
+        # configured threshold AND every requested slot has a viable candidate.
+        #
+        # When firing: synthesize a commit from best-so-far candidates (all
+        # place_ids are already grounded in scratch), route it through commit_stops
+        # (place_id validation + booking enrichment), then run critique_final_with_stops
+        # on a state copy that carries the newly committed stops — the same
+        # deterministic gauntlet as a model-driven commit.
+        #
+        # CRITICAL state-threading: critique() returns an update dict and must NOT
+        # mutate `state`. Pass state.model_copy(update={"stops": committed_stops}) as
+        # the state argument to critique_final_with_stops so itinerary_violations sees
+        # the committed plan. Calling it with the original (stops=[]) state would make
+        # violations vacuously empty and skip all hard checks.
+        #
+        # When NOT firing (all_slots_viable is False at step N): fall through to the
+        # existing max_steps path, leaving commit_forced=False, forced_commit_step=None.
+        if (
+            _forced_commit_step > 0
+            and state.step_count >= _forced_commit_step
+            and not state.stops
+            and all_slots_viable(state, LOW_SIMILARITY_THRESHOLD)
+        ):
+            candidates = best_viable_candidate_per_slot(state, LOW_SIMILARITY_THRESHOLD)
+            # Build commit-shaped stop dicts. Each candidate dict carries place_id,
+            # name, primary_type, similarity, source from model_dump(mode="json").
+            # Stop.rationale is REQUIRED (no default) — synthesize a provenance string
+            # so commit_stops can construct Stop(**raw) without ValidationError.
+            # Skip candidates that lack a truthy place_id (WR-07 admission consistency).
+            raw_stops: list[dict[str, Any]] = []
+            for c in candidates:
+                if c is None:
+                    continue
+                pid = c.get("place_id")
+                if not pid:
+                    continue
+                sim = c.get("similarity", 0.0)
+                ptype = c.get("primary_type") or "place"
+                raw_stops.append(
+                    {
+                        "place_id": pid,
+                        "name": c.get("name") or "",
+                        "primary_type": ptype,
+                        "source": c.get("source") or "google_places",
+                        "rationale": (
+                            f"Best available match for requested {ptype} slot "
+                            f"(forced commit at step {state.step_count}; "
+                            f"cosine similarity {sim:.3f})."
+                        ),
+                    }
+                )
+            committed_stops, _payload = commit_stops(state, raw_stops)
+            if committed_stops:
+                # Route through critique_final_with_stops with the committed stops wired in.
+                critique_state = state.model_copy(update={"stops": committed_stops})
+                last_msg = state.messages[-1] if state.messages else None
+                result = critique_final_with_stops(critique_state, last_msg, judge_llm)
+                # Merge the forced-commit honesty telemetry into the returned update dict.
+                result = {
+                    **result,
+                    "stops": committed_stops,
+                    "commit_forced": True,
+                    "forced_commit_step": state.step_count,
+                }
+                return result
+
         if state.step_count >= max_steps:
             return short_circuit_max_steps(state)
 

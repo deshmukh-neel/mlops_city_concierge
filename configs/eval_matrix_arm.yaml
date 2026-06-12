@@ -1,0 +1,43 @@
+# Phase 13 / D-13-01..02: arm matrix config for the decisiveness experiment arms.
+#
+# Provider set: openai/gpt-4o-mini (anchor), openai/gpt-5-mini, deepseek/deepseek-reasoner
+# Scenario set: omakase_mission_open_ended + refinement_cheaper
+#   (D-13-02: falsifier pooling requires both scenarios; omakase-only is vacuous for
+#   gpt-5-mini per D-12-08 seed finding — it already hits 1.0 there).
+#
+# anthropic and gemini cells DEFERRED (D-12-09, D-13-02):
+#   - anthropic: billing exhaustion (2026-06-11 user decision)
+#   - gemini: quota resolution required
+#
+# late_night_closure_cascade EXCLUDED (D-10-09 quarantined):
+#   - baseline_eligible: false in eval_queries.yaml
+#   - Still runnable: make eval-matrix SCENARIOS=late_night_closure_cascade
+#   - Running 3 providers × 5 runs of a baseline-ineligible scenario is pure burn
+#
+# GATE SOURCE OF TRUTH: configs/eval_gates.yaml (D-10-05).
+# Gate values for all families are defined there — not here.
+#
+# ARM FLAG DESIGN (D-13-01..04):
+# Arm behavior is selected via env flags exported at run time, NOT via per-cell
+# `env` entries here. The arm flags are read at graph-build time in build_agent_graph():
+#
+#   A1 (Viability Contract): VIABILITY_CONTRACT_ENABLED=1 make eval-matrix-arm RUNS=5
+#   A2 (Forced Commit):      FORCED_COMMIT_STEP=6 make eval-matrix-arm RUNS=5
+#   A3 (Parallel Tools):     PARALLEL_TOOL_EXECUTION_ENABLED=1 make eval-matrix-arm RUNS=5
+#   Control (flags off):     make eval-matrix-arm RUNS=5
+#
+# The two scenario IDs below MUST match committed baseline file stems exactly in
+# configs/eval_baselines/ so the falsifier's zero-overlap exit-2 guard passes.
+# Verify: ls configs/eval_baselines/omakase_mission_open_ended.json configs/eval_baselines/refinement_cheaper.json
+
+entries:
+  - provider: openai
+    model: gpt-4o-mini   # anchor — must show no behavioral change with flags off
+  - provider: openai
+    model: gpt-5-mini
+  - provider: deepseek
+    model: deepseek-reasoner
+
+scenarios:
+  - omakase_mission_open_ended
+  - refinement_cheaper

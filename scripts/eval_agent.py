@@ -38,7 +38,7 @@ from app.agent.input_parsing import explicit_num_stops_from_text
 from app.agent.io import build_refinement_prompt_message, messages_from_history
 from app.agent.revision import LOW_SIMILARITY_THRESHOLD  # D-12-04: import, never hardcode 0.55
 from app.agent.state import ItineraryState, Stop, UserConstraints
-from app.config import get_settings
+from app.config import env_flag, get_settings
 from app.eval.config import (
     DEFAULT_EVAL_QUERIES_PATH,
     EvalQuery,
@@ -145,6 +145,11 @@ class DeterministicEvalResult:
     step_telemetry: list[dict[str, Any]]
     # D-12-04: threshold value used for viability judgments (self-describing for Phase 13 diffs)
     viability_threshold: float
+    # D-13-04 / Plan 13-01: forced-commit honesty telemetry (NOT new scorers — anti-scope)
+    commit_forced: bool  # True when DEC-02 synthesised a forced commit_itinerary call
+    forced_commit_step: int | None  # step index of the forced commit; None if not forced
+    # D-13-05 / Plan 13-01: arm config self-description (mirrors viability_threshold precedent)
+    arm_flags: dict[str, Any]  # {"viability_contract": bool, "forced_commit_step": int, ...}
 
 
 @dataclass
@@ -247,6 +252,10 @@ def make_error_record(case: EvalQuery, stage: str, exc: BaseException) -> QueryE
             rule8_met_but_kept_searching_steps=[],
             step_telemetry=[],
             viability_threshold=LOW_SIMILARITY_THRESHOLD,
+            # D-13-04/05 safe defaults for error records (Plan 13-01)
+            commit_forced=False,
+            forced_commit_step=None,
+            arm_flags={},
         ),
         final_reply="",
         latency_seconds=0.0,
@@ -913,6 +922,16 @@ def query_result_from_state(
             rule8_met_but_kept_searching_steps=rule8_kept_searching,
             step_telemetry=list(state.step_telemetry),  # forwarded verbatim (INST-04 / D-12-02)
             viability_threshold=threshold,
+            # D-13-04/05 (Plan 13-01): forced-commit telemetry + arm config self-description
+            commit_forced=bool(getattr(state, "commit_forced", False)),
+            forced_commit_step=getattr(state, "forced_commit_step", None),
+            arm_flags={
+                "viability_contract": env_flag("VIABILITY_CONTRACT_ENABLED"),
+                "forced_commit_step": int(os.environ.get("FORCED_COMMIT_STEP", "0") or "0"),
+                "parallel_tool": env_flag("PARALLEL_TOOL_EXECUTION_ENABLED"),
+                "viability_threshold_override": os.environ.get("LOW_SIMILARITY_THRESHOLD_OVERRIDE")
+                or None,
+            },
         ),
         final_reply=state.final_reply or "",
         latency_seconds=latency_seconds,
@@ -1151,8 +1170,7 @@ async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalRes
             # The default ("") matches the /chat injection guard exactly
             # (see app/main.py:753) so flag-off behavior is identical
             # between /chat and prod-mode eval.
-            flag_raw = os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED", "")
-            flag_enabled = flag_raw.strip().lower() in {"1", "true", "yes", "on"}
+            flag_enabled = env_flag("REFINEMENT_STRUCTURED_PLAN_ENABLED")
 
             prior_committed_stops = prior_scratch.get("prior_committed_stops", [])
 
