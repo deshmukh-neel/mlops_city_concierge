@@ -2,9 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
+current_phase: 12 (not started)
 status: planning
-last_updated: "2026-06-11"
-last_activity: 2026-06-11
+last_updated: "2026-06-12T00:20:55.709Z"
+last_activity: 2026-06-11 — v2.2 roadmap created (4 phases, 17 requirements mapped; ANCH-01 deferred)
 progress:
   total_phases: 4
   completed_phases: 0
@@ -66,7 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-06-11
-Stopped at: Roadmap created. No plans written yet.
-Resume file: None
+Last session: 2026-06-12T00:20:55.698Z
+Stopped at: Phase 12 context gathered
+Resume file: .planning/phases/12-decisiveness-instrumentation-comparison-floor/12-CONTEXT.md
 Next step: `/gsd-plan-phase 12`
