@@ -24,6 +24,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from pydantic import BaseModel
+
 from app.agent.revision import LOW_SIMILARITY_THRESHOLD
 from app.agent.state import ItineraryState
 
@@ -177,11 +179,12 @@ def best_viable_candidate_per_slot(
             pid = _place_id(hit)
             if pid is None:
                 continue  # skip anonymous hits in untyped path (cannot deduplicate)
-            hit_dict = (
-                hit
-                if isinstance(hit, dict)
-                else {k: getattr(hit, k, None) for k in dir(hit) if not k.startswith("_")}
-            )
+            if isinstance(hit, dict):
+                hit_dict: dict[str, Any] = dict(hit)
+            elif isinstance(hit, BaseModel):
+                hit_dict = hit.model_dump(mode="json")
+            else:
+                continue  # skip unusable shapes — no {} placeholder
             viable.append((float(sim), pid, hit_dict))
 
         # Sort by descending cosine, deduplicate on place_id, pick top-target.
@@ -213,7 +216,12 @@ def best_viable_candidate_per_slot(
         pid = _place_id(hit)
         if pid is None:
             continue
-        hit_dict = hit if isinstance(hit, dict) else {}
+        if isinstance(hit, dict):
+            hit_dict = dict(hit)
+        elif isinstance(hit, BaseModel):
+            hit_dict = hit.model_dump(mode="json")
+        else:
+            continue  # skip unusable shapes — no {} placeholder
         type_candidates.setdefault(ptype, []).append((float(sim), pid, hit_dict))
 
     # Sort each type's candidates by descending cosine.
