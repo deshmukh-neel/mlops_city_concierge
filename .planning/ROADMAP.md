@@ -48,7 +48,7 @@
 
 **Milestone Goal:** Make reasoning models decisive on the tool loop — pass gpt-5-mini commit rate ≥ 0.6 at n=5 with no gpt-4o-mini anchor regression, and reduce per-turn latency via decisiveness (step-count).
 
-- [ ] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the first gemini n=5 baseline completing the comparison floor (anthropic cell deferred — no billing top-up)
+- [ ] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the v2.2 comparison floor confirmed (BOTH anthropic AND gemini cells deferred at user decision — D-12-09; non-deferred cells honest n=5)
 - [ ] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier
 - [ ] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar
 - [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
@@ -57,7 +57,7 @@
 
 ### Phase 12: Decisiveness Instrumentation + Comparison Floor
 
-**Goal**: The eval harness emits per-run decisiveness telemetry and the honest comparison floor (all matrix cells except the deferred anthropic cell) is complete, so every experiment arm in Phase 13 can be judged objectively against the same falsifier
+**Goal**: The eval harness emits per-run decisiveness telemetry and the v2.2 comparison floor is confirmed — the matrix minus BOTH deferred cells (anthropic AND gemini, per D-12-09) — so every experiment arm in Phase 13 can be judged objectively against the same falsifier
 **Depends on**: Phase 11 (honest baselines infrastructure, `write_baselines.py`, `eval_gates.yaml` gates)
 **Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05, ANCH-02, ANCH-03
 **Success Criteria** (what must be TRUE):
@@ -65,7 +65,7 @@
   1. `eval_matrix.py` output includes per-run fields: steps-to-first-commit-consideration, per-step viable-candidate counts, and rule-8 precondition met/not-met flag — readable in the run JSON without post-processing
   2. Per-turn latency decomposition (LLM call time vs sequential tool-execution time per plan step) is recorded in each run JSON
   3. A single `make eval-falsifier` (or equivalent) report answers: did gpt-5-mini hit ≥ 0.6 commit rate at n=5, and did gpt-4o-mini hold ≥ its honest baseline? — pass/fail with per-model numbers
-  4. `gemini/gemini-3.1-pro-preview` first honest n=5 baseline is written via `write_baselines.py` and committed; gemini's `_DEFERRED_BASELINE_CELLS` entry is cleared and every non-deferred matrix cell is honest n=5 (ANCH-02, ANCH-03 clear together; anthropic's entry is retained with a deferral note)**Plans**: 4 plans
+  4. `gemini/gemini-3.1-pro-preview` n=5 baseline is **DEFERRED** at user decision (D-12-09, 2026-06-11) — no quota/billing top-up, same treatment as anthropic ANCH-01. Gemini joins anthropic in `_DEFERRED_BASELINE_CELLS` with a deferral note; both cells stay logged-not-gated. The v2.2 comparison floor is the matrix minus BOTH deferred cells (anthropic AND gemini); every other (non-deferred) matrix cell is honest n=5 (ANCH-02 satisfied as deferred-with-note; ANCH-03 reinterpreted per D-12-09). Promotion path for both preserved in `docs/baseline_regen.md`.**Plans**: 4 plans
 
 **Wave 1**
 
@@ -77,7 +77,7 @@
 
 - [ ] 12-02-harness-derived-decisiveness-fields-PLAN.md — INST-01/02/03: harness-side first-commit-step, viable-candidate counts, rule-8 precondition fields
 
-**External dependency**: ANCH-02 requires Gemini quota resolution — prerequisite for that plan only; it does NOT block INST-01..05 work. INST plans execute first. ANCH-01 (anthropic n=5) was deferred at milestone start (no billing top-up; user decision 2026-06-11) — anthropic stays logged-not-gated with its deferred-cell entry intact.
+**External dependency**: ANCH-02 (gemini n=5) is **DEFERRED** at user decision D-12-09 (2026-06-11) — no quota/billing top-up; gemini is NOT a phase-completion requirement. ANCH-01 (anthropic n=5) was deferred at milestone start (no billing top-up; user decision 2026-06-11). Both deferred cells stay logged-not-gated with their `_DEFERRED_BASELINE_CELLS` entries intact; neither blocks INST-01..05 work or Phase 12 completion.
 
 ### Phase 13: Decisiveness Experiment Arms
 

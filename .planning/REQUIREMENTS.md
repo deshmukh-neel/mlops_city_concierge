@@ -20,10 +20,10 @@
 
 ### Comparison-Floor Anchors (ANCH)
 
-ANCH-01 (anthropic n=5) deferred at milestone start — see Future Requirements. The v2.2 comparison floor is the matrix minus the anthropic cell; anthropic stays logged-not-gated with its `_DEFERRED_BASELINE_CELLS` entry intact.
+ANCH-01 (anthropic n=5) deferred at milestone start — see Future Requirements. The v2.2 comparison floor is the matrix minus BOTH deferred cells (anthropic AND gemini, per D-12-09); both stay logged-not-gated with their `_DEFERRED_BASELINE_CELLS` entries intact.
 
-- [ ] **ANCH-02**: gemini/gemini-3.1-pro-preview first honest n=5 baseline measured and written via `write_baselines.py` (quota resolution; single scored run hit commit-rate 1.0 — first evidence the Phase-9 adapter fixed it)
-- [ ] **ANCH-03**: All matrix cells except the deferred anthropic cell are honest n=5 (none partial/quarantined); gemini's `_DEFERRED_BASELINE_CELLS` entry cleared, anthropic's retained with a deferral note
+- [x] **ANCH-02**: gemini/gemini-3.1-pro-preview n=5 baseline **DEFERRED** at user decision (D-12-09, 2026-06-11) — no quota/billing top-up; same treatment as ANCH-01 anthropic. Single scored run already hit commit-rate 1.0 (measurement debt, not unknown risk). Gemini stays `logged-not-gated` with its `_DEFERRED_BASELINE_CELLS` entry retained and a D-12-09 deferral note. Satisfied as deferred-with-note; revisit when budget allows.
+- [x] **ANCH-03**: All matrix cells except the two deferred cells (anthropic AND gemini) are honest n=5 (none partial/quarantined). Both deferred cells retain their `_DEFERRED_BASELINE_CELLS` entries with deferral notes (D-11-20 for anthropic, D-12-09 for gemini). Reinterpreted per D-12-09: comparison floor = matrix minus anthropic AND gemini; parity test confirms the non-deferred floor is intact.
 
 ### Decisiveness Experiment Arms (DEC)
 
@@ -84,8 +84,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INST-03 | Phase 12 | Pending |
 | INST-04 | Phase 12 | Complete |
 | INST-05 | Phase 12 | Complete |
-| ANCH-02 | Phase 12 | Pending |
-| ANCH-03 | Phase 12 | Pending |
+| ANCH-02 | Phase 12 | Complete (deferred-with-note, D-12-09) |
+| ANCH-03 | Phase 12 | Complete (reinterpreted per D-12-09) |
 | DEC-01 | Phase 13 | Pending |
 | DEC-02 | Phase 13 | Pending |
 | DEC-03 | Phase 13 | Pending |
@@ -104,4 +104,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-11*
-*Last updated: 2026-06-11 — ANCH-01 (anthropic n=5) deferred to Future Requirements at user decision; 17 active requirements*
+*Last updated: 2026-06-12 — ANCH-02/ANCH-03 marked Complete (deferred-with-note) per D-12-09: gemini n=5 baseline deferred at user budget decision; comparison floor = matrix minus anthropic AND gemini; parity test confirms non-deferred floor honest n=5*
