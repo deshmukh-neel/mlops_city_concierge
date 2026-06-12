@@ -398,50 +398,41 @@ def build_agent_graph(
         scratch_updates: dict[str, list[dict[str, Any]]] = {}
         committed_stops: list[Stop] | None = None
 
-        # D-12-01: measure sequential tool-execution wall time for INST-04.
-        _tool_start = time.monotonic()
-        tool_calls_this_step = 0
-
-        for tc in ai.tool_calls:
+        # A3: inner async helper for one tool call — used by both paths.
+        # Returns a tuple of (ToolMessage, scratch_name|None, scratch_entry|None,
+        # committed_stops|None, was_commit: bool).
+        # CRITICAL: never reassign `tc["args"]`. `tc` references a dict INSIDE
+        # the AIMessage stored on state.messages — the next plan() step
+        # re-serializes that AIMessage for OpenAI's API via `json.dumps`, and a
+        # Pydantic SearchFilters instance there crashes with "Object of type
+        # SearchFilters is not JSON serializable". Compute `effective_args`
+        # locally instead (project memory `aimessage_tool_call_args_json_safe`).
+        async def _exec_one(
+            tc: Any,
+        ) -> tuple[ToolMessage, str | None, dict[str, Any] | None, list[Stop] | None, bool]:
             if tc["name"] == COMMIT_ITINERARY_TOOL_NAME:
                 stops, payload = commit_stops(state, tc["args"].get("stops"))
-                committed_stops = stops
-                new_messages.append(
-                    ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
-                )
-                scratch_updates.setdefault(tc["name"], []).append(
-                    {
-                        "args": tc["args"],
-                        "result": payload,
-                        "step": state.step_count,
-                        "id": tc["id"],
-                    }
-                )
-                tool_calls_this_step += 1
-                continue
+                msg = ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
+                entry: dict[str, Any] = {
+                    "args": tc["args"],
+                    "result": payload,
+                    "step": state.step_count,
+                    "id": tc["id"],
+                }
+                return msg, tc["name"], entry, stops, True
 
             tool = tool_by_name.get(tc["name"])
             if tool is None:
-                new_messages.append(
-                    ToolMessage(
-                        content=f"unknown tool {tc['name']}",
-                        tool_call_id=tc["id"],
-                    )
+                msg = ToolMessage(
+                    content=f"unknown tool {tc['name']}",
+                    tool_call_id=tc["id"],
                 )
-                continue
+                return msg, None, None, None, False
+
             # Belt-and-suspenders: merge closure-context exclusions AND
             # per-slot primary_type_family into the tool args at the SQL
             # layer. The prompt guidance in _constraints_context is an
             # optimization; this is enforcement.
-            #
-            # CRITICAL: never reassign `tc["args"]`. `tc` references a dict
-            # INSIDE the AIMessage stored on state.messages — the next plan()
-            # step re-serializes that AIMessage for OpenAI's API via
-            # `json.dumps`, and a Pydantic SearchFilters instance there
-            # crashes with "Object of type SearchFilters is not JSON
-            # serializable". Compute `effective_args` locally instead so the
-            # injected args drive `tool.invoke` and the scratch record while
-            # the AIMessage stays untouched.
             #
             # Phase 4 D-04-04: chain the primary_type_family helper on top of
             # closure-exclusions. Both helpers emit JSON-safe dicts so the
@@ -462,24 +453,99 @@ def build_agent_graph(
                 effective_args = {k: v for k, v in effective_args.items() if k != "slot_index"}
             else:
                 effective_args = tc["args"]
+
             try:
                 # psycopg2 + OpenAI are sync; offload to a worker thread so the
                 # event loop stays responsive while the tool blocks on I/O.
                 result: Any = await asyncio.to_thread(tool.invoke, effective_args)
             except Exception as e:  # noqa: BLE001
                 result = {"error": str(e)}
-            new_messages.append(
-                ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
-            )
-            scratch_updates.setdefault(tc["name"], []).append(
-                {
-                    "args": effective_args,
-                    "result": result,
-                    "step": state.step_count,
-                    "id": tc["id"],
-                }
-            )
-            tool_calls_this_step += 1
+
+            msg = ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
+            scratch_entry: dict[str, Any] = {
+                "args": effective_args,
+                "result": result,
+                "step": state.step_count,
+                "id": tc["id"],
+            }
+            return msg, tc["name"], scratch_entry, None, False
+
+        # D-12-01: measure tool-execution wall time for INST-04.
+        _tool_start = time.monotonic()
+        tool_calls_this_step = 0
+
+        if _parallel_tool_execution_enabled:
+            # A3: run all tool calls concurrently. asyncio.gather preserves INPUT
+            # ORDER in the results list (D-13-08) — results[i] corresponds to
+            # ai.tool_calls[i], so re-assembling in iteration order preserves the
+            # ORIGINAL tool_call order regardless of completion order.
+            par_results = await asyncio.gather(*[_exec_one(tc) for tc in ai.tool_calls])
+            for msg, scratch_name, scratch_entry, stops, was_commit in par_results:
+                new_messages.append(msg)
+                if scratch_name is not None and scratch_entry is not None:
+                    scratch_updates.setdefault(scratch_name, []).append(scratch_entry)
+                if was_commit and stops is not None:
+                    committed_stops = stops
+                if not (scratch_name is None and not was_commit):
+                    # Count all non-unknown-tool calls (mirrors sequential logic)
+                    tool_calls_this_step += 1
+        else:
+            # Sequential path — identical to pre-A3 behavior; branch is untouched.
+            for tc in ai.tool_calls:
+                if tc["name"] == COMMIT_ITINERARY_TOOL_NAME:
+                    stops, payload = commit_stops(state, tc["args"].get("stops"))
+                    committed_stops = stops
+                    new_messages.append(
+                        ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
+                    )
+                    scratch_updates.setdefault(tc["name"], []).append(
+                        {
+                            "args": tc["args"],
+                            "result": payload,
+                            "step": state.step_count,
+                            "id": tc["id"],
+                        }
+                    )
+                    tool_calls_this_step += 1
+                    continue
+
+                tool = tool_by_name.get(tc["name"])
+                if tool is None:
+                    new_messages.append(
+                        ToolMessage(
+                            content=f"unknown tool {tc['name']}",
+                            tool_call_id=tc["id"],
+                        )
+                    )
+                    continue
+                if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
+                    effective_args = _inject_closure_exclusions(
+                        tc["name"], tc["args"], state.closure_context
+                    )
+                    effective_args = _inject_primary_type_family(
+                        tc["name"],
+                        effective_args,
+                        list(state.constraints.requested_primary_types),
+                    )
+                    effective_args = {k: v for k, v in effective_args.items() if k != "slot_index"}
+                else:
+                    effective_args = tc["args"]
+                try:
+                    result = await asyncio.to_thread(tool.invoke, effective_args)
+                except Exception as e:  # noqa: BLE001
+                    result = {"error": str(e)}
+                new_messages.append(
+                    ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
+                )
+                scratch_updates.setdefault(tc["name"], []).append(
+                    {
+                        "args": effective_args,
+                        "result": result,
+                        "step": state.step_count,
+                        "id": tc["id"],
+                    }
+                )
+                tool_calls_this_step += 1
 
         _tool_elapsed = time.monotonic() - _tool_start
 
