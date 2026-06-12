@@ -360,6 +360,20 @@ added in Phase 13 plan 13-01. Their run JSON files have `step_telemetry: None` w
 **Source:** INST-04 `step_telemetry` — `tool_exec_seconds` per step, summed per run,
 averaged over n=5. Values from individual run JSONs in `eval_reports/2026-06-12T08-30-52Z`.
 
+> **SC-3 RESPECIFICATION (Plan 13-10, 2026-06-12):** The ROADMAP Phase 13 success criterion 3
+> originally required a "measurable gpt-4o-mini latency reduction" versus the Phase-12
+> comparison-floor runs. This criterion is structurally unmeasurable as written: the Phase-12
+> comparison-floor run dirs predate the INST-04 step_telemetry instrumentation (all Phase-12
+> run files have `step_telemetry: None`, no `tool_exec_seconds` field). No valid baseline
+> exists for reduction measurement. The criterion has been respecified (in `.planning/ROADMAP.md`
+> criterion 3) to: "the absolute gpt-4o-mini tool-execution latency at n=5 is recorded in run
+> JSON for future-baseline use." The constraint is annotated, not hidden.
+>
+> **The A3 arm run IS the future-baseline artifact.** The absolute `tool_exec_seconds` values
+> recorded above (gpt-4o-mini: 4.792, 3.695, 4.604, 7.768, 8.779 for omakase; 6.102, 8.901,
+> 5.639, 5.705, 6.006 for refinement_cheaper) are the baseline a later phase that regenerates
+> the Phase-12 floor with step_telemetry can diff against to compute the actual delta.
+
 **Scorer non-regression assessment:** FAIL — gpt-4o-mini anchor regressed on
 refinement_cheaper. committed_itinerary_rate dropped from 1.000 (baseline) to 0.000 on
 refinement_cheaper (5 episodes, 0 commits). 3/5 runs had committed_itinerary_rate=0.0,

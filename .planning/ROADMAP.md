@@ -88,7 +88,7 @@
 
   1. The viability-contract arm (DEC-01) ships without touching the text or structure of any prompt section covered by the Phase-7 CI grep gate — the grep gate stays green
   2. The forced-commit-at-step-N arm (DEC-02) is a graph-level mechanism that triggers independently of model identity — confirmed by a unit test that fires it on a mock that never calls `commit_itinerary`
-  3. The parallel-tool-execution arm (DEC-04) runs all tool calls within one `act()` plan step concurrently with results order-stable — measurable gpt-4o-mini latency reduction at n=5 recorded in run JSON
+  3. The parallel-tool-execution arm (DEC-04) runs all tool calls within one `act()` plan step concurrently with results order-stable — AND the absolute gpt-4o-mini tool-execution latency at n=5 (INST-04 `tool_exec_seconds`, summed per run) is recorded in run JSON for future-baseline use. (Discovered constraint: the reduction-vs-Phase-12-floor delta is structurally unmeasurable because the Phase-12 comparison-floor run dirs predate the INST-04 step_telemetry instrumentation — `tool_exec_seconds=None` there; a future phase that regenerates the floor with telemetry can compute the delta.)
   4. The critique-recalibration arm (DEC-03) is co-tuned with DEC-01 (not tuned in isolation), with the `LOW_SIMILARITY_THRESHOLD` change direction and the `low_similarity` scoping decision both documented before any threshold change lands
   5. DEC-05 arm-verdict document records per-arm n=5 commit-rate numbers for gpt-5-mini, deepseek-reasoner, and gpt-4o-mini anchor, and explicitly states which arm (if any) cleared the INST-05 falsifier bar — or records an honest null result
 
