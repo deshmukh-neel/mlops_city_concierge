@@ -109,7 +109,10 @@ unit tests proving per-step entries are produced and JSON-safe.
       and returns `{"messages": new_messages}` at line 329; act() loops `for tc in
       ai.tool_calls:` at line 340, executes tools via `await asyncio.to_thread(tool.invoke,
       effective_args)` at line 402, and assembles `update` at lines 421-427 returning it at
-      428. CRITICAL existing comment at 371-378: never reassign tc["args"].)
+      428. CRITICAL existing comment at 371-378: never reassign tc["args"]. STEP-INDEX
+      CONTRACT for Plan 12-02: act() writes scratch entries with `state.step_count` (NOT
+      step_count+1 — see lines 351 and 412); the telemetry entry MUST use the SAME
+      `state.step_count` so scratch entries and telemetry entries share one step index.)
     - app/agent/state.py (confirm the step_telemetry field shape from Task 1)
     - .planning/phases/12-decisiveness-instrumentation-comparison-floor/12-PATTERNS.md
       (section "app/agent/graph.py (modify — timing hooks)" — the exact plan() and act()
@@ -131,8 +134,10 @@ unit tests proving per-step entries are produced and JSON-safe.
     with a copy that sets `tool_exec_seconds` to the measured elapsed and
     `tool_calls_this_step` to the count; otherwise append a fresh entry with
     `llm_call_seconds` 0.0. Add the resulting list to `update` under key `step_telemetry`.
-    All written values MUST be plain int/float (D-12-01 JSON-safe constraint). Do NOT alter
-    the existing tool-execution body, the `effective_args` computation, or the
+    Use `state.step_count` (pre-increment) for the telemetry `"step"` value so it aligns
+    with the scratch entries act() writes at `state.step_count` (the Plan 12-02 step-index
+    contract). All written values MUST be plain int/float (D-12-01 JSON-safe constraint). Do
+    NOT alter the existing tool-execution body, the `effective_args` computation, or the
     `committed_stops`/`merged_scratch` assembly — only add timing measurement and the
     telemetry key on the returned update dicts.
   </action>
@@ -144,10 +149,11 @@ unit tests proving per-step entries are produced and JSON-safe.
     - `grep -c "step_telemetry" app/agent/graph.py` is >= 2 (plan() and act() each reference it)
     - `grep -n "time.monotonic" app/agent/graph.py` shows at least two monotonic spans (one in plan around ainvoke, one in act around the tool loop)
     - The plan() return dict and the act() update dict each include a `step_telemetry` key
+    - The telemetry entry's `"step"` uses `state.step_count` (pre-increment), matching the scratch step index written at lines 351/412
     - The existing line `result: Any = await asyncio.to_thread(tool.invoke, effective_args)` is unchanged (`grep -n "asyncio.to_thread(tool.invoke" app/agent/graph.py` still matches)
     - `tc["args"]` is never reassigned (the existing belt-and-suspenders comment block at lines 371-398 and the `effective_args` local are intact)
   </acceptance_criteria>
-  <done>plan() records LLM-call wall time and act() records tool-execution wall time + tool count into step_telemetry, one entry per plan step, all values JSON-safe.</done>
+  <done>plan() records LLM-call wall time and act() records tool-execution wall time + tool count into step_telemetry, one entry per plan step, all values JSON-safe, keyed by the same state.step_count as the scratch entries.</done>
 </task>
 
 <task type="auto">
@@ -216,6 +222,7 @@ unit tests proving per-step entries are produced and JSON-safe.
 
 <verification>
 - `poetry run pytest tests/unit/test_agent_graph.py -q` passes
+- `make lint` passes (ruff E,F,I,N,UP,B,SIM per CLAUDE.md) on app/agent/state.py, app/agent/graph.py, and tests/unit/test_agent_graph.py
 - `grep -n "step_telemetry" app/agent/state.py app/agent/graph.py` shows the field plus plan() and act() references
 - A fresh ItineraryState serializes its step_telemetry via json.dumps with no error
 - The existing tool-execution body (asyncio.to_thread(tool.invoke, effective_args)) and the never-reassign-tc["args"] invariant are unchanged
@@ -230,3 +237,4 @@ unit tests proving per-step entries are produced and JSON-safe.
 <output>
 Create `.planning/phases/12-decisiveness-instrumentation-comparison-floor/12-01-SUMMARY.md` when done
 </output>
+</content>

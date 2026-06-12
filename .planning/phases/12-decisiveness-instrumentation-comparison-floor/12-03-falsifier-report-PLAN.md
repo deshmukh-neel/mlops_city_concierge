@@ -16,12 +16,13 @@ must_haves:
     - "The falsifier reads a completed eval_reports run dir (latest by default, overridable) and does NOT fan out any live API call"
     - "The gpt-5-mini commit-rate bar is pooled across all scored scenario cells in configs/eval_matrix.yaml, with a per-scenario breakdown also printed"
     - "Exit code is 0 on PASS, 1 on expected falsifier FAIL, 2 on infrastructure failure"
+    - "A committed smoke test exercises the script against the real configs/eval_baselines and asserts a real verdict exit code (0 or 1), not just synthetic in-memory summaries"
   artifacts:
     - path: "scripts/eval_falsifier.py"
       provides: "artifact-reading falsifier report with pooled gpt-5-mini rate + anchor non-regression"
       exports: ["main"]
     - path: "tests/unit/test_eval_falsifier.py"
-      provides: "unit tests over synthetic summaries with PASS/FAIL/infra exit-code coverage"
+      provides: "unit tests over synthetic summaries (PASS/FAIL/infra) + a smoke test against real configs/eval_baselines via --baselines-mode"
       contains: "_load_script"
     - path: "Makefile"
       provides: "eval-falsifier target + RUN_DIR var"
@@ -58,7 +59,7 @@ eval-falsifier` is the cheap repeatable report). Per D-12-07 it reuses
 codes 0/1/2 let Phase 13 consume it mechanically.
 
 Purpose: the single objective falsifier every Phase 13 arm is judged against.
-Output: `scripts/eval_falsifier.py`, `make eval-falsifier` target, unit tests.
+Output: `scripts/eval_falsifier.py`, `make eval-falsifier` target, unit + smoke tests.
 </objective>
 
 <execution_context>
@@ -151,15 +152,22 @@ Output: `scripts/eval_falsifier.py`, `make eval-falsifier` target, unit tests.
 </task>
 
 <task type="auto">
-  <name>Task 2: Unit-test the falsifier over synthetic summaries (PASS, FAIL, infra)</name>
+  <name>Task 2: Unit + smoke tests for the falsifier (synthetic PASS/FAIL/infra + real-baselines smoke + --baselines-mode path)</name>
   <files>tests/unit/test_eval_falsifier.py</files>
   <read_first>
     - tests/unit/test_check_eval_gates.py (lines 1-43: the `_load_script()` /
       `importlib.util.spec_from_file_location` module-loading pattern; lines ~50-68: the
       synthetic summary-dict fixtures built in-test — never touch the filesystem or live
-      keys)
+      keys; if there is an existing test calling `main([...])` against real configs/baselines
+      live-key-free, mirror that smoke pattern)
     - scripts/eval_falsifier.py (the `_pooled_commit_rate` semantics and `main()` exit-code
-      contract from Task 1, to write fixtures that produce known pooled rates)
+      contract from Task 1, including the `--baselines-mode` / `--baselines-dir` flags, to
+      write fixtures that produce known pooled rates and to exercise the baselines path)
+    - configs/eval_baselines/ (the real committed baseline JSONs the smoke test reads via
+      --baselines-mode — confirm the directory exists and is checked in)
+    - .planning/STATE.md (project memory `feedback_test_layering`: new modules need
+      unit/mock + smoke + functional + integration coverage, not just unit — the smoke test
+      below is the committed smoke artifact for this script)
     - .planning/phases/12-decisiveness-instrumentation-comparison-floor/12-PATTERNS.md
       (section "tests/unit/test_eval_falsifier.py (new)" — the module-loading pattern and
       synthetic-summary fixture approach)
@@ -168,17 +176,27 @@ Output: `scripts/eval_falsifier.py`, `make eval-falsifier` target, unit tests.
     Create `tests/unit/test_eval_falsifier.py` using the `_load_script()` +
     `spec_from_file_location("eval_falsifier", SCRIPT_PATH)` pattern (REPO_ROOT =
     parents[2], SCRIPT_PATH = scripts/eval_falsifier.py) and a `script` fixture returning the
-    loaded module. Build synthetic summary dicts matching the
-    `scenarios.<id>.providers.<provider>.scorers.committed_itinerary_rate.{median,n}` shape.
-    Tests for `_pooled_commit_rate`: two scenarios with gpt-5-mini medians [1.0 (n=5), 0.0
-    (n=5)] pool to 0.5 and the per-scenario breakdown reports both; a scenario with
+    loaded module. (A) UNIT tests over synthetic summary dicts matching the
+    `scenarios.<id>.providers.<provider>.scorers.committed_itinerary_rate.{median,n}` shape:
+    `_pooled_commit_rate` two scenarios with gpt-5-mini medians [1.0 (n=5), 0.0 (n=5)] pool
+    to 0.5 and the per-scenario breakdown reports both; a scenario with
     `baseline_eligible: False` is excluded from the pool; an absent provider cell yields a
     None per-scenario entry and is excluded from the pooled denominator; a summary with no
-    eligible scenarios returns (None, ...). Tests asserting the bar logic: a pooled rate of
-    0.5 fails the 0.6 bar; a pooled rate of 0.8 passes. Optionally drive `main()` against a
-    tmp_path run dir containing a `summary.json` (write a synthetic summary file) and assert
-    exit code 1 when gpt-5-mini is below 0.6, 0 when above and anchor holds, and 2 when the
-    run dir is missing summary.json. Do NOT call any live API or read real eval_reports.
+    eligible scenarios returns (None, ...). Bar-logic: pooled 0.5 fails the 0.6 bar; pooled
+    0.8 passes. Drive `main()` against a tmp_path run dir containing a synthetic
+    `summary.json`: exit code 1 when gpt-5-mini < 0.6, 0 when above and anchor holds, 2 when
+    summary.json is missing. (B) --baselines-mode UNIT path: build a synthetic baselines
+    directory under tmp_path (the minimal JSON shape `_build_summary_from_baselines` expects)
+    and call `main(["--baselines-mode", "--baselines-dir", str(tmp_dir)])`, asserting exit
+    code is 0 or 1 (a real verdict, not 2) — this exercises the baselines code path the
+    run-dir tests skip. (C) SMOKE test (committed test artifact, satisfies
+    feedback_test_layering): call
+    `main(["--baselines-mode", "--baselines-dir", "configs/eval_baselines"])` against the
+    REAL checked-in baselines directory and assert the return code is in `{0, 1}` (NOT 2) —
+    i.e. the script produces a real verdict against real artifacts, no infra failure. Mark
+    it clearly (name like `test_smoke_runs_against_real_baselines`) and use the repo-root
+    relative path so it runs from any cwd. Do NOT call any live API or read real
+    eval_reports run dirs (artifact-reading, live-key-free).
   </action>
   <verify>
     <automated>poetry run pytest tests/unit/test_eval_falsifier.py -x -q</automated>
@@ -189,9 +207,11 @@ Output: `scripts/eval_falsifier.py`, `make eval-falsifier` target, unit tests.
     - A test asserts a `baseline_eligible: False` scenario is excluded from the pool
     - A test asserts pooled 0.5 < 0.6 produces a FAIL path and pooled 0.8 produces a PASS path
     - A test asserts `main()` returns 2 when summary.json is missing from the run dir
+    - A `--baselines-mode` unit test against a synthetic baselines dir asserts exit code 0 or 1 (not 2), covering the baselines code path
+    - A committed SMOKE test calls `main(["--baselines-mode", "--baselines-dir", "configs/eval_baselines"])` against the real baselines and asserts the exit code is in {0, 1} (not 2)
     - `poetry run pytest tests/unit/test_eval_falsifier.py -q` passes
   </acceptance_criteria>
-  <done>Unit tests cover pooling math, baseline_eligible exclusion, the 0.6 bar, and the 0/1/2 exit codes — all against synthetic in-memory summaries.</done>
+  <done>Unit tests cover pooling math, baseline_eligible exclusion, the 0.6 bar, the 0/1/2 exit codes, and the --baselines-mode path; a committed smoke test exercises the script against real configs/eval_baselines (feedback_test_layering satisfied).</done>
 </task>
 
 <task type="auto">
@@ -242,16 +262,18 @@ Output: `scripts/eval_falsifier.py`, `make eval-falsifier` target, unit tests.
 | Threat ID | Category | Component | Disposition | Mitigation Plan |
 |-----------|----------|-----------|-------------|-----------------|
 | T-12-07 | Spoofing | live API call masquerading as a report | mitigate | no live-SDK imports (Task 1 acceptance gate: grep count 0); D-12-06 artifact-reading only |
-| T-12-08 | Tampering | empty/missing input read as PASS | mitigate | reuse _build_summary_from_baselines fail-closed contract; missing run dir/summary returns exit 2 (Task 1 + Task 2 assert it) |
+| T-12-08 | Tampering | empty/missing input read as PASS | mitigate | reuse _build_summary_from_baselines fail-closed contract; missing run dir/summary returns exit 2 (Task 1 + Task 2 assert it); smoke test confirms a real verdict against real baselines |
 | T-12-09 | Repudiation | vacuous omakase-only bar | mitigate | D-12-08 pooled scope across all scored cells with per-scenario breakdown printed; unit test pins the pooling math |
-| T-12-10 | Elevation of privilege | wrong exit code mis-grades arm | mitigate | three-level 0/1/2 contract unit-tested; (OSError, ValueError) always routes to 2 |
+| T-12-10 | Elevation of privilege | wrong exit code mis-grades arm | mitigate | three-level 0/1/2 contract unit-tested (incl. --baselines-mode path); (OSError, ValueError) always routes to 2 |
 | T-12-SC | Tampering | npm/pip/cargo installs | mitigate | no new package installs (stdlib + in-repo imports); no slopcheck needed |
 </threat_model>
 
 <verification>
 - `poetry run pytest tests/unit/test_eval_falsifier.py -q` passes
+- `make lint` passes (ruff E,F,I,N,UP,B,SIM per CLAUDE.md) on scripts/eval_falsifier.py and tests/unit/test_eval_falsifier.py
 - `make -n eval-falsifier` prints the expected command; `make help` lists the target
 - `poetry run python scripts/eval_falsifier.py --baselines-mode --baselines-dir configs/eval_baselines` exits 0 or 1 (a real verdict, not an infra error) and prints per-model numbers
+- The committed smoke test (`--baselines-mode` against real configs/eval_baselines) returns an exit code in {0, 1}
 - `poetry run python scripts/eval_falsifier.py --run-dir /nonexistent` exits 2
 - `grep -c "import openai\|from langchain\|build_chat_model" scripts/eval_falsifier.py` is 0
 </verification>
@@ -260,8 +282,10 @@ Output: `scripts/eval_falsifier.py`, `make eval-falsifier` target, unit tests.
 - INST-05 satisfied: a single `make eval-falsifier` answers the milestone question with per-model numbers and a PASS/FAIL verdict, exit code 0/1/2
 - gpt-5-mini bar is pooled across all scored scenario cells (D-12-08), per-scenario breakdown printed; anchor non-regression checked per-metric against committed baselines
 - Report reads artifacts only — zero live API calls — and reuses existing machinery (D-12-06/07)
+- Test layering satisfied: unit (synthetic) + --baselines-mode unit path + a committed smoke against real configs/eval_baselines (feedback_test_layering)
 </success_criteria>
 
 <output>
 Create `.planning/phases/12-decisiveness-instrumentation-comparison-floor/12-03-SUMMARY.md` when done
 </output>
+</content>
