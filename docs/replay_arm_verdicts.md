@@ -211,40 +211,121 @@ structural assertion. The expected-null conclusion is the explanation; the R2 li
 provides the measurement confirmation. An EXPECTED-NULL result on R2 is a valid,
 informative outcome that closes this criterion with evidence.
 
+> **POST-RUN ANNOTATION (Plan 14-04, 2026-06-12): the half-(b) openai row above is
+> INCORRECT for gpt-5-mini.** The audit's structural analysis examined the
+> `OpenAIReasoningAdapter` and concluded "content shape: str → str() collapse NO-OP".
+> That claim holds for plain Chat-Completions `ChatOpenAI` (gpt-4o-mini) but NOT for
+> the gpt-5 family: since W10, gpt-5 models route through `OpenAIReasoningChatModel`
+> (`app/llm_factory.py`) with `use_responses_api=True`, and Responses-API
+> `AIMessage.content` IS a content-block LIST (the `_lift_reasoning_blocks` hook at
+> `llm_factory.py:116` explicitly checks `isinstance(content, list)` — structural proof
+> the list shape exists). The audit looked at the adapter, not the chat-model factory.
+> Consequence measured below: R2 is NOT null on gpt-5-mini — it is catastrophically
+> negative. The EXPECTED-NULL prediction held only for the two str-content models
+> (gpt-4o-mini, deepseek-reasoner).
+
 ---
 
 ### Run Dirs
 
 | Run | Dir |
 |-----|-----|
-| Smoke (n=1) | [fill in Wave 3/4] |
-| Full (n=5) | [fill in Wave 3/4] |
+| Smoke (n=1) | `eval_reports/2026-06-12T20-53-05Z` |
+| Full (n=5) | `eval_reports/2026-06-12T20-58-32Z` |
 
-**Smoke arm_flags verification:** [fill — paste `arm_flags` dict from smoke run JSON;
-expected shape: `{'viability_contract': False, 'forced_commit_step': 0, 'parallel_tool':
-False, 'viability_threshold_override': None, 'replay_multi_message': False,
-'replay_content_blocks': True}`]
+**Smoke arm_flags verification:** `{'forced_commit_step': 0, 'parallel_tool': False, 'replay_content_blocks': True, 'replay_multi_message': False, 'viability_contract': False, 'viability_threshold_override': None}`
+
+Confounded-run guard **PASS**: `replay_content_blocks: True`, `replay_multi_message: False`, all three DEC flags off. Full n=5 spend proceeded.
+
+> **Process note (honesty contract):** the n=1 smoke ALREADY contained the gpt-5-mini
+> 400 error cells (both scenarios, `status=error`). The D-14-02 smoke contract verifies
+> the `arm_flags` dict only, which passed; the smoke's error cells were not inspected
+> before the full spend (the A3 precedent treated a smoke error cell as informational
+> and proceeded). The full run confirmed the failure is deterministic (10/10 episodes),
+> so the spend produced the anchor + deepseek measurements and upgraded the gpt-5-mini
+> finding from "n=1 anecdote" to "deterministic across n=5 × 2 scenarios" — but a
+> future smoke contract should check error cells in addition to arm_flags.
 
 ### Per-model results
 
 | Model | Pooled commit rate | Delta vs flag-off (0.000) | Delta vs A2 (0.500) | omakase | refinement_cheaper | Falsifier verdict |
 |---|---|---|---|---|---|---|
-| openai/gpt-5-mini | [fill] | [fill] | [fill] | [fill] | [fill] | [fill] |
-| openai/gpt-4o-mini (anchor) | [fill] | [fill] | [fill] | [fill] | [fill] | [fill] |
-| deepseek/deepseek-reasoner | [fill] | [fill] | [fill] | [fill] | [fill] | (informational) |
+| openai/gpt-5-mini | ERRORED — 0/10 episodes evaluable (10/10 provider 400 errors) | — (no commit measurement; effective catastrophic regression) | — | N/A (5/5 errored) | N/A (5/5 errored) | FAIL — N/A (no evaluable cells) |
+| openai/gpt-4o-mini (anchor) | 1.000 median-weighted (model-initiated 7/10, forced 0/10) | +1.000 | +0.500 | 1.000 (median; raw 4/5) | 1.000 (median; raw 3/5) | PASS — non-regression (median 1.000 >= baseline 1.000) |
+| deepseek/deepseek-reasoner | 0.100 (model-initiated 1/10, forced 0/10) | +0.100 | -0.400 | 0.000 (median; raw 1/5) | 0.000 (0/5) | (informational) |
 
-**Falsifier exit code:** [fill — 0 (PASS) or 1 (FAIL) or 2 (ERROR)]
+**gpt-5-mini error (verbatim, identical shape across all 10 episodes):**
+```
+Error code: 400 - {'error': {'message': 'No tool output found for function call call_gRV9GJVVMARaWorzeZzkPKaC.', 'type': 'invalid_request_error', 'param': 'input', 'code': None}}
+```
+(stage `turn0`, `BadRequestError`; only the `call_...` id differs per episode)
+
+**Falsifier exit code:** `1 (FAIL)`
 
 **Falsifier per-scenario breakdown (pasted verbatim):**
 ```
-[fill — paste full eval_falsifier.py output from R2 full run dir]
+============================================================
+eval_falsifier: INST-05 Milestone Falsifier Report
+============================================================
+source: run dir eval_reports/2026-06-12T20-58-32Z
+
+[openai/gpt-5-mini] committed_itinerary_rate per scenario:
+  omakase_mission_open_ended: N/A
+  refinement_cheaper: N/A
+
+openai/gpt-5-mini: median-weighted committed_itinerary_rate = N/A (no evaluable cells)  FAIL
+
+[openai/gpt-4o-mini] committed_itinerary_rate per scenario (run vs baseline):
+  omakase_mission_open_ended: run=1.000  baseline=1.000
+  refinement_cheaper: run=1.000  baseline=1.000
+
+openai/gpt-4o-mini: median-weighted = 1.000 >= baseline 1.000 (model-initiated 7/7, forced 0/7)  PASS
+
+============================================================
+eval_falsifier: VERDICT = FAIL
+============================================================
 ```
+
+**Anchor raw-count note (A3-precedent check):** gpt-4o-mini raw commits were 7/10
+(omakase 4/5, refinement 3/5) vs 10/10 in R1. The falsifier criterion is the per-scenario
+MEDIAN, which held at 1.000 on both scenarios — no regression by the INST-05 anchor
+criterion, and no scenario flipped to majority-fail (the A3 red-flag condition was a
+median collapse to 0.000). gpt-4o-mini is a plain Chat-Completions str-content model, so
+R2's preservation branch is structurally a no-op for it; the 7/10 vs 10/10 movement is
+within run-to-run noise on a no-op path. NOT flagged as a regression; recorded for
+completeness.
 
 ### Closing verdict
 
-[fill — state whether R2 clears the INST-05 bar, gpt-5-mini pooled rate, anchor result,
-and whether the observed delta confirms the EXPECTED-NULL prediction from the evidence
-audit or reveals a surprising signal]
+R2 does NOT clear the INST-05 bar — and the measured result **REFUTES the EXPECTED-NULL
+prediction for gpt-5-mini in the surprising direction the audit's closing caveat allowed
+for** ("or reveals a surprising signal").
+
+**Criterion-2 explanation (measured, not assumed):** "Was `str()` collapse causing
+observable loss?" — NO. The opposite: for gpt-5-mini the `str()` collapse was
+**load-bearing protection**. gpt-5-mini's Responses-API `AIMessage.content` is a
+content-block list that embeds function-call items. The flag-off `str()` collapse
+flattened those blocks into inert text; with `REPLAY_CONTENT_BLOCKS_ENABLED=1` the
+preserved list re-sends `function_call` items whose paired ToolMessage outputs were
+pruned (`_prune_for_llm` still drops pre-cutoff ToolMessages), violating OpenAI's
+unanswered-tool_call contract → deterministic
+`400 "No tool output found for function call"` on every episode (10/10). The
+`AIMessage(content=m.content, ...)` constructor strips the `.tool_calls` ATTRIBUTE,
+but Responses-API function-call state ALSO lives inside the content block list — the
+D-14-06 "tool_calls are still stripped" assumption did not account for that second
+channel.
+
+For the two str-content models the EXPECTED-NULL prediction was CONFIRMED:
+gpt-4o-mini (anchor) held at median 1.000/1.000 — non-regression PASS — and
+deepseek-reasoner stayed at its plateau (raw 1/10, same raw rate as R1).
+
+**R2 signal classification: NEGATIVE (not null, not positive).** R2 catastrophically
+disables the very model the phase is trying to help. R2 therefore cannot contribute to
+an R3 combo: D-14-01 requires BOTH R1 and R2 to show positive signal, and R2's signal is
+strictly negative. (The R3 decision itself is recorded in the R3 section by Plan 14-05.)
+
+**Anchor non-regression: CONFIRMED** (median criterion; raw-count movement noted above,
+on a structurally no-op path for the anchor).
 
 ---
 
