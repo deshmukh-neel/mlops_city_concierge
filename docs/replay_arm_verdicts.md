@@ -28,6 +28,28 @@ floor (0.000), Delta vs A2 (0.500). Both deltas must be reported regardless of d
 
 ---
 
+## Flag-Off Floor and Byte-Identity Verification (Task 1)
+
+**Conducted:** 2026-06-12 (Plan 14-04, Wave 3, before any live arm spend)
+
+**Byte-identity smoke run:** `eval_reports/2026-06-12T19-49-39Z` (scripted mode, n=1, no live keys, no arm flags set)
+
+**arm_flags from scripted smoke:**
+```
+{'forced_commit_step': 0, 'parallel_tool': False, 'replay_content_blocks': False, 'replay_multi_message': False, 'viability_contract': False, 'viability_threshold_override': None}
+```
+
+**Verification result: PASS** — `replay_multi_message: False` and `replay_content_blocks: False` confirmed alongside the four Phase-13 keys (viability_contract, forced_commit_step, parallel_tool, viability_threshold_override). Flag-off path is byte-identical to Phase-13 plateau.
+
+**Flag-off floor source:** The Phase-13 plateau numbers from `docs/decisiveness_arm_verdicts.md` (A1 full run dir `eval_reports/2026-06-12T06-25-52Z`) are used as the "Delta vs flag-off floor" denominator for all Phase-14 per-arm tables. The comparison floor is:
+- gpt-5-mini: **0.000** pooled (A1 = 0.000 — the zero-signal DEC arm, same as pre-DEC comparison floor)
+- gpt-4o-mini (anchor): **1.000** (Phase-12 comparison-floor baseline)
+- deepseek-reasoner: **0.000** (informational)
+
+No fresh n=5 control run is spent — the Phase-13 plateau numbers are reused as the flag-off floor per the run-budget contract (D-14-01). This preserves the ≤4-run hard cap for R1, R2, and conditional R3/escalation.
+
+---
+
 ## Run Budget Contract
 
 Per D-14-01, the hard cap is **≤ 4 full live matrix runs total** across all arms in this phase:
