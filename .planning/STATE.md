@@ -33,14 +33,14 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 Phase: 12 of 15 (Decisiveness Instrumentation + Comparison Floor)
 Plan: — (roadmap created, planning not yet started)
 Status: Ready to plan
-Last activity: 2026-06-11 — v2.2 roadmap created (4 phases, 18 requirements mapped)
+Last activity: 2026-06-11 — v2.2 roadmap created (4 phases, 17 requirements mapped; ANCH-01 deferred)
 
 Progress: [░░░░░░░░░░] 0%
 
 ## Blockers / Readiness Notes
 
-- **ANCH-01 (anthropic n=5):** requires billing top-up before the Anthropic baseline plan in Phase 12 can run. INST plans in Phase 12 have no external dependency and execute first.
-- **ANCH-02 (gemini n=5):** requires Gemini quota resolution. Same pattern — INST first, ANCH when credentials available.
+- **ANCH-01 (anthropic n=5): DEFERRED out of v2.2 scope** (2026-06-11, user declined billing top-up). Anthropic stays logged-not-gated with its `_DEFERRED_BASELINE_CELLS` entry intact; revisit when budget allows.
+- **ANCH-02 (gemini n=5):** requires Gemini quota resolution. INST plans in Phase 12 have no external dependency and execute first; the gemini baseline plan runs when quota is available.
 - **Phase 14 is CONDITIONAL:** only entered if all Phase 13 DEC arms plateau below the INST-05 falsifier bar (gpt-5-mini < 0.6 at n=5). If any arm clears, Phase 14 is skipped.
 - **DEC-01 constraint:** viability-contract prompt change must not touch any text covered by the Phase-7 CI grep gate. Verify gate stays green before merging.
 - **All arm judging:** Phase-10 honest gates, n=5, temp=1.0 — no exceptions.
@@ -59,7 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Baselines | anthropic n=5 (billing exhaustion) | Blocked on top-up | Phase 11 close |
+| Baselines | anthropic n=5 (billing exhaustion) | Deferred out of v2.2 (no top-up — user decision) | Phase 11 close; extended 2026-06-11 |
 | Baselines | gemini n=5 (quota) | Blocked on quota | Phase 11 close |
 | Gates | gpt-5-mini aspirational gate (≥0.6) | Logged-not-enforced | Phase 11 close |
 | Decisiveness | gpt-5-mini 2/5 + deepseek 0/5 commit rate | v2.2 scope | Phase 9/11 close |

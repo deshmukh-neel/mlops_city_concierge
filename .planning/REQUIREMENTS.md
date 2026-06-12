@@ -20,9 +20,10 @@
 
 ### Comparison-Floor Anchors (ANCH)
 
-- [ ] **ANCH-01**: anthropic/claude-sonnet-4-6 honest n=5 baseline measured and written via `write_baselines.py` (billing top-up per `docs/baseline_regen.md` promotion path)
+ANCH-01 (anthropic n=5) deferred at milestone start — see Future Requirements. The v2.2 comparison floor is the matrix minus the anthropic cell; anthropic stays logged-not-gated with its `_DEFERRED_BASELINE_CELLS` entry intact.
+
 - [ ] **ANCH-02**: gemini/gemini-3.1-pro-preview first honest n=5 baseline measured and written via `write_baselines.py` (quota resolution; single scored run hit commit-rate 1.0 — first evidence the Phase-9 adapter fixed it)
-- [ ] **ANCH-03**: `_DEFERRED_BASELINE_CELLS` cleared and the 6-cell matrix comparison floor complete (all cells honest n=5, none partial/quarantined)
+- [ ] **ANCH-03**: All matrix cells except the deferred anthropic cell are honest n=5 (none partial/quarantined); gemini's `_DEFERRED_BASELINE_CELLS` entry cleared, anthropic's retained with a deferral note
 
 ### Decisiveness Experiment Arms (DEC)
 
@@ -56,6 +57,10 @@ Deferred. Tracked but not in the v2.2 roadmap.
 - **PROD-01**: Promote a reasoning model to the prod MLflow alias — blocked by Decision 3 (~30s/turn budget) until per-call reasoning cost drops; revisit if a winning arm lands a reasoning model under budget
 - **PROD-02**: Streaming responses to cut perceived latency — separate hosting concern (carried from v2.0 out-of-scope)
 
+### Deferred anchors
+
+- **ANCH-01**: anthropic/claude-sonnet-4-6 honest n=5 baseline via `write_baselines.py` — deferred 2026-06-11 (user declined billing top-up; gemini + deepseek + gpt-5-mini give enough reasoning-model coverage for the falsifier). Promotion path stays documented in `docs/baseline_regen.md`; revisit when budget allows
+
 ## Out of Scope
 
 Explicitly excluded (locked in the v2.2 seed). Documented to prevent scope creep.
@@ -79,7 +84,6 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INST-03 | Phase 12 | Pending |
 | INST-04 | Phase 12 | Pending |
 | INST-05 | Phase 12 | Pending |
-| ANCH-01 | Phase 12 | Pending |
 | ANCH-02 | Phase 12 | Pending |
 | ANCH-03 | Phase 12 | Pending |
 | DEC-01 | Phase 13 | Pending |
@@ -94,10 +98,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROMO-03 | Phase 15 | Pending |
 
 **Coverage:**
-- v2.2 requirements: 18 total
-- Mapped to phases: 18 (100%)
+- v2.2 requirements: 17 total
+- Mapped to phases: 17 (100%)
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-11*
-*Last updated: 2026-06-11 — traceability table completed during roadmap creation (v2.2 roadmap, Phases 12-15)*
+*Last updated: 2026-06-11 — ANCH-01 (anthropic n=5) deferred to Future Requirements at user decision; 17 active requirements*

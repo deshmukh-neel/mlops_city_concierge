@@ -48,7 +48,7 @@
 
 **Milestone Goal:** Make reasoning models decisive on the tool loop — pass gpt-5-mini commit rate ≥ 0.6 at n=5 with no gpt-4o-mini anchor regression, and reduce per-turn latency via decisiveness (step-count).
 
-- [ ] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and deferred anchor baselines completing the 6-cell honest comparison floor
+- [ ] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the first gemini n=5 baseline completing the comparison floor (anthropic cell deferred — no billing top-up)
 - [ ] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier
 - [ ] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar
 - [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
@@ -56,17 +56,16 @@
 ## Phase Details
 
 ### Phase 12: Decisiveness Instrumentation + Comparison Floor
-**Goal**: The eval harness emits per-run decisiveness telemetry and the 6-cell honest comparison floor is complete, so every experiment arm in Phase 13 can be judged objectively against the same falsifier
+**Goal**: The eval harness emits per-run decisiveness telemetry and the honest comparison floor (all matrix cells except the deferred anthropic cell) is complete, so every experiment arm in Phase 13 can be judged objectively against the same falsifier
 **Depends on**: Phase 11 (honest baselines infrastructure, `write_baselines.py`, `eval_gates.yaml` gates)
-**Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05, ANCH-01, ANCH-02, ANCH-03
+**Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05, ANCH-02, ANCH-03
 **Success Criteria** (what must be TRUE):
   1. `eval_matrix.py` output includes per-run fields: steps-to-first-commit-consideration, per-step viable-candidate counts, and rule-8 precondition met/not-met flag — readable in the run JSON without post-processing
   2. Per-turn latency decomposition (LLM call time vs sequential tool-execution time per plan step) is recorded in each run JSON
   3. A single `make eval-falsifier` (or equivalent) report answers: did gpt-5-mini hit ≥ 0.6 commit rate at n=5, and did gpt-4o-mini hold ≥ its honest baseline? — pass/fail with per-model numbers
-  4. `anthropic/claude-sonnet-4-6` honest n=5 baseline is written via `write_baselines.py` and committed (billing top-up prerequisite documented; ANCH-01 clears)
-  5. `gemini/gemini-3.1-pro-preview` first honest n=5 baseline is written via `write_baselines.py` and committed; `_DEFERRED_BASELINE_CELLS` is empty and the 6-cell matrix comparison floor is fully populated (ANCH-02, ANCH-03 clear together)
+  4. `gemini/gemini-3.1-pro-preview` first honest n=5 baseline is written via `write_baselines.py` and committed; gemini's `_DEFERRED_BASELINE_CELLS` entry is cleared and every non-deferred matrix cell is honest n=5 (ANCH-02, ANCH-03 clear together; anthropic's entry is retained with a deferral note)
 **Plans**: TBD
-**External dependency**: ANCH-01 requires Anthropic billing top-up; ANCH-02 requires Gemini quota resolution. These are prerequisites for those two plans but do NOT block INST-01..05 work. INST plans execute first; ANCH plans execute when credentials are available.
+**External dependency**: ANCH-02 requires Gemini quota resolution — prerequisite for that plan only; it does NOT block INST-01..05 work. INST plans execute first. ANCH-01 (anthropic n=5) was deferred at milestone start (no billing top-up; user decision 2026-06-11) — anthropic stays logged-not-gated with its deferred-cell entry intact.
 
 ### Phase 13: Decisiveness Experiment Arms
 **Goal**: Four coupled experiment arms are implemented, run at n=5 temp=1.0 against the Phase-12 comparison floor, and their verdicts are documented — revealing whether any arm clears the falsifier bar or all plateau below it
