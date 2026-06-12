@@ -2525,11 +2525,16 @@ class TestViableCandidatesPerStepFromState:
         result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
         assert result == [2]
 
-    def test_nearby_zero_similarity_contributes_zero(self) -> None:
-        hits = [self._low_sim_hit("cafe")]
+    def test_nearby_entries_are_not_scanned(self) -> None:
+        """WR-01: viability is semantic-search-only. The nearby tool's SQL
+        hardcodes 0.0 AS similarity (app/tools/retrieval.py), so no nearby hit
+        could ever clear the threshold — the helper does not read the source it
+        can never count. Even a high-similarity hit under the 'nearby' key is
+        ignored (documented limitation: nearby-driven flows undercount)."""
+        hits = [self._high_sim_hit("cafe")]
         state = _state_with_search_hits(hits, step=0, tool="nearby")
         result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
-        assert result == [0]
+        assert result == [], "nearby scratch entries must not be scanned for viability"
 
     def test_wrong_type_excluded(self) -> None:
         hits = [self._high_sim_hit("restaurant")]

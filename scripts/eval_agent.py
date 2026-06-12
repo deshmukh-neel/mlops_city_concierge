@@ -561,16 +561,24 @@ def viable_candidates_per_step_from_state(
     ``value_from_hit(hit, "primary_type") in requested_types`` (or
     ``requested_types`` is empty — no type constraint, count on cosine alone).
 
-    Reads ``semantic_search`` and ``nearby`` scratch entries grouped by their
-    ``"step"`` key. Guards all reads with isinstance checks to handle malformed
-    or empty state gracefully.
+    SCOPE (WR-01): viability is SEMANTIC-SEARCH-ONLY by design. The ``nearby``
+    tool's SQL hardcodes ``0.0 AS similarity`` (app/tools/retrieval.py), so no
+    nearby hit can ever clear the threshold — scanning nearby would silently
+    read a source it can never count. KNOWN LIMITATION for Phase 13 analysis:
+    nearby-driven flows undercount viable candidates (and therefore bias
+    rule8_met_per_step low) because location-based evidence carries no
+    similarity signal to judge viability on.
+
+    Reads ``semantic_search`` scratch entries grouped by their ``"step"`` key.
+    Guards all reads with isinstance checks to handle malformed or empty state
+    gracefully.
 
     STEP-INDEX CONTRACT: scratch entries use ``state.step_count`` (pre-increment)
     as the ``"step"`` key, matching step_telemetry from Plan 12-01.
     """
-    # Build a map: step_index -> list[hits]
+    # Build a map: step_index -> list[hits] (semantic_search only — WR-01)
     step_hits: dict[int, list[Any]] = {}
-    for tool_name in ("semantic_search", "nearby"):
+    for tool_name in ("semantic_search",):
         entries = state.scratch.get(tool_name)
         if not isinstance(entries, list):
             continue
@@ -622,8 +630,9 @@ def rule8_met_per_step_from_state(
     is True iff, cumulatively across steps 0..i (inclusive), every requested
     type in ``requested_types`` has at least one viable candidate. Because
     per-type coverage cannot be reconstructed from the flat ``viable_per_step``
-    int list, this helper re-reads the ``semantic_search``/``nearby`` scratch
-    entries to accumulate the SET of covered ``primary_type``s.
+    int list, this helper re-reads the ``semantic_search`` scratch entries to
+    accumulate the SET of covered ``primary_type``s. SCOPE (WR-01): viability
+    is semantic-search-only — see viable_candidates_per_step_from_state.
 
     When ``requested_types`` is empty, falls back to the
     ``viable_per_step`` argument:
@@ -648,10 +657,11 @@ def rule8_met_per_step_from_state(
             result.append(cumulative >= target)
         return result
 
-    # Build step -> hits map (same as viable_candidates_per_step_from_state)
+    # Build step -> hits map (same as viable_candidates_per_step_from_state;
+    # semantic_search only — WR-01)
     step_hits: dict[int, list[Any]] = {}
     viability_threshold = LOW_SIMILARITY_THRESHOLD
-    for tool_name in ("semantic_search", "nearby"):
+    for tool_name in ("semantic_search",):
         entries = state.scratch.get(tool_name)
         if not isinstance(entries, list):
             continue
