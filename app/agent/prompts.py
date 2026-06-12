@@ -2,6 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.agent.critique import CRITIQUE_ITINERARY, CRITIQUE_STEP, CRITIQUE_VIBE
+from app.agent.revision import LOW_SIMILARITY_THRESHOLD
 
 # The app is SF-only today (places_raw.source_city = 'San Francisco'), matching
 # the timezone assumption baked into the place_is_open SQL helper.
@@ -13,6 +14,37 @@ def current_datetime_str(now: datetime | None = None) -> str:
     arrival_time to the real date instead of hallucinating a training-era one."""
     dt = (now or datetime.now(_SF_TZ)).astimezone(_SF_TZ)
     return dt.strftime("%Y-%m-%d %H:%M %Z (%A)")
+
+
+def rule8_viability_addendum(enabled: bool, threshold: float | None = None) -> str:
+    """Return an additive extension to SYSTEM_PROMPT rule 8 for the DEC-01 arm.
+
+    When ``enabled`` is False (flag off / default state), returns ``""`` so that
+    ``SYSTEM_PROMPT.format(...) + rule8_viability_addendum(False)`` is byte-identical
+    to ``SYSTEM_PROMPT.format(...)`` alone.
+
+    When ``enabled`` is True (VIABILITY_CONTRACT_ENABLED=1), returns one appended
+    sentence that names the cosine threshold and matching primary_type precisely,
+    grounding the model's viability definition in the same value used by the
+    eval harness (D-13-06, D-13-03).
+
+    The ``threshold`` parameter defaults to ``LOW_SIMILARITY_THRESHOLD`` imported
+    from ``app.agent.revision`` — never hardcode 0.55 (D-12-04).
+
+    Constraints:
+    - ADDITIVE only: this string is concatenated AFTER ``SYSTEM_PROMPT.format(...)``
+      by the caller (plan 13-04 graph wiring); it does NOT modify SYSTEM_PROMPT.
+    - No forbidden behavioral-rubric phrases: "byte-for-byte", "SAME primary_type"
+      must not appear (Phase-7 CI grep gate, D-07-04).
+    - Does not remove the existing pinned phrase "one viable option" from rule 8.
+    """
+    if not enabled:
+        return ""
+    t = threshold if threshold is not None else LOW_SIMILARITY_THRESHOLD
+    return (
+        f"   A result with cosine similarity >= {t} and matching primary_type"
+        " IS viable — do not keep searching past it.\n"
+    )
 
 
 REVISION_GUIDANCE = f"""
