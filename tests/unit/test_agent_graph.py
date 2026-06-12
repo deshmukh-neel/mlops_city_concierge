@@ -1571,6 +1571,53 @@ async def test_step_telemetry_accumulates_across_multiple_steps(monkeypatch, moc
     assert steps == sorted(steps), f"step indices not sorted: {steps}"
 
 
+async def test_step_telemetry_revision_loop_keeps_one_entry_per_step(monkeypatch, mocker) -> None:
+    """WR-07: a plan → critique → plan revision loop (finalize rejected by a
+    hard-check violation, then accepted) runs plan() twice at the SAME
+    step_count because step_count increments only in act(). The two LLM calls
+    must merge into ONE telemetry entry (llm_call_seconds summed), never
+    produce duplicate "step" values — Phase 13 consumers join on "step"
+    against viable_candidates_per_step and would double-count otherwise."""
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    # First critique sees a retryable violation (drives the revision loop back
+    # to plan at the same step_count); every later call sees a clean plan.
+    calls = {"n": 0}
+
+    def _violations_once(_state):
+        calls["n"] += 1
+        return ["geographic_coherence"] if calls["n"] == 1 else []
+
+    mocker.patch("app.agent.revision.itinerary_violations", side_effect=_violations_once)
+
+    fake = _make_fake(
+        [
+            AIMessage(content="here is plan A", tool_calls=[]),
+            AIMessage(content="here is revised plan B", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=6)
+    stops = [Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")]
+    out = await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="one stop please")], stops=stops)
+    )
+
+    assert out["done"] is True
+    assert calls["n"] >= 2, "revision loop did not run (test premise broken)"
+
+    telemetry = out["step_telemetry"]
+    steps = [e["step"] for e in telemetry]
+    assert len(steps) == len(set(steps)), (
+        f"duplicate step indices in telemetry after revision loop: {steps}"
+    )
+    # The merged entry must remain JSON-safe with plain float timing
+    merged = telemetry[-1]
+    assert isinstance(merged["llm_call_seconds"], float)
+    assert merged["llm_call_seconds"] >= 0.0
+    import json as _json
+
+    _json.dumps(telemetry)
+
+
 async def test_retime_node_present_and_routed(monkeypatch) -> None:
     fake = _make_fake([AIMessage(content="done", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)

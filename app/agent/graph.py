@@ -333,15 +333,29 @@ def build_agent_graph(
 
         # Append a step_telemetry entry. tool_exec_seconds is 0.0 here (plan has
         # no tool execution); act() will patch the entry with the tool time.
-        new_telemetry = [
-            *state.step_telemetry,
-            {
-                "step": state.step_count,
-                "llm_call_seconds": _llm_elapsed,
-                "tool_exec_seconds": 0.0,
-                "tool_calls_this_step": 0,
-            },
-        ]
+        #
+        # WR-07: step_count increments only in act(), so revision loops
+        # (plan -> critique -> plan, e.g. a finalize rejected by
+        # critique_final_with_stops or the stop-count clarification retry) run
+        # plan() more than once at the SAME step_count. Merge those into the
+        # existing trailing entry (summing llm_call_seconds) so step_telemetry
+        # keeps exactly one entry per step index — Phase 13 consumers join on
+        # "step" against viable_candidates_per_step and would double-count
+        # llm_call_seconds on duplicate entries.
+        new_telemetry = list(state.step_telemetry)
+        if new_telemetry and new_telemetry[-1].get("step") == state.step_count:
+            merged = dict(new_telemetry[-1])
+            merged["llm_call_seconds"] = merged.get("llm_call_seconds", 0.0) + _llm_elapsed
+            new_telemetry[-1] = merged
+        else:
+            new_telemetry.append(
+                {
+                    "step": state.step_count,
+                    "llm_call_seconds": _llm_elapsed,
+                    "tool_exec_seconds": 0.0,
+                    "tool_calls_this_step": 0,
+                }
+            )
         return {"messages": new_messages, "step_telemetry": new_telemetry}
 
     async def act(state: ItineraryState) -> dict[str, Any]:

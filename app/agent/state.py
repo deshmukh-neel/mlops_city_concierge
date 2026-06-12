@@ -282,6 +282,11 @@ class ItineraryState(BaseModel):
             "Each entry is a plain dict (JSON-safe) with keys: "
             "step (int), llm_call_seconds (float), tool_exec_seconds (float), "
             "tool_calls_this_step (int). Appended by plan()/act() in graph.py. "
+            "INVARIANT (WR-07): exactly one entry per step index. Revision "
+            "loops (plan -> critique -> plan) run plan() more than once at "
+            "the same step_count; those LLM calls are merged into the "
+            "existing entry by summing llm_call_seconds, so consumers can "
+            "safely join on 'step' (e.g. against viable_candidates_per_step). "
             "D-12-01: always-on; cheap enough for prod."
         ),
     )
