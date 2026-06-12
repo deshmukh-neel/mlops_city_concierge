@@ -29,10 +29,6 @@ LOW_SIMILARITY_THRESHOLD: float = float(
     os.environ.get("LOW_SIMILARITY_THRESHOLD_OVERRIDE", "") or "0.55"
 )
 
-# D-13-05: VIABILITY_CONTRACT_ENABLED selects the A1 arm (DEC-01 + DEC-03).
-# Read at module level so tests can reload the module to flip the flag.
-# env_flag is the single source of truth for boolean-flag parsing (WR-09 DRY).
-_VIABILITY_CONTRACT_ENABLED: bool = env_flag("VIABILITY_CONTRACT_ENABLED")
 MAX_REVISIONS_PER_REASON = 2
 
 
@@ -201,7 +197,10 @@ def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
         # DEC-03 gate: suppress low_similarity once every slot has a viable candidate,
         # but ONLY when the arm flag is ON (T-13-03-02 mitigation: flag-off path never
         # calls all_slots_viable so current behavior is byte-identical when flag is off).
-        if hint.reason == "low_similarity" and _VIABILITY_CONTRACT_ENABLED:
+        # WR-02: flag read live per call via env_flag so DEC-01 prompt addendum (graph.py
+        # build-time) and DEC-03 critique scoping both pick up env changes at the same
+        # effective time — the import-time freeze hazard is eliminated.
+        if hint.reason == "low_similarity" and env_flag("VIABILITY_CONTRACT_ENABLED"):
             from app.agent.viability import all_slots_viable  # noqa: PLC0415
 
             if all_slots_viable(state, LOW_SIMILARITY_THRESHOLD):
