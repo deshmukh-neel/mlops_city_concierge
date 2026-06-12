@@ -435,59 +435,156 @@ precondition checks.
 
 | Arm | Flag Config | gpt-5-mini pooled | Delta vs floor (0.000) | Delta vs A2 (0.500) | gpt-4o-mini anchor | Falsifier exit |
 |---|---|---|---|---|---|---|
-| R1 | `REPLAY_MULTI_MESSAGE_ENABLED=1` | [fill] | [fill] | [fill] | [fill] | [fill] |
-| R2 | `REPLAY_CONTENT_BLOCKS_ENABLED=1` | [fill] | [fill] | [fill] | [fill] | [fill] |
-| R3 | `R1+R2` (conditional) | [fill or NOT RUN] | [fill or —] | [fill or —] | [fill or —] | [fill or —] |
+| R1 | `REPLAY_MULTI_MESSAGE_ENABLED=1` | 0.500 (model-initiated 4/10, forced 0/10) | +0.500 | ±0.000 | 1.000 — non-regression PASS | 1 (FAIL) |
+| R2 | `REPLAY_CONTENT_BLOCKS_ENABLED=1` | ERRORED — 0/10 evaluable (10/10 provider 400s) | — (catastrophic; no measurement) | — | 1.000 median — non-regression PASS | 1 (FAIL) |
+| R3 | `R1+R2` (conditional) | NOT RUN | — | — | — | — |
+| Discretionary valve | `R1+FORCED_COMMIT_STEP=6` | NOT RUN | — | — | — | — |
+
+**Table notes:**
+- Anchor non-regression CONFIRMED for both R1 and R2 (median criterion; raw R2 anchor movement noted in R2 section as within-noise on a structurally no-op path)
+- R3: precondition 2 not satisfied (R2 negative, not positive-but-short)
+- Valve: precondition met but not run (R1 zero-delta vs A2 makes stack expected-marginal-signal = 0)
+- DeepSeek (informational): R1 raw 1/10, R2 raw 1/10 — plateau unchanged; omitted from summary table per falsifier definition (gated on gpt-5-mini + anchor only)
+
+---
 
 ### ARCH-FUT-01 Evaluation (on plateau)
 
-**Status:** USER CHECKPOINT (D-14-08) — this section is filled after the live runs
-complete and the per-arm table above is populated. It is a recommendation, not a decision;
-Phase 15 scope finalization requires explicit user approval.
+**(a) Cumulative evidence chain:**
 
-**(a) Cumulative evidence chain** [fill after live runs]:
-- v2.1 (Phase 9): byte-correct per-message `_reasoning_state` round-trip verified for
-  all four adapters. State capture and replay work correctly at the per-adapter level.
-- Phase 13 DEC arms (A1/A2/A3): all plateaued below INST-05 bar. A2 showed positive
-  signal at 0.500 (model-initiated, forced mechanism never fired). A3 triggered anchor
-  regression on refinement_cheaper.
-- Phase 14 REPLAY arms: [fill — R1 delta, R2 delta, R3 delta if run]
-- Interpretation: [fill — does cumulative evidence suggest the block-level or multi-replay
-  paths contribute to decisiveness, or does the plateau hold?]
+The following evidence chain spans v2.1 through Phase 14, establishing what we know about
+the decisiveness gap and what reasoning-state interventions can and cannot contribute:
 
-**(b) ARCH-FUT-01 contingency** [fill after live runs]:
+- **v2.1 (Phase 9):** Per-message `_reasoning_state` round-trip proved byte-correct through
+  all four provider adapters (OpenAI, DeepSeek, Anthropic, Gemini). Each in-window
+  tool-calling AIMessage has its own `_reasoning_state` stashed in `additional_kwargs`
+  and D-08-07 preserves kwargs across the `_prune_for_llm` boundary. State capture and
+  replay are mechanically correct at the per-adapter level. **The state round-trip is not
+  the problem.**
+
+- **Phase 13 DEC arms (A1/A2/A3 — all null below INST-05 bar):**
+  - A1 (viability contract + critique recalibration): 0.000 — prompt-level framing of the
+    commit precondition had zero measurable effect on gpt-5-mini decisiveness.
+  - A2 (FORCED_COMMIT_STEP=6): 0.500 — best Phase-13 signal, entirely model-initiated on
+    omakase (refinement_cheaper = 0.000). The forced mechanism never fired due to CR-01 bug
+    (synthesizer fixed in Phase 13-08; untested at n=5 on fixed synthesizer). The 0.500 is
+    a genuine model-behavioral signal, not a forced-mechanism artifact.
+  - A3 (parallel tool execution): anchor regressed (refinement_cheaper 0.000 vs 1.000).
+    Behaviorally unsafe for the anchor — not promotable.
+  - **Cross-arm pattern:** gpt-5-mini commits decisively on omakase (1.000 median in A2/A3/R1)
+    but consistently fails refinement_cheaper (0.000 median across all arms). This asymmetry
+    persisted through every DEC and REPLAY intervention — it is the dominant structural finding.
+
+- **Phase 14 REPLAY arms:**
+  - R1 (multi-message reasoning-state replay): gpt-5-mini 0.500 — identical to A2; delta
+    vs A2 = ±0.000. Multi-message replay of already-stored per-message reasoning state
+    does not improve on single-message replay. The plateau-replication is exact.
+  - R2 (content-block preservation): NEGATIVE — catastrophically breaks gpt-5-mini
+    (10/10 provider 400s). Reveals that `str()` collapse was load-bearing protection for
+    the Responses-API list-content path; preserving list content re-sends function-call
+    items whose ToolMessage outputs were already pruned. The R2 failure is architectural:
+    the prune window drops ToolMessages but the Responses-API tracks function-call state
+    inside the content block list, not only in `.tool_calls`.
+  - R3: NOT RUN (R2 negative disqualifies combo).
+  - Valve: NOT RUN (R1 zero-delta over A2 makes stack expected-marginal-signal = 0).
+
+- **Interpretation:** Every measurable intervention — prompt framing, forced-commit
+  mechanisms, parallel tools, multi-message replay, and content-block preservation —
+  has been tested against the gpt-5-mini decisiveness gap and found insufficient. The
+  consistent signal is that gpt-5-mini commits on omakase but not refinement_cheaper,
+  regardless of state richness or prompt framing. The problem is not state round-tripping
+  (v2.1 proved it works), not reasoning state freshness (R1 = A2 exactly), and not
+  content-block loss (R2 shows loss was not occurring for the tested models — and
+  "fixing" it breaks the model). The evidence points toward a **behavioral gap in the
+  model's handling of refinement-class tasks**, not a state-plumbing gap that replay
+  interventions can bridge.
+
+**(b) ARCH-FUT-01 contingency:**
+
 ARCH-FUT-01 entails architectural work to replace or augment the current LangGraph-based
-agent loop with a custom loop that natively threads per-message reasoning state without
-relying on `additional_kwargs` round-tripping across the `_prune_for_llm` boundary. This
-would involve threading reasoning content through the graph reducer, exposing it to the LLM
-on every in-window turn regardless of prune cutoff, and potentially enabling cross-request
-persistence beyond the current intra-request-only scope (see deferred finding in CONTEXT.md).
-Decision 3 (gpt-4o-mini anchor, ~30s/turn budget) bounds the recommendation space.
+agent loop with a custom imperative loop that natively threads per-message reasoning state
+without relying on `additional_kwargs` round-tripping across the `_prune_for_llm` boundary.
+This was originally conceived as a contingency for the case where state loss was causing the
+decisiveness gap — exposing reasoning content to the LLM on every in-window turn regardless
+of prune cutoff, and potentially enabling cross-request persistence beyond the current
+intra-request-only scope.
 
-**(c) Written recommendation** [fill after live runs — USER CHECKPOINT before Phase 15]:
-[One of:
-  (i) "Ratify anchor and defer ARCH-FUT-01 to a future milestone" — likely if Phase 14
-      also plateaus, since both replay interventions are EXPECTED-NULL on the tested cells
-      and DeepSeek's decisiveness gap persists at the architecture level.
-  (ii) "Promote winning replay flag and file ARCH-FUT-01 as a tracked debt item" — if a
-       replay arm cleared the bar, document the promotion path and bound ARCH-FUT-01 scope.
-  (iii) Other recommendation bounded by the data and Decision 3.
-]
+The Phase 14 evidence materially changes the case for ARCH-FUT-01: the state round-trip
+was already byte-correct (v2.1), and delivering richer state (R1 = multi-message replay)
+produced exactly zero improvement. The contingency's premise — "if all state-plumbing
+interventions fail, rearchitect the loop" — is evaluated against a different finding: state
+plumbing is not the bottleneck. The ARCH-FUT-01 trigger was "all DEC arms fail AND state
+loss is the diagnosed cause"; the cumulative evidence no longer supports the state-loss
+diagnosis for the tested models.
+
+Decision 3 (gpt-4o-mini stays anchor, ~30s/turn budget) bounds the recommendation space:
+no recommendation may require replacing gpt-4o-mini or exceeding the latency budget.
+
+**(c) Written recommendation — USER CHECKPOINT before Phase 15:**
+
+> **RECOMMENDATION: Ratify the gpt-4o-mini anchor and defer ARCH-FUT-01 to a documented
+> future contingency. Phase 15 scope should be defined without ARCH-FUT-01 execution.**
+
+Rationale:
+
+1. **ARCH-FUT-01 is not the right next lever.** The cumulative evidence shows that state
+   richness interventions (R1: multi-message replay) add zero signal over the best DEC arm
+   (A2: 0.500). If state loss were the cause of the decisiveness gap, R1 should have
+   outperformed A2 — it did not. ARCH-FUT-01 (custom imperative loop) would increase state
+   richness further, but the evidence argues the decisiveness gap is behavioral (refinement
+   scenario), not architectural (state round-tripping).
+
+2. **The A2 forced-commit mechanism is untested at n=5 on the fixed synthesizer (CR-01
+   fixed in Phase 13-08).** The highest-ROI next experiment is an A2 retest with the working
+   synthesizer — a clean Phase-15 in-scope item that reuses the existing eval machinery at
+   no additional engineering cost. If A2 on the fixed synthesizer clears the bar (forced
+   commits fire on refinement_cheaper), Phase 15 can promote it directly. If it still
+   plateaus, the evidence case for ARCH-FUT-01 becomes more defensible.
+
+3. **The refinement_cheaper scenario is the blocking pattern.** gpt-5-mini commits at 1.000
+   on omakase across all arms but fails at 0.000 on refinement_cheaper across all arms. This
+   scenario-specific asymmetry survived every intervention. Understanding why refinement
+   scenarios fail to trigger model-initiated commits is the diagnostic step before any
+   architectural intervention.
+
+4. **gpt-4o-mini anchor stays ratified.** The anchor held at 1.000 across all arms (R1 and
+   R2), confirming Decision 3: the anchor is stable, committed, and within the ~30s/turn
+   budget. No evidence warrants changing the anchor.
+
+**Phase 15 scope (recommendation, not decision — USER CHECKPOINT):**
+
+The recommended Phase 15 scope is:
+- A2 retest on the fixed synthesizer (FORCED_COMMIT_STEP=6, CR-01 fixed) — tests whether
+  the forced-commit path actually fires on refinement_cheaper and whether it can lift the
+  pooled rate above 0.500
+- Scenario-level root cause analysis of the refinement_cheaper 0.000 pattern across all arms
+  (does the refinement prompt structure prevent viable candidates from appearing at step 6?
+  are all slots truly viable at step 6 per the gate condition?)
+- Gate promotion and baseline regen under the best-performing config (whichever of the above
+  earns it, or the current A2 model-initiated result if neither improves)
+- ARCH-FUT-01 explicitly deferred to a future milestone: file as tracked technical debt with
+  the evidence package from Phases 13-14 as the trigger criteria
+
+**This recommendation does not resolve Phase 15 scope — that is a USER CHECKPOINT per
+D-14-08. The user must explicitly approve Phase 15 scope before any Phase 15 planning begins.**
+
+---
 
 ### Explicit Closing Line
 
-[fill — one sentence: "Arm [X] cleared the INST-05 falsifier bar (gpt-5-mini >= 0.6,
-anchor non-regression, exit code 0)" OR "No arm cleared the INST-05 falsifier bar.
-All arms plateaued below gpt-5-mini >= 0.6 [with per-arm summary]."
-
-Example plateau form: "No arm cleared the INST-05 falsifier bar. All arms plateaued
-below gpt-5-mini >= 0.6 (R1=[fill], R2=[fill], R3=[fill or NOT RUN])."]
+**No arm cleared the INST-05 falsifier bar. All Phase-14 REPLAY arms plateaued below
+gpt-5-mini >= 0.6 (R1 = 0.500 — identical to best DEC arm A2, no incremental improvement;
+R2 = NEGATIVE — catastrophic provider 400s on gpt-5-mini; R3 = NOT RUN — R2 disqualifies
+combo; discretionary valve = NOT RUN — R1 zero-delta over A2 makes stack expected marginal
+signal = 0).**
 
 ### Phase-15 Consequence
 
-[fill — one of:
-  (a) Winning arm: "Phase 15 (Gate Promotion + Baseline Regen) proceeds with flag config
-      [X] from run dir [Y]."
-  (b) Plateau: "Phase 15 scope finalization is a USER CHECKPOINT per D-14-08. The
-      ARCH-FUT-01 Evaluation section above provides the recommendation. Phase 15 does not
-      proceed until the user approves the scope."]
+**Phase 15 scope finalization is a USER CHECKPOINT per D-14-08.** The ARCH-FUT-01
+Evaluation section above provides the recommendation. Phase 15 does not proceed until the
+user approves the scope.
+
+**Recommended inputs for Phase 15 scoping decision:**
+- Best performing config: A2 (`FORCED_COMMIT_STEP=6`, Phase-13 run dir `eval_reports/2026-06-12T07-27-03Z`) — gpt-5-mini 0.500 model-initiated; forced mechanism untested at n=5 on the fixed synthesizer (CR-01 fix: Phase 13-08)
+- Blocking pattern: refinement_cheaper = 0.000 across all arms (gpt-5-mini never commits on this scenario under any tested intervention)
+- Recommendation: A2 retest on fixed synthesizer before any architectural escalation
