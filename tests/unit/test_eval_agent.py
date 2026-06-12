@@ -2632,6 +2632,114 @@ class TestRule8MetPerStepFromState:
         result = rule8_met_per_step_from_state(ItineraryState(), [], ["cafe"])
         assert result == []
 
+    def test_duplicate_requested_types_need_distinct_place_ids(self) -> None:
+        """WR-02: ['restaurant', 'restaurant', 'bar'] means two DISTINCT
+        restaurant stops — one viable restaurant must not mark both covered."""
+
+        def _hit(ptype: str, pid: str) -> dict:
+            return {
+                "similarity": LOW_SIMILARITY_THRESHOLD + 0.1,
+                "primary_type": ptype,
+                "place_id": pid,
+            }
+
+        requested = ["restaurant", "restaurant", "bar"]
+        one_restaurant = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [_hit("restaurant", "r1"), _hit("bar", "b1")]},
+                ]
+            }
+        )
+        viable = viable_candidates_per_step_from_state(
+            one_restaurant, LOW_SIMILARITY_THRESHOLD, requested
+        )
+        result = rule8_met_per_step_from_state(one_restaurant, viable, requested)
+        assert result == [False], (
+            "one viable restaurant must NOT cover two requested restaurant slots"
+        )
+
+        two_restaurants = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {
+                        "step": 0,
+                        "result": [
+                            _hit("restaurant", "r1"),
+                            _hit("restaurant", "r2"),
+                            _hit("bar", "b1"),
+                        ],
+                    },
+                ]
+            }
+        )
+        viable = viable_candidates_per_step_from_state(
+            two_restaurants, LOW_SIMILARITY_THRESHOLD, requested
+        )
+        result = rule8_met_per_step_from_state(two_restaurants, viable, requested)
+        assert result == [True], "two distinct viable restaurants + a bar cover all three slots"
+
+    def test_same_place_id_at_one_step_counts_once_for_typed_coverage(self) -> None:
+        """WR-02: the same venue returned twice is still ONE distinct candidate."""
+
+        def _hit(pid: str) -> dict:
+            return {
+                "similarity": LOW_SIMILARITY_THRESHOLD + 0.1,
+                "primary_type": "restaurant",
+                "place_id": pid,
+            }
+
+        requested = ["restaurant", "restaurant"]
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [_hit("r1"), _hit("r1")]},
+                ]
+            }
+        )
+        viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, requested)
+        result = rule8_met_per_step_from_state(state, viable, requested)
+        assert result == [False]
+
+    def test_no_types_fallback_dedupes_repeated_venue_across_steps(self) -> None:
+        """WR-02: with num_stops=3, the SAME place_id returned at steps 0, 1, 2
+        must count as ONE viable candidate, not three."""
+
+        def _hit(pid: str) -> dict:
+            return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "place_id": pid}
+
+        same_venue = ItineraryState(
+            constraints=UserConstraints(num_stops=3),
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [_hit("p1")]},
+                    {"step": 1, "result": [_hit("p1")]},
+                    {"step": 2, "result": [_hit("p1")]},
+                ]
+            },
+        )
+        viable = viable_candidates_per_step_from_state(same_venue, LOW_SIMILARITY_THRESHOLD, [])
+        result = rule8_met_per_step_from_state(same_venue, viable, [])
+        assert result == [False, False, False], (
+            f"one venue repeated 3x must not satisfy a 3-stop request, got {result}"
+        )
+
+        distinct_venues = ItineraryState(
+            constraints=UserConstraints(num_stops=3),
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [_hit("p1")]},
+                    {"step": 1, "result": [_hit("p2")]},
+                    {"step": 2, "result": [_hit("p3")]},
+                ]
+            },
+        )
+        viable = viable_candidates_per_step_from_state(
+            distinct_venues, LOW_SIMILARITY_THRESHOLD, []
+        )
+        result = rule8_met_per_step_from_state(distinct_venues, viable, [])
+        assert result == [False, False, True]
+
     def test_output_is_json_safe(self) -> None:
         state = ItineraryState(
             scratch={

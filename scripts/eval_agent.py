@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import types
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -628,18 +629,25 @@ def rule8_met_per_step_from_state(
 
     CONTRACT: this helper performs CUMULATIVE accumulation internally. Element i
     is True iff, cumulatively across steps 0..i (inclusive), every requested
-    type in ``requested_types`` has at least one viable candidate. Because
-    per-type coverage cannot be reconstructed from the flat ``viable_per_step``
-    int list, this helper re-reads the ``semantic_search`` scratch entries to
-    accumulate the SET of covered ``primary_type``s. SCOPE (WR-01): viability
-    is semantic-search-only — see viable_candidates_per_step_from_state.
+    STOP has at least one DISTINCT viable candidate. Because per-type coverage
+    cannot be reconstructed from the flat ``viable_per_step`` int list, this
+    helper re-reads the ``semantic_search`` scratch entries. SCOPE (WR-01):
+    viability is semantic-search-only — see
+    viable_candidates_per_step_from_state.
 
-    When ``requested_types`` is empty, falls back to the
-    ``viable_per_step`` argument:
-      - If ``state.constraints.num_stops`` is set: True iff
-        ``sum(viable_per_step[0..i]) >= num_stops``.
-      - Otherwise: True iff ``sum(viable_per_step[0..i]) >= 1``
-        (at least one viable candidate exists).
+    MULTISET COVERAGE (WR-02): ``requested_types`` is treated as a multiset.
+    ``["restaurant", "restaurant", "bar"]`` (two distinct restaurant stops)
+    requires two DISTINCT viable restaurant ``place_id``s — one viable
+    restaurant no longer marks both slots covered. Distinctness is keyed on
+    ``place_id``; hits lacking a usable place_id cannot be deduplicated and
+    each occurrence counts once (documented limitation).
+
+    When ``requested_types`` is empty, the target is
+    ``state.constraints.num_stops`` (or 1 when unset) and coverage counts
+    DISTINCT viable ``place_id``s cumulatively (WR-02: the same venue
+    re-returned at several steps no longer counts once per step). The
+    ``viable_per_step`` argument is used only to size the all-False result for
+    malformed/empty scratch.
 
     Guards every scratch read with isinstance checks (malformed/empty state
     returns an all-False list of the appropriate length).
@@ -647,16 +655,6 @@ def rule8_met_per_step_from_state(
     STEP-INDEX CONTRACT: scratch entries use ``state.step_count`` (pre-increment)
     as the ``"step"`` key, matching step_telemetry from Plan 12-01.
     """
-    if not requested_types:
-        # Fallback: use the cumulative viable_per_step count
-        target = state.constraints.num_stops if state.constraints.num_stops is not None else 1
-        result: list[bool] = []
-        cumulative = 0
-        for count in viable_per_step:
-            cumulative += count
-            result.append(cumulative >= target)
-        return result
-
     # Build step -> hits map (same as viable_candidates_per_step_from_state;
     # semantic_search only — WR-01)
     step_hits: dict[int, list[Any]] = {}
@@ -681,20 +679,56 @@ def rule8_met_per_step_from_state(
         return [False] * len(viable_per_step)
 
     max_step = max(step_hits.keys())
-    covered_types: set[str] = set()
+
+    def _viable_sim(hit: Any) -> bool:
+        sim = value_from_hit(hit, "similarity")
+        if not isinstance(sim, (int, float)) or isinstance(sim, bool):
+            return False
+        return sim >= viability_threshold
+
+    def _place_id(hit: Any) -> str | None:
+        pid = value_from_hit(hit, "place_id")
+        return pid if isinstance(pid, str) and pid else None
+
     bools: list[bool] = []
+
+    if not requested_types:
+        # Fallback (WR-02): count DISTINCT viable place_ids cumulatively.
+        target = state.constraints.num_stops if state.constraints.num_stops is not None else 1
+        seen_ids: set[str] = set()
+        anon_count = 0  # hits without a usable place_id — counted per occurrence
+        for i in range(max_step + 1):
+            for hit in step_hits.get(i, []):
+                if not _viable_sim(hit):
+                    continue
+                pid = _place_id(hit)
+                if pid is not None:
+                    seen_ids.add(pid)
+                else:
+                    anon_count += 1
+            bools.append(len(seen_ids) + anon_count >= target)
+        return bools
+
+    # Typed path (WR-02): multiset coverage — each requested-type slot needs
+    # its own distinct viable place_id.
+    required = Counter(requested_types)
+    per_type_ids: dict[str, set[str]] = {t: set() for t in required}
+    per_type_anon: dict[str, int] = dict.fromkeys(required, 0)
     for i in range(max_step + 1):
-        hits = step_hits.get(i, [])
-        for hit in hits:
-            sim = value_from_hit(hit, "similarity")
-            if not isinstance(sim, (int, float)) or isinstance(sim, bool):
-                continue
-            if sim < viability_threshold:
+        for hit in step_hits.get(i, []):
+            if not _viable_sim(hit):
                 continue
             ptype = value_from_hit(hit, "primary_type")
-            if isinstance(ptype, str) and ptype in requested_types:
-                covered_types.add(ptype)
-        bools.append(covered_types >= set(requested_types))
+            if not isinstance(ptype, str) or ptype not in required:
+                continue
+            pid = _place_id(hit)
+            if pid is not None:
+                per_type_ids[ptype].add(pid)
+            else:
+                per_type_anon[ptype] += 1
+        bools.append(
+            all(len(per_type_ids[t]) + per_type_anon[t] >= count for t, count in required.items())
+        )
     return bools
 
 
