@@ -12,9 +12,9 @@
 
 ### Instrumentation & Falsifier (INST)
 
-- [ ] **INST-01**: Eval runs record steps-to-first-commit-consideration per run (when the model first weighs calling `commit_itinerary`, or never)
-- [ ] **INST-02**: Eval runs record per-step viable-candidate counts (results meeting the viability bar — cosine threshold + matching `primary_type` — for each requested stop)
-- [ ] **INST-03**: Eval runs record whether SYSTEM_PROMPT rule 8's commit precondition ("one viable option per requested stop") was objectively met at each step the model kept searching
+- [x] **INST-01**: Eval runs record steps-to-first-commit-consideration per run (when the model first weighs calling `commit_itinerary`, or never)
+- [x] **INST-02**: Eval runs record per-step viable-candidate counts (results meeting the viability bar — cosine threshold + matching `primary_type` — for each requested stop)
+- [x] **INST-03**: Eval runs record whether SYSTEM_PROMPT rule 8's commit precondition ("one viable option per requested stop") was objectively met at each step the model kept searching
 - [x] **INST-04**: Eval runs record per-turn latency decomposition (LLM call time vs sequential tool-execution time, per plan step)
 - [x] **INST-05**: The milestone falsifier is executable as a single report: an intervention "works" iff gpt-5-mini commit rate ≥ 0.6 at n=5 AND gpt-4o-mini holds ≥ its honest baseline (no anchor regression)
 
@@ -79,9 +79,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INST-01 | Phase 12 | Pending |
-| INST-02 | Phase 12 | Pending |
-| INST-03 | Phase 12 | Pending |
+| INST-01 | Phase 12 | Complete |
+| INST-02 | Phase 12 | Complete |
+| INST-03 | Phase 12 | Complete |
 | INST-04 | Phase 12 | Complete |
 | INST-05 | Phase 12 | Complete |
 | ANCH-02 | Phase 12 | Complete (deferred-with-note, D-12-09) |
