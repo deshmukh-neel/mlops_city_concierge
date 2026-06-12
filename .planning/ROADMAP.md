@@ -64,7 +64,11 @@
   2. Per-turn latency decomposition (LLM call time vs sequential tool-execution time per plan step) is recorded in each run JSON
   3. A single `make eval-falsifier` (or equivalent) report answers: did gpt-5-mini hit ≥ 0.6 commit rate at n=5, and did gpt-4o-mini hold ≥ its honest baseline? — pass/fail with per-model numbers
   4. `gemini/gemini-3.1-pro-preview` first honest n=5 baseline is written via `write_baselines.py` and committed; gemini's `_DEFERRED_BASELINE_CELLS` entry is cleared and every non-deferred matrix cell is honest n=5 (ANCH-02, ANCH-03 clear together; anthropic's entry is retained with a deferral note)
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 12-01-in-graph-step-telemetry-PLAN.md — INST-04: always-on in-graph per-step LLM-call + tool-execution timing on ItineraryState
+- [ ] 12-02-harness-derived-decisiveness-fields-PLAN.md — INST-01/02/03: harness-side first-commit-step, viable-candidate counts, rule-8 precondition fields
+- [ ] 12-03-falsifier-report-PLAN.md — INST-05: make eval-falsifier — pooled gpt-5-mini commit rate vs 0.6 + anchor non-regression, exit 0/1/2
+- [ ] 12-04-comparison-floor-deferral-bookkeeping-PLAN.md — ANCH-02/03: record gemini + anthropic deferrals (D-12-09); confirm non-deferred cells honest n=5
 **External dependency**: ANCH-02 requires Gemini quota resolution — prerequisite for that plan only; it does NOT block INST-01..05 work. INST plans execute first. ANCH-01 (anthropic n=5) was deferred at milestone start (no billing top-up; user decision 2026-06-11) — anthropic stays logged-not-gated with its deferred-cell entry intact.
 
 ### Phase 13: Decisiveness Experiment Arms
