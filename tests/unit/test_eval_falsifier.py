@@ -204,15 +204,15 @@ class TestBarLogic:
     def test_pooled_05_fails_06_bar(
         self, tmp_path: Path, script: ModuleType, capsys: pytest.CaptureFixture
     ) -> None:
-        """Pooled 0.5 is below the 0.6 bar → exit 1."""
+        """Pooled 0.5 is below the 0.6 bar → exit 1.
+
+        Uses omakase_mission_open_ended (the in-matrix scenario) for both slots
+        so the zero-overlap guard (12-05) does not fire before the bar check.
+        """
         summary = _make_summary(
             {
-                "scenario_a": {
-                    _GPT5_KEY: _cell_with_cir(1.0, n=5),
-                    _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
-                },
-                "scenario_b": {
-                    _GPT5_KEY: _cell_with_cir(0.0, n=5),
+                "omakase_mission_open_ended": {
+                    _GPT5_KEY: _cell_with_cir(0.5, n=5),  # below 0.6 bar
                     _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
                 },
             }
@@ -231,10 +231,14 @@ class TestBarLogic:
         assert "FAIL" in captured.out
 
     def test_pooled_08_passes_06_bar(self, tmp_path: Path, script: ModuleType) -> None:
-        """Pooled 0.8 is above the 0.6 bar → exit 0 (assuming anchor holds)."""
+        """Pooled 0.8 is above the 0.6 bar → exit 0 (assuming anchor holds).
+
+        Uses omakase_mission_open_ended (the in-matrix scenario) so the
+        zero-overlap guard (12-05) does not fire before the bar check.
+        """
         summary = _make_summary(
             {
-                "scenario_a": {
+                "omakase_mission_open_ended": {
                     _GPT5_KEY: _cell_with_cir(0.8, n=5),
                     _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
                 },
@@ -435,10 +439,15 @@ class TestMalformedSummaryShapes:
         self, tmp_path: Path, script: ModuleType
     ) -> None:
         """main() over a summary with null n must return a deliberate exit code,
-        not raise TypeError (pre-fix behavior: uncaught crash → interpreter exit 1)."""
+        not raise TypeError (pre-fix behavior: uncaught crash → interpreter exit 1).
+
+        Uses omakase_mission_open_ended (the in-matrix scenario) so the
+        zero-overlap guard (12-05) does not fire; the cell's null n is the
+        tested defect path.
+        """
         summary = _make_summary(
             {
-                "s": {
+                "omakase_mission_open_ended": {
                     _GPT5_KEY: {"scorers": {"committed_itinerary_rate": {"median": 1.0, "n": None}}}
                 }
             }
@@ -559,11 +568,22 @@ class TestAnchorCommonScenarioPooling:
     def test_no_common_scenarios_warns_and_passes(
         self, tmp_path: Path, script, capsys: pytest.CaptureFixture
     ) -> None:
-        """Empty intersection → loud warning, treated as no-floor PASS (not a crash/FAIL)."""
-        baselines_dir = self._baselines_with_two_scenarios(tmp_path)
+        """Empty run∩baseline intersection → loud warning, treated as no-floor PASS.
+
+        Uses omakase_mission_open_ended in the run (passes the 12-05 zero-overlap
+        matrix guard) but synthetic baselines that contain only refinement_cheaper
+        (no overlap with the run on the baselines side) — so the anchor comparison
+        hits the "no scenario overlap" branch.
+        """
+        # Synthetic baselines with NO omakase scenario — so run∩baselines = empty
+        baselines_dir = tmp_path / "baselines_no_omakase"
+        baselines_dir.mkdir()
+        _write_minimal_baseline(
+            baselines_dir, "refinement_cheaper", {_ANCHOR_KEY: 1.0, _GPT5_KEY: 0.8}
+        )
         summary = _make_summary(
             {
-                "scenario_not_in_baselines": {
+                "omakase_mission_open_ended": {
                     _GPT5_KEY: _cell_with_cir(0.8, n=5),
                     _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
                 },
@@ -657,6 +677,156 @@ class TestResolvedSourceVisibility:
         self, tmp_path: Path, script
     ) -> None:
         assert script._expected_matrix_scenarios(tmp_path / "nope.yaml") == set()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: zero-overlap run-dir summary refuses with exit 2 (12-05 / UAT Test 1)
+# ---------------------------------------------------------------------------
+
+
+class TestZeroOverlapRefusesWithExit2:
+    """12-05: run-dir mode must exit 2 with no VERDICT when the summary shares
+    zero scenarios with configs/eval_matrix.yaml (wrong-matrix refusal).
+
+    Coverage plan:
+      (A) exit code == 2 on zero-overlap summary with otherwise-passing cells
+      (B) no VERDICT line in stdout; existing diagnosis text is preserved
+      (C) in-matrix scenario still grades to a real verdict (negative control)
+      (D) monkeypatched empty expected set does NOT trigger the guard
+    """
+
+    def test_zero_overlap_run_dir_returns_exit_2(self, tmp_path: Path, script: ModuleType) -> None:
+        """(A) A zero-overlap summary with otherwise-passing gpt-5-mini + anchor
+        cells must make main() return exit 2 — proving the guard prevents a
+        spurious milestone PASS."""
+        chosen_id = "refinement_cheaper"
+        # Safety assertion: chosen scenario must NOT be in the real matrix config
+        assert chosen_id not in script._expected_matrix_scenarios(), (
+            f"'{chosen_id}' is now in eval_matrix.yaml — pick a different test scenario id"
+        )
+        # Build a summary with otherwise-passing cells: gpt-5-mini 0.8, anchor 1.0
+        summary = _make_summary(
+            {
+                chosen_id: {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        rc = script.main(
+            [
+                "--run-dir",
+                str(run_dir),
+                "--baselines-dir",
+                str(REPO_ROOT / "configs" / "eval_baselines"),
+            ]
+        )
+        assert rc == 2, (
+            f"zero-overlap run-dir summary (scenario='{chosen_id}') must return exit 2; "
+            f"got exit {rc}. Without the guard a spurious milestone PASS could occur."
+        )
+
+    def test_zero_overlap_emits_no_verdict_line(
+        self, tmp_path: Path, script: ModuleType, capsys: pytest.CaptureFixture
+    ) -> None:
+        """(B) On the zero-overlap path, stdout must contain NO 'VERDICT' line
+        and the existing wrong-matrix diagnosis text must still be printed."""
+        chosen_id = "scenario_not_in_matrix"
+        assert chosen_id not in script._expected_matrix_scenarios(), (
+            f"'{chosen_id}' is now in eval_matrix.yaml — pick a different test scenario id"
+        )
+        summary = _make_summary(
+            {
+                chosen_id: {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        script.main(
+            [
+                "--run-dir",
+                str(run_dir),
+                "--baselines-dir",
+                str(REPO_ROOT / "configs" / "eval_baselines"),
+            ]
+        )
+        captured = capsys.readouterr()
+        # No PASS/FAIL verdict emitted
+        assert "VERDICT" not in captured.out, (
+            "wrong-matrix run must not emit any VERDICT line in stdout"
+        )
+        assert "VERDICT = PASS" not in captured.out
+        assert "VERDICT = FAIL" not in captured.out
+        # The existing diagnosis text is preserved verbatim
+        assert "eval_matrix_refinement" in captured.out, (
+            "wrong-matrix diagnosis must still print the eval_matrix_refinement hint"
+        )
+        assert "may belong to a different matrix" in captured.out
+
+    def test_in_matrix_run_still_grades(
+        self, tmp_path: Path, script: ModuleType, capsys: pytest.CaptureFixture
+    ) -> None:
+        """(C) Negative control: an in-matrix scenario ('omakase_mission_open_ended')
+        must still produce a real verdict (exit 0) with 'VERDICT' in stdout."""
+        in_matrix_id = "omakase_mission_open_ended"
+        assert in_matrix_id in script._expected_matrix_scenarios(), (
+            f"'{in_matrix_id}' must be in eval_matrix.yaml for this test to be valid"
+        )
+        # gpt-5-mini 0.8 (>= 0.6 bar), anchor 1.0 (holds against committed baselines)
+        summary = _make_summary(
+            {
+                in_matrix_id: {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        rc = script.main(
+            [
+                "--run-dir",
+                str(run_dir),
+                "--baselines-dir",
+                str(REPO_ROOT / "configs" / "eval_baselines"),
+            ]
+        )
+        assert rc in {0, 1}, f"in-matrix run must return a real verdict (0 or 1), got exit {rc}"
+        assert rc == 0, f"gpt-5-mini 0.8 >= 0.6 with anchor 1.0 must PASS, got exit {rc}"
+        captured = capsys.readouterr()
+        assert "VERDICT" in captured.out, "in-matrix run must emit a VERDICT line"
+
+    def test_empty_expected_set_does_not_refuse(
+        self, tmp_path: Path, script: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """(D) When _expected_matrix_scenarios() returns set() (unreadable/empty config),
+        the guard must NOT fire — grading proceeds normally (exit in {0, 1}, not 2)."""
+        monkeypatch.setattr(script, "_expected_matrix_scenarios", lambda *a, **k: set())
+        # Use any scenario id; it won't match the empty expected set
+        summary = _make_summary(
+            {
+                "any_scenario_id": {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        rc = script.main(
+            [
+                "--run-dir",
+                str(run_dir),
+                "--baselines-dir",
+                str(REPO_ROOT / "configs" / "eval_baselines"),
+            ]
+        )
+        assert rc in {0, 1}, (
+            f"empty expected set must not trigger the zero-overlap guard; got exit {rc} "
+            "(expected 0 or 1 — a real verdict, not an infra refusal)"
+        )
+        assert rc != 2, "guard must NOT fire when expected_scenarios is empty (best-effort path)"
 
 
 # ---------------------------------------------------------------------------
