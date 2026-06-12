@@ -4,7 +4,7 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 14
 status: "Phase 13 shipped — PR #108"
-last_updated: "2026-06-12T18:21:02.481Z"
+last_updated: "2026-06-12T18:49:40.918Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 4
@@ -67,9 +67,9 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-06-12T17:43:49.527Z
-Stopped at: Completed 13-06-run-judged-arms-PLAN.md
-Resume file: None
+Last session: 2026-06-12T18:49:40.906Z
+Stopped at: Phase 14 context gathered
+Resume file: .planning/phases/14-richer-state-replay-conditional/14-CONTEXT.md
 Next step: `/gsd-plan-phase 12`
 
 ## Performance Metrics
