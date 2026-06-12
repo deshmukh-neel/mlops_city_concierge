@@ -92,7 +92,7 @@
   4. The critique-recalibration arm (DEC-03) is co-tuned with DEC-01 (not tuned in isolation), with the `LOW_SIMILARITY_THRESHOLD` change direction and the `low_similarity` scoping decision both documented before any threshold change lands
   5. DEC-05 arm-verdict document records per-arm n=5 commit-rate numbers for gpt-5-mini, deepseek-reasoner, and gpt-4o-mini anchor, and explicitly states which arm (if any) cleared the INST-05 falsifier bar — or records an honest null result
 
-**Plans**: 7 plans
+**Plans**: 7 plans + 3 gap-closure plans
 
 **Wave 1**
 
@@ -112,6 +112,12 @@
 **Wave 4**
 
 - [x] 13-07-a4-combo-and-closing-verdict-PLAN.md — A4 conditional combo decision (D-13-01, <=4-run cap) + closing INST-05 verdict + bookkeeping
+
+**Gap closure** *(post-verification: gaps_found 4/5 — repairs CR-01, CR-02, SC-3; honest null result unchanged)*
+
+- [ ] 13-08-cr01-forced-commit-synthesizer-fix-PLAN.md — CR-01: fix viability.py typed-path PlaceHit→dict + synthesizer rationale so the A2 forced-commit branch works; non-mocked regression test; annotate A2 verdict (mechanism was inoperative; 0.500 model-initiated stands; forced untested at n=5)
+- [ ] 13-09-cr02-falsifier-split-reader-fix-PLAN.md — CR-02: fix eval_falsifier split reader to read queries[i].deterministic; fixture to real EvalRunReport shape + regression test; annotate verdict that pasted 0/0 was a tool bug (hand-computed tables correct)
+- [ ] 13-10-sc3-respecify-and-flag-hygiene-PLAN.md — SC-3 zero-spend respecify (criterion 3 → absolute latency for future baseline; constraint annotated) + WR-09 env_flag DRY helper + WR-02 VIABILITY_CONTRACT_ENABLED single-read co-tuning fix
 
 ### Phase 14: Richer State Replay (CONDITIONAL)
 
