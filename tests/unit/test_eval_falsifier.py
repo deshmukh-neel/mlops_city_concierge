@@ -381,6 +381,136 @@ class TestBaselinesModeUnit:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests: anchor non-regression over the COMMON scenario set (CR-01)
+# ---------------------------------------------------------------------------
+
+
+def _write_run_summary(tmp_path: Path, summary: dict) -> Path:
+    """Write a summary.json to a tmp run dir, return the run dir path."""
+    run_dir = tmp_path / "run" / "2026-01-01T00-00-00Z"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.json").write_text(json.dumps(summary))
+    return run_dir
+
+
+class TestAnchorCommonScenarioPooling:
+    """CR-01: anchor floor must be pooled over the run∩baseline scenario set."""
+
+    def _baselines_with_two_scenarios(self, tmp_path: Path) -> Path:
+        """Baselines: omakase anchor=0.8, refinement anchor=1.0 (floor 0.9 if mis-pooled)."""
+        baselines_dir = tmp_path / "baselines"
+        baselines_dir.mkdir()
+        _write_minimal_baseline(
+            baselines_dir, "omakase_mission_open_ended", {_ANCHOR_KEY: 0.8, _GPT5_KEY: 0.8}
+        )
+        _write_minimal_baseline(
+            baselines_dir, "refinement_cheaper", {_ANCHOR_KEY: 1.0, _GPT5_KEY: 0.8}
+        )
+        return baselines_dir
+
+    def test_run_matching_its_own_scenario_baseline_passes(self, tmp_path: Path, script) -> None:
+        """A run scoring exactly its omakase baseline (0.8) must NOT fail against a
+        floor inflated by the refinement-only baseline (0.9). False-FAIL repro."""
+        baselines_dir = self._baselines_with_two_scenarios(tmp_path)
+        summary = _make_summary(
+            {
+                "omakase_mission_open_ended": {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(0.8, n=5),
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        rc = script.main(["--run-dir", str(run_dir), "--baselines-dir", str(baselines_dir)])
+        assert rc == 0, (
+            "anchor at its own per-scenario baseline must PASS; pooling against the "
+            f"refinement-only baseline is a false regression (got exit {rc})"
+        )
+
+    def test_anchor_regression_on_common_scenario_fails(self, tmp_path: Path, script) -> None:
+        """Run anchor 0.6 < omakase baseline 0.8 → exit 1 via the anchor branch."""
+        baselines_dir = self._baselines_with_two_scenarios(tmp_path)
+        summary = _make_summary(
+            {
+                "omakase_mission_open_ended": {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),  # check 1 passes
+                    _ANCHOR_KEY: _cell_with_cir(0.6, n=5),  # below 0.8 floor
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        rc = script.main(["--run-dir", str(run_dir), "--baselines-dir", str(baselines_dir)])
+        assert rc == 1, f"anchor 0.6 < common-scenario floor 0.8 must FAIL, got exit {rc}"
+
+    def test_anchor_regression_message_printed(
+        self, tmp_path: Path, script, capsys: pytest.CaptureFixture
+    ) -> None:
+        baselines_dir = self._baselines_with_two_scenarios(tmp_path)
+        summary = _make_summary(
+            {
+                "omakase_mission_open_ended": {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(0.6, n=5),
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        script.main(["--run-dir", str(run_dir), "--baselines-dir", str(baselines_dir)])
+        captured = capsys.readouterr()
+        assert "anchor regression" in captured.out
+
+    def test_asymmetric_scenarios_are_reported_as_excluded(
+        self, tmp_path: Path, script, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Scenarios present on only one side must be named in the output."""
+        baselines_dir = self._baselines_with_two_scenarios(tmp_path)
+        summary = _make_summary(
+            {
+                "omakase_mission_open_ended": {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(0.8, n=5),
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        script.main(["--run-dir", str(run_dir), "--baselines-dir", str(baselines_dir)])
+        captured = capsys.readouterr()
+        assert "excluded from anchor comparison" in captured.out
+        assert "refinement_cheaper" in captured.out
+
+    def test_no_common_scenarios_warns_and_passes(
+        self, tmp_path: Path, script, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Empty intersection → loud warning, treated as no-floor PASS (not a crash/FAIL)."""
+        baselines_dir = self._baselines_with_two_scenarios(tmp_path)
+        summary = _make_summary(
+            {
+                "scenario_not_in_baselines": {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        rc = script.main(["--run-dir", str(run_dir), "--baselines-dir", str(baselines_dir)])
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "no scenario overlap" in captured.out
+
+    def test_anchor_with_no_evaluable_cells_still_fails(self, tmp_path: Path, script) -> None:
+        """A run where the anchor provider has no cells at all remains a FAIL."""
+        baselines_dir = self._baselines_with_two_scenarios(tmp_path)
+        summary = _make_summary(
+            {
+                "omakase_mission_open_ended": {_GPT5_KEY: _cell_with_cir(0.8, n=5)},
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        rc = script.main(["--run-dir", str(run_dir), "--baselines-dir", str(baselines_dir)])
+        assert rc == 1
+
+
+# ---------------------------------------------------------------------------
 # Smoke test: real configs/eval_baselines (COMMITTED TEST ARTIFACT)
 # Satisfies feedback_test_layering: smoke + unit + functional coverage.
 # ---------------------------------------------------------------------------

@@ -64,6 +64,7 @@ def _latest_run_dir(base: Path) -> Path:
 def _pooled_commit_rate(
     summary: dict[str, Any],
     provider_key: str,
+    scenario_ids: set[str] | None = None,
 ) -> tuple[float | None, dict[str, float | None]]:
     """Return (pooled_rate, per_scenario_rates) for one provider across all scored scenarios.
 
@@ -72,6 +73,13 @@ def _pooled_commit_rate(
     by its n (number of runs) so scenarios with more runs have proportionally
     more influence on the pooled rate.
 
+    When ``scenario_ids`` is provided, pooling is restricted to that set —
+    used by the anchor non-regression check to compare the run and the
+    committed baselines over the SAME scenario universe (CR-01: an
+    eval_matrix.yaml run covers fewer scenarios than the committed baselines,
+    e.g. refinement_cheaper exists only as a baseline, so pooling each side
+    over its own full universe gives apples-to-oranges floors).
+
     Returns (None, per_scenario) when the provider has no evaluable cells at all.
     """
     total_commits = 0.0
@@ -79,6 +87,8 @@ def _pooled_commit_rate(
     per_scenario: dict[str, float | None] = {}
 
     for scenario_id, scenario_block in summary.get("scenarios", {}).items():
+        if scenario_ids is not None and scenario_id not in scenario_ids:
+            continue
         # D-10-09: skip quarantined scenarios
         if scenario_block.get("baseline_eligible", True) is False:
             continue
@@ -229,8 +239,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write(f"eval_falsifier: could not load baselines for anchor check: {exc}\n")
         return 2
 
-    anchor_pooled, anchor_per_scenario = _pooled_commit_rate(summary, _ANCHOR_KEY)
-    baseline_pooled, baseline_per_scenario = _pooled_commit_rate(baselines_summary, _ANCHOR_KEY)
+    _, anchor_per_scenario = _pooled_commit_rate(summary, _ANCHOR_KEY)
+    baseline_pooled_full, baseline_per_scenario = _pooled_commit_rate(
+        baselines_summary, _ANCHOR_KEY
+    )
 
     print(f"\n[{_ANCHOR_KEY}] committed_itinerary_rate per scenario (run vs baseline):")
     all_scenario_ids = set(anchor_per_scenario) | set(baseline_per_scenario)
@@ -245,24 +257,46 @@ def main(argv: Sequence[str] | None = None) -> int:
     # (comparing baselines to themselves would always pass and is vacuous).
     if args.baselines_mode:
         # Use the baseline value itself as the anchor floor for display
-        if baseline_pooled is not None:
+        if baseline_pooled_full is not None:
             print(
-                f"\n{_ANCHOR_KEY}: baselines-mode — pooled baseline = {baseline_pooled:.3f}"
+                f"\n{_ANCHOR_KEY}: baselines-mode — pooled baseline = {baseline_pooled_full:.3f}"
                 f" (anchor regression check skipped in baselines-mode)"
             )
         else:
             print(f"\n{_ANCHOR_KEY}: baselines-mode — pooled baseline = N/A")
     else:
-        # Run-dir mode: compare run results against committed baseline floor
-        if anchor_pooled is None:
+        # Run-dir mode: compare run results against committed baseline floor.
+        # CR-01: the run and the committed baselines cover DIFFERENT scenario
+        # universes by construction (eval_matrix.yaml runs only a subset of the
+        # baseline-eligible scenarios; refinement_cheaper exists only as a
+        # baseline). Pool both sides over the INTERSECTION of scenarios that
+        # have a rate in BOTH summaries, so the floor is apples-to-apples.
+        common = {
+            sid
+            for sid in set(anchor_per_scenario) & set(baseline_per_scenario)
+            if anchor_per_scenario[sid] is not None and baseline_per_scenario[sid] is not None
+        }
+        excluded = sorted((set(anchor_per_scenario) | set(baseline_per_scenario)) - common)
+        if excluded:
+            print(
+                f"\n  note: scenarios excluded from anchor comparison"
+                f" (missing on one side): {', '.join(excluded)}"
+            )
+        anchor_pooled, _ = _pooled_commit_rate(summary, _ANCHOR_KEY, scenario_ids=common)
+        baseline_pooled, _ = _pooled_commit_rate(
+            baselines_summary, _ANCHOR_KEY, scenario_ids=common
+        )
+
+        anchor_has_cells = any(v is not None for v in anchor_per_scenario.values())
+        if not anchor_has_cells:
             print(
                 f"\n{_ANCHOR_KEY}: pooled committed_itinerary_rate = N/A (no evaluable cells)  FAIL"
             )
             failed = True
-        elif baseline_pooled is None:
+        elif not common or anchor_pooled is None or baseline_pooled is None:
             print(
-                f"\n{_ANCHOR_KEY}: no committed baseline for comparison"
-                f"  run={anchor_pooled:.3f}  (treating as PASS — no floor set)"
+                f"\n{_ANCHOR_KEY}: WARNING — no scenario overlap between run and committed"
+                f" baselines; anchor floor is not comparable (treating as PASS — no floor set)"
             )
         elif anchor_pooled >= baseline_pooled:
             print(
