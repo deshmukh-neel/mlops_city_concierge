@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 13
-status: "Phase 12 shipped — PR #107"
-last_updated: "2026-06-12T04:13:22.461Z"
-last_activity: 2026-06-11
+status: executing
+last_updated: "2026-06-12T05:11:48.088Z"
+last_activity: 2026-06-12 -- Phase 13 execution started
 progress:
   total_phases: 4
   completed_phases: 1
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md (updated 2026-06-11 for v2.2 milestone start)
 See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 13 — decisiveness experiment arms
+**Current focus:** Phase 13 — decisiveness-experiment-arms
 
 ## Current Position
 
-Phase: 12 (decisiveness-instrumentation-comparison-floor) — EXECUTING
-Plan: Not started
-Status: Phase 12 shipped — PR #107
-Last activity: 2026-06-11
+Phase: 13 (decisiveness-experiment-arms) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 13
+Last activity: 2026-06-12 -- Phase 13 execution started
 
 Progress: [██████████] 100%
 
