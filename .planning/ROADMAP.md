@@ -50,7 +50,7 @@
 
 - [x] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the v2.2 comparison floor confirmed (BOTH anthropic AND gemini cells deferred at user decision — D-12-09; non-deferred cells honest n=5) (completed 2026-06-12)
 - [x] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier (completed 2026-06-12; honest null result — no arm cleared INST-05; Phase 14 entry gate OPEN)
-- [x] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar (completed 2026-06-12)
+- [ ] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar (planned 2026-06-12; entry gate OPEN; 5 plans)
 - [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
 
 ## Phase Details
@@ -124,14 +124,31 @@
 **Goal**: Multi-message reasoning-state replay and content-block preservation are A/B-tested against the Phase-13 plateau baseline, producing evidence that either justifies promotion to the winning configuration or confirms the decisiveness gap requires architectural rethinking (ARCH-FUT-01 trigger)
 **Depends on**: Phase 13 (DEC-05 verdict — entry gate is "all DEC arms plateau below the INST-05 falsifier bar")
 **Requirements**: REPLAY-01, REPLAY-02
-**Entry gate (CONDITIONAL)**: This phase executes ONLY if Phase 13's DEC-05 arm-verdict document records that no arm cleared the INST-05 falsifier bar (gpt-5-mini commit rate ≥ 0.6 at n=5 with no anchor regression). If any arm clears the bar, Phase 14 is skipped and the roadmap proceeds directly to Phase 15.
+**Entry gate (CONDITIONAL)**: This phase executes ONLY if Phase 13's DEC-05 arm-verdict document records that no arm cleared the INST-05 falsifier bar (gpt-5-mini commit rate ≥ 0.6 at n=5 with no anchor regression). If any arm clears the bar, Phase 14 is skipped and the roadmap proceeds directly to Phase 15. Entry gate is OPEN (docs/decisiveness_arm_verdicts.md: no arm cleared — A1 0.000, A2 0.500 best, A3 anchor-regressed).
 **Success Criteria** (what must be TRUE):
 
   1. Multi-message `_reasoning_state` replay A/B (REPLAY-01) is measured at n=5 against the DEC plateau: the commit-rate delta vs the best DEC arm is reported, not assumed — positive or negative result is valid
   2. Content-block preservation through `_prune_for_llm` A/B (REPLAY-02) is measured at n=5 against the DEC plateau: the delta is reported alongside an explanation of whether `str()` collapse was causing observable loss in run JSONs
   3. The combined REPLAY result either (a) clears the INST-05 falsifier bar and Phase 15 begins, or (b) is documented as a plateau, triggering explicit ARCH-FUT-01 evaluation before Phase 15 scope is finalized
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+**Wave 1**
+
+- [ ] 14-01-replay-flag-wiring-and-graph-branches-PLAN.md — REPLAY-01/02 flag wiring: replay_reasoning_state_multi ABC default + plan() multi-replay branch + _prune_for_llm content-preservation branch + arm_flags extension + flag-gated graph tests (flag-off byte-identical)
+- [ ] 14-02-evidence-audit-and-verdict-scaffold-PLAN.md — REPLAY-02 D-14-05 evidence audit (zero-spend) + docs/replay_arm_verdicts.md scaffold mirroring the DEC-05 record
+
+**Wave 2** *(blocked on 14-01)*
+
+- [ ] 14-03-adapter-conformance-and-byte-identity-PLAN.md — REPLAY-01 D-14-04 additive multi-replay conformance tests for all four adapters; existing 9-test harness unchanged
+
+**Wave 3** *(live runs — checkpoints, real API spend; ≤4-run cap)*
+
+- [ ] 14-04-run-r1-r2-judged-arms-PLAN.md — Run R1 (multi-message replay) + R2 (content-block preservation) PURE at n=5 temp=1.0, smoke-first with arm_flags verification; fill R1/R2 verdict sections with three-delta tables
+
+**Wave 4**
+
+- [ ] 14-05-combo-closing-verdict-and-archfut-PLAN.md — Conditional R3 combo + discretionary stack valve (D-14-01) + Closing Verdict + ARCH-FUT-01 Evaluation (on plateau) or winning-arm promotion inputs (on clear) + Phase-15 user checkpoint + stale ROADMAP line-53 bookkeeping fix
 
 ### Phase 15: Gate Promotion + Baseline Regen
 
@@ -163,9 +180,9 @@
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
-| 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
+| 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/5 | Planned | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
 ---
 
-*Last updated: 2026-06-12 — Phase 13 complete (7/7 plans); honest null result — no arm cleared INST-05 bar; Phase 14 (Richer State Replay) entry gate OPEN per DEC-05 closing verdict.*
+*Last updated: 2026-06-12 — Phase 14 (Richer State Replay) planned: 5 plans across 4 waves; entry gate OPEN per Phase-13 DEC-05 null result. Stale Phase-14 milestone-bullet completion marker corrected to [ ] (planned, not complete).*
