@@ -39,8 +39,8 @@ Joint experiments over three coupled levers — prompt contract, critique pressu
 
 Entry gate: only if all DEC arms plateau below the INST-05 falsifier bar. Justified by A/B, not by assumption.
 
-- [ ] **REPLAY-01**: Multi-message reasoning-state replay A/B: every in-window tool-calling AIMessage gets its `_reasoning_state` replayed (vs current most-recent-only at `graph.py:307-312`), measured against the DEC plateau
-- [ ] **REPLAY-02**: Content-block preservation A/B: `_prune_for_llm` preserves pre-cutoff AIMessage list-content reasoning blocks (vs current `str()` collapse at `graph.py:227`), measured against the DEC plateau
+- [x] **REPLAY-01**: Multi-message reasoning-state replay A/B: every in-window tool-calling AIMessage gets its `_reasoning_state` replayed (vs current most-recent-only at `graph.py:307-312`), measured against the DEC plateau
+- [x] **REPLAY-02**: Content-block preservation A/B: `_prune_for_llm` preserves pre-cutoff AIMessage list-content reasoning blocks (vs current `str()` collapse at `graph.py:227`), measured against the DEC plateau
 
 ### Gate Promotion & Baseline Regen (PROMO)
 
@@ -91,8 +91,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEC-03 | Phase 13 | Complete |
 | DEC-04 | Phase 13 | Complete |
 | DEC-05 | Phase 13 | Complete — honest null result; no arm cleared INST-05 bar; docs/decisiveness_arm_verdicts.md closing verdict: Phase 14 entry gate OPEN |
-| REPLAY-01 | Phase 14 | Pending |
-| REPLAY-02 | Phase 14 | Pending |
+| REPLAY-01 | Phase 14 | Complete |
+| REPLAY-02 | Phase 14 | Complete |
 | PROMO-01 | Phase 15 | Pending |
 | PROMO-02 | Phase 15 | Pending |
 | PROMO-03 | Phase 15 | Pending |

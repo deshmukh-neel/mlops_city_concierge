@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 14
 status: executing
-last_updated: "2026-06-12T19:20:14.230Z"
-last_activity: 2026-06-12 -- Phase 14 planning complete
+last_updated: "2026-06-12T19:31:25.227Z"
+last_activity: 2026-06-12
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 20
-  completed_plans: 15
+  completed_plans: 16
   percent: 50
 ---
 
@@ -27,16 +27,16 @@ See: .planning/PROJECT.md (updated 2026-06-11 for v2.2 milestone start)
 See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 14 — richer state replay (conditional)
+**Current focus:** Phase 14 — richer-state-replay-conditional
 
 ## Current Position
 
-Phase: 13 (decisiveness-experiment-arms) — EXECUTING
-Plan: Not started
+Phase: 14 (richer-state-replay-conditional) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 14 planning complete
+Last activity: 2026-06-12
 
-Progress: [██████████] 100%
+Progress: [████████░░] 80%
 
 ## Blockers / Readiness Notes
 
@@ -67,9 +67,9 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-06-12T18:49:40.906Z
+Last session: 2026-06-12T19:31:25.222Z
 Stopped at: Phase 14 context gathered
-Resume file: .planning/phases/14-richer-state-replay-conditional/14-CONTEXT.md
+Resume file: None
 Next step: `/gsd-plan-phase 12`
 
 ## Performance Metrics
@@ -87,6 +87,7 @@ Next step: `/gsd-plan-phase 12`
 | Phase 13 P05 | 7min | 3 tasks | 4 files |
 | Phase Phase 13 P06 P110min | 3 tasks | 1 files tasks | - files |
 | Phase 13 P10 | 5m | 3 tasks | 7 files |
+| Phase 14 P14-01 | 15min | 3 tasks | 5 files |
 
 ## Decisions
 
