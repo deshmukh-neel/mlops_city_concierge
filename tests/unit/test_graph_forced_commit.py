@@ -339,6 +339,98 @@ def test_forced_commit_skipped_when_no_viable_slot(
     )
 
 
+@patch("app.agent.commit.get_details_many")
+def test_forced_commit_synthesizer_real_placehit_shapes(
+    mock_details: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CR-01 non-mocked regression test: forced-commit synthesizer on real PlaceHit shapes.
+
+    Strategy:
+    - scratch["semantic_search"] carries real PlaceHit objects (NOT dicts) above threshold.
+    - best_viable_candidate_per_slot and commit_stops are NOT patched — exercises the real
+      synthesis path end-to-end.
+    - Only mocked: get_details_many (DB boundary), critique_final_with_stops (LLM/DB),
+      route_legs, swap_closed_stops (async infra).
+    - Asserts commit_forced=True and stops is non-empty.
+
+    This test FAILS on the pre-fix synthesizer because:
+    (a) viability.py typed path returned {} for PlaceHit → best_viable_candidate_per_slot
+        yielded empty dicts with no place_id, so candidates were filtered out.
+    (b) Even if a candidate had a place_id, it lacked 'rationale', so Stop(**raw) raised
+        a ValidationError and commit_stops rejected it.
+    After the fix: model_dump produces populated dicts AND synthesized rationale satisfies
+    Stop.rationale requirement — commit_stops accepts the stops and commit_forced=True.
+    """
+    from app.tools.retrieval import PlaceHit
+
+    monkeypatch.setenv("FORCED_COMMIT_STEP", "2")
+    monkeypatch.setenv("VIABILITY_CONTRACT_ENABLED", "0")
+    monkeypatch.setenv("PARALLEL_TOOL_EXECUTION_ENABLED", "0")
+
+    mock_details.return_value = {}
+
+    # Build scratch with real PlaceHit objects (not dicts) — one per requested type.
+    place_id = "ChIJxxx_real_placehit_0001"
+    primary_type = "sushi_restaurant"
+    hit = PlaceHit(
+        place_id=place_id,
+        name="Real Sushi Place",
+        primary_type=primary_type,
+        source="google_places",
+        similarity=LOW_SIMILARITY_THRESHOLD + 0.1,
+    )
+    state = ItineraryState(
+        scratch={
+            "semantic_search": [
+                {
+                    "step": 0,
+                    "args": {"query": "sushi"},
+                    "result": [hit],  # real PlaceHit, not a dict
+                    "id": "tc0",
+                }
+            ]
+        },
+        constraints=UserConstraints(
+            requested_primary_types=[primary_type],
+            num_stops=1,
+        ),
+        messages=[HumanMessage(content="Find me a sushi place")],
+        # step_count=1 so act() increments to 2 == FORCED_COMMIT_STEP
+        step_count=1,
+    )
+
+    import app.agent.graph as graph_module
+
+    with (
+        patch.object(
+            graph_module,
+            "critique_final_with_stops",
+            return_value={"done": True, "final_reply": "Here is your sushi itinerary."},
+        ),
+        patch.object(
+            graph_module,
+            "route_legs",
+            new=AsyncMock(return_value=MagicMock(legs=[])),
+        ),
+        patch.object(graph_module, "swap_closed_stops", new=AsyncMock(return_value={})),
+    ):
+        mock_llm = _make_mock_llm_semantic_search_only()
+        graph = build_agent_graph(mock_llm, max_steps=8)
+
+        with patch("app.agent.graph.asyncio.to_thread", new=AsyncMock(return_value=[])):
+            final = _run_graph_sync(graph, state)
+
+    assert final.get("commit_forced") is True, (
+        f"commit_forced must be True when synthesizer runs on real PlaceHit shapes; "
+        f"got commit_forced={final.get('commit_forced')!r}, stops={final.get('stops')!r}"
+    )
+    assert final.get("stops"), (
+        f"stops must be non-empty after forced commit on real PlaceHit shapes; "
+        f"got stops={final.get('stops')!r}"
+    )
+
+
 def test_forced_commit_step_zero_disables_branch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
