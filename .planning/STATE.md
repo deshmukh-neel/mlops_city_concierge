@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 12
 status: executing
-last_updated: "2026-06-12T01:08:30.959Z"
+last_updated: "2026-06-12T01:14:05.331Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -32,11 +32,11 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 ## Current Position
 
 Phase: 12 (decisiveness-instrumentation-comparison-floor) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-06-12
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 75%
 
 ## Blockers / Readiness Notes
 
@@ -67,8 +67,8 @@ Progress: [█████░░░░░] 50%
 
 ## Session Continuity
 
-Last session: 2026-06-12T01:08:30.954Z
-Stopped at: Phase 12 context gathered
+Last session: 2026-06-12T01:14:05.326Z
+Stopped at: Completed 12-04-comparison-floor-deferral-bookkeeping-PLAN.md
 Resume file: None
 Next step: `/gsd-plan-phase 12`
 
@@ -78,3 +78,8 @@ Next step: `/gsd-plan-phase 12`
 |-------|------|----------|-------|
 | Phase 12 P01 | 3min | 3 tasks | 3 files |
 | Phase 12 P03 | 5min | 3 tasks | 3 files |
+| Phase 12 P04 | 3min | 3 tasks | 5 files |
+
+## Decisions
+
+- [Phase ?]: D-12-09 honored: gemini n=5 baseline deferred at user budget decision (2026-06-11); joins anthropic as second deferred cell; comparison floor = matrix minus BOTH anthropic AND gemini
