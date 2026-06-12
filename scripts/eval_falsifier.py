@@ -2,7 +2,8 @@
 """Falsifier report for Phase 12 / v2.2 milestone (INST-05 / D-12-06..08).
 
 Reads a completed eval_reports run directory (latest by default) and answers:
-  - Did openai/gpt-5-mini hit >= 0.6 committed_itinerary_rate pooled across
+  - Did openai/gpt-5-mini hit >= 0.6 committed_itinerary_rate (median-weighted
+    across scenarios; see _pooled_commit_rate) pooled over
     all scored scenarios? (D-12-08: pooled across configs/eval_matrix.yaml cells)
   - Did openai/gpt-4o-mini hold >= its honest baseline floor?
 
@@ -72,6 +73,16 @@ def _pooled_commit_rate(
     baseline_eligible is not explicitly False. Weights each scenario's median
     by its n (number of runs) so scenarios with more runs have proportionally
     more influence on the pooled rate.
+
+    WR-03 HONESTY NOTE: this is a MEDIAN-WEIGHTED average
+    (``sum(median_s * n_s) / sum(n_s)``), NOT a true pooled per-run rate.
+    summary.json scorer blocks carry only {median,min,max,stdev,n} — per-run
+    values are unavailable here — so every run in a scenario is treated as if
+    it scored the scenario median. With a single scenario and binary per-run
+    rates the verdict is equivalent to a true pool; with multiple scenarios or
+    fractional rates it can diverge (e.g. run-rates [0,0,0.7,0.8,1.0] pool to
+    0.7 via median vs 0.5 true mean). Plan 12-03 mandates median-weighting;
+    the printed label says "median-weighted" so operators are not misled.
 
     When ``scenario_ids`` is provided, pooling is restricted to that set —
     used by the anchor non-regression check to compare the run and the
@@ -212,16 +223,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  {scenario_id}: {rate_str}")
 
     if gpt5_pooled is None:
-        print(f"\n{_GPT5_KEY}: pooled committed_itinerary_rate = N/A (no evaluable cells)  FAIL")
+        print(
+            f"\n{_GPT5_KEY}: median-weighted committed_itinerary_rate = N/A (no evaluable cells)  FAIL"
+        )
         failed = True
     elif gpt5_pooled >= _FALSIFIER_BAR:
         print(
-            f"\n{_GPT5_KEY}: pooled committed_itinerary_rate = {gpt5_pooled:.3f}"
+            f"\n{_GPT5_KEY}: median-weighted committed_itinerary_rate = {gpt5_pooled:.3f}"
             f" >= {_FALSIFIER_BAR}  PASS"
         )
     else:
         print(
-            f"\n{_GPT5_KEY}: pooled committed_itinerary_rate = {gpt5_pooled:.3f}"
+            f"\n{_GPT5_KEY}: median-weighted committed_itinerary_rate = {gpt5_pooled:.3f}"
             f" < {_FALSIFIER_BAR}  FAIL"
         )
         failed = True
@@ -259,11 +272,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Use the baseline value itself as the anchor floor for display
         if baseline_pooled_full is not None:
             print(
-                f"\n{_ANCHOR_KEY}: baselines-mode — pooled baseline = {baseline_pooled_full:.3f}"
+                f"\n{_ANCHOR_KEY}: baselines-mode — median-weighted baseline = {baseline_pooled_full:.3f}"
                 f" (anchor regression check skipped in baselines-mode)"
             )
         else:
-            print(f"\n{_ANCHOR_KEY}: baselines-mode — pooled baseline = N/A")
+            print(f"\n{_ANCHOR_KEY}: baselines-mode — median-weighted baseline = N/A")
     else:
         # Run-dir mode: compare run results against committed baseline floor.
         # CR-01: the run and the committed baselines cover DIFFERENT scenario
@@ -290,7 +303,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         anchor_has_cells = any(v is not None for v in anchor_per_scenario.values())
         if not anchor_has_cells:
             print(
-                f"\n{_ANCHOR_KEY}: pooled committed_itinerary_rate = N/A (no evaluable cells)  FAIL"
+                f"\n{_ANCHOR_KEY}: median-weighted committed_itinerary_rate = N/A (no evaluable cells)  FAIL"
             )
             failed = True
         elif not common or anchor_pooled is None or baseline_pooled is None:
@@ -300,12 +313,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif anchor_pooled >= baseline_pooled:
             print(
-                f"\n{_ANCHOR_KEY}: pooled = {anchor_pooled:.3f}"
+                f"\n{_ANCHOR_KEY}: median-weighted = {anchor_pooled:.3f}"
                 f" >= baseline {baseline_pooled:.3f}  PASS"
             )
         else:
             print(
-                f"\n{_ANCHOR_KEY}: pooled = {anchor_pooled:.3f}"
+                f"\n{_ANCHOR_KEY}: median-weighted = {anchor_pooled:.3f}"
                 f" < baseline {baseline_pooled:.3f}  FAIL (anchor regression)"
             )
             failed = True
