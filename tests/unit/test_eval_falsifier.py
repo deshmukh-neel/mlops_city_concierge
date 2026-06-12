@@ -381,6 +381,84 @@ class TestBaselinesModeUnit:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests: malformed summary shapes must not crash (WR-04)
+# ---------------------------------------------------------------------------
+
+
+class TestMalformedSummaryShapes:
+    """WR-04: malformed summary.json degrades to N/A, never an uncaught traceback.
+
+    An uncaught traceback exits the interpreter with code 1, which the
+    documented exit-code contract reserves for a legitimate FAIL verdict —
+    tooling keyed on exit codes would misread a corrupt artifact as a true
+    falsifier failure.
+    """
+
+    def test_null_n_treated_as_unevaluable(self, script: ModuleType) -> None:
+        summary = _make_summary(
+            {
+                "s": {
+                    _GPT5_KEY: {"scorers": {"committed_itinerary_rate": {"median": 1.0, "n": None}}}
+                }
+            }
+        )
+        pooled, per_scenario = script._pooled_commit_rate(summary, _GPT5_KEY)
+        assert pooled is None
+        assert per_scenario["s"] is None
+
+    def test_string_n_treated_as_unevaluable(self, script: ModuleType) -> None:
+        summary = _make_summary(
+            {"s": {_GPT5_KEY: {"scorers": {"committed_itinerary_rate": {"median": 1.0, "n": "5"}}}}}
+        )
+        pooled, per_scenario = script._pooled_commit_rate(summary, _GPT5_KEY)
+        assert pooled is None
+        assert per_scenario["s"] is None
+
+    def test_non_dict_scenario_block_treated_as_unevaluable(self, script: ModuleType) -> None:
+        summary = {"scenarios": {"s": ["not", "a", "dict"]}}
+        pooled, per_scenario = script._pooled_commit_rate(summary, _GPT5_KEY)
+        assert pooled is None
+        assert per_scenario["s"] is None
+
+    def test_non_dict_scorers_treated_as_unevaluable(self, script: ModuleType) -> None:
+        summary = _make_summary({"s": {_GPT5_KEY: {"scorers": "corrupt"}}})
+        pooled, per_scenario = script._pooled_commit_rate(summary, _GPT5_KEY)
+        assert pooled is None
+        assert per_scenario["s"] is None
+
+    def test_non_dict_scenarios_returns_none(self, script: ModuleType) -> None:
+        pooled, per_scenario = script._pooled_commit_rate({"scenarios": []}, _GPT5_KEY)
+        assert pooled is None
+        assert per_scenario == {}
+
+    def test_main_with_malformed_n_returns_verdict_not_traceback(
+        self, tmp_path: Path, script: ModuleType
+    ) -> None:
+        """main() over a summary with null n must return a deliberate exit code,
+        not raise TypeError (pre-fix behavior: uncaught crash → interpreter exit 1)."""
+        summary = _make_summary(
+            {
+                "s": {
+                    _GPT5_KEY: {"scorers": {"committed_itinerary_rate": {"median": 1.0, "n": None}}}
+                }
+            }
+        )
+        run_dir = tmp_path / "2026-01-01T00-00-00Z"
+        run_dir.mkdir()
+        (run_dir / "summary.json").write_text(json.dumps(summary))
+        rc = script.main(
+            [
+                "--run-dir",
+                str(run_dir),
+                "--baselines-dir",
+                str(REPO_ROOT / "configs" / "eval_baselines"),
+            ]
+        )
+        assert rc in {0, 1, 2}, f"must return a deliberate exit code, got {rc}"
+        assert rc == 1, "all cells unevaluable → N/A → FAIL verdict (exit 1)"
+
+
+# ---------------------------------------------------------------------------
 # Unit tests: anchor non-regression over the COMMON scenario set (CR-01)
 # ---------------------------------------------------------------------------
 

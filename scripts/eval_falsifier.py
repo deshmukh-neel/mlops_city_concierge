@@ -92,34 +92,51 @@ def _pooled_commit_rate(
     over its own full universe gives apples-to-oranges floors).
 
     Returns (None, per_scenario) when the provider has no evaluable cells at all.
+
+    WR-04: every nested read is isinstance-guarded so a malformed summary.json
+    (non-dict scenario/providers/cell/scorers blocks, null/string ``n``)
+    degrades to an unevaluable (None) scenario instead of raising — an
+    uncaught traceback exits the interpreter with code 1, which the documented
+    contract reserves for a legitimate FAIL verdict.
     """
     total_commits = 0.0
     total_runs = 0
     per_scenario: dict[str, float | None] = {}
 
-    for scenario_id, scenario_block in summary.get("scenarios", {}).items():
+    scenarios = summary.get("scenarios")
+    if not isinstance(scenarios, dict):
+        return None, per_scenario
+
+    for scenario_id, scenario_block in scenarios.items():
         if scenario_ids is not None and scenario_id not in scenario_ids:
+            continue
+        if not isinstance(scenario_block, dict):
+            per_scenario[scenario_id] = None
             continue
         # D-10-09: skip quarantined scenarios
         if scenario_block.get("baseline_eligible", True) is False:
             continue
-        cell = scenario_block.get("providers", {}).get(provider_key)
-        if cell is None:
+        providers = scenario_block.get("providers")
+        cell = providers.get(provider_key) if isinstance(providers, dict) else None
+        if not isinstance(cell, dict):
             per_scenario[scenario_id] = None
             continue
 
         # committed_itinerary_rate is wired into scorers by eval_matrix.py D-11-02
-        scorers = cell.get("scorers", {})
-        cir_block = scorers.get("committed_itinerary_rate")
-        if cir_block is None:
+        scorers = cell.get("scorers")
+        cir_block = scorers.get("committed_itinerary_rate") if isinstance(scorers, dict) else None
+        if not isinstance(cir_block, dict):
             per_scenario[scenario_id] = None
             continue
 
         median = cir_block.get("median")
         n = cir_block.get("n", 0)
 
-        # Guard against None/bool/non-numeric values
+        # Guard against None/bool/non-numeric values (median AND n — WR-04)
         if median is None or isinstance(median, bool) or not isinstance(median, (int, float)):
+            per_scenario[scenario_id] = None
+            continue
+        if not isinstance(n, int) or isinstance(n, bool) or n < 0:
             per_scenario[scenario_id] = None
             continue
 
