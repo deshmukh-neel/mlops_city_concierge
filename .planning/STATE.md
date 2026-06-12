@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 13
-status: executing
-last_updated: "2026-06-12T06:11:30.022Z"
+status: verifying
+last_updated: "2026-06-12T09:25:08.006Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 4
@@ -33,7 +33,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 Phase: 13 (decisiveness-experiment-arms) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-12
 
 Progress: [█████████░] 92%
@@ -67,8 +67,8 @@ Progress: [█████████░] 92%
 
 ## Session Continuity
 
-Last session: 2026-06-12T06:11:30.016Z
-Stopped at: Completed 13-05-arm-matrix-config-and-falsifier-PLAN.md
+Last session: 2026-06-12T09:25:08.000Z
+Stopped at: Completed 13-06-run-judged-arms-PLAN.md
 Resume file: None
 Next step: `/gsd-plan-phase 12`
 
@@ -85,6 +85,7 @@ Next step: `/gsd-plan-phase 12`
 | Phase 13 P03 | 4min | 2 tasks | 3 files |
 | Phase 13 P04 | 25min | 3 tasks | 3 files |
 | Phase 13 P05 | 7min | 3 tasks | 4 files |
+| Phase Phase 13 P06 P110min | 3 tasks | 1 files tasks | - files |
 
 ## Decisions
 
@@ -92,3 +93,7 @@ Next step: `/gsd-plan-phase 12`
 - [Phase ?]: DEC-03 threshold code default stays 0.55; LOW_SIMILARITY_THRESHOLD_OVERRIDE env var is the A1 experiment knob; first A1 run keeps it unset
 - [Phase ?]: low_similarity hint suppressed once all_slots_viable=True (DEC-03); only fires in pre-candidate steps; co-tuned with DEC-01 via shared VIABILITY_CONTRACT_ENABLED flag
 - [Phase ?]: Arm config scenario IDs match baseline stems; split reader uses provider_slug prefix stripping (13-05)
+- [Phase ?]: A1 VIABILITY_CONTRACT_ENABLED: gpt-5-mini 0.000 pooled — zero signal
+- [Phase ?]: A2 FORCED_COMMIT_STEP=6: gpt-5-mini 0.500 pooled (positive signal); forced mechanism never fired
+- [Phase ?]: A3 PARALLEL_TOOL_EXECUTION: anchor regression refinement_cheaper 0.000 vs 1.000 baseline; latency unmeasurable (Phase-12 no telemetry)
+- [Phase ?]: A4 conditional: A1 no signal (0.0), A2 positive (0.5); A4 qualification deferred to plan 13-07
