@@ -34,8 +34,8 @@ def rule8_viability_addendum(enabled: bool, threshold: float | None = None) -> s
     Constraints:
     - ADDITIVE only: this string is concatenated AFTER ``SYSTEM_PROMPT.format(...)``
       by the caller (plan 13-04 graph wiring); it does NOT modify SYSTEM_PROMPT.
-    - No forbidden behavioral-rubric phrases: "byte-for-byte", "SAME primary_type"
-      must not appear (Phase-7 CI grep gate, D-07-04).
+    - None of the D-07-04 forbidden behavioral-rubric phrases may appear in this
+      module (enforced by the PROMPT-02 grep gate in test_critique_checks.py).
     - Does not remove the existing pinned phrase "one viable option" from rule 8.
     """
     if not enabled:
