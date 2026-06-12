@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 12 (not started)
-status: planning
-last_updated: "2026-06-12T00:20:55.709Z"
-last_activity: 2026-06-11 — v2.2 roadmap created (4 phases, 17 requirements mapped; ANCH-01 deferred)
+status: executing
+last_updated: "2026-06-12T00:53:28.874Z"
+last_activity: 2026-06-12 -- Phase 12 planning complete
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
   percent: 0
 ---
@@ -33,8 +33,8 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 Phase: 12 of 15 (Decisiveness Instrumentation + Comparison Floor)
 Plan: — (roadmap created, planning not yet started)
-Status: Ready to plan
-Last activity: 2026-06-11 — v2.2 roadmap created (4 phases, 17 requirements mapped; ANCH-01 deferred)
+Status: Ready to execute
+Last activity: 2026-06-12 -- Phase 12 planning complete
 
 Progress: [░░░░░░░░░░] 0%
 

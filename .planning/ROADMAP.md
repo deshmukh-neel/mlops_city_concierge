@@ -56,52 +56,69 @@
 ## Phase Details
 
 ### Phase 12: Decisiveness Instrumentation + Comparison Floor
+
 **Goal**: The eval harness emits per-run decisiveness telemetry and the honest comparison floor (all matrix cells except the deferred anthropic cell) is complete, so every experiment arm in Phase 13 can be judged objectively against the same falsifier
 **Depends on**: Phase 11 (honest baselines infrastructure, `write_baselines.py`, `eval_gates.yaml` gates)
 **Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05, ANCH-02, ANCH-03
 **Success Criteria** (what must be TRUE):
+
   1. `eval_matrix.py` output includes per-run fields: steps-to-first-commit-consideration, per-step viable-candidate counts, and rule-8 precondition met/not-met flag — readable in the run JSON without post-processing
   2. Per-turn latency decomposition (LLM call time vs sequential tool-execution time per plan step) is recorded in each run JSON
   3. A single `make eval-falsifier` (or equivalent) report answers: did gpt-5-mini hit ≥ 0.6 commit rate at n=5, and did gpt-4o-mini hold ≥ its honest baseline? — pass/fail with per-model numbers
-  4. `gemini/gemini-3.1-pro-preview` first honest n=5 baseline is written via `write_baselines.py` and committed; gemini's `_DEFERRED_BASELINE_CELLS` entry is cleared and every non-deferred matrix cell is honest n=5 (ANCH-02, ANCH-03 clear together; anthropic's entry is retained with a deferral note)
-**Plans**: 4 plans
+  4. `gemini/gemini-3.1-pro-preview` first honest n=5 baseline is written via `write_baselines.py` and committed; gemini's `_DEFERRED_BASELINE_CELLS` entry is cleared and every non-deferred matrix cell is honest n=5 (ANCH-02, ANCH-03 clear together; anthropic's entry is retained with a deferral note)**Plans**: 4 plans
+
+**Wave 1**
+
 - [ ] 12-01-in-graph-step-telemetry-PLAN.md — INST-04: always-on in-graph per-step LLM-call + tool-execution timing on ItineraryState
-- [ ] 12-02-harness-derived-decisiveness-fields-PLAN.md — INST-01/02/03: harness-side first-commit-step, viable-candidate counts, rule-8 precondition fields
 - [ ] 12-03-falsifier-report-PLAN.md — INST-05: make eval-falsifier — pooled gpt-5-mini commit rate vs 0.6 + anchor non-regression, exit 0/1/2
 - [ ] 12-04-comparison-floor-deferral-bookkeeping-PLAN.md — ANCH-02/03: record gemini + anthropic deferrals (D-12-09); confirm non-deferred cells honest n=5
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 12-02-harness-derived-decisiveness-fields-PLAN.md — INST-01/02/03: harness-side first-commit-step, viable-candidate counts, rule-8 precondition fields
+
 **External dependency**: ANCH-02 requires Gemini quota resolution — prerequisite for that plan only; it does NOT block INST-01..05 work. INST plans execute first. ANCH-01 (anthropic n=5) was deferred at milestone start (no billing top-up; user decision 2026-06-11) — anthropic stays logged-not-gated with its deferred-cell entry intact.
 
 ### Phase 13: Decisiveness Experiment Arms
+
 **Goal**: Four coupled experiment arms are implemented, run at n=5 temp=1.0 against the Phase-12 comparison floor, and their verdicts are documented — revealing whether any arm clears the falsifier bar or all plateau below it
 **Depends on**: Phase 12 (telemetry fields in runs, falsifier report executable, 6-cell comparison floor complete)
 **Requirements**: DEC-01, DEC-02, DEC-03, DEC-04, DEC-05
 **Success Criteria** (what must be TRUE):
+
   1. The viability-contract arm (DEC-01) ships without touching the text or structure of any prompt section covered by the Phase-7 CI grep gate — the grep gate stays green
   2. The forced-commit-at-step-N arm (DEC-02) is a graph-level mechanism that triggers independently of model identity — confirmed by a unit test that fires it on a mock that never calls `commit_itinerary`
   3. The parallel-tool-execution arm (DEC-04) runs all tool calls within one `act()` plan step concurrently with results order-stable — measurable gpt-4o-mini latency reduction at n=5 recorded in run JSON
   4. The critique-recalibration arm (DEC-03) is co-tuned with DEC-01 (not tuned in isolation), with the `LOW_SIMILARITY_THRESHOLD` change direction and the `low_similarity` scoping decision both documented before any threshold change lands
   5. DEC-05 arm-verdict document records per-arm n=5 commit-rate numbers for gpt-5-mini, deepseek-reasoner, and gpt-4o-mini anchor, and explicitly states which arm (if any) cleared the INST-05 falsifier bar — or records an honest null result
+
 **Plans**: TBD
 
 ### Phase 14: Richer State Replay (CONDITIONAL)
+
 **Goal**: Multi-message reasoning-state replay and content-block preservation are A/B-tested against the Phase-13 plateau baseline, producing evidence that either justifies promotion to the winning configuration or confirms the decisiveness gap requires architectural rethinking (ARCH-FUT-01 trigger)
 **Depends on**: Phase 13 (DEC-05 verdict — entry gate is "all DEC arms plateau below the INST-05 falsifier bar")
 **Requirements**: REPLAY-01, REPLAY-02
 **Entry gate (CONDITIONAL)**: This phase executes ONLY if Phase 13's DEC-05 arm-verdict document records that no arm cleared the INST-05 falsifier bar (gpt-5-mini commit rate ≥ 0.6 at n=5 with no anchor regression). If any arm clears the bar, Phase 14 is skipped and the roadmap proceeds directly to Phase 15.
 **Success Criteria** (what must be TRUE):
+
   1. Multi-message `_reasoning_state` replay A/B (REPLAY-01) is measured at n=5 against the DEC plateau: the commit-rate delta vs the best DEC arm is reported, not assumed — positive or negative result is valid
   2. Content-block preservation through `_prune_for_llm` A/B (REPLAY-02) is measured at n=5 against the DEC plateau: the delta is reported alongside an explanation of whether `str()` collapse was causing observable loss in run JSONs
   3. The combined REPLAY result either (a) clears the INST-05 falsifier bar and Phase 15 begins, or (b) is documented as a plateau, triggering explicit ARCH-FUT-01 evaluation before Phase 15 scope is finalized
+
 **Plans**: TBD
 
 ### Phase 15: Gate Promotion + Baseline Regen
+
 **Goal**: The winning arm's honest baselines are written for all matrix cells, reasoning-model gates are promoted from logged-not-gated to enforced where the data earns it, and the prod latency budget analysis is documented — closing the milestone with a ratified prod-driver recommendation
 **Depends on**: Phase 13 (or Phase 14 if entered) — winning arm identified and merged
 **Requirements**: PROMO-01, PROMO-02, PROMO-03
 **Success Criteria** (what must be TRUE):
+
   1. `scripts/write_baselines.py` successfully writes honest n=5 baselines for all matrix cells under the winning arm configuration — no partial/quarantined cells in the output (per D-11-14)
   2. `configs/eval_gates.yaml` is updated: reasoning-model entries are promoted to `enforced` where measured commit-rate data meets the gate threshold, and entries that fall short explicitly retain `logged` with a note in the file
   3. The latency report (decomposed from INST-04 data) documents actual per-turn LLM-call time + tool-execution time for gpt-4o-mini under the winning arm, explicitly comparing against the ~30s/turn prod budget, with a written prod-driver recommendation (ratify gpt-4o-mini anchor OR revise with justification)
+
 **Plans**: TBD
 
 ## Progress
