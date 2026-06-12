@@ -19,7 +19,9 @@ Usage:
 Exit codes:
     0 = PASS — all falsifier checks met
     1 = FAIL — one or more checks failed (expected; not an infra error)
-    2 = infrastructure failure (missing run dir, malformed JSON)
+    2 = infrastructure failure (missing run dir, malformed JSON,
+        or a run-dir summary that shares zero scenarios with
+        configs/eval_matrix.yaml (wrong-matrix run))
 """
 
 from __future__ import annotations
@@ -220,7 +222,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     Exit codes:
         0 = PASS — gpt-5-mini >= 0.6 pooled and gpt-4o-mini held baseline
         1 = FAIL — one or more checks failed (expected; not an infra error)
-        2 = infrastructure failure (missing run dir, malformed JSON)
+        2 = infrastructure failure (missing run dir, malformed JSON,
+            or a run-dir summary that shares zero scenarios with
+            configs/eval_matrix.yaml (wrong-matrix run))
     """
     # Lazy import — only used here, not at module level (D-12-06 artifact-reading only)
     from scripts.check_eval_gates import (  # noqa: PLC0415
@@ -276,6 +280,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "belong to a different matrix (e.g. eval_matrix_refinement.yaml) — "
                 "pass --run-dir explicitly if so."
             )
+            sys.stderr.write(
+                "eval_falsifier: refusing to grade — resolved run dir shares zero scenarios "
+                "with configs/eval_matrix.yaml (wrong-matrix run); exit 2, no verdict.\n"
+            )
+            return 2
 
     # Per-scenario breakdown (D-12-08: always print)
     print(f"\n[{_GPT5_KEY}] committed_itinerary_rate per scenario:")
