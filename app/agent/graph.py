@@ -190,7 +190,11 @@ def _retry_unnecessary_stop_count_clarification(
     }
 
 
-def _prune_for_llm(messages: list[BaseMessage]) -> list[BaseMessage]:
+def _prune_for_llm(
+    messages: list[BaseMessage],
+    *,
+    preserve_content_blocks: bool = False,
+) -> list[BaseMessage]:
     """Curate the message list sent to the LLM to keep token cost bounded.
 
     Strategy: keep all SystemMessages and HumanMessages, plus the AIMessages.
@@ -199,6 +203,12 @@ def _prune_for_llm(messages: list[BaseMessage]) -> list[BaseMessage]:
     that issued tool_calls. Earlier tool results are dropped together with
     their issuing AIMessage's tool_calls, so the LLM never sees an unanswered
     tool_call (which would violate the OpenAI/Gemini conversation contract).
+
+    ``preserve_content_blocks`` (REPLAY-02 / D-14-06): when True, pre-cutoff
+    AIMessage content shape is preserved verbatim (list or str) instead of
+    the default str() collapse. tool_calls are still stripped regardless.
+    Flag-off path (preserve_content_blocks=False) is byte-identical to the
+    Phase-13 plateau.
     """
     if not messages:
         return messages
@@ -227,12 +237,23 @@ def _prune_for_llm(messages: list[BaseMessage]) -> list[BaseMessage]:
             # LLM thinking it issued tool_calls that were never answered.
             # D-08-07: preserve additional_kwargs (e.g. _reasoning_state)
             # across the cutoff window so adapter capture/replay can survive.
-            pruned.append(
-                AIMessage(
-                    content=m.content if isinstance(m.content, str) else str(m.content),
-                    additional_kwargs=m.additional_kwargs,
+            if preserve_content_blocks:
+                # D-14-06: preserve original content shape (list or str) verbatim
+                # instead of collapsing to str. tool_calls excluded by constructor default.
+                pruned.append(
+                    AIMessage(
+                        content=m.content,
+                        additional_kwargs=m.additional_kwargs,
+                    )
                 )
-            )
+            else:
+                # Flag-off: existing str() collapse (byte-identical to Phase-13 plateau)
+                pruned.append(
+                    AIMessage(
+                        content=m.content if isinstance(m.content, str) else str(m.content),
+                        additional_kwargs=m.additional_kwargs,
+                    )
+                )
             continue
         pruned.append(m)
     return pruned
@@ -308,6 +329,11 @@ def build_agent_graph(
     # Pre-compute the prompt addendum at build time (pure string; empty when flag off).
     _viability_prompt_addendum: str = rule8_viability_addendum(_viability_contract_enabled)
 
+    # Phase 14 / REPLAY arm-flag reads — same build-time resolve + closure pattern.
+    # Flag-off path must be byte-identical to the Phase-13 plateau (re-verify before merge).
+    _replay_multi_message_enabled: bool = env_flag("REPLAY_MULTI_MESSAGE_ENABLED")
+    _replay_content_blocks_enabled: bool = env_flag("REPLAY_CONTENT_BLOCKS_ENABLED")
+
     async def plan(state: ItineraryState) -> dict[str, Any]:
         messages_in: list[BaseMessage] = list(state.messages)
         if state.step_count == 0 and not any(isinstance(m, SystemMessage) for m in messages_in):
@@ -325,7 +351,9 @@ def build_agent_graph(
         # Send the LLM a curated view: keep only the most recent ToolMessage
         # per tool name so token cost stays linear in tool *kinds*, not in
         # tool *calls*. Full history is preserved on state.messages for tracing.
-        messages_for_llm = _prune_for_llm(messages_in)
+        messages_for_llm = _prune_for_llm(
+            messages_in, preserve_content_blocks=_replay_content_blocks_enabled
+        )
 
         # D-08-05 / D-08-06: POST-PRUNE reasoning-state replay. Read the most
         # recent AIMessage's _reasoning_state kwarg (stashed by the previous
@@ -333,12 +361,20 @@ def build_agent_graph(
         # cutoff by D-08-07's additional_kwargs forwarding in _prune_for_llm).
         # The adapter decides how to inject it; NoOpAdapter returns the list
         # unchanged so this is byte-identical for non-reasoning providers.
-        captured_state = None
-        for m in reversed(messages_for_llm):
-            if isinstance(m, AIMessage):
-                captured_state = m.additional_kwargs.get("_reasoning_state")
-                break
-        messages_for_llm = adapter.replay_reasoning_state(messages_for_llm, captured_state)
+        #
+        # REPLAY-01 (D-14-03): when _replay_multi_message_enabled is True,
+        # replay per-message _reasoning_state for every in-window AIMessage
+        # instead of injecting only the most recent one.
+        if _replay_multi_message_enabled:
+            messages_for_llm = adapter.replay_reasoning_state_multi(messages_for_llm)
+        else:
+            # Flag-off: existing single-message path (byte-identical to Phase-13 plateau)
+            captured_state = None
+            for m in reversed(messages_for_llm):
+                if isinstance(m, AIMessage):
+                    captured_state = m.additional_kwargs.get("_reasoning_state")
+                    break
+            messages_for_llm = adapter.replay_reasoning_state(messages_for_llm, captured_state)
 
         # D-12-01: record LLM-call wall time for INST-04 latency decomposition.
         _llm_start = time.monotonic()
