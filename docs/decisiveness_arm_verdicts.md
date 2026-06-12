@@ -185,6 +185,36 @@ but the forced gate conditions were not satisfied on refinement_cheaper (0/5 com
 The A2 commit rate improvement over A1 (0.500 vs 0.000 for gpt-5-mini) is entirely
 model-initiated, not forced — all 4 committed omakase runs were model-initiated at step <= 6.
 
+> **CR-01 POST-RUN ANNOTATION (Plan 13-08, 2026-06-12):** The forced-commit mechanism was
+> INOPERATIVE in the n=5 A2 run due to a synthesis bug (CR-01). Two independent defects made
+> every synthesized stop empty or rejected before it could reach `commit_stops`:
+> (a) `viability.py` typed path discarded real `PlaceHit` Pydantic models to `{}` (line 216:
+> `hit if isinstance(hit, dict) else {}`), so `best_viable_candidate_per_slot` yielded empty
+> dicts with no `place_id` — candidates were filtered out before reaching `commit_stops`;
+> (b) even if a candidate survived with a `place_id`, it lacked a `rationale` field, and
+> `Stop.rationale` is REQUIRED with no default (`app/agent/state.py`), so `Stop(**raw)` raised
+> a `ValidationError` and `commit_stops` rejected the stop.
+>
+> **Consequence:** `forced=0` for all 10 episodes is **over-determined by the CR-01 synthesis
+> bug**, not solely by gate non-satisfaction. forced=0 is explained by the bug; whether the
+> viability gate would have been satisfied on the fixed synthesizer is unknown and untested.
+>
+> **The 0.500 gpt-5-mini result STANDS** as an entirely **model-initiated** commit rate. The
+> synthesis bug only affected the forced path (`FORCED_COMMIT_STEP=6` branch); the model's own
+> `commit_itinerary` tool calls were never touched by this bug. The 4 committed omakase runs
+> and 0 refinement_cheaper commits are genuine model-initiated behavior.
+>
+> **The forced mechanism is UNTESTED at n=5.** Its effect on commit rate is unknown until a
+> re-run on the fixed synthesizer. The CR-01 fixes (Plan 13-08) repair both defects and add a
+> non-mocked regression test (`tests/unit/test_graph_forced_commit.py::
+> test_forced_commit_synthesizer_real_placehit_shapes`) that fails on the pre-fix code.
+>
+> **Phase-14 A2 retry disposition:** A2 re-test with the working synthesizer is a
+> **Phase-14/15 candidate, NOT a Phase-13 re-run**. The D-13-02 four-run live cap is already
+> consumed (n=5 smoke + full runs exhausted the budget). Whether to retry A2 in Phase 14 should
+> be decided once the Phase 13 overall verdict is known; if Phase 13 already shows that no arm
+> clears the INST-05 bar, an A2 forced-path re-test is a reasonable Phase-14 entry item.
+
 **Anchor red-flag assessment:** gpt-4o-mini behaviorally UNCHANGED — held at 1.000 across
 both scenarios, no forced commits, commit behavior matches comparison floor. NO RED FLAG.
 
@@ -193,7 +223,8 @@ both scenarios, no forced commits, commit behavior matches comparison floor. NO 
 A2 does NOT clear the INST-05 bar. gpt-5-mini pooled = 0.500 — improved over A1 (0.000)
 but still below 0.6. The improvement is entirely model-initiated on omakase; refinement_cheaper
 remains at 0.000. The FORCED_COMMIT_STEP=6 mechanism never fired (forced=0 for all models) —
-the mechanism's viability gate was not satisfied. Anchor held at 1.000 — no red flag.
+forced=0 is over-determined by the CR-01 synthesis bug; whether the gate would have been
+satisfied on the fixed synthesizer is unknown. Anchor held at 1.000 — no red flag.
 
 A2 shows POSITIVE SIGNAL (gpt-5-mini improved from 0.0 to 0.5 vs A1) without the forced
 mechanism triggering. Both A1 and A2 show positive signal (A1=0.0 → A2=0.5) — qualifies
