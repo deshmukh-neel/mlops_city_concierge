@@ -343,40 +343,89 @@ on a structurally no-op path for the anchor).
 Per D-14-01, the run-budget hard cap is ≤4 full live matrix runs total. R1 + R2 consume 2
 slots. R3 is the 3rd slot; the 4th (discretionary valve) is reserved.
 
-**Decision recorded:** [fill — R3 QUALIFIED or R3 SKIPPED (with D-14-01 precondition check)]
+**Decision recorded:** R3 SKIPPED — D-14-01 precondition NOT satisfied (see below)
 
-### R3 Decision: [fill]
+### R3 Decision: NOT RUN
 
-[fill — if QUALIFIED: proceed with run dirs and table below; if SKIPPED: record rationale
-and D-14-01 precondition check]
+**D-14-01 precondition check (mirrors A4 decision format from docs/decisiveness_arm_verdicts.md):**
 
-### Run Dirs
+1. Neither R1 nor R2 alone clears the INST-05 bar — **SATISFIED**. R1 falsifier exit=1,
+   R2 falsifier exit=1. Both arms failed to clear the 0.6 bar.
 
-| Run | Dir |
-|-----|-----|
-| Smoke (n=1) | [fill if R3 runs] |
-| Full (n=5) | [fill if R3 runs] |
+2. Both R1 AND R2 show positive signal (commit rate improved vs flag-off floor) — **NOT SATISFIED**.
+   - R1: gpt-5-mini pooled = 0.500 vs floor 0.000 → **POSITIVE signal (+0.500)**
+   - R2: gpt-5-mini ERRORED 10/10 episodes with deterministic 400 BadRequestErrors → **NEGATIVE signal**
+     (no evaluable commit-rate measurement; catastrophic functional regression, not a partial miss)
 
-**Smoke arm_flags verification:** [fill if R3 runs]
+   D-14-01 requires BOTH arms to be positive-but-short. R2 shows strictly negative signal —
+   it catastrophically disables gpt-5-mini rather than showing any improvement. The combo would
+   combine a positive-signal flag (R1) with a flag that produces deterministic provider failures
+   (R2). Enabling both flags simultaneously would not resolve the R2 root cause (list-content
+   function-call items re-sent to the Responses API without paired tool outputs); the 400 errors
+   would occur regardless of whether R1 is also set.
 
-### Per-model results
+**Conclusion:** R3 is NOT RUN. The precondition requires both R1 and R2 to show positive
+(though sub-bar) signal — R2's negative result disqualifies the combo. Running R3 would
+spend a budget slot on a configuration guaranteed to produce the same 10/10 400-error failure
+as R2 alone.
 
-| Model | Pooled commit rate | Delta vs flag-off (0.000) | Delta vs A2 (0.500) | omakase | refinement_cheaper | Falsifier verdict |
-|---|---|---|---|---|---|---|
-| openai/gpt-5-mini | [fill] | [fill] | [fill] | [fill] | [fill] | [fill] |
-| openai/gpt-4o-mini (anchor) | [fill] | [fill] | [fill] | [fill] | [fill] | [fill] |
-| deepseek/deepseek-reasoner | [fill] | [fill] | [fill] | [fill] | [fill] | (informational) |
+**Run budget:** 2/4 slots consumed (R1 + R2). R3 slot is preserved-but-not-spent.
 
-**Falsifier exit code:** [fill if R3 runs]
+---
 
-**Falsifier per-scenario breakdown (pasted verbatim):**
-```
-[fill if R3 runs]
-```
+## Discretionary Stack Valve (best-replay + FORCED_COMMIT_STEP=6)
 
-### Closing verdict
+**Flag config (if run):** `REPLAY_MULTI_MESSAGE_ENABLED=1 FORCED_COMMIT_STEP=6`
+**DEC arm flags:** `FORCED_COMMIT_STEP=6` SET; all other DEC flags UNSET (this is a
+deliberate stack, not a pure arm — the escalation valve sanctions this cross-phase combination)
 
-[fill]
+**Status: CONDITIONAL** — per D-14-01, the discretionary valve may run ONLY if:
+
+1. R1/R2/R3 all plateau (none clears the INST-05 bar independently)
+2. The best replay arm AND A2 each independently showed positive signal
+
+**Decision recorded:** VALVE NOT RUN — D-14-01 precondition met but run not sanctioned
+(see recommendation below)
+
+### Valve Decision: NOT RUN
+
+**D-14-01 precondition check:**
+
+1. R1/R2/R3 all plateau (none clears independently) — **SATISFIED**.
+   R1 exit=1 (0.500 < 0.6), R2 exit=1 (catastrophically negative), R3 NOT RUN.
+   No replay arm cleared the INST-05 bar.
+
+2. Best replay arm (R1) AND A2 each independently showed positive signal — **SATISFIED**.
+   - R1 (best replay arm): gpt-5-mini 0.500 vs floor 0.000 → +0.500 (positive signal)
+   - A2 (FORCED_COMMIT_STEP=6): gpt-5-mini 0.500 (model-initiated, positive signal)
+
+   The D-14-01 escalation-valve precondition is formally satisfied. The valve is therefore
+   within scope as an option before declaring plateau.
+
+**Recommendation: NOT RUN.** Rationale:
+
+R1 produced exactly the same gpt-5-mini rate as A2 (0.500 vs 0.500 — delta = ±0.000). This
+means multi-message reasoning-state replay provides zero incremental signal over the forced-commit
+mechanism alone. Stacking R1 on A2 (the valve configuration) would combine a mechanism with
+zero marginal value (R1) on top of A2's forced-commit path. The expected additional signal is
+zero by the transitivity of zero-delta evidence.
+
+Furthermore, while the CR-01 synthesis bug fix (Phase 13-08) repaired the A2 forced-commit
+synthesizer, the forced mechanism was still never confirmed to fire at n=5 on the fixed
+synthesizer — A2's 0.500 result is entirely model-initiated even after the fix (a separate
+A2 re-run on the fixed synthesizer would be needed to test forced-path effectiveness). A
+R1+A2 valve run would test forced-path on the fixed synthesizer while also enabling R1, but
+the R1 zero-delta evidence suggests R1 adds nothing; the net effect of the valve is
+indistinguishable from an A2 retest alone.
+
+An A2 retest (flag-off replay + FORCED_COMMIT_STEP=6 on the fixed synthesizer) would be a
+cleaner next step, and that decision properly belongs to Phase 15 scope — not to the Phase 14
+≤4-run budget. Spending the 3rd budget slot on the valve here would preempt the Phase 15
+scope decision that is the explicit USER CHECKPOINT of this phase.
+
+**Run budget:** 2/4 slots consumed (R1 + R2). The 3rd slot (and 4th) are preserved-but-unused.
+Phase closes on a 2-of-4-slot budget with R3 and the valve both NOT RUN per their respective
+precondition checks.
 
 ---
 
