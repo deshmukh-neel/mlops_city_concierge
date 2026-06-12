@@ -101,7 +101,7 @@
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 13-03-dec03-doc-and-critique-scoping-PLAN.md — DEC-03 decision doc FIRST, then env-overridable threshold + flag-gated low_similarity scoping (co-tuned with DEC-01)
+- [x] 13-03-dec03-doc-and-critique-scoping-PLAN.md — DEC-03 decision doc FIRST, then env-overridable threshold + flag-gated low_similarity scoping (co-tuned with DEC-01)
 - [ ] 13-04-graph-arms-forced-commit-and-parallel-PLAN.md — A2 forced-commit-at-step-N branch + A3 parallel act() + A1 prompt wiring in graph.py
 - [ ] 13-05-arm-matrix-config-and-falsifier-PLAN.md — configs/eval_matrix_arm.yaml (3 models x 2 scenarios) + falsifier --matrix-config + forced-split reader + Makefile arm targets
 
@@ -156,7 +156,7 @@
 | 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 13. Decisiveness Experiment Arms | v2.2 | 2/7 | In Progress|  |
+| 13. Decisiveness Experiment Arms | v2.2 | 3/7 | In Progress|  |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 

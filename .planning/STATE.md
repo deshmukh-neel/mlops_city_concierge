@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 13
 status: executing
-last_updated: "2026-06-12T05:27:14.083Z"
+last_updated: "2026-06-12T05:38:17.788Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 12
-  completed_plans: 7
+  completed_plans: 8
   percent: 25
 ---
 
@@ -32,11 +32,11 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 ## Current Position
 
 Phase: 13 (decisiveness-experiment-arms) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-06-12
 
-Progress: [██████░░░░] 58%
+Progress: [███████░░░] 67%
 
 ## Blockers / Readiness Notes
 
@@ -67,8 +67,8 @@ Progress: [██████░░░░] 58%
 
 ## Session Continuity
 
-Last session: 2026-06-12T05:27:14.077Z
-Stopped at: Phase 13 context gathered
+Last session: 2026-06-12T05:38:17.782Z
+Stopped at: Completed 13-03-dec03-doc-and-critique-scoping-PLAN.md
 Resume file: None
 Next step: `/gsd-plan-phase 12`
 
@@ -82,7 +82,10 @@ Next step: `/gsd-plan-phase 12`
 | Phase 12 P05 | 5m | 2 tasks | 2 files |
 | Phase 13 P01 | 10min | 3 tasks | 5 files |
 | Phase 13 P02 | 2min | 2 tasks | 2 files |
+| Phase 13 P03 | 4min | 2 tasks | 3 files |
 
 ## Decisions
 
 - [Phase ?]: D-12-09 honored: gemini n=5 baseline deferred at user budget decision (2026-06-11); joins anthropic as second deferred cell; comparison floor = matrix minus BOTH anthropic AND gemini
+- [Phase ?]: DEC-03 threshold code default stays 0.55; LOW_SIMILARITY_THRESHOLD_OVERRIDE env var is the A1 experiment knob; first A1 run keeps it unset
+- [Phase ?]: low_similarity hint suppressed once all_slots_viable=True (DEC-03); only fires in pre-candidate steps; co-tuned with DEC-01 via shared VIABILITY_CONTRACT_ENABLED flag
