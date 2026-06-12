@@ -239,6 +239,10 @@ def query_result(**overrides: object) -> QueryEvalResult:
             rule8_met_but_kept_searching_steps=[],
             step_telemetry=[],
             viability_threshold=0.55,
+            # D-13-04/05 Plan 13-01 safe defaults for fixtures
+            commit_forced=False,
+            forced_commit_step=None,
+            arm_flags={},
         ),
         "final_reply": "Try Example Cafe.",
         "latency_seconds": 1.0,
@@ -564,6 +568,10 @@ def test_aggregate_results_flattens_mean_metrics() -> None:
             rule8_met_but_kept_searching_steps=[],
             step_telemetry=[],
             viability_threshold=0.55,
+            # D-13-04/05 Plan 13-01 safe defaults for fixtures
+            commit_forced=False,
+            forced_commit_step=None,
+            arm_flags={},
         ),
     )
 

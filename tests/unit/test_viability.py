@@ -70,10 +70,9 @@ def test_viability_module_importable() -> None:
 
 def test_no_circular_import_from_graph() -> None:
     """Importing viability must not break graph or revision imports."""
-    import app.agent.viability  # noqa: F401
-
     import app.agent.graph  # noqa: F401
     import app.agent.revision  # noqa: F401
+    import app.agent.viability  # noqa: F401
 
 
 # ── all_slots_viable: typed (requested_primary_types set) ────────────────────
@@ -253,7 +252,6 @@ def test_all_slots_viable_agrees_with_rule8_met_per_step_from_state() -> None:
     D-13-03 / PATTERNS.md "Viability definition: single source of truth".
     """
     from app.agent.viability import all_slots_viable
-
     from scripts.eval_agent import (
         rule8_met_per_step_from_state,
         viable_candidates_per_step_from_state,
@@ -276,7 +274,6 @@ def test_all_slots_viable_agrees_with_rule8_met_per_step_from_state() -> None:
 def test_all_slots_viable_agrees_rule8_false_case() -> None:
     """Drift guard for the False case."""
     from app.agent.viability import all_slots_viable
-
     from scripts.eval_agent import (
         rule8_met_per_step_from_state,
         viable_candidates_per_step_from_state,
@@ -334,8 +331,9 @@ def test_best_viable_candidate_per_slot_none_for_uncovered_slot() -> None:
 
 def test_best_viable_candidate_per_slot_returns_plain_dicts() -> None:
     """Every returned entry must be a plain dict (JSON-safe for forced-commit synthesizer)."""
-    from app.agent.viability import best_viable_candidate_per_slot
     from pydantic import BaseModel
+
+    from app.agent.viability import best_viable_candidate_per_slot
 
     state = _state_with_hits(
         hits=[_hit(0.9, "Sushi Restaurant", "pid1")],
