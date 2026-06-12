@@ -62,6 +62,32 @@ def _latest_run_dir(base: Path) -> Path:
     return candidates[-1]
 
 
+# WR-06: the scope of this falsifier is configs/eval_matrix.yaml (D-12-08).
+_DEFAULT_MATRIX_CONFIG = REPO_ROOT / "configs" / "eval_matrix.yaml"
+
+
+def _expected_matrix_scenarios(matrix_path: Path = _DEFAULT_MATRIX_CONFIG) -> set[str]:
+    """Return the scenario ids declared in configs/eval_matrix.yaml (WR-06).
+
+    Used only to WARN when a graded summary contains none of the expected
+    scenarios (e.g. default-latest mode grabbed an eval_matrix_refinement run,
+    which writes to the same eval_reports/ base). Returns an empty set when
+    the config cannot be read — the warning is best-effort, never an error.
+    """
+    try:
+        import yaml  # noqa: PLC0415
+
+        data = yaml.safe_load(matrix_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — warn-only helper, never fatal
+        return set()
+    if not isinstance(data, dict):
+        return set()
+    scenarios = data.get("scenarios")
+    if not isinstance(scenarios, list):
+        return set()
+    return {str(s) for s in scenarios if isinstance(s, str)}
+
+
 def _pooled_commit_rate(
     summary: dict[str, Any],
     provider_key: str,
@@ -205,6 +231,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
 
     # ── Resolve the summary dict ────────────────────────────────────────────
+    run_dir: Path | None = None
     try:
         if args.baselines_mode:
             # D-11-15 pattern: read committed baseline JSONs live-key-free
@@ -231,6 +258,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"\n{'=' * 60}")
     print("eval_falsifier: INST-05 Milestone Falsifier Report")
     print(f"{'=' * 60}")
+    # WR-06: always show which artifact is being graded. Both eval-matrix and
+    # eval-matrix-refinement write to eval_reports/, so default-latest mode can
+    # silently grab the wrong matrix's run dir — name it so the operator can tell.
+    if args.baselines_mode:
+        print(f"source: committed baselines at {args.baselines_dir}")
+    else:
+        print(f"source: run dir {run_dir}")
+        expected_scenarios = _expected_matrix_scenarios()
+        scenarios_block = summary.get("scenarios")
+        found_scenarios = set(scenarios_block) if isinstance(scenarios_block, dict) else set()
+        if expected_scenarios and not (found_scenarios & expected_scenarios):
+            print(
+                "  WARNING: none of configs/eval_matrix.yaml's scenarios "
+                f"({', '.join(sorted(expected_scenarios))}) appear in this summary "
+                f"({', '.join(sorted(found_scenarios)) or 'none'}). The latest run dir may "
+                "belong to a different matrix (e.g. eval_matrix_refinement.yaml) — "
+                "pass --run-dir explicitly if so."
+            )
 
     # Per-scenario breakdown (D-12-08: always print)
     print(f"\n[{_GPT5_KEY}] committed_itinerary_rate per scenario:")

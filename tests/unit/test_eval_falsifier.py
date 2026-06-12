@@ -589,6 +589,77 @@ class TestAnchorCommonScenarioPooling:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests: resolved-source visibility + matrix identity warning (WR-06)
+# ---------------------------------------------------------------------------
+
+
+class TestResolvedSourceVisibility:
+    """WR-06: the report must name the artifact it graded and warn on a
+    scenario set that doesn't look like a configs/eval_matrix.yaml run."""
+
+    def _run_with_scenario(self, tmp_path: Path, script, scenario_id: str) -> tuple[int, str, Path]:
+        summary = _make_summary(
+            {
+                scenario_id: {
+                    _GPT5_KEY: _cell_with_cir(0.8, n=5),
+                    _ANCHOR_KEY: _cell_with_cir(1.0, n=5),
+                },
+            }
+        )
+        run_dir = _write_run_summary(tmp_path, summary)
+        rc = script.main(
+            [
+                "--run-dir",
+                str(run_dir),
+                "--baselines-dir",
+                str(REPO_ROOT / "configs" / "eval_baselines"),
+            ]
+        )
+        return rc, scenario_id, run_dir
+
+    def test_run_dir_is_printed_in_report(
+        self, tmp_path: Path, script, capsys: pytest.CaptureFixture
+    ) -> None:
+        _, _, run_dir = self._run_with_scenario(tmp_path, script, "omakase_mission_open_ended")
+        captured = capsys.readouterr()
+        assert f"source: run dir {run_dir}" in captured.out
+
+    def test_warns_when_no_expected_matrix_scenario_present(
+        self, tmp_path: Path, script, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A summary covering only a non-eval_matrix scenario (e.g. refinement)
+        must produce a visible wrong-matrix warning."""
+        self._run_with_scenario(tmp_path, script, "refinement_cheaper")
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.out
+        assert "eval_matrix_refinement" in captured.out
+
+    def test_no_warning_when_expected_scenario_present(
+        self, tmp_path: Path, script, capsys: pytest.CaptureFixture
+    ) -> None:
+        self._run_with_scenario(tmp_path, script, "omakase_mission_open_ended")
+        captured = capsys.readouterr()
+        assert "may belong to a different matrix" not in captured.out
+
+    def test_baselines_mode_prints_baselines_source(
+        self, script, capsys: pytest.CaptureFixture
+    ) -> None:
+        real_baselines_dir = REPO_ROOT / "configs" / "eval_baselines"
+        script.main(["--baselines-mode", "--baselines-dir", str(real_baselines_dir)])
+        captured = capsys.readouterr()
+        assert "source: committed baselines" in captured.out
+
+    def test_expected_matrix_scenarios_reads_real_config(self, script) -> None:
+        expected = script._expected_matrix_scenarios()
+        assert "omakase_mission_open_ended" in expected
+
+    def test_expected_matrix_scenarios_missing_file_returns_empty(
+        self, tmp_path: Path, script
+    ) -> None:
+        assert script._expected_matrix_scenarios(tmp_path / "nope.yaml") == set()
+
+
+# ---------------------------------------------------------------------------
 # Smoke test: real configs/eval_baselines (COMMITTED TEST ARTIFACT)
 # Satisfies feedback_test_layering: smoke + unit + functional coverage.
 # ---------------------------------------------------------------------------
