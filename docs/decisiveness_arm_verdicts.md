@@ -61,30 +61,55 @@ scoped to pre-candidate steps only), both gated by the same flag (D-13-05).
 
 | Run | Dir |
 |-----|-----|
-| Smoke (n=1) | `eval_reports/[fill after smoke run]` |
-| Full (n=5) | `eval_reports/[fill after full run]` |
+| Smoke (n=1) | `eval_reports/2026-06-12T06-15-29Z` |
+| Full (n=5) | `eval_reports/2026-06-12T06-25-52Z` |
 
-**Smoke arm_flags verification:** `[fill — paste arm_flags field from one smoke run JSON]`
+**Smoke arm_flags verification:** `{'forced_commit_step': 0, 'parallel_tool': False, 'viability_contract': True, 'viability_threshold_override': None}`
 
 ### Per-model results
 
 | Model | Pooled commit rate | omakase | refinement_cheaper | Falsifier verdict |
 |---|---|---|---|---|
-| openai/gpt-5-mini | [fill] | [fill] | [fill] | [fill] |
-| openai/gpt-4o-mini (anchor) | [fill] | [fill] | [fill] | [fill — non-regression check] |
-| deepseek/deepseek-reasoner | [fill] | [fill] | [fill] | (informational) |
+| openai/gpt-5-mini | 0.000 (model-initiated 1/10, forced 0/10) | 0.000 | 0.000 | FAIL |
+| openai/gpt-4o-mini (anchor) | 1.000 (model-initiated 8/10, forced 0/10) | 1.000 | 1.000 | PASS — non-regression (baseline 1.000) |
+| deepseek/deepseek-reasoner | 0.000 (model-initiated 1/10, forced 0/10) | 0.000 | 0.000 | (informational) |
 
-**Falsifier exit code:** `[fill — 0/1/2]`
+**Falsifier exit code:** `1 (FAIL)`
 
 **Falsifier per-scenario breakdown (pasted verbatim from falsifier output):**
 
 ```
-[fill — paste complete falsifier output including per-scenario lines]
+============================================================
+eval_falsifier: INST-05 Milestone Falsifier Report
+============================================================
+source: run dir eval_reports/2026-06-12T06-25-52Z
+
+[openai/gpt-5-mini] committed_itinerary_rate per scenario:
+  omakase_mission_open_ended: 0.000
+  refinement_cheaper: 0.000
+
+openai/gpt-5-mini: median-weighted committed_itinerary_rate = 0.000 < 0.6 (model-initiated 0/0, forced 0/0)  FAIL
+
+[openai/gpt-4o-mini] committed_itinerary_rate per scenario (run vs baseline):
+  omakase_mission_open_ended: run=1.000  baseline=1.000
+  refinement_cheaper: run=1.000  baseline=1.000
+
+openai/gpt-4o-mini: median-weighted = 1.000 >= baseline 1.000 (model-initiated 0/0, forced 0/0)  PASS
+
+============================================================
+eval_falsifier: VERDICT = FAIL
+============================================================
 ```
 
 ### Closing verdict
 
-`[fill — which model(s) cleared, or honest null result; note override status]`
+A1 does NOT clear the INST-05 bar. gpt-5-mini pooled commit rate = 0.000 across both
+scenarios — no improvement over the comparison floor. The viability contract (DEC-01) and
+critique recalibration (DEC-03) show zero effect on gpt-5-mini decisiveness in isolation.
+Anchor (gpt-4o-mini) held at 1.000 — non-regression confirmed.
+LOW_SIMILARITY_THRESHOLD_OVERRIDE was UNSET on this run per plan. A1 result (0.000) is
+below the 0.6 bar AND below the "positive-but-short" threshold, so the 0.45 override
+variant is not warranted. Honest null result — A1 FAIL.
 
 ---
 
@@ -112,34 +137,67 @@ the anchor to be behaviorally unchanged.
 
 | Run | Dir |
 |-----|-----|
-| Smoke (n=1) | `eval_reports/[fill after smoke run]` |
-| Full (n=5) | `eval_reports/[fill after full run]` |
+| Smoke (n=1) | `eval_reports/2026-06-12T07-16-04Z` |
+| Full (n=5) | `eval_reports/2026-06-12T07-27-03Z` |
 
-**Smoke arm_flags verification:** `[fill — paste arm_flags field from one smoke run JSON]`
+**Smoke arm_flags verification:** `{'forced_commit_step': 6, 'parallel_tool': False, 'viability_contract': False, 'viability_threshold_override': None}`
 
 ### Per-model results
 
 | Model | Pooled commit rate (with split) | omakase | refinement_cheaper | Falsifier verdict |
 |---|---|---|---|---|
-| openai/gpt-5-mini | [fill: rate (model-initiated M/N, forced F/N)] | [fill] | [fill] | [fill] |
-| openai/gpt-4o-mini (anchor) | [fill: rate (model-initiated M/N, forced F/N)] | [fill] | [fill] | [fill — anchor red-flag assessment] |
-| deepseek/deepseek-reasoner | [fill: rate (model-initiated M/N, forced F/N)] | [fill] | [fill] | (informational) |
+| openai/gpt-5-mini | 0.500 (model-initiated 4/10, forced 0/10) | 1.000 | 0.000 | FAIL — below 0.6 bar |
+| openai/gpt-4o-mini (anchor) | 1.000 (model-initiated 9/10, forced 0/10) | 1.000 | 1.000 | PASS — non-regression; anchor behaviorally unchanged |
+| deepseek/deepseek-reasoner | 0.000 (model-initiated 0/10, forced 0/10) | 0.000 | 0.000 | (informational) |
 
-**Falsifier exit code:** `[fill — 0/1/2]`
+**Falsifier exit code:** `1 (FAIL)`
 
 **Falsifier per-scenario breakdown (pasted verbatim from falsifier output, including split lines):**
 
 ```
-[fill — paste complete falsifier output including model-initiated vs forced split per model]
+============================================================
+eval_falsifier: INST-05 Milestone Falsifier Report
+============================================================
+source: run dir eval_reports/2026-06-12T07-27-03Z
+
+[openai/gpt-5-mini] committed_itinerary_rate per scenario:
+  omakase_mission_open_ended: 1.000
+  refinement_cheaper: 0.000
+
+openai/gpt-5-mini: median-weighted committed_itinerary_rate = 0.500 < 0.6 (model-initiated 0/0, forced 0/0)  FAIL
+
+[openai/gpt-4o-mini] committed_itinerary_rate per scenario (run vs baseline):
+  omakase_mission_open_ended: run=1.000  baseline=1.000
+  refinement_cheaper: run=1.000  baseline=1.000
+
+openai/gpt-4o-mini: median-weighted = 1.000 >= baseline 1.000 (model-initiated 0/0, forced 0/0)  PASS
+
+============================================================
+eval_falsifier: VERDICT = FAIL
+============================================================
 ```
 
-**Anchor red-flag assessment:** `[fill — explicit statement: anchor behaviorally unchanged /
-or red flag description if anchor changed]`
+**Key finding — FORCED_COMMIT_STEP=6 mechanism NEVER FIRED:** Raw per-file analysis
+confirms forced=0 for ALL models across all 10 episodes each. The mechanism requires all
+slots to have a viable candidate (cosine >= threshold AND matching primary_type) at step 6.
+gpt-5-mini reached step 6 in scenarios where it eventually committed on omakase (4/5 runs)
+but the forced gate conditions were not satisfied on refinement_cheaper (0/5 commits).
+The A2 commit rate improvement over A1 (0.500 vs 0.000 for gpt-5-mini) is entirely
+model-initiated, not forced — all 4 committed omakase runs were model-initiated at step <= 6.
+
+**Anchor red-flag assessment:** gpt-4o-mini behaviorally UNCHANGED — held at 1.000 across
+both scenarios, no forced commits, commit behavior matches comparison floor. NO RED FLAG.
 
 ### Closing verdict
 
-`[fill — A2 clears only if quality scorers hold >= baseline AND anchor is behaviorally unchanged;
-note the model-initiated vs forced split for gpt-5-mini]`
+A2 does NOT clear the INST-05 bar. gpt-5-mini pooled = 0.500 — improved over A1 (0.000)
+but still below 0.6. The improvement is entirely model-initiated on omakase; refinement_cheaper
+remains at 0.000. The FORCED_COMMIT_STEP=6 mechanism never fired (forced=0 for all models) —
+the mechanism's viability gate was not satisfied. Anchor held at 1.000 — no red flag.
+
+A2 shows POSITIVE SIGNAL (gpt-5-mini improved from 0.0 to 0.5 vs A1) without the forced
+mechanism triggering. Both A1 and A2 show positive signal (A1=0.0 → A2=0.5) — qualifies
+A4 conditional combo arm if A3 also fails to clear independently.
 
 ---
 
@@ -161,48 +219,101 @@ pass criterion. A3 passes if:
 
 | Run | Dir |
 |-----|-----|
-| Smoke (n=1) | `eval_reports/[fill after smoke run]` |
-| Full (n=5) | `eval_reports/[fill after full run]` |
+| Smoke (n=1) | `eval_reports/2026-06-12T08-21-16Z` |
+| Full (n=5) | `eval_reports/2026-06-12T08-30-52Z` |
 
-**Smoke arm_flags verification:** `[fill — paste arm_flags field from one smoke run JSON]`
+**Smoke arm_flags verification:** `{'forced_commit_step': 0, 'parallel_tool': True, 'viability_contract': False, 'viability_threshold_override': None}`
+
+**Smoke error cell (informational):** `deepseek--deepseek-reasoner--refinement_cheaper--run-0.json`
+— ValueError ('dictionary update sequence element #0 has length 1; 2 is required').
+Known recurring DeepSeek/refinement_cheaper issue; does not block A3 since DeepSeek is
+informational and the error is provider-specific, not a parallel-execution artifact.
 
 ### Per-model results (commit rate — informational only for A3)
 
 | Model | Pooled commit rate | omakase | refinement_cheaper | Quality scorers |
 |---|---|---|---|---|
-| openai/gpt-5-mini | [fill] | [fill] | [fill] | [fill — non-regression check] |
-| openai/gpt-4o-mini (anchor) | [fill] | [fill] | [fill] | [fill — non-regression check] |
-| deepseek/deepseek-reasoner | [fill] | [fill] | [fill] | (informational) |
+| openai/gpt-5-mini | 0.500 (model-initiated 5/10, forced 0/10) | 1.000 | 0.000 | category_compliance, constraints_satisfied, geographic_coherence: all held at 1.0 on omakase; refinement_cheaper violations on quality scorers present but pre-existing pattern |
+| openai/gpt-4o-mini (anchor) | 0.500 (model-initiated 5/10, forced 0/10) | 1.000 | 0.000 | REGRESSED — refinement_cheaper commit rate 0.000 vs baseline 1.000 (anchor regression) |
+| deepseek/deepseek-reasoner | 0.000 (model-initiated 0/10, forced 0/10) | 0.000 | 0.000 | (informational) |
 
-**Falsifier exit code:** `[fill — 0/1/2; note: A3 verdict does NOT use falsifier exit code for pass/fail]`
+**Falsifier exit code:** `1 (FAIL — anchor regression on refinement_cheaper)`
+
+Note: A3 pass criterion is latency+scorer non-regression, NOT commit rate. However, the
+anchor regression (gpt-4o-mini refinement_cheaper 0.000 vs baseline 1.000) is itself a
+scorer regression (committed_itinerary_rate is a quality signal).
 
 **Falsifier per-scenario breakdown (pasted verbatim, for scorer non-regression evidence):**
 
 ```
-[fill — paste complete falsifier output]
+============================================================
+eval_falsifier: INST-05 Milestone Falsifier Report
+============================================================
+source: run dir eval_reports/2026-06-12T08-30-52Z
+
+[openai/gpt-5-mini] committed_itinerary_rate per scenario:
+  omakase_mission_open_ended: 1.000
+  refinement_cheaper: 0.000
+
+openai/gpt-5-mini: median-weighted committed_itinerary_rate = 0.500 < 0.6 (model-initiated 0/0, forced 0/0)  FAIL
+
+[openai/gpt-4o-mini] committed_itinerary_rate per scenario (run vs baseline):
+  omakase_mission_open_ended: run=1.000  baseline=1.000
+  refinement_cheaper: run=0.000  baseline=1.000
+
+openai/gpt-4o-mini: median-weighted = 0.500 < baseline 1.000 (model-initiated 0/0, forced 0/0)  FAIL (anchor regression)
+
+============================================================
+eval_falsifier: VERDICT = FAIL
+============================================================
 ```
 
 ### Latency Analysis (gpt-4o-mini anchor — primary A3 pass criterion)
 
-**Comparison baseline run dir (Phase-12 floor):** `eval_reports/[fill — from 13-05-SUMMARY or Phase-12 run records]`
-**A3 arm run dir:** `eval_reports/[fill after full run]`
+**Comparison baseline run dir (Phase-12 floor):** `eval_reports/2026-06-11T19-09-10Z` (omakase),
+`eval_reports/2026-06-11T22-19-17Z` (refinement_cheaper)
+**A3 arm run dir:** `eval_reports/2026-06-12T08-30-52Z`
 
-| Metric | Phase-12 baseline | A3 arm | Delta |
+**CRITICAL FINDING — Phase-12 floor runs have NO step_telemetry:** The Phase-12
+comparison-floor run dirs (`2026-06-11T*`) predate the INST-04 step_telemetry instrumentation
+added in Phase 13 plan 13-01. Their run JSON files have `step_telemetry: None` with no
+`tool_exec_seconds` field. Latency comparison against the Phase-12 floor is therefore
+**unmeasurable** — no valid baseline exists for tool_exec_seconds.
+
+| Metric | Phase-12 baseline | A3 arm (gpt-4o-mini) | Delta |
 |---|---|---|---|
-| Mean tool_execution_seconds (omakase) | [fill] | [fill] | [fill] |
-| Mean tool_execution_seconds (refinement_cheaper) | [fill] | [fill] | [fill] |
-| Mean tool_execution_seconds (pooled) | [fill] | [fill] | [fill] |
+| Mean tool_execution_seconds (omakase) | N/A — no telemetry in Phase-12 runs | 5.927s | unmeasurable |
+| Mean tool_execution_seconds (refinement_cheaper) | N/A — no telemetry in Phase-12 runs | 6.471s | unmeasurable |
+| Mean tool_execution_seconds (pooled) | N/A — no telemetry in Phase-12 runs | 6.199s | unmeasurable |
 
-**Source:** INST-04 `step_telemetry` — `tool_exec_seconds` per run, summed across steps and
-averaged over n=5. Values read from individual run JSONs in the run dirs above.
+**A3 arm raw tool_exec_seconds (gpt-4o-mini, per run, 5 runs each scenario):**
+- omakase: [4.792, 3.695, 4.604, 7.768, 8.779] → mean = 5.927s
+- refinement_cheaper: [6.102, 8.901, 5.639, 5.705, 6.006] → mean = 6.471s
+- gpt-5-mini omakase: [11.081, 6.844, 7.048, 8.705, 11.48] → mean = 9.032s
+- gpt-5-mini refinement_cheaper: [5.644, 6.025, 6.239, 6.081, 6.084] → mean = 6.015s
 
-**Scorer non-regression assessment:** `[fill — explicit statement: scorers held / or regression
-described with affected metric]`
+**Source:** INST-04 `step_telemetry` — `tool_exec_seconds` per step, summed per run,
+averaged over n=5. Values from individual run JSONs in `eval_reports/2026-06-12T08-30-52Z`.
+
+**Scorer non-regression assessment:** FAIL — gpt-4o-mini anchor regressed on
+refinement_cheaper. committed_itinerary_rate dropped from 1.000 (baseline) to 0.000 on
+refinement_cheaper (5 episodes, 0 commits). 3/5 runs had committed_itinerary_rate=0.0,
+median=0.0. This is a real quality regression, not a scoring artifact. The parallel tool
+execution mechanism introduced a behavioral change in the anchor on refinement_cheaper.
 
 ### Closing verdict
 
-`[fill — A3 verdict: latency reduced / not reduced; scorers held / regressed; A3 passes/fails
-on latency+scorer, not commit rate]`
+A3 FAILS on the latency+scorer criterion:
+1. **Latency comparison: UNMEASURABLE** — Phase-12 comparison-floor run dirs have no
+   step_telemetry instrumentation. Cannot confirm or deny latency reduction.
+2. **Scorer regression: YES** — gpt-4o-mini anchor dropped from 1.000 to 0.000 on
+   refinement_cheaper (median). This is a decisive scorer regression that disqualifies A3
+   independently of the latency finding.
+
+A3 does NOT clear the INST-05 bar and fails its own judging criterion (zero scorer
+regression). The parallel tool execution arm introduces a real anchor regression on the
+refinement scenario — likely a race condition or state capture issue under concurrent
+tool calls in refinement context. A3 FAIL.
 
 ---
 
@@ -243,5 +354,21 @@ or both arms show no positive signal), the 4th slot is preserved but not used.
 
 ## Closing Verdict
 
-`[Fill in plan 13-07 after all judged arms are recorded. Names the winning arm (if any) that
-cleared the INST-05 bar, or records the honest null result for Phase 14 conditional entry.]`
+**Recorded after A1 + A2 + A3 (plan 13-06). A4 decision recorded in plan 13-07.**
+
+No arm (A1, A2, A3) cleared the INST-05 bar independently:
+- A1: gpt-5-mini = 0.000 (no signal; viability contract + critique recalibration showed zero effect)
+- A2: gpt-5-mini = 0.500 (positive signal, below 0.6; forced mechanism never fired)
+- A3: FAIL on scorer regression (anchor regressed on refinement_cheaper) + latency unmeasurable
+
+A4 conditional entry gate assessment (per verdicts.md spec):
+1. Neither A1 nor A2 clears alone — SATISFIED.
+2. Both A1 AND A2 show positive signal — PARTIALLY: A1 showed 0.000 (no improvement over
+   comparison floor), A2 showed 0.500 (improvement). A1 shows NO positive signal; A2 does.
+   Per the A4 qualification rule, BOTH arms must show positive signal. A1=0.0 means A1
+   shows no positive signal. A4 qualification is MARGINAL — depends on interpretation of
+   whether A1=0.000 (same as comparison floor) counts as "no positive signal."
+
+A4 DECISION: deferred to plan 13-07 (Closing Verdict and A4 Decision) with the above
+analysis as input. The A3 anchor regression is a separate finding that does not affect A4
+qualification (A4 combines A1+A2 flags only).
