@@ -275,6 +275,16 @@ class ItineraryState(BaseModel):
     revision_hints: list[RevisionHint] = Field(default_factory=list)
     revision_counts: dict[str, int] = Field(default_factory=dict)
     closure_context: list[ClosureContext] = Field(default_factory=list)
+    step_telemetry: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Per-step raw timing and tool-call counts recorded in-graph. "
+            "Each entry is a plain dict (JSON-safe) with keys: "
+            "step (int), llm_call_seconds (float), tool_exec_seconds (float), "
+            "tool_calls_this_step (int). Appended by plan()/act() in graph.py. "
+            "D-12-01: always-on; cheap enough for prod."
+        ),
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
