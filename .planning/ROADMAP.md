@@ -48,7 +48,7 @@
 
 **Milestone Goal:** Make reasoning models decisive on the tool loop — pass gpt-5-mini commit rate ≥ 0.6 at n=5 with no gpt-4o-mini anchor regression, and reduce per-turn latency via decisiveness (step-count).
 
-- [ ] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the v2.2 comparison floor confirmed (BOTH anthropic AND gemini cells deferred at user decision — D-12-09; non-deferred cells honest n=5)
+- [x] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the v2.2 comparison floor confirmed (BOTH anthropic AND gemini cells deferred at user decision — D-12-09; non-deferred cells honest n=5) (completed 2026-06-12)
 - [ ] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier
 - [ ] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar
 - [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
@@ -75,7 +75,7 @@
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 12-02-harness-derived-decisiveness-fields-PLAN.md — INST-01/02/03: harness-side first-commit-step, viable-candidate counts, rule-8 precondition fields
+- [x] 12-02-harness-derived-decisiveness-fields-PLAN.md — INST-01/02/03: harness-side first-commit-step, viable-candidate counts, rule-8 precondition fields
 
 **External dependency**: ANCH-02 (gemini n=5) is **DEFERRED** at user decision D-12-09 (2026-06-11) — no quota/billing top-up; gemini is NOT a phase-completion requirement. ANCH-01 (anthropic n=5) was deferred at milestone start (no billing top-up; user decision 2026-06-11). Both deferred cells stay logged-not-gated with their `_DEFERRED_BASELINE_CELLS` entries intact; neither blocks INST-01..05 work or Phase 12 completion.
 
@@ -136,7 +136,7 @@
 | 9. Per-Provider State Preservation Impls | v2.1 | 5/5 | Complete | 2026-06-05 |
 | 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
-| 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 3/4 | In Progress|  |
+| 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 4/4 | Complete   | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 0/TBD | Not started | - |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
