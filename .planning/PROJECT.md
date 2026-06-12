@@ -34,7 +34,7 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 ## Current State
 
 **Shipped milestone:** v2.1 Reasoning-Model Compat (2026-06-11; PRs #103, #105, #106; 5 phases, 35 plans, 48 tasks; 156 files changed, +24k/−6.4k vs v2.0). Audit: 26/26 requirements, integration COMPLETE, status tech_debt (documented deferrals only) — see `milestones/v2.1-MILESTONE-AUDIT.md`.
-**Active milestone:** v2.2 Reasoning-Model Decisiveness (started 2026-06-11; seeded from `milestones/v2.2-MILESTONE-SEED.md`). Phase 13 complete (2026-06-12): four decisiveness experiment arms run at n=5 — honest null result, no arm cleared the INST-05 falsifier bar; gap closure fixed the forced-commit synthesizer (CR-01), the falsifier split reader (CR-02), and respecified the A3 latency criterion; re-verification passed 5/5.
+**Active milestone:** v2.2 Reasoning-Model Decisiveness (started 2026-06-11; seeded from `milestones/v2.2-MILESTONE-SEED.md`). Phase 13 complete (2026-06-12): four decisiveness experiment arms run at n=5 — honest null result, no arm cleared the INST-05 falsifier bar; gap closure fixed the forced-commit synthesizer (CR-01), the falsifier split reader (CR-02), and respecified the A3 latency criterion; re-verification passed 5/5. Phase 14 complete (2026-06-12): both REPLAY arms plateaued — R1 multi-message replay hit 0.500 (= A2 exactly, below the 0.6 bar); R2 content-block preservation was refuted in the breaking direction (gpt-5-mini 10/10 deterministic provider 400s — the `str()` collapse was load-bearing for the Responses API path); R3/valve not run per D-14-01 preconditions; ARCH-FUT-01 evaluated and DEFERRED as tracked debt (user-ratified at the D-14-08 checkpoint). Canonical record: `docs/replay_arm_verdicts.md`. Phase-15 scope approved: A2 retest on fixed synthesizer + refinement_cheaper root-cause analysis + gate promotion/baseline regen.
 **Agent driver:** still `openai/gpt-4o-mini` (anchor held commit-rate median 1.0 throughout v2.1). Reasoning-state loss is FIXED (adapters + conformance harness in CI), but reasoning-model *decisiveness* remains the gap — that's v2.2's scope, not an architecture problem.
 
 **v2.1 delivered:**
@@ -152,4 +152,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 after Phase 13 completion (decisiveness experiment arms — null result; gap closure re-verified 5/5).*
+*Last updated: 2026-06-12 after Phase 14 completion (replay arms — plateau; ARCH-FUT-01 deferred; Phase-15 scope user-ratified).*

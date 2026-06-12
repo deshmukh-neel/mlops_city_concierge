@@ -1,13 +1,14 @@
 ---
 phase: 14-richer-state-replay-conditional
 verified: 2026-06-12T00:00:00Z
-status: human_needed
+status: passed
 score: 3/3 must-haves verified
 overrides_applied: 0
 human_verification:
   - test: "Confirm Phase-15 scope USER CHECKPOINT (D-14-08) — approve or redirect the recommended Phase-15 scope before any Phase-15 planning begins"
     expected: "User explicitly approves Phase 15 scope (A2 retest on fixed synthesizer + refinement_cheaper root cause analysis) or proposes alternative scope"
     why_human: "D-14-08 designates Phase-15 scope finalization as a USER CHECKPOINT. The verdict doc makes a recommendation but explicitly states this is not a decision. No automation can substitute for the user's deliberate approval."
+    result: "PASSED 2026-06-12 — user approved the recommended scope (see 14-HUMAN-UAT.md and the USER CHECKPOINT RESOLVED note in docs/replay_arm_verdicts.md)"
 ---
 
 # Phase 14: Richer State Replay — Verification Report

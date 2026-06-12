@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 14
-status: verifying
-last_updated: "2026-06-12T21:45:06.732Z"
+status: ready_to_plan
+last_updated: 2026-06-12T22:01:54.245Z
 last_activity: 2026-06-12
 progress:
   total_phases: 4
@@ -12,6 +12,7 @@ progress:
   total_plans: 20
   completed_plans: 20
   percent: 75
+stopped_at: Phase 14 complete (5/5) — ready to discuss Phase 15
 ---
 
 # Project State
@@ -19,7 +20,7 @@ progress:
 **Project:** City Concierge
 **Initialized:** 2026-05-14
 **Active milestone:** v2.2 Reasoning-Model Decisiveness (started 2026-06-11)
-**Current phase:** 14
+**Current phase:** 15
 
 ## Project Reference
 
@@ -27,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-06-11 for v2.2 milestone start)
 See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 14 — richer-state-replay-conditional
+**Current focus:** Phase 15 — gate promotion + baseline regen
 
 ## Current Position
 
 Phase: 14 (richer-state-replay-conditional) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-06-12
 
 Progress: [██████████] 100%
