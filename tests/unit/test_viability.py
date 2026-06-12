@@ -408,3 +408,162 @@ def test_itinerary_state_new_fields_json_safe() -> None:
     parsed = json.loads(serialized)
     assert parsed["commit_forced"] is True
     assert parsed["forced_commit_step"] == 4
+
+
+# ── Task 1 (CR-01): PlaceHit typed-path regression tests ─────────────────────
+
+
+def _placehit_scratch(
+    similarity: float,
+    primary_type: str,
+    place_id: str,
+) -> dict:
+    """Build a semantic_search scratch entry whose result contains a real PlaceHit."""
+    from app.tools.retrieval import PlaceHit
+
+    hit = PlaceHit(
+        place_id=place_id,
+        name=f"Place {place_id}",
+        primary_type=primary_type,
+        source="google_places",
+        similarity=similarity,
+    )
+    return {
+        "semantic_search": [
+            {
+                "step": 0,
+                "args": {"query": "test"},
+                "result": [hit],
+                "id": "tc0",
+            }
+        ]
+    }
+
+
+def test_best_viable_candidate_per_slot_placehit_typed_path_returns_populated_dict() -> None:
+    """Test 1 (CR-01): typed path over real PlaceHit objects returns populated dicts, not {}.
+
+    This test FAILS on the pre-fix code (line 216: `hit if isinstance(hit, dict) else {}`)
+    because PlaceHit is not a dict and the else branch returned an empty dict.
+    After the fix (isinstance(hit, BaseModel) → hit.model_dump(mode='json')),
+    the returned entry must contain place_id, name, primary_type, similarity, source.
+    """
+    from app.agent.viability import best_viable_candidate_per_slot
+    from app.tools.retrieval import PlaceHit
+
+    hit = PlaceHit(
+        place_id="ChIJxxx_typed_path_001",
+        name="Typed Path Sushi",
+        primary_type="sushi_restaurant",
+        source="google_places",
+        similarity=THRESHOLD + 0.1,
+    )
+    state = ItineraryState(
+        scratch={"semantic_search": [{"step": 0, "args": {}, "result": [hit], "id": "tc0"}]},
+        constraints=UserConstraints(requested_primary_types=["sushi_restaurant"]),
+    )
+
+    result = best_viable_candidate_per_slot(state, THRESHOLD)
+
+    assert len(result) == 1
+    entry = result[0]
+    assert entry is not None, "Typed-path PlaceHit must yield a non-None entry"
+    assert entry.get("place_id") == "ChIJxxx_typed_path_001", (
+        f"Expected place_id 'ChIJxxx_typed_path_001', got {entry.get('place_id')!r}"
+    )
+    assert entry.get("name") == "Typed Path Sushi"
+    assert entry.get("primary_type") == "sushi_restaurant"
+    assert entry.get("source") == "google_places"
+    assert isinstance(entry.get("similarity"), float)
+
+
+def test_best_viable_candidate_per_slot_dict_path_unchanged() -> None:
+    """Test 2 (CR-01): plain dict hits on the typed path are still returned populated.
+
+    Ensures the fix does not break the existing dict-based hit path (byte-compatible).
+    """
+    from app.agent.viability import best_viable_candidate_per_slot
+
+    dict_hit = {
+        "place_id": "ChIJxxx_dict_path_001",
+        "name": "Dict Path Coffee",
+        "primary_type": "coffee_shop",
+        "source": "google_places",
+        "similarity": THRESHOLD + 0.15,
+    }
+    state = ItineraryState(
+        scratch={"semantic_search": [{"step": 0, "args": {}, "result": [dict_hit], "id": "tc0"}]},
+        constraints=UserConstraints(requested_primary_types=["coffee_shop"]),
+    )
+
+    result = best_viable_candidate_per_slot(state, THRESHOLD)
+
+    assert len(result) == 1
+    entry = result[0]
+    assert entry is not None
+    assert entry.get("place_id") == "ChIJxxx_dict_path_001"
+    assert entry.get("name") == "Dict Path Coffee"
+
+
+def test_best_viable_candidate_per_slot_unknown_shape_is_skipped() -> None:
+    """Test 3 (CR-01): a hit whose shape is neither dict nor BaseModel is skipped (no {} appended).
+
+    After the fix, the `else: continue` branch skips unusable shapes rather than
+    appending {} placeholders, so the result has None for that slot rather than {}.
+    """
+    from app.agent.viability import best_viable_candidate_per_slot
+
+    class _UnknownHit:
+        place_id = "ChIJxxx_unknown_001"
+        name = "Unknown Hit"
+        primary_type = "coffee_shop"
+        source = "google_places"
+        similarity = THRESHOLD + 0.2
+
+    unknown_hit = _UnknownHit()
+    state = ItineraryState(
+        scratch={
+            "semantic_search": [{"step": 0, "args": {}, "result": [unknown_hit], "id": "tc0"}]
+        },
+        constraints=UserConstraints(requested_primary_types=["coffee_shop"]),
+    )
+
+    result = best_viable_candidate_per_slot(state, THRESHOLD)
+
+    # The unknown hit should be skipped — the slot gets None (no viable candidate found)
+    # rather than {} (a placeholder empty dict that could pass downstream silently).
+    assert len(result) == 1
+    assert result[0] is None, (
+        f"Unknown-shape hit must be skipped (result[0] should be None, got {result[0]!r})"
+    )
+
+
+def test_best_viable_candidate_per_slot_placehit_place_id_propagated() -> None:
+    """Test 4 (CR-01) — regression guard: place_id from PlaceHit must equal the returned dict's place_id.
+
+    This assertion FAILS on the pre-fix `else {}` code (which yields {} with no place_id)
+    and PASSES after the model_dump(mode='json') fix.
+    """
+    from app.agent.viability import best_viable_candidate_per_slot
+    from app.tools.retrieval import PlaceHit
+
+    place_id = "ChIJxxx_regression_guard_001"
+    hit = PlaceHit(
+        place_id=place_id,
+        name="Regression Guard Place",
+        primary_type="restaurant",
+        source="google_places",
+        similarity=THRESHOLD + 0.05,
+    )
+    state = ItineraryState(
+        scratch={"semantic_search": [{"step": 0, "args": {}, "result": [hit], "id": "tc0"}]},
+        constraints=UserConstraints(requested_primary_types=["restaurant"]),
+    )
+
+    result = best_viable_candidate_per_slot(state, THRESHOLD)
+
+    assert result[0] is not None
+    assert result[0]["place_id"] == place_id, (
+        f"place_id must propagate from PlaceHit to returned dict: "
+        f"expected {place_id!r}, got {result[0].get('place_id')!r}"
+    )
