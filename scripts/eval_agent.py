@@ -530,7 +530,16 @@ def first_commit_call_step_from_state(state: ItineraryState) -> int | None:
     entries = state.scratch.get("commit_itinerary")
     if not isinstance(entries, list) or not entries:
         return None
-    steps = [e["step"] for e in entries if isinstance(e, dict) and "step" in e]
+    # WR-08: guard step values like the sibling per-step helpers do — a
+    # malformed entry (step=None or "3") must yield None, not a TypeError
+    # from min() that takes down the whole query row.
+    steps = [
+        e["step"]
+        for e in entries
+        if isinstance(e, dict)
+        and isinstance(e.get("step"), int)
+        and not isinstance(e.get("step"), bool)
+    ]
     return min(steps) if steps else None
 
 
@@ -815,10 +824,15 @@ def query_result_from_state(
     rule8_per_step = rule8_met_per_step_from_state(state, viable_per_step, requested_types)
     rule8_met_steps = [i for i, met in enumerate(rule8_per_step) if met]
     # Steps where rule8 was met but the model did NOT commit (the decisiveness gap)
+    # WR-08: same int-step guard as first_commit_call_step_from_state — never
+    # admit non-int steps into the set.
+    commit_entries = state.scratch.get("commit_itinerary")
     commit_steps = {
         e["step"]
-        for e in state.scratch.get("commit_itinerary", [])
-        if isinstance(e, dict) and "step" in e
+        for e in (commit_entries if isinstance(commit_entries, list) else [])
+        if isinstance(e, dict)
+        and isinstance(e.get("step"), int)
+        and not isinstance(e.get("step"), bool)
     }
     rule8_kept_searching = [s for s in rule8_met_steps if s not in commit_steps]
     return QueryEvalResult(

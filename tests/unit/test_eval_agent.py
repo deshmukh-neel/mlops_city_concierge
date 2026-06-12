@@ -2482,6 +2482,28 @@ class TestFirstCommitCallStepFromState:
         state = ItineraryState(scratch={"commit_itinerary": [{"args": {}}]})
         assert first_commit_call_step_from_state(state) is None
 
+    def test_returns_none_when_step_is_none(self) -> None:
+        """WR-08: step=None must not crash min() — docstring promises None."""
+        state = ItineraryState(scratch={"commit_itinerary": [{"step": None, "args": {}}]})
+        assert first_commit_call_step_from_state(state) is None
+
+    def test_skips_non_int_steps_in_mixed_entries(self) -> None:
+        """WR-08: mixed [2, "3"] must return 2, not raise TypeError."""
+        state = ItineraryState(
+            scratch={
+                "commit_itinerary": [
+                    {"step": "3", "args": {}},
+                    {"step": 2, "args": {}},
+                ]
+            }
+        )
+        assert first_commit_call_step_from_state(state) == 2
+
+    def test_bool_step_is_not_a_valid_step(self) -> None:
+        """WR-08: bool is a subclass of int — reject it explicitly."""
+        state = ItineraryState(scratch={"commit_itinerary": [{"step": True, "args": {}}]})
+        assert first_commit_call_step_from_state(state) is None
+
     def test_output_is_json_safe(self) -> None:
         state = _state_with_commit_at_step(1)
         result = first_commit_call_step_from_state(state)
