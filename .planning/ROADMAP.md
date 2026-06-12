@@ -69,7 +69,7 @@
 
 **Wave 1**
 
-- [ ] 12-01-in-graph-step-telemetry-PLAN.md — INST-04: always-on in-graph per-step LLM-call + tool-execution timing on ItineraryState
+- [x] 12-01-in-graph-step-telemetry-PLAN.md — INST-04: always-on in-graph per-step LLM-call + tool-execution timing on ItineraryState
 - [ ] 12-03-falsifier-report-PLAN.md — INST-05: make eval-falsifier — pooled gpt-5-mini commit rate vs 0.6 + anchor non-regression, exit 0/1/2
 - [ ] 12-04-comparison-floor-deferral-bookkeeping-PLAN.md — ANCH-02/03: record gemini + anthropic deferrals (D-12-09); confirm non-deferred cells honest n=5
 
@@ -136,7 +136,7 @@
 | 9. Per-Provider State Preservation Impls | v2.1 | 5/5 | Complete | 2026-06-05 |
 | 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
-| 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 0/TBD | Not started | - |
+| 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 1/4 | In Progress|  |
 | 13. Decisiveness Experiment Arms | v2.2 | 0/TBD | Not started | - |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |

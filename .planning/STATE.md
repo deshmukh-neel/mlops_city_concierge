@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
-current_phase: 12 (not started)
+current_phase: 12
 status: executing
-last_updated: "2026-06-12T00:53:28.874Z"
-last_activity: 2026-06-12 -- Phase 12 planning complete
+last_updated: "2026-06-12T01:01:02.550Z"
+last_activity: 2026-06-12
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -19,7 +19,7 @@ progress:
 **Project:** City Concierge
 **Initialized:** 2026-05-14
 **Active milestone:** v2.2 Reasoning-Model Decisiveness (started 2026-06-11)
-**Current phase:** 12 (not started)
+**Current phase:** 12
 
 ## Project Reference
 
@@ -27,16 +27,16 @@ See: .planning/PROJECT.md (updated 2026-06-11 for v2.2 milestone start)
 See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 12 — Decisiveness Instrumentation + Comparison Floor
+**Current focus:** Phase 12 — decisiveness-instrumentation-comparison-floor
 
 ## Current Position
 
-Phase: 12 of 15 (Decisiveness Instrumentation + Comparison Floor)
-Plan: — (roadmap created, planning not yet started)
+Phase: 12 (decisiveness-instrumentation-comparison-floor) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 12 planning complete
+Last activity: 2026-06-12
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 25%
 
 ## Blockers / Readiness Notes
 
@@ -67,7 +67,13 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-06-12T00:20:55.698Z
+Last session: 2026-06-12T01:01:02.544Z
 Stopped at: Phase 12 context gathered
-Resume file: .planning/phases/12-decisiveness-instrumentation-comparison-floor/12-CONTEXT.md
+Resume file: None
 Next step: `/gsd-plan-phase 12`
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 12 P01 | 3min | 3 tasks | 3 files |
