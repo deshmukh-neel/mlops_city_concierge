@@ -34,6 +34,7 @@ from app.agent.critique import vibe
 from app.agent.planning import chain_arrival_times
 from app.agent.prompts import SYSTEM_PROMPT, current_datetime_str, rule8_viability_addendum
 from app.agent.revision import (
+    LOW_SIMILARITY_THRESHOLD,
     critique_final_with_stops,
     critique_step,
     finalize_as_is,
@@ -42,6 +43,7 @@ from app.agent.revision import (
 from app.agent.state import ItineraryState, Stop
 from app.agent.swap import _inject_closure_exclusions, swap_closed_stops
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
+from app.agent.viability import all_slots_viable, best_viable_candidate_per_slot
 from app.tools.directions import route_legs
 from app.tools.filters import SearchFilters, family_of
 
@@ -522,6 +524,54 @@ def build_agent_graph(
         + vibe) → finalizing-without-stops (clarifying question) → post-act
         per-step diagnose. Each branch is a pure function returning the
         LangGraph update dict."""
+        # A2: forced-commit gate (DEC-02 arm) — fires BEFORE the max_steps check.
+        #
+        # Conditions: flag enabled (_forced_commit_step > 0) AND the model has not
+        # committed yet (state.stops is empty) AND step_count has reached the
+        # configured threshold AND every requested slot has a viable candidate.
+        #
+        # When firing: synthesize a commit from best-so-far candidates (all
+        # place_ids are already grounded in scratch), route it through commit_stops
+        # (place_id validation + booking enrichment), then run critique_final_with_stops
+        # on a state copy that carries the newly committed stops — the same
+        # deterministic gauntlet as a model-driven commit.
+        #
+        # CRITICAL state-threading: critique() returns an update dict and must NOT
+        # mutate `state`. Pass state.model_copy(update={"stops": committed_stops}) as
+        # the state argument to critique_final_with_stops so itinerary_violations sees
+        # the committed plan. Calling it with the original (stops=[]) state would make
+        # violations vacuously empty and skip all hard checks.
+        #
+        # When NOT firing (all_slots_viable is False at step N): fall through to the
+        # existing max_steps path, leaving commit_forced=False, forced_commit_step=None.
+        if (
+            _forced_commit_step > 0
+            and state.step_count >= _forced_commit_step
+            and not state.stops
+            and all_slots_viable(state, LOW_SIMILARITY_THRESHOLD)
+        ):
+            candidates = best_viable_candidate_per_slot(state, LOW_SIMILARITY_THRESHOLD)
+            # Build a raw_stops list suitable for commit_stops. Each candidate dict
+            # already carries place_id, name, primary_type from the semantic_search
+            # result hit — they are grounded in scratch, so commit_stops validates them.
+            raw_stops: list[dict[str, Any]] = [c for c in candidates if c is not None]
+            committed_stops, _payload = commit_stops(state, raw_stops)
+            if committed_stops:
+                # Route through critique_final_with_stops with the committed stops wired in.
+                critique_state = state.model_copy(
+                    update={"stops": committed_stops, "step_count": state.step_count}
+                )
+                last_msg = state.messages[-1] if state.messages else None
+                result = critique_final_with_stops(critique_state, last_msg, judge_llm)
+                # Merge the forced-commit honesty telemetry into the returned update dict.
+                result = {
+                    **result,
+                    "stops": committed_stops,
+                    "commit_forced": True,
+                    "forced_commit_step": state.step_count,
+                }
+                return result
+
         if state.step_count >= max_steps:
             return short_circuit_max_steps(state)
 
