@@ -238,6 +238,14 @@ def make_error_record(case: EvalQuery, stage: str, exc: BaseException) -> QueryE
             tool_names=[],
             revision_hints=0,
             revision_reasons=[],
+            # INST safe defaults for error records (D-12-03/04/05)
+            first_commit_call_step=None,
+            first_commit_mention_step=None,
+            viable_candidates_per_step=[],
+            rule8_met_per_step=[],
+            rule8_met_but_kept_searching_steps=[],
+            step_telemetry=[],
+            viability_threshold=LOW_SIMILARITY_THRESHOLD,
         ),
         final_reply="",
         latency_seconds=0.0,
@@ -800,6 +808,19 @@ def query_result_from_state(
     actual = actual_eval_result(state)
     expected_results_met = score_expected_results(case, actual)
     tool_errors = tool_errors_from_state(state)
+    # D-12-04: import threshold constant — never hardcode 0.55
+    threshold = LOW_SIMILARITY_THRESHOLD
+    requested_types = list(state.constraints.requested_primary_types)
+    viable_per_step = viable_candidates_per_step_from_state(state, threshold, requested_types)
+    rule8_per_step = rule8_met_per_step_from_state(state, viable_per_step, requested_types)
+    rule8_met_steps = [i for i, met in enumerate(rule8_per_step) if met]
+    # Steps where rule8 was met but the model did NOT commit (the decisiveness gap)
+    commit_steps = {
+        e["step"]
+        for e in state.scratch.get("commit_itinerary", [])
+        if isinstance(e, dict) and "step" in e
+    }
+    rule8_kept_searching = [s for s in rule8_met_steps if s not in commit_steps]
     return QueryEvalResult(
         id=case.id,
         question=case.query,
@@ -819,6 +840,14 @@ def query_result_from_state(
             tool_names=tool_names_from_state(state),
             revision_hints=len(state.revision_hints),
             revision_reasons=revision_reasons_from_state(state),
+            # INST fields (D-12-03 to D-12-05)
+            first_commit_call_step=first_commit_call_step_from_state(state),
+            first_commit_mention_step=None,  # opaque by default; set when visible (D-12-03)
+            viable_candidates_per_step=viable_per_step,
+            rule8_met_per_step=rule8_per_step,
+            rule8_met_but_kept_searching_steps=rule8_kept_searching,
+            step_telemetry=list(state.step_telemetry),  # forwarded verbatim (INST-04 / D-12-02)
+            viability_threshold=threshold,
         ),
         final_reply=state.final_reply or "",
         latency_seconds=latency_seconds,
