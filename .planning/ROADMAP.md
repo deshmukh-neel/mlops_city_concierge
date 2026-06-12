@@ -140,7 +140,7 @@
 
 **Wave 2** *(blocked on 14-01)*
 
-- [ ] 14-03-adapter-conformance-and-byte-identity-PLAN.md — REPLAY-01 D-14-04 additive multi-replay conformance tests for all four adapters; existing 9-test harness unchanged
+- [x] 14-03-adapter-conformance-and-byte-identity-PLAN.md — REPLAY-01 D-14-04 additive multi-replay conformance tests for all four adapters; existing 9-test harness unchanged
 
 **Wave 3** *(live runs — checkpoints, real API spend; ≤4-run cap)*
 
@@ -180,7 +180,7 @@
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
-| 14. Richer State Replay (CONDITIONAL) | v2.2 | 2/5 | In Progress|  |
+| 14. Richer State Replay (CONDITIONAL) | v2.2 | 3/5 | In Progress|  |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
 ---
