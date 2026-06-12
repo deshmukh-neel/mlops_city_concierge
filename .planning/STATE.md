@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 14
-status: executing
-last_updated: "2026-06-12T21:37:22.536Z"
+status: verifying
+last_updated: "2026-06-12T21:45:06.732Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 20
-  completed_plans: 19
-  percent: 50
+  completed_plans: 20
+  percent: 75
 ---
 
 # Project State
@@ -33,10 +33,10 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 Phase: 14 (richer-state-replay-conditional) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-12
 
-Progress: [██████████] 95%
+Progress: [██████████] 100%
 
 ## Blockers / Readiness Notes
 
@@ -67,8 +67,8 @@ Progress: [██████████] 95%
 
 ## Session Continuity
 
-Last session: 2026-06-12T21:37:22.531Z
-Stopped at: Completed 14-04-run-r1-r2-judged-arms-PLAN.md
+Last session: 2026-06-12T21:45:06.727Z
+Stopped at: Completed 14-05-combo-closing-verdict-and-archfut-PLAN.md
 Resume file: None
 Next step: `/gsd-plan-phase 12`
 
@@ -91,6 +91,7 @@ Next step: `/gsd-plan-phase 12`
 | Phase 14 P14-02 | 15min | 2 tasks | 3 files |
 | Phase 14 P03 | 10min | 2 tasks | 1 files |
 | Phase 14 P14-04 | 95min | 3 tasks | 1 files |
+| Phase 14 P14-05 | 15min | 3 tasks | 3 files |
 
 ## Decisions
 
@@ -105,3 +106,6 @@ Next step: `/gsd-plan-phase 12`
 - [Phase ?]: D-14-05: R2 EXPECTED-NULL on tested cells — str() collapse is NO-OP for all three RUN models; only AnthropicAdapter uses list-content and is deferred (D-12-09)
 - [Phase ?]: R1 REPLAY_MULTI_MESSAGE: gpt-5-mini 0.500 — identical to A2, delta vs A2 = 0.000; positive vs floor but below 0.6 bar; anchor held 1.000
 - [Phase ?]: R2 REPLAY_CONTENT_BLOCKS: EXPECTED-NULL REFUTED for gpt-5-mini — 10/10 deterministic 400s (Responses-API list content embeds function_call items; str() collapse was load-bearing); NEGATIVE signal, R3 combo precondition fails; anchor held median 1.000
+- [Phase ?]: R3 NOT RUN: D-14-01 precondition 2 fails — R2 negative (catastrophic 400s), not positive-but-short
+- [Phase ?]: Valve NOT RUN: precondition met but R1 zero-delta vs A2 makes expected marginal signal = 0; A2 retest is Phase 15 scope
+- [Phase ?]: ARCH-FUT-01: ratify gpt-4o-mini anchor; defer ARCH-FUT-01; Phase 15 = A2 retest on fixed synthesizer + refinement_cheaper root cause analysis
