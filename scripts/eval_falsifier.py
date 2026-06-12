@@ -202,21 +202,26 @@ def _commit_split_from_run_dir(
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        det = data.get("deterministic") or {}
-        if scenario_ids:
-            # Filter by scenario parsed from the filename
-            # Filename pattern: provider--model--scenario--run-N.json
-            # e.g. openai--gpt-5-mini--omakase_mission_open_ended--run-0
-            # Since provider_slug may contain --, strip it from the front
-            suffix = path.stem[len(provider_slug) + 2 :]  # skip "provider_slug--"
-            # suffix is now "scenario--run-N"
-            scenario_in_name = suffix.rsplit("--", 1)[0] if "--" in suffix else suffix
-            if scenario_in_name not in scenario_ids:
+        # CR-02 fix: the real EvalRunReport nests `deterministic` under each queries[i],
+        # not at the top level.  Iterate queries list; top-level `deterministic` is ignored.
+        for query in data.get("queries") or []:
+            det = query.get("deterministic")
+            if not isinstance(det, dict):
                 continue
-        if det.get("commit_forced"):
-            forced += 1
-        elif det.get("first_commit_call_step") is not None:
-            model_initiated += 1
+            if scenario_ids:
+                # Prefer the scenario_id stored in the query record; fall back to filename
+                # parsing only when the query record lacks it (forward-compat guard).
+                scenario_in_query = query.get("scenario_id") or query.get("id", "")
+                if scenario_in_query not in scenario_ids:
+                    # Fall back to filename-derived scenario
+                    suffix = path.stem[len(provider_slug) + 2 :]  # skip "provider_slug--"
+                    scenario_in_name = suffix.rsplit("--", 1)[0] if "--" in suffix else suffix
+                    if scenario_in_name not in scenario_ids:
+                        continue
+            if det.get("commit_forced"):
+                forced += 1
+            elif det.get("first_commit_call_step") is not None:
+                model_initiated += 1
     return model_initiated, forced
 
 
