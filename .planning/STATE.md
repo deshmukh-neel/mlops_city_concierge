@@ -4,7 +4,7 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 13
 status: "Phase 12 shipped — PR #107"
-last_updated: "2026-06-12T03:08:38.278Z"
+last_updated: "2026-06-12T04:13:22.461Z"
 last_activity: 2026-06-11
 progress:
   total_phases: 4
@@ -67,9 +67,9 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-06-12T02:59:23.067Z
-Stopped at: Completed 12-04-comparison-floor-deferral-bookkeeping-PLAN.md
-Resume file: None
+Last session: 2026-06-12T04:13:22.452Z
+Stopped at: Phase 13 context gathered
+Resume file: .planning/phases/13-decisiveness-experiment-arms/13-CONTEXT.md
 Next step: `/gsd-plan-phase 12`
 
 ## Performance Metrics
