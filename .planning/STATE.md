@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 13
 status: executing
-last_updated: "2026-06-12T17:19:29.735Z"
-last_activity: 2026-06-12 -- Phase 13 planning complete
+last_updated: "2026-06-12T17:27:55.947Z"
+last_activity: 2026-06-12
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 25
 ---
 
@@ -32,11 +32,11 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 ## Current Position
 
 Phase: 13 (decisiveness-experiment-arms) — EXECUTING
-Plan: 7 of 7
+Plan: 2 of 10
 Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 13 planning complete
+Last activity: 2026-06-12
 
-Progress: [█████████░] 92%
+Progress: [█████████░] 87%
 
 ## Blockers / Readiness Notes
 
@@ -67,7 +67,7 @@ Progress: [█████████░] 92%
 
 ## Session Continuity
 
-Last session: 2026-06-12T09:31:24.180Z
+Last session: 2026-06-12T17:27:55.942Z
 Stopped at: Completed 13-06-run-judged-arms-PLAN.md
 Resume file: None
 Next step: `/gsd-plan-phase 12`

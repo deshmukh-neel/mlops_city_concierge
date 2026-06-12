@@ -115,7 +115,7 @@
 
 **Gap closure** *(post-verification: gaps_found 4/5 — repairs CR-01, CR-02, SC-3; honest null result unchanged)*
 
-- [ ] 13-08-cr01-forced-commit-synthesizer-fix-PLAN.md — CR-01: fix viability.py typed-path PlaceHit→dict + synthesizer rationale so the A2 forced-commit branch works; non-mocked regression test; annotate A2 verdict (mechanism was inoperative; 0.500 model-initiated stands; forced untested at n=5)
+- [x] 13-08-cr01-forced-commit-synthesizer-fix-PLAN.md — CR-01: fix viability.py typed-path PlaceHit→dict + synthesizer rationale so the A2 forced-commit branch works; non-mocked regression test; annotate A2 verdict (mechanism was inoperative; 0.500 model-initiated stands; forced untested at n=5)
 - [ ] 13-09-cr02-falsifier-split-reader-fix-PLAN.md — CR-02: fix eval_falsifier split reader to read queries[i].deterministic; fixture to real EvalRunReport shape + regression test; annotate verdict that pasted 0/0 was a tool bug (hand-computed tables correct)
 - [ ] 13-10-sc3-respecify-and-flag-hygiene-PLAN.md — SC-3 zero-spend respecify (criterion 3 → absolute latency for future baseline; constraint annotated) + WR-09 env_flag DRY helper + WR-02 VIABILITY_CONTRACT_ENABLED single-read co-tuning fix
 
@@ -162,7 +162,7 @@
 | 10. Eval Harness Honesty | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 13. Decisiveness Experiment Arms | v2.2 | 7/7 | Complete   | 2026-06-12 |
+| 13. Decisiveness Experiment Arms | v2.2 | 8/10 | In Progress|  |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 0/TBD | Not started | - |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
