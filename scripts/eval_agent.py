@@ -38,7 +38,7 @@ from app.agent.input_parsing import explicit_num_stops_from_text
 from app.agent.io import build_refinement_prompt_message, messages_from_history
 from app.agent.revision import LOW_SIMILARITY_THRESHOLD  # D-12-04: import, never hardcode 0.55
 from app.agent.state import ItineraryState, Stop, UserConstraints
-from app.config import get_settings
+from app.config import env_flag, get_settings
 from app.eval.config import (
     DEFAULT_EVAL_QUERIES_PATH,
     EvalQuery,
@@ -926,15 +926,9 @@ def query_result_from_state(
             commit_forced=bool(getattr(state, "commit_forced", False)),
             forced_commit_step=getattr(state, "forced_commit_step", None),
             arm_flags={
-                "viability_contract": os.environ.get("VIABILITY_CONTRACT_ENABLED", "")
-                .strip()
-                .lower()
-                in {"1", "true", "yes", "on"},
+                "viability_contract": env_flag("VIABILITY_CONTRACT_ENABLED"),
                 "forced_commit_step": int(os.environ.get("FORCED_COMMIT_STEP", "0") or "0"),
-                "parallel_tool": os.environ.get("PARALLEL_TOOL_EXECUTION_ENABLED", "")
-                .strip()
-                .lower()
-                in {"1", "true", "yes", "on"},
+                "parallel_tool": env_flag("PARALLEL_TOOL_EXECUTION_ENABLED"),
                 "viability_threshold_override": os.environ.get("LOW_SIMILARITY_THRESHOLD_OVERRIDE")
                 or None,
             },
@@ -1176,8 +1170,7 @@ async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalRes
             # The default ("") matches the /chat injection guard exactly
             # (see app/main.py:753) so flag-off behavior is identical
             # between /chat and prod-mode eval.
-            flag_raw = os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED", "")
-            flag_enabled = flag_raw.strip().lower() in {"1", "true", "yes", "on"}
+            flag_enabled = env_flag("REFINEMENT_STRUCTURED_PLAN_ENABLED")
 
             prior_committed_stops = prior_scratch.get("prior_committed_stops", [])
 

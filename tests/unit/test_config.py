@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from app.config import get_settings, resolve_database_url
+import pytest
+
+from app.config import env_flag, get_settings, resolve_database_url
 
 
 def test_resolve_database_url_prefers_explicit_database_url() -> None:
@@ -107,3 +109,34 @@ def test_rag_model_override_reads_env_var(monkeypatch) -> None:
     monkeypatch.setenv("RAG_MODEL_OVERRIDE", "version:7")
     get_settings.cache_clear()
     assert get_settings().rag_model_override == "version:7"
+
+
+# ---------------------------------------------------------------------------
+# env_flag (WR-09 DRY) — single source of truth for boolean-flag parsing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["1", "true", "yes", "on", "TRUE", "YES", "ON", "True", " true ", " 1 ", " ON "],
+)
+def test_env_flag_truthy_values(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    """env_flag returns True for every canonical truthy token and case/whitespace variants."""
+    monkeypatch.setenv("_TEST_ENV_FLAG", value)
+    assert env_flag("_TEST_ENV_FLAG") is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["0", "false", "off", "no", "FALSE", "OFF", "NO", "2", "yes1", ""],
+)
+def test_env_flag_falsy_values(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    """env_flag returns False for any value not in the truthy set."""
+    monkeypatch.setenv("_TEST_ENV_FLAG", value)
+    assert env_flag("_TEST_ENV_FLAG") is False
+
+
+def test_env_flag_unset_returns_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """env_flag returns False when the variable is not set at all."""
+    monkeypatch.delenv("_TEST_ENV_FLAG", raising=False)
+    assert env_flag("_TEST_ENV_FLAG") is False

@@ -44,6 +44,7 @@ from app.agent.state import ItineraryState, Stop
 from app.agent.swap import _inject_closure_exclusions, swap_closed_stops
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
 from app.agent.viability import all_slots_viable, best_viable_candidate_per_slot
+from app.config import env_flag
 from app.tools.directions import route_legs
 from app.tools.filters import SearchFilters, family_of
 
@@ -302,12 +303,8 @@ def build_agent_graph(
     #   tool calls in one act() step concurrently via asyncio.gather with
     #   results appended in ORIGINAL tool_call order.
     _forced_commit_step: int = int(os.environ.get("FORCED_COMMIT_STEP", "0") or "0")
-    _viability_contract_enabled: bool = os.environ.get(
-        "VIABILITY_CONTRACT_ENABLED", ""
-    ).strip().lower() in {"1", "true", "yes", "on"}
-    _parallel_tool_execution_enabled: bool = os.environ.get(
-        "PARALLEL_TOOL_EXECUTION_ENABLED", ""
-    ).strip().lower() in {"1", "true", "yes", "on"}
+    _viability_contract_enabled: bool = env_flag("VIABILITY_CONTRACT_ENABLED")
+    _parallel_tool_execution_enabled: bool = env_flag("PARALLEL_TOOL_EXECUTION_ENABLED")
     # Pre-compute the prompt addendum at build time (pure string; empty when flag off).
     _viability_prompt_addendum: str = rule8_viability_addendum(_viability_contract_enabled)
 

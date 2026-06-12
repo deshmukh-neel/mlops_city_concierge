@@ -18,6 +18,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from app.agent.critique import CRITIQUE_ITINERARY, CRITIQUE_STEP, CRITIQUE_VIBE, vibe
 from app.agent.critique.checks import is_rationale_aligned, itinerary_violations
 from app.agent.state import ItineraryState, RevisionAction, RevisionHint
+from app.config import env_flag
 
 # D-13-07: code default stays 0.55 (seed finding 2 — it already is 0.55).
 # The experiment knob is LOW_SIMILARITY_THRESHOLD_OVERRIDE: used in the A1 arm
@@ -30,11 +31,8 @@ LOW_SIMILARITY_THRESHOLD: float = float(
 
 # D-13-05: VIABILITY_CONTRACT_ENABLED selects the A1 arm (DEC-01 + DEC-03).
 # Read at module level so tests can reload the module to flip the flag.
-# Truthy-set parsing follows the REFINEMENT_STRUCTURED_PLAN_ENABLED precedent
-# (app/main.py:758-763).
-_VIABILITY_CONTRACT_ENABLED: bool = os.environ.get(
-    "VIABILITY_CONTRACT_ENABLED", ""
-).strip().lower() in {"1", "true", "yes", "on"}
+# env_flag is the single source of truth for boolean-flag parsing (WR-09 DRY).
+_VIABILITY_CONTRACT_ENABLED: bool = env_flag("VIABILITY_CONTRACT_ENABLED")
 MAX_REVISIONS_PER_REASON = 2
 
 

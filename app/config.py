@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from functools import lru_cache
 from urllib.parse import quote_plus, urlencode
@@ -8,6 +9,18 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ALLOWED_EMBEDDING_TABLES: frozenset[str] = frozenset({"place_embeddings", "place_embeddings_v2"})
+
+
+def env_flag(name: str) -> bool:
+    """Return True if the named environment variable is set to a truthy value.
+
+    Accepted truthy values: "1", "true", "yes", "on" (case-insensitive, whitespace-stripped).
+    Any other value (including empty string or unset) returns False.
+
+    This is the single source of truth for boolean-flag parsing (WR-09 DRY).
+    The truthy set matches the REFINEMENT_STRUCTURED_PLAN_ENABLED precedent in app/main.py.
+    """
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def build_database_url(
