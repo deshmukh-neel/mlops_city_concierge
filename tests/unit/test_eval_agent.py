@@ -27,6 +27,7 @@ from scripts.eval_agent import (
     evaluate_multi_turn_case,
     expected_results_label,
     first_commit_call_step_from_state,
+    make_error_record,
     percentile,
     query_result_from_state,
     rate,
@@ -2822,3 +2823,106 @@ class TestKeptSearchingDerivation:
         metrics via the same threaded local (WR-09)."""
         result = query_result_from_state(eval_case(), ItineraryState())
         assert result.deterministic.viability_threshold == LOW_SIMILARITY_THRESHOLD
+
+
+# ── Plan 13-01 / D-13-04 / D-13-05: arm_flags + forced-commit telemetry ─────
+
+
+class TestArmFlagsAndForcedCommitTelemetry:
+    """Run-JSON self-description for Phase 13 experiment arms (D-13-04, D-13-05).
+
+    Task 3 of Plan 13-01: DeterministicEvalResult gains commit_forced,
+    forced_commit_step, and arm_flags fields; make_error_record carries safe
+    defaults; no new scorers are added.
+    """
+
+    def test_deterministic_eval_result_has_arm_flags_field(self) -> None:
+        """DeterministicEvalResult dataclass has an arm_flags field."""
+        assert hasattr(DeterministicEvalResult, "__dataclass_fields__")
+        assert "arm_flags" in DeterministicEvalResult.__dataclass_fields__
+
+    def test_deterministic_eval_result_has_commit_forced_field(self) -> None:
+        """DeterministicEvalResult dataclass has a commit_forced field."""
+        assert "commit_forced" in DeterministicEvalResult.__dataclass_fields__
+
+    def test_deterministic_eval_result_has_forced_commit_step_field(self) -> None:
+        """DeterministicEvalResult dataclass has a forced_commit_step field."""
+        assert "forced_commit_step" in DeterministicEvalResult.__dataclass_fields__
+
+    def test_arm_flags_all_off_when_no_env_vars_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With all arm env vars unset, arm_flags reflects 'all off'."""
+        monkeypatch.delenv("VIABILITY_CONTRACT_ENABLED", raising=False)
+        monkeypatch.delenv("FORCED_COMMIT_STEP", raising=False)
+        monkeypatch.delenv("PARALLEL_TOOL_EXECUTION_ENABLED", raising=False)
+        monkeypatch.delenv("LOW_SIMILARITY_THRESHOLD_OVERRIDE", raising=False)
+
+        result = query_result_from_state(eval_case(), ItineraryState())
+
+        assert result.deterministic.arm_flags == {
+            "viability_contract": False,
+            "forced_commit_step": 0,
+            "parallel_tool": False,
+            "viability_threshold_override": None,
+        }
+
+    def test_arm_flags_reflects_env_vars_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """arm_flags reflects the env at run time when flags are set."""
+        monkeypatch.setenv("VIABILITY_CONTRACT_ENABLED", "1")
+        monkeypatch.setenv("FORCED_COMMIT_STEP", "6")
+        monkeypatch.setenv("PARALLEL_TOOL_EXECUTION_ENABLED", "true")
+        monkeypatch.setenv("LOW_SIMILARITY_THRESHOLD_OVERRIDE", "0.50")
+
+        result = query_result_from_state(eval_case(), ItineraryState())
+
+        assert result.deterministic.arm_flags == {
+            "viability_contract": True,
+            "forced_commit_step": 6,
+            "parallel_tool": True,
+            "viability_threshold_override": "0.50",
+        }
+
+    def test_commit_forced_default_false_when_state_not_forced(self) -> None:
+        """commit_forced is False when state.commit_forced is False (default path)."""
+        state = ItineraryState()
+        assert state.commit_forced is False
+        result = query_result_from_state(eval_case(), state)
+        assert result.deterministic.commit_forced is False
+
+    def test_commit_forced_true_when_state_carries_it(self) -> None:
+        """commit_forced is True when state carries it (D-13-04)."""
+        state = ItineraryState(commit_forced=True, forced_commit_step=4)
+        result = query_result_from_state(eval_case(), state)
+        assert result.deterministic.commit_forced is True
+        assert result.deterministic.forced_commit_step == 4
+
+    def test_forced_commit_step_none_when_not_forced(self) -> None:
+        """forced_commit_step is None when state carries no forced commit."""
+        result = query_result_from_state(eval_case(), ItineraryState())
+        assert result.deterministic.forced_commit_step is None
+
+    def test_error_record_has_safe_defaults_for_new_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """make_error_record carries commit_forced=False, forced_commit_step=None, arm_flags={}."""
+        monkeypatch.delenv("VIABILITY_CONTRACT_ENABLED", raising=False)
+        monkeypatch.delenv("FORCED_COMMIT_STEP", raising=False)
+        monkeypatch.delenv("PARALLEL_TOOL_EXECUTION_ENABLED", raising=False)
+        monkeypatch.delenv("LOW_SIMILARITY_THRESHOLD_OVERRIDE", raising=False)
+        from dataclasses import asdict
+
+        case = eval_case()
+        record = make_error_record(case, "setup", RuntimeError("boom"))
+        det = record.deterministic
+
+        assert det.commit_forced is False
+        assert det.forced_commit_step is None
+        assert det.arm_flags == {}
+        # Must serialize without raising
+        asdict(record)
+
+    def test_no_new_scorer_registered_for_arm_fields(self) -> None:
+        """arm_flags / commit_forced / forced_commit_step must NOT be in DETERMINISTIC_CHECKS
+        (D-13-04 anti-scope: these are telemetry fields, not scorers)."""
+        assert "arm_flags" not in DETERMINISTIC_CHECKS
+        assert "commit_forced" not in DETERMINISTIC_CHECKS
+        assert "forced_commit_step" not in DETERMINISTIC_CHECKS
