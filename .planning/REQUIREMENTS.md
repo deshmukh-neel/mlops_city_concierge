@@ -96,6 +96,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROMO-01 | Phase 15 | Pending |
 | PROMO-02 | Phase 15 | Pending |
 | PROMO-03 | Phase 15 | Pending |
+| ANCH-01 | None (deferred 2026-06-11, future) | Deferred |
+| PROD-01 | None (future milestone) | Deferred |
+| PROD-02 | None (future milestone) | Deferred |
 
 **Coverage:**
 - v2.2 requirements: 17 total
