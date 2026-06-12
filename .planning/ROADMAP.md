@@ -144,7 +144,7 @@
 
 **Wave 3** *(live runs — checkpoints, real API spend; ≤4-run cap)*
 
-- [ ] 14-04-run-r1-r2-judged-arms-PLAN.md — Run R1 (multi-message replay) + R2 (content-block preservation) PURE at n=5 temp=1.0, smoke-first with arm_flags verification; fill R1/R2 verdict sections with three-delta tables
+- [x] 14-04-run-r1-r2-judged-arms-PLAN.md — Run R1 (multi-message replay) + R2 (content-block preservation) PURE at n=5 temp=1.0, smoke-first with arm_flags verification; fill R1/R2 verdict sections with three-delta tables
 
 **Wave 4**
 
@@ -180,7 +180,7 @@
 | 11. Cross-Model Baseline Regen + Matrix | v2.1 | 9/9 | Complete | 2026-06-11 |
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
-| 14. Richer State Replay (CONDITIONAL) | v2.2 | 3/5 | In Progress|  |
+| 14. Richer State Replay (CONDITIONAL) | v2.2 | 4/5 | In Progress|  |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
 
 ---

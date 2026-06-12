@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 14
 status: executing
-last_updated: "2026-06-12T19:46:37.489Z"
+last_updated: "2026-06-12T21:37:22.536Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 20
-  completed_plans: 18
+  completed_plans: 19
   percent: 50
 ---
 
@@ -32,11 +32,11 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 ## Current Position
 
 Phase: 14 (richer-state-replay-conditional) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-06-12
 
-Progress: [█████████░] 90%
+Progress: [██████████] 95%
 
 ## Blockers / Readiness Notes
 
@@ -67,8 +67,8 @@ Progress: [█████████░] 90%
 
 ## Session Continuity
 
-Last session: 2026-06-12T19:46:37.483Z
-Stopped at: Completed 14-02-evidence-audit-and-verdict-scaffold-PLAN.md
+Last session: 2026-06-12T21:37:22.531Z
+Stopped at: Completed 14-04-run-r1-r2-judged-arms-PLAN.md
 Resume file: None
 Next step: `/gsd-plan-phase 12`
 
@@ -90,6 +90,7 @@ Next step: `/gsd-plan-phase 12`
 | Phase 14 P14-01 | 15min | 3 tasks | 5 files |
 | Phase 14 P14-02 | 15min | 2 tasks | 3 files |
 | Phase 14 P03 | 10min | 2 tasks | 1 files |
+| Phase 14 P14-04 | 95min | 3 tasks | 1 files |
 
 ## Decisions
 
@@ -102,3 +103,5 @@ Next step: `/gsd-plan-phase 12`
 - [Phase ?]: A3 PARALLEL_TOOL_EXECUTION: anchor regression refinement_cheaper 0.000 vs 1.000 baseline; latency unmeasurable (Phase-12 no telemetry)
 - [Phase ?]: A4 conditional: A1 no signal (0.0), A2 positive (0.5); A4 qualification deferred to plan 13-07
 - [Phase ?]: D-14-05: R2 EXPECTED-NULL on tested cells — str() collapse is NO-OP for all three RUN models; only AnthropicAdapter uses list-content and is deferred (D-12-09)
+- [Phase ?]: R1 REPLAY_MULTI_MESSAGE: gpt-5-mini 0.500 — identical to A2, delta vs A2 = 0.000; positive vs floor but below 0.6 bar; anchor held 1.000
+- [Phase ?]: R2 REPLAY_CONTENT_BLOCKS: EXPECTED-NULL REFUTED for gpt-5-mini — 10/10 deterministic 400s (Responses-API list content embeds function_call items; str() collapse was load-bearing); NEGATIVE signal, R3 combo precondition fails; anchor held median 1.000
