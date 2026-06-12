@@ -588,3 +588,8 @@ user approves the scope.
 - Best performing config: A2 (`FORCED_COMMIT_STEP=6`, Phase-13 run dir `eval_reports/2026-06-12T07-27-03Z`) — gpt-5-mini 0.500 model-initiated; forced mechanism untested at n=5 on the fixed synthesizer (CR-01 fix: Phase 13-08)
 - Blocking pattern: refinement_cheaper = 0.000 across all arms (gpt-5-mini never commits on this scenario under any tested intervention)
 - Recommendation: A2 retest on fixed synthesizer before any architectural escalation
+
+**USER CHECKPOINT RESOLVED (2026-06-12):** The user approved the recommended scope.
+Phase 15 = A2 retest on the fixed synthesizer + refinement_cheaper root-cause analysis +
+gate promotion/baseline regen. gpt-4o-mini anchor ratified. ARCH-FUT-01 is NOT executed —
+filed as tracked technical debt with the Phases 13–14 evidence chain as its trigger criteria.
