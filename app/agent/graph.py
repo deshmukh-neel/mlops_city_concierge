@@ -617,16 +617,37 @@ def build_agent_graph(
             and all_slots_viable(state, LOW_SIMILARITY_THRESHOLD)
         ):
             candidates = best_viable_candidate_per_slot(state, LOW_SIMILARITY_THRESHOLD)
-            # Build a raw_stops list suitable for commit_stops. Each candidate dict
-            # already carries place_id, name, primary_type from the semantic_search
-            # result hit — they are grounded in scratch, so commit_stops validates them.
-            raw_stops: list[dict[str, Any]] = [c for c in candidates if c is not None]
+            # Build commit-shaped stop dicts. Each candidate dict carries place_id,
+            # name, primary_type, similarity, source from model_dump(mode="json").
+            # Stop.rationale is REQUIRED (no default) — synthesize a provenance string
+            # so commit_stops can construct Stop(**raw) without ValidationError.
+            # Skip candidates that lack a truthy place_id (WR-07 admission consistency).
+            raw_stops: list[dict[str, Any]] = []
+            for c in candidates:
+                if c is None:
+                    continue
+                pid = c.get("place_id")
+                if not pid:
+                    continue
+                sim = c.get("similarity", 0.0)
+                ptype = c.get("primary_type") or "place"
+                raw_stops.append(
+                    {
+                        "place_id": pid,
+                        "name": c.get("name") or "",
+                        "primary_type": ptype,
+                        "source": c.get("source") or "google_places",
+                        "rationale": (
+                            f"Best available match for requested {ptype} slot "
+                            f"(forced commit at step {state.step_count}; "
+                            f"cosine similarity {sim:.3f})."
+                        ),
+                    }
+                )
             committed_stops, _payload = commit_stops(state, raw_stops)
             if committed_stops:
                 # Route through critique_final_with_stops with the committed stops wired in.
-                critique_state = state.model_copy(
-                    update={"stops": committed_stops, "step_count": state.step_count}
-                )
+                critique_state = state.model_copy(update={"stops": committed_stops})
                 last_msg = state.messages[-1] if state.messages else None
                 result = critique_final_with_stops(critique_state, last_msg, judge_llm)
                 # Merge the forced-commit honesty telemetry into the returned update dict.
