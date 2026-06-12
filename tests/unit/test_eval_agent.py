@@ -26,6 +26,7 @@ from scripts.eval_agent import (
     count_tool_calls,
     evaluate_multi_turn_case,
     expected_results_label,
+    first_commit_call_step_from_state,
     percentile,
     query_result_from_state,
     rate,
@@ -34,6 +35,7 @@ from scripts.eval_agent import (
     resolve_chat_model,
     retrieved_place_names_from_state,
     revision_reasons_from_state,
+    rule8_met_per_step_from_state,
     score_checks,
     score_expected_results,
     selected_cases,
@@ -41,6 +43,7 @@ from scripts.eval_agent import (
     tool_errors_from_state,
     tool_names_from_state,
     validate_args,
+    viable_candidates_per_step_from_state,
     violations_for_case,
     violations_from_checks,
 )
@@ -228,6 +231,13 @@ def query_result(**overrides: object) -> QueryEvalResult:
             tool_names=["semantic_search"],
             revision_hints=0,
             revision_reasons=[],
+            first_commit_call_step=None,
+            first_commit_mention_step=None,
+            viable_candidates_per_step=[],
+            rule8_met_per_step=[],
+            rule8_met_but_kept_searching_steps=[],
+            step_telemetry=[],
+            viability_threshold=0.55,
         ),
         "final_reply": "Try Example Cafe.",
         "latency_seconds": 1.0,
@@ -546,6 +556,13 @@ def test_aggregate_results_flattens_mean_metrics() -> None:
             tool_names=["semantic_search"],
             revision_hints=1,
             revision_reasons=["low_similarity"],
+            first_commit_call_step=None,
+            first_commit_mention_step=None,
+            viable_candidates_per_step=[],
+            rule8_met_per_step=[],
+            rule8_met_but_kept_searching_steps=[],
+            step_telemetry=[],
+            viability_threshold=0.55,
         ),
     )
 
@@ -2411,3 +2428,397 @@ class TestExitCodeContract:
         assert rc == 2, (
             "build_report exception must map to exit 2 (infra failure), not 1 (violations)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 Plan 02: INST-01/02/03 derived-field helper tests
+# ---------------------------------------------------------------------------
+
+from app.agent.revision import LOW_SIMILARITY_THRESHOLD  # noqa: E402 — test import
+
+
+def _state_with_commit_at_step(step: int) -> ItineraryState:
+    """Minimal ItineraryState that has a commit_itinerary scratch entry at ``step``."""
+    return ItineraryState(
+        scratch={"commit_itinerary": [{"step": step, "args": {}, "result": {}, "id": "tc1"}]}
+    )
+
+
+def _state_with_search_hits(
+    hits: list[dict],
+    step: int = 0,
+    tool: str = "semantic_search",
+) -> ItineraryState:
+    """Build a state with one retrieval scratch entry at the given step."""
+    return ItineraryState(scratch={tool: [{"step": step, "result": hits}]})
+
+
+class TestFirstCommitCallStepFromState:
+    """Tests for first_commit_call_step_from_state (INST-01 / D-12-03)."""
+
+    def test_returns_step_index_for_single_commit(self) -> None:
+        state = _state_with_commit_at_step(3)
+        assert first_commit_call_step_from_state(state) == 3
+
+    def test_returns_min_when_multiple_commit_entries(self) -> None:
+        state = ItineraryState(
+            scratch={
+                "commit_itinerary": [
+                    {"step": 5, "args": {}, "result": {}, "id": "tc2"},
+                    {"step": 2, "args": {}, "result": {}, "id": "tc1"},
+                ]
+            }
+        )
+        assert first_commit_call_step_from_state(state) == 2
+
+    def test_returns_none_on_empty_state(self) -> None:
+        assert first_commit_call_step_from_state(ItineraryState()) is None
+
+    def test_returns_none_when_commit_itinerary_is_non_list(self) -> None:
+        state = ItineraryState(scratch={"commit_itinerary": "not-a-list"})
+        assert first_commit_call_step_from_state(state) is None
+
+    def test_returns_none_when_entries_have_no_step_key(self) -> None:
+        state = ItineraryState(scratch={"commit_itinerary": [{"args": {}}]})
+        assert first_commit_call_step_from_state(state) is None
+
+    def test_returns_none_when_step_is_none(self) -> None:
+        """WR-08: step=None must not crash min() — docstring promises None."""
+        state = ItineraryState(scratch={"commit_itinerary": [{"step": None, "args": {}}]})
+        assert first_commit_call_step_from_state(state) is None
+
+    def test_skips_non_int_steps_in_mixed_entries(self) -> None:
+        """WR-08: mixed [2, "3"] must return 2, not raise TypeError."""
+        state = ItineraryState(
+            scratch={
+                "commit_itinerary": [
+                    {"step": "3", "args": {}},
+                    {"step": 2, "args": {}},
+                ]
+            }
+        )
+        assert first_commit_call_step_from_state(state) == 2
+
+    def test_bool_step_is_not_a_valid_step(self) -> None:
+        """WR-08: bool is a subclass of int — reject it explicitly."""
+        state = ItineraryState(scratch={"commit_itinerary": [{"step": True, "args": {}}]})
+        assert first_commit_call_step_from_state(state) is None
+
+    def test_output_is_json_safe(self) -> None:
+        state = _state_with_commit_at_step(1)
+        result = first_commit_call_step_from_state(state)
+        assert json.dumps(result) is not None  # type: ignore[arg-type]
+
+
+class TestViableCandidatesPerStepFromState:
+    """Tests for viable_candidates_per_step_from_state (INST-02 / D-12-04)."""
+
+    def _high_sim_hit(self, primary_type: str) -> dict:
+        return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "primary_type": primary_type}
+
+    def _low_sim_hit(self, primary_type: str) -> dict:
+        return {"similarity": 0.0, "primary_type": primary_type}
+
+    def test_counts_hits_above_threshold_matching_type(self) -> None:
+        hits = [self._high_sim_hit("cafe"), self._high_sim_hit("cafe")]
+        state = _state_with_search_hits(hits, step=0)
+        result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
+        assert result == [2]
+
+    def test_nearby_entries_are_not_scanned(self) -> None:
+        """WR-01: viability is semantic-search-only. The nearby tool's SQL
+        hardcodes 0.0 AS similarity (app/tools/retrieval.py), so no nearby hit
+        could ever clear the threshold — the helper does not read the source it
+        can never count. Even a high-similarity hit under the 'nearby' key is
+        ignored (documented limitation: nearby-driven flows undercount)."""
+        hits = [self._high_sim_hit("cafe")]
+        state = _state_with_search_hits(hits, step=0, tool="nearby")
+        result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
+        assert result == [], "nearby scratch entries must not be scanned for viability"
+
+    def test_wrong_type_excluded(self) -> None:
+        hits = [self._high_sim_hit("restaurant")]
+        state = _state_with_search_hits(hits, step=0)
+        result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
+        assert result == [0]
+
+    def test_per_step_not_cumulative(self) -> None:
+        """An entry at step 0 and another at step 1 yield two independent counts."""
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [self._high_sim_hit("cafe")]},
+                    {"step": 1, "result": [self._high_sim_hit("cafe"), self._high_sim_hit("cafe")]},
+                ]
+            }
+        )
+        result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
+        # Step 0 has 1 hit, step 1 has 2 hits — NOT cumulative [1, 3]
+        assert result == [1, 2]
+
+    def test_empty_requested_types_counts_on_cosine_only(self) -> None:
+        hits = [self._high_sim_hit("cafe"), self._low_sim_hit("bar")]
+        state = _state_with_search_hits(hits, step=0)
+        # No type constraint: only cosine matters
+        result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, [])
+        assert result == [1]  # only the high-similarity hit counts
+
+    def test_empty_state_returns_empty_list(self) -> None:
+        result = viable_candidates_per_step_from_state(
+            ItineraryState(), LOW_SIMILARITY_THRESHOLD, []
+        )
+        assert result == []
+
+    def test_output_is_json_safe(self) -> None:
+        hits = [self._high_sim_hit("cafe")]
+        state = _state_with_search_hits(hits, step=0)
+        result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
+        assert json.dumps(result) is not None
+
+
+class TestRule8MetPerStepFromState:
+    """Tests for rule8_met_per_step_from_state (INST-03 / D-12-05)."""
+
+    def _high_sim_hit(self, primary_type: str) -> dict:
+        return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "primary_type": primary_type}
+
+    def test_flips_true_only_once_both_types_covered_cumulatively(self) -> None:
+        """Cumulative: False while only one type covered, True once both covered."""
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    # Step 0: only covers 'cafe'
+                    {"step": 0, "result": [self._high_sim_hit("cafe")]},
+                    # Step 1: covers 'bar' — now both covered cumulatively
+                    {"step": 1, "result": [self._high_sim_hit("bar")]},
+                ]
+            }
+        )
+        requested = ["cafe", "bar"]
+        viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, requested)
+        result = rule8_met_per_step_from_state(state, viable, requested, LOW_SIMILARITY_THRESHOLD)
+        assert result == [False, True], f"expected [False, True], got {result}"
+
+    def test_stays_false_when_only_one_of_two_types_covered(self) -> None:
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [self._high_sim_hit("cafe")]},
+                    {"step": 1, "result": [self._high_sim_hit("cafe")]},
+                ]
+            }
+        )
+        requested = ["cafe", "bar"]
+        viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, requested)
+        result = rule8_met_per_step_from_state(state, viable, requested, LOW_SIMILARITY_THRESHOLD)
+        assert result == [False, False]
+
+    def test_empty_requested_types_fallback_uses_cumulative_count(self) -> None:
+        """With no requested_types, True once cumulative count >= 1."""
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": []},  # no viable hits at step 0
+                    {"step": 1, "result": [self._high_sim_hit("cafe")]},
+                ]
+            }
+        )
+        viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, [])
+        result = rule8_met_per_step_from_state(state, viable, [], LOW_SIMILARITY_THRESHOLD)
+        # Step 0: cumulative=0 → False; Step 1: cumulative=1 → True
+        assert result == [False, True]
+
+    def test_empty_state_returns_empty(self) -> None:
+        result = rule8_met_per_step_from_state(
+            ItineraryState(), [], ["cafe"], LOW_SIMILARITY_THRESHOLD
+        )
+        assert result == []
+
+    def test_duplicate_requested_types_need_distinct_place_ids(self) -> None:
+        """WR-02: ['restaurant', 'restaurant', 'bar'] means two DISTINCT
+        restaurant stops — one viable restaurant must not mark both covered."""
+
+        def _hit(ptype: str, pid: str) -> dict:
+            return {
+                "similarity": LOW_SIMILARITY_THRESHOLD + 0.1,
+                "primary_type": ptype,
+                "place_id": pid,
+            }
+
+        requested = ["restaurant", "restaurant", "bar"]
+        one_restaurant = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [_hit("restaurant", "r1"), _hit("bar", "b1")]},
+                ]
+            }
+        )
+        viable = viable_candidates_per_step_from_state(
+            one_restaurant, LOW_SIMILARITY_THRESHOLD, requested
+        )
+        result = rule8_met_per_step_from_state(
+            one_restaurant, viable, requested, LOW_SIMILARITY_THRESHOLD
+        )
+        assert result == [False], (
+            "one viable restaurant must NOT cover two requested restaurant slots"
+        )
+
+        two_restaurants = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {
+                        "step": 0,
+                        "result": [
+                            _hit("restaurant", "r1"),
+                            _hit("restaurant", "r2"),
+                            _hit("bar", "b1"),
+                        ],
+                    },
+                ]
+            }
+        )
+        viable = viable_candidates_per_step_from_state(
+            two_restaurants, LOW_SIMILARITY_THRESHOLD, requested
+        )
+        result = rule8_met_per_step_from_state(
+            two_restaurants, viable, requested, LOW_SIMILARITY_THRESHOLD
+        )
+        assert result == [True], "two distinct viable restaurants + a bar cover all three slots"
+
+    def test_same_place_id_at_one_step_counts_once_for_typed_coverage(self) -> None:
+        """WR-02: the same venue returned twice is still ONE distinct candidate."""
+
+        def _hit(pid: str) -> dict:
+            return {
+                "similarity": LOW_SIMILARITY_THRESHOLD + 0.1,
+                "primary_type": "restaurant",
+                "place_id": pid,
+            }
+
+        requested = ["restaurant", "restaurant"]
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [_hit("r1"), _hit("r1")]},
+                ]
+            }
+        )
+        viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, requested)
+        result = rule8_met_per_step_from_state(state, viable, requested, LOW_SIMILARITY_THRESHOLD)
+        assert result == [False]
+
+    def test_no_types_fallback_dedupes_repeated_venue_across_steps(self) -> None:
+        """WR-02: with num_stops=3, the SAME place_id returned at steps 0, 1, 2
+        must count as ONE viable candidate, not three."""
+
+        def _hit(pid: str) -> dict:
+            return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "place_id": pid}
+
+        same_venue = ItineraryState(
+            constraints=UserConstraints(num_stops=3),
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [_hit("p1")]},
+                    {"step": 1, "result": [_hit("p1")]},
+                    {"step": 2, "result": [_hit("p1")]},
+                ]
+            },
+        )
+        viable = viable_candidates_per_step_from_state(same_venue, LOW_SIMILARITY_THRESHOLD, [])
+        result = rule8_met_per_step_from_state(same_venue, viable, [], LOW_SIMILARITY_THRESHOLD)
+        assert result == [False, False, False], (
+            f"one venue repeated 3x must not satisfy a 3-stop request, got {result}"
+        )
+
+        distinct_venues = ItineraryState(
+            constraints=UserConstraints(num_stops=3),
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [_hit("p1")]},
+                    {"step": 1, "result": [_hit("p2")]},
+                    {"step": 2, "result": [_hit("p3")]},
+                ]
+            },
+        )
+        viable = viable_candidates_per_step_from_state(
+            distinct_venues, LOW_SIMILARITY_THRESHOLD, []
+        )
+        result = rule8_met_per_step_from_state(
+            distinct_venues, viable, [], LOW_SIMILARITY_THRESHOLD
+        )
+        assert result == [False, False, True]
+
+    def test_output_is_json_safe(self) -> None:
+        state = ItineraryState(
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [self._high_sim_hit("cafe")]},
+                ]
+            }
+        )
+        viable = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
+        result = rule8_met_per_step_from_state(state, viable, ["cafe"], LOW_SIMILARITY_THRESHOLD)
+        assert json.dumps(result) is not None
+
+    def test_caller_threshold_is_honored_not_module_constant(self) -> None:
+        """WR-09: the threshold is a caller parameter — a hit below the module
+        constant but above the caller's threshold must count."""
+        hit = {"similarity": 0.40, "primary_type": "cafe", "place_id": "p1"}
+        state = ItineraryState(scratch={"semantic_search": [{"step": 0, "result": [hit]}]})
+        viable_low = viable_candidates_per_step_from_state(state, 0.3, ["cafe"])
+        assert rule8_met_per_step_from_state(state, viable_low, ["cafe"], 0.3) == [True]
+        viable_high = viable_candidates_per_step_from_state(
+            state, LOW_SIMILARITY_THRESHOLD, ["cafe"]
+        )
+        assert rule8_met_per_step_from_state(
+            state, viable_high, ["cafe"], LOW_SIMILARITY_THRESHOLD
+        ) == [False]
+
+
+class TestKeptSearchingDerivation:
+    """WR-09: query_result_from_state's rule8_met_but_kept_searching_steps —
+    steps where rule 8 was met but the model did NOT commit (commit step
+    excluded)."""
+
+    def _hit(self, pid: str) -> dict:
+        return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "place_id": pid}
+
+    def test_commit_step_excluded_from_kept_searching(self) -> None:
+        """Rule 8 met at steps 0 and 1; commit at step 1 → only step 0 is a
+        decisiveness-gap step."""
+        state = ItineraryState(
+            constraints=UserConstraints(num_stops=1),
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [self._hit("p1")]},
+                    {"step": 1, "result": [self._hit("p2")]},
+                ],
+                "commit_itinerary": [{"step": 1, "args": {}, "result": {}, "id": "tc1"}],
+            },
+        )
+        result = query_result_from_state(eval_case(), state)
+        assert result.deterministic.rule8_met_per_step == [True, True]
+        assert result.deterministic.rule8_met_but_kept_searching_steps == [0], (
+            "the commit step (1) must be excluded; only step 0 is kept-searching"
+        )
+        assert result.deterministic.first_commit_call_step == 1
+
+    def test_no_commit_means_every_met_step_is_kept_searching(self) -> None:
+        state = ItineraryState(
+            constraints=UserConstraints(num_stops=1),
+            scratch={
+                "semantic_search": [
+                    {"step": 0, "result": [self._hit("p1")]},
+                    {"step": 1, "result": [self._hit("p2")]},
+                ],
+            },
+        )
+        result = query_result_from_state(eval_case(), state)
+        assert result.deterministic.rule8_met_but_kept_searching_steps == [0, 1]
+        assert result.deterministic.first_commit_call_step is None
+
+    def test_report_threshold_field_matches_module_constant(self) -> None:
+        """The self-describing viability_threshold field binds both per-step
+        metrics via the same threaded local (WR-09)."""
+        result = query_result_from_state(eval_case(), ItineraryState())
+        assert result.deterministic.viability_threshold == LOW_SIMILARITY_THRESHOLD

@@ -16,14 +16,25 @@ The agentic redesign shipped as workstreams W0 → W8 (`implementation_plan/jame
 
 Five live runs against the omakase Mission/Japantown query revealed the next class of bugs — category compliance, rationale-stop alignment, refinement-turn explosions, and the lack of any reproducible way to measure agent quality without invading the shared MLflow `production` alias. **v2.0 Production Readiness shipped that work on 2026-06-03 (PR #100 → `14e01dd`):** the eval harness + model-override env var + three agent-behavior fixes, all measured against committed cross-model baselines with a CI hard gate on baseline staleness. The Phase 6 minimal-edit refinement probe also empirically confirmed an architectural limit (`_prune_for_llm` drops `reasoning_content` across turns), which scopes v2.1: reasoning-model compat.
 
-## Next Milestone Goals
+## Current Milestone: v2.2 Reasoning-Model Decisiveness
 
-**v2.2 Decisiveness (draft):** the v2.1 falsifier resolved — reasoning state now threads through every provider adapter, yet reasoning models still don't *commit* (gpt-5-mini refinement median 0.0; DeepSeek decisiveness gap). v2.2's theme is making reasoning models decisive on the tool loop: critique-loop ↔ commit tension, `category_compliance` zero-stop semantics (now abstain-correct), and promotion paths for the deferred anchors (anthropic billing top-up; gemini full n=5 — its single scored run hit commit-rate 1.0, first evidence the Phase-9 adapters fixed Gemini). Start with `/gsd-new-milestone`.
+**Goal:** Make reasoning models decisive on the tool loop — v2.1 proved reasoning state round-trips byte-correctly through all four provider adapters, yet the models still burn their step budget exploring and never (or rarely) call `commit_itinerary` (gpt-5-mini 2/5, deepseek-reasoner 0/5 vs the gpt-4o-mini anchor's 5/5).
+
+**Target features:**
+- Decisiveness instrumentation + falsifier: per-run telemetry (steps-to-first-commit-consideration, viable-candidate counts per step, rule-8 precondition objectively-met flag) plus per-turn latency decomposition; intervention "works" iff gpt-5-mini commit rate ≥ 0.6 at n=5 with no gpt-4o-mini anchor regression
+- First gemini n=5 baseline (quota resolution) — completes the comparison floor minus the anthropic cell; anthropic n=5 deferred at milestone start (no billing top-up — gemini + deepseek + gpt-5-mini give enough reasoning-model coverage for the falsifier)
+- Viability-contract / forced-commit experiment arms, judged jointly (explicit viability definition in the commit precondition; forced-commit-at-step-N graph mechanism; critique recalibration co-tuned with the viability contract; parallel tool execution in `act()` as the all-provider latency arm)
+- Richer state replay (multi-message `_reasoning_state` replay, content-block preservation through prune) — only if the experiment arms plateau, justified by A/B
+- Gate promotion + baseline regen: winning arm's baselines regenerated via `write_baselines.py`; reasoning-model gates promoted from logged-not-gated to enforced where earned
+
+**Anti-scope (locked from seed):** no LangGraph replacement (ARCH-FUT-01 stays a contingency), no multi-agent planner-executor split, no new scorers, no provider-shopping.
+
+**Decision 3 resolved (latency budget):** prod budget is ~30s/turn — reasoning models target gate-passage as documented alternates; `openai/gpt-4o-mini` stays the prod anchor. Latency reduction is a first-class goal: decisiveness (step-count) is the dominant latency lever, and the parallel-tool-execution arm benefits the anchor directly.
 
 ## Current State
 
 **Shipped milestone:** v2.1 Reasoning-Model Compat (2026-06-11; PRs #103, #105, #106; 5 phases, 35 plans, 48 tasks; 156 files changed, +24k/−6.4k vs v2.0). Audit: 26/26 requirements, integration COMPLETE, status tech_debt (documented deferrals only) — see `milestones/v2.1-MILESTONE-AUDIT.md`.
-**Active milestone:** none — run `/gsd-new-milestone` for v2.2.
+**Active milestone:** v2.2 Reasoning-Model Decisiveness (started 2026-06-11; seeded from `milestones/v2.2-MILESTONE-SEED.md`).
 **Agent driver:** still `openai/gpt-4o-mini` (anchor held commit-rate median 1.0 throughout v2.1). Reasoning-state loss is FIXED (adapters + conformance harness in CI), but reasoning-model *decisiveness* remains the gap — that's v2.2's scope, not an architecture problem.
 
 **v2.1 delivered:**
@@ -73,9 +84,13 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 - ✓ Eval-harness honesty: error-status records, `baseline_eligible` quarantine, per-family gates vs real summary shape, fail-closed probe redaction — v2.1 Phase 10 (EVAL-01..06)
 - ✓ Honest n=5 baselines via `write_baselines.py`; 3 cross-model matrix anchors; `--baselines-mode` live-key-free CI gate (fail-closed); staleness watch-set covers `app/llm_factory.py` + matrix configs; `docs/baseline_regen.md` runbook — v2.1 Phase 11 (BASE-01..04)
 
-### Active (next milestone — define via /gsd-new-milestone)
+### Active (v2.2 — defined in REQUIREMENTS.md)
 
-(None — v2.2 Decisiveness is drafted; see Next Milestone Goals.)
+- Decisiveness instrumentation + executable falsifier (telemetry, latency decomposition)
+- Deferred anchor baseline: gemini n=5 (anthropic n=5 stays deferred — billing decision)
+- Joint decisiveness experiment arms (viability contract, forced-commit, critique recalibration, parallel tool execution)
+- Conditional richer state replay (A/B-justified, only on arm plateau)
+- Gate promotion + honest baseline regen for the winning arm
 
 ### Out of Scope (v2.0 — archived)
 
@@ -114,8 +129,9 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 | v2.1 phase order reversed from draft: prompt/rubric decoupling (Phase 7) sequenced BEFORE reasoning-state thread-through | Decoupling is a falsifier for the architectural diagnosis (if reasoning models still 0/5 after decoupling, state-loss is confirmed; if they move off 0, prompt-coupling was a bigger factor and Phase 9 scope shrinks). Also the only phase that pays back on the v2.0 anchor even if v2.1 stalls | ✓ Good — falsifier resolved exactly as designed: gpt-5-mini stayed flat 0/5 post-decoupling, confirming state-loss dominated; Phase 9 ran at full scope |
 | v2.1 draft Phase 1 (reasoning-state thread-through) split into Phase 8 (contract + conformance harness) and Phase 9 (per-provider impls, one sub-phase each) | W10 prior attempt landed three different "fixes" before finding what worked; per-provider variance is too high for one phase. Splitting gives independent ship/revert per provider and lets Phase 8 double as the harness-swap decision gate | ✓ Good — Phase 8 gate kept LangGraph; all 4 adapters shipped independently with revertability audit |
 | `category_compliance` abstains (`None`) on zero committed stops instead of fail-open 1.0 | Decisiveness-failing providers were inflating medians; abstain = no signal, excluded from aggregation. The first fix crashed at the `float()` consumer — caught by phase-11 code review, fixed + contaminated baseline cells re-measured live | ✓ Good — locked 2026-06-11 (D-11-03 + CR-01 gap closure) |
-| Anthropic demoted to logged-not-gated; gemini deferral retained | API credits exhausted mid-regen (billing, not code); promotion path documented in `docs/baseline_regen.md`. Gemini's single scored refinement run (commit-rate 1.0) is first evidence the Phase-9 adapter fixed it | — Pending re-promotion (decided 2026-06-11) |
+| Anthropic demoted to logged-not-gated; gemini deferral retained | API credits exhausted mid-regen (billing, not code); promotion path documented in `docs/baseline_regen.md`. Gemini's single scored refinement run (commit-rate 1.0) is first evidence the Phase-9 adapter fixed it | — Anthropic deferral extended into v2.2 (user declined top-up at milestone start); gemini promoted to v2.2 scope (ANCH-02) |
 | Baselines only ever written by `scripts/write_baselines.py`; matrix execution stays sequential (D-11-14) | Hand-rolled baselines caused the v2.0 fail-open saturation; the tool refuses partial/quarantined cells mechanically. Parallel runs would contaminate latency measurements — scoped temp matrix configs are the sanctioned subset-rerun mechanism | ✓ Good — locked 2026-06-11 |
+| v2.2 Decision 3: prod latency budget ~30s/turn — reasoning models are documented alternates, not prod-promotion candidates; gpt-4o-mini stays anchor | Sub-10s "frontier chat" latency is a single ungrounded forward pass; this agent's 50-90s is 12-18 sequential grounded tool calls. Decisiveness (step-count) + parallel tool execution are the levers that close the gap for the anchor; reasoning models' 20-30s/call thinking cost can't fit ~30s/turn regardless of convergence | Decided 2026-06-11 at v2.2 start; bounds investment in experiment/replay phases |
 | Stay on LangGraph for v2.1 unless Phase 8's conformance harness shows `graph.invoke` itself drops the round-tripped state | The W10 failure was at the langchain-openai library boundary, not at LangGraph's reducer. Swapping the harness now would pay full architectural cost for a problem we haven't proven the harness causes. Phase 8 is the cheapest place to test the harness in isolation | ✓ Resolved 2026-06-04 — Phase 8 REASON-05 gate PASSED: `add_messages` reducer preserves `additional_kwargs["_reasoning_state"]` through `graph.invoke`. LangGraph retained for v2.1; no v2.1.1 replan triggered |
 
 ## Evolution
@@ -136,4 +152,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-11 after v2.1 milestone (Reasoning-Model Compat shipped; next: v2.2 Decisiveness via /gsd-new-milestone).*
+*Last updated: 2026-06-11 at v2.2 milestone start (Reasoning-Model Decisiveness; seeded from the 2026-06-10 post-Phase-9 harness analysis).*

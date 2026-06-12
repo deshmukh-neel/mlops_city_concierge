@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import types
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -35,6 +36,7 @@ from app.agent.critique.checks import (
 from app.agent.graph import build_agent_graph
 from app.agent.input_parsing import explicit_num_stops_from_text
 from app.agent.io import build_refinement_prompt_message, messages_from_history
+from app.agent.revision import LOW_SIMILARITY_THRESHOLD  # D-12-04: import, never hardcode 0.55
 from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.config import get_settings
 from app.eval.config import (
@@ -128,6 +130,21 @@ class DeterministicEvalResult:
     tool_names: list[str]
     revision_hints: int
     revision_reasons: list[str]
+    # INST-01 / D-12-03: primary commit-step signal (objective, cross-provider-comparable)
+    first_commit_call_step: (
+        int | None
+    )  # step index of first commit_itinerary tool call; null if never
+    # INST-01 / D-12-03: secondary heuristic (visible reasoning text); null when reasoning is opaque
+    first_commit_mention_step: int | None  # null for encrypted reasoning, Gemini signatures
+    # INST-02 / D-12-04: per-step viable-candidate counts (one int per plan step, non-cumulative)
+    viable_candidates_per_step: list[int]
+    # INST-03 / D-12-05: per-step boolean — every stop had >=1 viable candidate cumulatively
+    rule8_met_per_step: list[bool]
+    rule8_met_but_kept_searching_steps: list[int]  # step indices where met but model kept searching
+    # INST-04 / D-12-01: raw per-step telemetry forwarded from ItineraryState verbatim
+    step_telemetry: list[dict[str, Any]]
+    # D-12-04: threshold value used for viability judgments (self-describing for Phase 13 diffs)
+    viability_threshold: float
 
 
 @dataclass
@@ -222,6 +239,14 @@ def make_error_record(case: EvalQuery, stage: str, exc: BaseException) -> QueryE
             tool_names=[],
             revision_hints=0,
             revision_reasons=[],
+            # INST safe defaults for error records (D-12-03/04/05)
+            first_commit_call_step=None,
+            first_commit_mention_step=None,
+            viable_candidates_per_step=[],
+            rule8_met_per_step=[],
+            rule8_met_but_kept_searching_steps=[],
+            step_telemetry=[],
+            viability_threshold=LOW_SIMILARITY_THRESHOLD,
         ),
         final_reply="",
         latency_seconds=0.0,
@@ -487,6 +512,229 @@ def revision_reasons_from_state(state: ItineraryState) -> list[str]:
     return [hint.reason for hint in state.revision_hints]
 
 
+def first_commit_call_step_from_state(state: ItineraryState) -> int | None:
+    """Return the step index of the first commit_itinerary tool call, or None.
+
+    INST-01 / D-12-03: primary commit-step metric. Reads
+    ``state.scratch['commit_itinerary']`` entries (same key used by
+    ``count_tool_calls`` / ``tool_names_from_state``). Each entry is a dict
+    with a ``"step"`` key written by ``act()`` in graph.py at
+    ``state.step_count`` (the pre-increment counter). Returns the minimum step
+    index across all commit entries so it captures the FIRST commit call even
+    when the model commits more than once. Returns None if no commit entry
+    exists or if the scratch value is malformed.
+
+    STEP-INDEX CONTRACT: commit_itinerary scratch entries are keyed by
+    ``state.step_count`` (pre-increment), matching the step_telemetry and
+    per-step viable-candidate index conventions from Plan 12-01.
+    """
+    entries = state.scratch.get("commit_itinerary")
+    if not isinstance(entries, list) or not entries:
+        return None
+    # WR-08: guard step values like the sibling per-step helpers do — a
+    # malformed entry (step=None or "3") must yield None, not a TypeError
+    # from min() that takes down the whole query row.
+    steps = [
+        e["step"]
+        for e in entries
+        if isinstance(e, dict)
+        and isinstance(e.get("step"), int)
+        and not isinstance(e.get("step"), bool)
+    ]
+    return min(steps) if steps else None
+
+
+def viable_candidates_per_step_from_state(
+    state: ItineraryState,
+    viability_threshold: float,
+    requested_types: list[str],
+) -> list[int]:
+    """Return per-step viable-candidate counts (INST-02 / D-12-04).
+
+    Returns a list of int, one element per plan step (indexed by step). Each
+    element is the count of viable candidates found in scratch entries for that
+    step. This list is PER-STEP (non-cumulative): element i counts only the
+    hits from scratch entries whose ``"step"`` key equals i, NOT a running
+    total. Cumulative accumulation is performed internally by
+    ``rule8_met_per_step_from_state``.
+
+    Viable = ``value_from_hit(hit, "similarity") >= viability_threshold`` AND
+    ``value_from_hit(hit, "primary_type") in requested_types`` (or
+    ``requested_types`` is empty — no type constraint, count on cosine alone).
+
+    SCOPE (WR-01): viability is SEMANTIC-SEARCH-ONLY by design. The ``nearby``
+    tool's SQL hardcodes ``0.0 AS similarity`` (app/tools/retrieval.py), so no
+    nearby hit can ever clear the threshold — scanning nearby would silently
+    read a source it can never count. KNOWN LIMITATION for Phase 13 analysis:
+    nearby-driven flows undercount viable candidates (and therefore bias
+    rule8_met_per_step low) because location-based evidence carries no
+    similarity signal to judge viability on.
+
+    Reads ``semantic_search`` scratch entries grouped by their ``"step"`` key.
+    Guards all reads with isinstance checks to handle malformed or empty state
+    gracefully.
+
+    STEP-INDEX CONTRACT: scratch entries use ``state.step_count`` (pre-increment)
+    as the ``"step"`` key, matching step_telemetry from Plan 12-01.
+    """
+    # Build a map: step_index -> list[hits] (semantic_search only — WR-01)
+    step_hits: dict[int, list[Any]] = {}
+    for tool_name in ("semantic_search",):
+        entries = state.scratch.get(tool_name)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            step = entry.get("step")
+            if not isinstance(step, int):
+                continue
+            result = entry.get("result")
+            if not isinstance(result, list):
+                continue
+            step_hits.setdefault(step, []).extend(result)
+
+    if not step_hits:
+        return []
+
+    max_step = max(step_hits.keys())
+    counts: list[int] = []
+    for i in range(max_step + 1):
+        hits = step_hits.get(i, [])
+        viable = 0
+        for hit in hits:
+            sim = value_from_hit(hit, "similarity")
+            if not isinstance(sim, (int, float)) or isinstance(sim, bool):
+                continue
+            if sim < viability_threshold:
+                continue
+            if requested_types:
+                ptype = value_from_hit(hit, "primary_type")
+                if ptype not in requested_types:
+                    continue
+            viable += 1
+        counts.append(viable)
+    return counts
+
+
+def rule8_met_per_step_from_state(
+    state: ItineraryState,
+    viable_per_step: list[int],
+    requested_types: list[str],
+    viability_threshold: float,
+) -> list[bool]:
+    """Return per-step boolean: did every requested stop have >=1 viable candidate cumulatively.
+
+    INST-03 / D-12-05. A step where rule8_met=True but the model kept
+    searching (no commit) is a decisiveness gap.
+
+    CONTRACT: this helper performs CUMULATIVE accumulation internally. Element i
+    is True iff, cumulatively across steps 0..i (inclusive), every requested
+    STOP has at least one DISTINCT viable candidate. Because per-type coverage
+    cannot be reconstructed from the flat ``viable_per_step`` int list, this
+    helper re-reads the ``semantic_search`` scratch entries. SCOPE (WR-01):
+    viability is semantic-search-only — see
+    viable_candidates_per_step_from_state.
+
+    MULTISET COVERAGE (WR-02): ``requested_types`` is treated as a multiset.
+    ``["restaurant", "restaurant", "bar"]`` (two distinct restaurant stops)
+    requires two DISTINCT viable restaurant ``place_id``s — one viable
+    restaurant no longer marks both slots covered. Distinctness is keyed on
+    ``place_id``; hits lacking a usable place_id cannot be deduplicated and
+    each occurrence counts once (documented limitation).
+
+    When ``requested_types`` is empty, the target is
+    ``state.constraints.num_stops`` (or 1 when unset) and coverage counts
+    DISTINCT viable ``place_id``s cumulatively (WR-02: the same venue
+    re-returned at several steps no longer counts once per step). The
+    ``viable_per_step`` argument is used only to size the all-False result for
+    malformed/empty scratch.
+
+    Guards every scratch read with isinstance checks (malformed/empty state
+    returns an all-False list of the appropriate length).
+
+    STEP-INDEX CONTRACT: scratch entries use ``state.step_count`` (pre-increment)
+    as the ``"step"`` key, matching step_telemetry from Plan 12-01.
+    """
+    # Build step -> hits map (same as viable_candidates_per_step_from_state;
+    # semantic_search only — WR-01). WR-09: viability_threshold is a caller
+    # parameter (threaded from query_result_from_state), never rebound to the
+    # module constant here — the report's self-describing viability_threshold
+    # field must provably bind BOTH per-step metrics.
+    step_hits: dict[int, list[Any]] = {}
+    for tool_name in ("semantic_search",):
+        entries = state.scratch.get(tool_name)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            step = entry.get("step")
+            if not isinstance(step, int):
+                continue
+            result_list = entry.get("result")
+            if not isinstance(result_list, list):
+                continue
+            step_hits.setdefault(step, []).extend(result_list)
+
+    if not step_hits:
+        # No scratch entries — return all-False of same length as viable_per_step
+        return [False] * len(viable_per_step)
+
+    max_step = max(step_hits.keys())
+
+    def _viable_sim(hit: Any) -> bool:
+        sim = value_from_hit(hit, "similarity")
+        if not isinstance(sim, (int, float)) or isinstance(sim, bool):
+            return False
+        return sim >= viability_threshold
+
+    def _place_id(hit: Any) -> str | None:
+        pid = value_from_hit(hit, "place_id")
+        return pid if isinstance(pid, str) and pid else None
+
+    bools: list[bool] = []
+
+    if not requested_types:
+        # Fallback (WR-02): count DISTINCT viable place_ids cumulatively.
+        target = state.constraints.num_stops if state.constraints.num_stops is not None else 1
+        seen_ids: set[str] = set()
+        anon_count = 0  # hits without a usable place_id — counted per occurrence
+        for i in range(max_step + 1):
+            for hit in step_hits.get(i, []):
+                if not _viable_sim(hit):
+                    continue
+                pid = _place_id(hit)
+                if pid is not None:
+                    seen_ids.add(pid)
+                else:
+                    anon_count += 1
+            bools.append(len(seen_ids) + anon_count >= target)
+        return bools
+
+    # Typed path (WR-02): multiset coverage — each requested-type slot needs
+    # its own distinct viable place_id.
+    required = Counter(requested_types)
+    per_type_ids: dict[str, set[str]] = {t: set() for t in required}
+    per_type_anon: dict[str, int] = dict.fromkeys(required, 0)
+    for i in range(max_step + 1):
+        for hit in step_hits.get(i, []):
+            if not _viable_sim(hit):
+                continue
+            ptype = value_from_hit(hit, "primary_type")
+            if not isinstance(ptype, str) or ptype not in required:
+                continue
+            pid = _place_id(hit)
+            if pid is not None:
+                per_type_ids[ptype].add(pid)
+            else:
+                per_type_anon[ptype] += 1
+        bools.append(
+            all(len(per_type_ids[t]) + per_type_anon[t] >= count for t, count in required.items())
+        )
+    return bools
+
+
 def expected_eval_result(case: EvalQuery) -> ExpectedEvalResult:
     """Build the expected block for the eval report."""
     expected = case.expected_results
@@ -616,6 +864,28 @@ def query_result_from_state(
     actual = actual_eval_result(state)
     expected_results_met = score_expected_results(case, actual)
     tool_errors = tool_errors_from_state(state)
+    # D-12-04: import threshold constant — never hardcode 0.55
+    threshold = LOW_SIMILARITY_THRESHOLD
+    requested_types = list(state.constraints.requested_primary_types)
+    viable_per_step = viable_candidates_per_step_from_state(state, threshold, requested_types)
+    # WR-09: thread the SAME threshold local into both per-step metrics so the
+    # report's viability_threshold field describes both.
+    rule8_per_step = rule8_met_per_step_from_state(
+        state, viable_per_step, requested_types, threshold
+    )
+    rule8_met_steps = [i for i, met in enumerate(rule8_per_step) if met]
+    # Steps where rule8 was met but the model did NOT commit (the decisiveness gap)
+    # WR-08: same int-step guard as first_commit_call_step_from_state — never
+    # admit non-int steps into the set.
+    commit_entries = state.scratch.get("commit_itinerary")
+    commit_steps = {
+        e["step"]
+        for e in (commit_entries if isinstance(commit_entries, list) else [])
+        if isinstance(e, dict)
+        and isinstance(e.get("step"), int)
+        and not isinstance(e.get("step"), bool)
+    }
+    rule8_kept_searching = [s for s in rule8_met_steps if s not in commit_steps]
     return QueryEvalResult(
         id=case.id,
         question=case.query,
@@ -635,6 +905,14 @@ def query_result_from_state(
             tool_names=tool_names_from_state(state),
             revision_hints=len(state.revision_hints),
             revision_reasons=revision_reasons_from_state(state),
+            # INST fields (D-12-03 to D-12-05)
+            first_commit_call_step=first_commit_call_step_from_state(state),
+            first_commit_mention_step=None,  # opaque by default; set when visible (D-12-03)
+            viable_candidates_per_step=viable_per_step,
+            rule8_met_per_step=rule8_per_step,
+            rule8_met_but_kept_searching_steps=rule8_kept_searching,
+            step_telemetry=list(state.step_telemetry),  # forwarded verbatim (INST-04 / D-12-02)
+            viability_threshold=threshold,
         ),
         final_reply=state.final_reply or "",
         latency_seconds=latency_seconds,

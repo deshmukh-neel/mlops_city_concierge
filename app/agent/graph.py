@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
@@ -311,7 +312,10 @@ def build_agent_graph(
                 break
         messages_for_llm = adapter.replay_reasoning_state(messages_for_llm, captured_state)
 
+        # D-12-01: record LLM-call wall time for INST-04 latency decomposition.
+        _llm_start = time.monotonic()
         ai = await llm_with_tools.ainvoke(messages_for_llm)
+        _llm_elapsed = time.monotonic() - _llm_start
 
         # D-08-05 / D-08-06: capture the new turn's reasoning state and stash
         # it on the just-returned AIMessage's additional_kwargs. Storage lives
@@ -326,7 +330,33 @@ def build_agent_graph(
         if len(messages_in) > len(state.messages):
             new_messages.append(messages_in[0])
         new_messages.append(ai)
-        return {"messages": new_messages}
+
+        # Append a step_telemetry entry. tool_exec_seconds is 0.0 here (plan has
+        # no tool execution); act() will patch the entry with the tool time.
+        #
+        # WR-07: step_count increments only in act(), so revision loops
+        # (plan -> critique -> plan, e.g. a finalize rejected by
+        # critique_final_with_stops or the stop-count clarification retry) run
+        # plan() more than once at the SAME step_count. Merge those into the
+        # existing trailing entry (summing llm_call_seconds) so step_telemetry
+        # keeps exactly one entry per step index — Phase 13 consumers join on
+        # "step" against viable_candidates_per_step and would double-count
+        # llm_call_seconds on duplicate entries.
+        new_telemetry = list(state.step_telemetry)
+        if new_telemetry and new_telemetry[-1].get("step") == state.step_count:
+            merged = dict(new_telemetry[-1])
+            merged["llm_call_seconds"] = merged.get("llm_call_seconds", 0.0) + _llm_elapsed
+            new_telemetry[-1] = merged
+        else:
+            new_telemetry.append(
+                {
+                    "step": state.step_count,
+                    "llm_call_seconds": _llm_elapsed,
+                    "tool_exec_seconds": 0.0,
+                    "tool_calls_this_step": 0,
+                }
+            )
+        return {"messages": new_messages, "step_telemetry": new_telemetry}
 
     async def act(state: ItineraryState) -> dict[str, Any]:
         ai = state.messages[-1]
@@ -336,6 +366,10 @@ def build_agent_graph(
         new_messages: list[BaseMessage] = []
         scratch_updates: dict[str, list[dict[str, Any]]] = {}
         committed_stops: list[Stop] | None = None
+
+        # D-12-01: measure sequential tool-execution wall time for INST-04.
+        _tool_start = time.monotonic()
+        tool_calls_this_step = 0
 
         for tc in ai.tool_calls:
             if tc["name"] == COMMIT_ITINERARY_TOOL_NAME:
@@ -352,6 +386,7 @@ def build_agent_graph(
                         "id": tc["id"],
                     }
                 )
+                tool_calls_this_step += 1
                 continue
 
             tool = tool_by_name.get(tc["name"])
@@ -413,6 +448,9 @@ def build_agent_graph(
                     "id": tc["id"],
                 }
             )
+            tool_calls_this_step += 1
+
+        _tool_elapsed = time.monotonic() - _tool_start
 
         merged_scratch = dict(state.scratch)
         for name, entries in scratch_updates.items():
@@ -425,6 +463,27 @@ def build_agent_graph(
         }
         if committed_stops is not None:
             update["stops"] = committed_stops
+
+        # Patch the current step's telemetry entry (written by plan()) with actual
+        # tool-execution time and tool-call count. If the entry is missing (edge
+        # case where act() runs without a preceding plan() telemetry write),
+        # append a fresh entry. All values are plain int/float (D-12-01 JSON-safe).
+        telemetry = list(state.step_telemetry)
+        if telemetry and telemetry[-1]["step"] == state.step_count:
+            last = dict(telemetry[-1])
+            last["tool_exec_seconds"] = _tool_elapsed
+            last["tool_calls_this_step"] = tool_calls_this_step
+            telemetry[-1] = last
+        else:
+            telemetry.append(
+                {
+                    "step": state.step_count,
+                    "llm_call_seconds": 0.0,
+                    "tool_exec_seconds": _tool_elapsed,
+                    "tool_calls_this_step": tool_calls_this_step,
+                }
+            )
+        update["step_telemetry"] = telemetry
         return update
 
     def critique(state: ItineraryState) -> dict[str, Any]:

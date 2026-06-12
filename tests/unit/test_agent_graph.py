@@ -1385,6 +1385,239 @@ def _committed_state(n_stops: int, *, with_coords: bool) -> ItineraryState:
     return ItineraryState(stops=stops, done=True, final_reply="Here is your plan.")
 
 
+# ---------- Phase 12 Plan 01: INST-04 step_telemetry tests ----------
+
+
+async def test_step_telemetry_is_produced_after_tool_call(monkeypatch, mocker) -> None:
+    """INST-04: a multi-step run (tool call followed by finalize) must produce a
+    non-empty step_telemetry list with one entry per plan step.
+
+    Asserts:
+    1. step_telemetry is a non-empty list of dicts.
+    2. Every entry's key set is exactly {step, llm_call_seconds, tool_exec_seconds,
+       tool_calls_this_step}.
+    3. All values are plain int or float (never bool, Pydantic model, etc.).
+    4. json.dumps(step_telemetry) succeeds (JSON-safety guard — prior incident
+       aimessage_tool_call_args_json_safe).
+    5. At least one entry has tool_calls_this_step >= 1 and tool_exec_seconds >= 0.0.
+    """
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    monkeypatch.setattr(
+        "app.agent.tools._semantic_search",
+        lambda **kw: [
+            PlaceHit(
+                place_id="ChIJtest_p1_aaaaaaaa",
+                name="X",
+                source="google_places",
+                similarity=0.9,
+                latitude=None,
+                longitude=None,
+                rating=4.5,
+                price_level="PRICE_LEVEL_MODERATE",
+                business_status="OPERATIONAL",
+                primary_type="restaurant",
+                formatted_address="123 Main",
+                snippet=None,
+            )
+        ],
+    )
+    fake = _make_fake(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "semantic_search",
+                        "id": "telem-1",
+                        "args": {"query": "italian", "k": 3},
+                    }
+                ],
+            ),
+            AIMessage(content="found one place", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=4)
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="italian please")]))
+
+    telemetry = out["step_telemetry"]
+    assert isinstance(telemetry, list), "step_telemetry must be a list"
+    assert len(telemetry) > 0, "step_telemetry must be non-empty after a multi-step run"
+
+    expected_keys = {"step", "llm_call_seconds", "tool_exec_seconds", "tool_calls_this_step"}
+    for entry in telemetry:
+        assert isinstance(entry, dict), f"each entry must be a dict, got {type(entry)}"
+        assert set(entry.keys()) == expected_keys, (
+            f"entry keys {set(entry.keys())} != expected {expected_keys}"
+        )
+        for k, v in entry.items():
+            # Values must be plain int or float — bool is a subclass of int so
+            # reject it explicitly (booleans in JSON serialise as true/false, not
+            # the numbers Phase 13 analysis expects).
+            assert isinstance(v, (int, float)) and not isinstance(v, bool), (
+                f"entry[{k!r}] = {v!r} is not a plain int/float"
+            )
+        # step and tool_calls_this_step must be int, not float
+        assert isinstance(entry["step"], int) and not isinstance(entry["step"], bool)
+        assert isinstance(entry["tool_calls_this_step"], int) and not isinstance(
+            entry["tool_calls_this_step"], bool
+        )
+
+    import json as _json
+
+    _json.dumps(telemetry)  # must not raise — JSON-safety guard
+
+    assert any(e["tool_calls_this_step"] >= 1 for e in telemetry), (
+        "at least one entry must record tool_calls_this_step >= 1"
+    )
+    assert all(e["tool_exec_seconds"] >= 0.0 for e in telemetry)
+
+
+async def test_step_telemetry_json_safe_after_commit(monkeypatch, mocker) -> None:
+    """INST-04: step_telemetry must be json.dumps-safe even after a commit_itinerary
+    step (the most complex act() code path). Guards the JSON-safety invariant for the
+    full graph run that Phase 13 eval will exercise."""
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    commit_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "commit_itinerary",
+                "id": "commit-telem-1",
+                "args": {
+                    "stops": [
+                        {
+                            "place_id": "ChIJtest_p0_aaaaaaaa",
+                            "name": "Place p0",
+                            "rationale": "omakase",
+                            "source": "google_places",
+                        }
+                    ]
+                },
+            }
+        ],
+    )
+    grounded_scratch = {
+        "semantic_search": [
+            {
+                "args": {},
+                "result": [
+                    PlaceHit(
+                        place_id="ChIJtest_p0_aaaaaaaa",
+                        name="Place p0",
+                        source="google_places",
+                        similarity=0.9,
+                    )
+                ],
+                "step": 0,
+                "id": "s0",
+            }
+        ]
+    }
+    fake = _make_fake([commit_call])
+    graph = build_agent_graph(fake, max_steps=4)
+    with _patch_details_many_for(["ChIJtest_p0_aaaaaaaa"]):
+        out = await graph.ainvoke(
+            ItineraryState(
+                messages=[HumanMessage(content="omakase date, 1 stop")],
+                constraints=UserConstraints(num_stops=1),
+                scratch=grounded_scratch,
+            )
+        )
+
+    import json as _json
+
+    telemetry = out["step_telemetry"]
+    assert isinstance(telemetry, list)
+    _json.dumps(telemetry)  # must not raise
+
+    assert out["done"] is True
+    # The commit step must have recorded a tool call
+    assert any(e["tool_calls_this_step"] >= 1 for e in telemetry), (
+        "commit_itinerary step must be counted in tool_calls_this_step"
+    )
+
+
+async def test_step_telemetry_accumulates_across_multiple_steps(monkeypatch, mocker) -> None:
+    """INST-04: telemetry entries accumulate across plan steps — two tool-call
+    steps produce at least two entries (one per plan() invocation)."""
+    mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+
+    fake = _make_fake(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "semantic_search", "id": "s1", "args": {"query": "dinner"}}],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "semantic_search", "id": "s2", "args": {"query": "drinks"}}],
+            ),
+            AIMessage(content="here is your plan", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=6)
+    out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="dinner and drinks")]))
+
+    telemetry = out["step_telemetry"]
+    # Three plan() calls → three entries (two tool-call steps + one finalize step)
+    assert len(telemetry) >= 2, (
+        f"expected >=2 telemetry entries for multi-step run, got {len(telemetry)}"
+    )
+    # Step indices must be monotonically non-decreasing
+    steps = [e["step"] for e in telemetry]
+    assert steps == sorted(steps), f"step indices not sorted: {steps}"
+
+
+async def test_step_telemetry_revision_loop_keeps_one_entry_per_step(monkeypatch, mocker) -> None:
+    """WR-07: a plan → critique → plan revision loop (finalize rejected by a
+    hard-check violation, then accepted) runs plan() twice at the SAME
+    step_count because step_count increments only in act(). The two LLM calls
+    must merge into ONE telemetry entry (llm_call_seconds summed), never
+    produce duplicate "step" values — Phase 13 consumers join on "step"
+    against viable_candidates_per_step and would double-count otherwise."""
+    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    # First critique sees a retryable violation (drives the revision loop back
+    # to plan at the same step_count); every later call sees a clean plan.
+    calls = {"n": 0}
+
+    def _violations_once(_state):
+        calls["n"] += 1
+        return ["geographic_coherence"] if calls["n"] == 1 else []
+
+    mocker.patch("app.agent.revision.itinerary_violations", side_effect=_violations_once)
+
+    fake = _make_fake(
+        [
+            AIMessage(content="here is plan A", tool_calls=[]),
+            AIMessage(content="here is revised plan B", tool_calls=[]),
+        ]
+    )
+    graph = build_agent_graph(fake, max_steps=6)
+    stops = [Stop(place_id="ChIJtest_p1_aaaaaaaa", name="A", rationale="r", source="google_places")]
+    out = await graph.ainvoke(
+        ItineraryState(messages=[HumanMessage(content="one stop please")], stops=stops)
+    )
+
+    assert out["done"] is True
+    assert calls["n"] >= 2, "revision loop did not run (test premise broken)"
+
+    telemetry = out["step_telemetry"]
+    steps = [e["step"] for e in telemetry]
+    assert len(steps) == len(set(steps)), (
+        f"duplicate step indices in telemetry after revision loop: {steps}"
+    )
+    # The merged entry must remain JSON-safe with plain float timing
+    merged = telemetry[-1]
+    assert isinstance(merged["llm_call_seconds"], float)
+    assert merged["llm_call_seconds"] >= 0.0
+    import json as _json
+
+    _json.dumps(telemetry)
+
+
 async def test_retime_node_present_and_routed(monkeypatch) -> None:
     fake = _make_fake([AIMessage(content="done", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
