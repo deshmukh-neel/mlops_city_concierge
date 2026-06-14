@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 15
-status: "Phase 14 shipped — PR #109"
-last_updated: "2026-06-14T21:29:50.956Z"
-last_activity: 2026-06-12
+status: executing
+last_updated: "2026-06-14T21:59:31.163Z"
+last_activity: 2026-06-14 -- Phase 15 planning complete
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 20
+  total_plans: 24
   completed_plans: 20
   percent: 75
 ---
@@ -33,8 +33,8 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 Phase: 14 (richer-state-replay-conditional) — EXECUTING
 Plan: Not started
-Status: Phase 14 shipped — PR #109
-Last activity: 2026-06-12
+Status: Ready to execute
+Last activity: 2026-06-14 -- Phase 15 planning complete
 
 Progress: [██████████] 100%
 
