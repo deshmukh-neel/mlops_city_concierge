@@ -161,7 +161,23 @@
   2. `configs/eval_gates.yaml` is updated: reasoning-model entries are promoted to `enforced` where measured commit-rate data meets the gate threshold, and entries that fall short explicitly retain `logged` with a note in the file
   3. The latency report (decomposed from INST-04 data) documents actual per-turn LLM-call time + tool-execution time for gpt-4o-mini under the winning arm, explicitly comparing against the ~30s/turn prod budget, with a written prod-driver recommendation (ratify gpt-4o-mini anchor OR revise with justification)
 
-**Plans**: TBD
+**Plans**: 4 plans (one per wave — D-15-09 fixed pipeline order)
+
+**Wave 1** *(zero-spend diagnostic — autonomous)*
+
+- [ ] 15-01-PLAN.md — refinement_cheaper root-cause from existing run JSONs + D-15-08 trivial-fix-or-defer decision (lands before any live run)
+
+**Wave 2** *(live runs — checkpoint, real API spend, <=4-run cap)*
+
+- [ ] 15-02-PLAN.md — Run #1 A2 retest (FORCED_COMMIT_STEP=6, experiment) + Run #2 flag-off prod-config (baseline source), smoke-first, anchor non-regression on both
+
+**Wave 3** *(gate promotion + baselines-last + latency — autonomous, reads produced artifacts)*
+
+- [ ] 15-03-PLAN.md — PROMO-02 gate promotion (D-15-06/07 provenance honesty) + PROMO-01 write_baselines.py last (runnable cells only) + PROMO-03 latency report vs ~30s/turn budget
+
+**Wave 4** *(milestone close — autonomous)*
+
+- [ ] 15-04-PLAN.md — finalize docs/promotion_decision.md (cross-links both immutable verdict docs) + milestone-close bookkeeping (ROADMAP/REQUIREMENTS/STATE straight to main)
 
 ## Progress
 
