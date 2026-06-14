@@ -4,7 +4,7 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 15
 status: "Phase 14 shipped — PR #109"
-last_updated: "2026-06-12T22:21:05.573Z"
+last_updated: "2026-06-14T21:29:50.956Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 4
@@ -67,9 +67,9 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-06-12T21:45:06.727Z
-Stopped at: Completed 14-05-combo-closing-verdict-and-archfut-PLAN.md
-Resume file: None
+Last session: 2026-06-14T21:29:50.945Z
+Stopped at: Phase 15 context gathered
+Resume file: .planning/phases/15-gate-promotion-baseline-regen/15-CONTEXT.md
 Next step: `/gsd-plan-phase 12`
 
 ## Performance Metrics
