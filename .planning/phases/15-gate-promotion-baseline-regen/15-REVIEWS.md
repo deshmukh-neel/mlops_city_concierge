@@ -2,8 +2,8 @@
 phase: 15
 reviewers: [codex]
 reviewed_at: 2026-06-14T22:21:05Z
-re_reviewed_at: 2026-06-14T22:53:53Z
-rounds: 2
+re_reviewed_at: 2026-06-14T23:14:52Z
+rounds: 3
 plans_reviewed: [15-01-PLAN.md, 15-02-PLAN.md, 15-03-PLAN.md, 15-04-PLAN.md]
 ---
 
@@ -343,3 +343,73 @@ Codex's three substantive claims were checked against the actual source:
 
 **Round-2 verdict:** one new HIGH (env knob) + three verified MEDIUMs + one LOW. A second
 targeted replan is warranted before any live spend.
+
+---
+
+## Codex Review (Round 3 — verdict: SAFE TO EXECUTE — 2026-06-14T23:14:52Z)
+
+> Third pass against the round-2 plans (commits cba4785 + 8f9b24b). Confirms all six
+> round-2 fixes (A–F) are genuinely CLOSED. Only three LOW, non-blocking cleanup items
+> remain, all explicitly after the money-sensitive path. Overall verdict: SAFE TO EXECUTE.
+
+## 15-01-PLAN.md
+
+**Round-2 Fix Status**
+
+No listed Round-2 fix directly targets 15-01. The diagnose-before-retest ordering is solid: the objective says Plan 01 “**MUST land before any live run** so the A2 retest (Plan 02) measures the FINAL post-fix code.”
+
+**Remaining Or New Concerns**
+
+None blocking. The plan is appropriately zero-spend and requires a before/after `eval_reports/` directory snapshot rather than relying on git status.
+
+**Risk Assessment:** LOW
+
+## 15-02-PLAN.md
+
+**Round-2 Fix Status**
+
+**FIX A: CLOSED.** The clean env now names all six knobs. Evidence: Run #1 uses “`APP_ENV=eval env -u VIABILITY_CONTRACT_ENABLED ... -u LOW_SIMILARITY_THRESHOLD_OVERRIDE FORCED_COMMIT_STEP=6`,” and Run #2 uses “`env -u FORCED_COMMIT_STEP ... -u LOW_SIMILARITY_THRESHOLD_OVERRIDE`.” The smoke requirement also explicitly requires `viability_threshold_override: null` on both runs.
+
+**FIX B: CLOSED.** All four matrix invocations are explicitly `APP_ENV=eval`: both Run #1 smoke/full and Run #2 smoke/full commands include the prefix.
+
+**FIX C: CLOSED.** The out-of-scope probe is removed. Evidence: “`poetry run python scripts/probe_provider_capture.py --provider openai` and `--provider deepseek`,” plus “NOT `make probe-providers`.”
+
+**Remaining Or New Concerns**
+
+LOW: the smoke inspection references a singular `queries[0].deterministic.arm_flags`. Since env flags are process-global this is probably fine, but inspecting all smoke cell JSONs would be stricter before live spend. This is not blocking because the command construction itself is now correct.
+
+**Risk Assessment:** LOW. The previous HIGH env-leak risk is genuinely closed.
+
+## 15-03-PLAN.md
+
+**Round-2 Fix Status**
+
+**FIX F: CLOSED.** The gpt-5 promotion logic is now data-dependent and flag-off sourced. Evidence: “gpt-5-mini is promoted to enforced ONLY if the flag-off Run #2 committed_itinerary_rate median itself supports the >= 0.6 floor,” and “if flag-off cleared with all experiment flags OFF, the mechanism is ... model-initiated commits — NOT forced-commit.”
+
+**Remaining Or New Concerns**
+
+LOW: Task 1 requires `make eval-gates-check-baselines` immediately after editing `configs/eval_gates.yaml`, before Task 2 regenerates baselines. If Run #2 unexpectedly earns a gpt-5 active gate, old committed baselines could fail the check before the fresh Run #2 baselines are written. Minimum cleanup: make the Task 1 check advisory until Task 2, or move the required exit-0 gate check after `write_baselines.py`.
+
+**Risk Assessment:** LOW to LOW-MED. This is a post-spend execution-order rough edge, not a provenance or live-run safety issue.
+
+## 15-04-PLAN.md
+
+**Round-2 Fix Status**
+
+**FIX D: CLOSED.** The immutable-doc check now uses a real exit code: “`git diff --quiet -- docs/decisiveness_arm_verdicts.md docs/replay_arm_verdicts.md`,” with the plan explicitly noting exit 0 unchanged / exit 1 changed.
+
+**FIX E: CLOSED.** The commit scopes are now non-overlapping. Evidence: “docs/promotion_decision.md is committed as a normal tracked-file change in/after Task 1,” and Task 2 is “scoped ONLY to .planning/ROADMAP.md + .planning/REQUIREMENTS.md + .planning/STATE.md.”
+
+**Remaining Or New Concerns**
+
+LOW: `git status --short` is a broad working-tree view, not a precise staged-files assertion. The intent is clear, but a stricter preflight would add `git diff --cached --name-only` and confirm exactly the three planning files are staged.
+
+**Risk Assessment:** LOW
+
+## Overall Verdict
+
+All prior HIGH/MED findings are genuinely closed. The Plan 02 live-spend path now has explicit `APP_ENV=eval`, complete six-flag env hygiene including `LOW_SIMILARITY_THRESHOLD_OVERRIDE`, smoke inspection of `viability_threshold_override: null`, scoped provider probes, and a valid <=4 full-run cap.
+
+The remaining concerns are non-blocking cleanup items after the money-sensitive path.
+
+**SAFE TO EXECUTE**
