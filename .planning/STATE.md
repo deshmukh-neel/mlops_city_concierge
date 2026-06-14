@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 15
 status: executing
-last_updated: "2026-06-14T23:09:27.303Z"
-last_activity: 2026-06-14 -- Phase 15 planning complete
+last_updated: "2026-06-14T23:28:11.376Z"
+last_activity: 2026-06-14
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 21
   percent: 75
 ---
 
@@ -27,16 +27,16 @@ See: .planning/PROJECT.md (updated 2026-06-11 for v2.2 milestone start)
 See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 15 — gate promotion + baseline regen
+**Current focus:** Phase 15 — gate-promotion-baseline-regen
 
 ## Current Position
 
-Phase: 14 (richer-state-replay-conditional) — EXECUTING
-Plan: Not started
+Phase: 15 (gate-promotion-baseline-regen) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-14 -- Phase 15 planning complete
+Last activity: 2026-06-14
 
-Progress: [██████████] 100%
+Progress: [█████████░] 88%
 
 ## Blockers / Readiness Notes
 
@@ -67,9 +67,9 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-06-14T21:29:50.945Z
+Last session: 2026-06-14T23:28:11.368Z
 Stopped at: Phase 15 context gathered
-Resume file: .planning/phases/15-gate-promotion-baseline-regen/15-CONTEXT.md
+Resume file: None
 Next step: `/gsd-plan-phase 12`
 
 ## Performance Metrics

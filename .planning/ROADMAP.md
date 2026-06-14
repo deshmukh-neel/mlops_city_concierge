@@ -165,7 +165,7 @@
 
 **Wave 1** *(zero-spend diagnostic — autonomous)*
 
-- [ ] 15-01-PLAN.md — refinement_cheaper root-cause from existing run JSONs + D-15-08 trivial-fix-or-defer decision (lands before any live run)
+- [x] 15-01-PLAN.md — refinement_cheaper root-cause from existing run JSONs + D-15-08 trivial-fix-or-defer decision (lands before any live run)
 
 **Wave 2** *(live runs — checkpoint, real API spend, <=4-run cap)*
 
@@ -197,7 +197,7 @@
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 15. Gate Promotion + Baseline Regen | v2.2 | 0/TBD | Not started | - |
+| 15. Gate Promotion + Baseline Regen | v2.2 | 1/4 | In Progress|  |
 
 ---
 
