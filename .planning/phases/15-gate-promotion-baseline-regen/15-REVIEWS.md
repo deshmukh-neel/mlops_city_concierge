@@ -2,6 +2,8 @@
 phase: 15
 reviewers: [codex]
 reviewed_at: 2026-06-14T22:21:05Z
+re_reviewed_at: 2026-06-14T22:53:53Z
+rounds: 2
 plans_reviewed: [15-01-PLAN.md, 15-02-PLAN.md, 15-03-PLAN.md, 15-04-PLAN.md]
 ---
 
@@ -183,3 +185,161 @@ planner can act on the highest-priority items first.
 ### Divergent Views
 
 None — single reviewer.
+
+---
+
+## Codex Re-Review (Round 2 — after revision 2026-06-14T22:53:53Z)
+
+> Second adversarial pass against the REVISED plans (commit c51fdf3) to confirm the
+> round-1 findings were genuinely closed and to catch new problems before live spend.
+> Verdict: HIGH-2 (null-result language) closed; **HIGH-1 (env-leak) NOT fully closed** —
+> a sixth experiment knob was missed. All claims below were verified against the repo by
+> the orchestrator (see round-2 verification note at the end).
+
+## 15-01-PLAN.md
+
+**Resolved?**
+
+- LOW finding: **RESOLVED.**
+  Evidence: the plan now requires actual telemetry, not expected arrays: `"reports the ACTUAL per-step telemetry values..."` and `"do NOT pre-fill expected arrays"`.
+  It also fixes the zero-spend proof: `"eval_reports/ is gitignored, so git status ... is NOT a valid zero-spend check — use the directory-listing snapshot."`
+  The conditional test-file issue is handled by the frontmatter comment requiring `tests/unit/test_graph_forced_commit.py` only if `graph.py` changes.
+
+**New concerns**
+
+- No new blocking concerns. The plan is appropriately zero-spend and diagnose-before-retest.
+- LOW: `files_modified` still lists `app/agent/graph.py` and the test file even though the likely path is deferred/no edit. The inline comment makes this tolerable, but executors should not treat that list as permission to touch them casually.
+
+**Risk Assessment:** LOW.
+
+## 15-02-PLAN.md
+
+**Resolved?**
+
+- HIGH-1 env-var provenance leak: **PARTIAL / NOT GENUINELY CLOSED.**
+  The plan does fix the five graph/replay flags:
+  `env -u FORCED_COMMIT_STEP -u VIABILITY_CONTRACT_ENABLED -u PARALLEL_TOOL_EXECUTION_ENABLED -u REPLAY_MULTI_MESSAGE_ENABLED -u REPLAY_CONTENT_BLOCKS_ENABLED ...`
+  But the repo has a sixth arm-relevant knob: `LOW_SIMILARITY_THRESHOLD_OVERRIDE`, recorded in `arm_flags` as `viability_threshold_override`. The revised plan even mentions this key in `scripts/eval_agent.py`, but neither unsets it nor requires the smoke dict to show `viability_threshold_override: null`. This can contaminate both Run #1 and especially the Run #2 baseline source.
+
+- MEDIUM run-cap / partial-run / non-fire handling: **RESOLVED.**
+  Evidence: `"RUN-CAP ACCOUNTING..."`, `"PARTIAL-RUN DECISION PATH..."`, and `"A NON-FIRE is a valid, meaningful result..."`.
+  This is much better: a forced-path non-fire is now interpreted as evidence about `all_slots_viable`, not as a void retest.
+
+**New concerns**
+
+- HIGH: add `-u LOW_SIMILARITY_THRESHOLD_OVERRIDE` to both Run #1 and Run #2 commands, and require the smoke `arm_flags` dict to show `"viability_threshold_override": null`.
+- MEDIUM: the live commands omit `APP_ENV=eval`, but `scripts/eval_matrix.py` enforces it for real-provider runs. As written, the commands fail unless the operator has already exported it. Make the command explicit: `APP_ENV=eval env -u ... make eval-matrix-arm RUNS=...`.
+- MEDIUM: `make probe-providers` probes OpenAI, DeepSeek, Anthropic, and Gemini, but `user_setup` only requires OpenAI and DeepSeek and the phase says Anthropic/Gemini are deferred/no top-up. This can block execution or spend outside scope. Use provider-specific probes or update setup/scope honestly.
+
+**Risk Assessment:** HIGH as written, because Run #2 provenance is still not clean by construction.
+
+## 15-03-PLAN.md
+
+**Resolved?**
+
+- MEDIUM gate-value provenance: **RESOLVED, contingent on fixing 15-02.**
+  Evidence: `"gpt-5-mini is promoted to enforced ONLY if the flag-off Run #2 committed_itinerary_rate median itself supports the >= 0.6 floor"` and `"never from the FORCED_COMMIT_STEP=6 experiment"`.
+- MEDIUM baseline freshness base-ref: **RESOLVED.**
+  Evidence: `"run git fetch origin main so origin/main exists locally"` and then `python scripts/check_baselines_fresh.py origin/main`.
+- MEDIUM latency reconciliation: **RESOLVED.**
+  Evidence: `"RECONCILE the summed step_telemetry ... against the observed per-query latency_seconds"` and explicitly calls out the `~46s` over-budget observation.
+
+**New concerns**
+
+- HIGH inherited: if 15-02 does not unset/assert `LOW_SIMILARITY_THRESHOLD_OVERRIDE`, this plan can regenerate and gate against contaminated Run #2 baselines.
+- LOW/MEDIUM: the gpt-5 promotion text says that if flag-off clears, the rationale should still name forced-commit as the “unlock mechanism.” If flag-off cleared with flags off, forced commit was not the mechanism. Keep the rationale data-dependent too: mechanism should come from the measured telemetry, not the expected story.
+
+**Risk Assessment:** MEDIUM after 15-02 is fixed; HIGH if executed after 15-02 as currently written.
+
+## 15-04-PLAN.md
+
+**Resolved?**
+
+- HIGH-2 hardcoded null-result language: **RESOLVED.**
+  Evidence: the plan now requires a data-dependent INST-05 verdict with three cases: `(a) A2 did NOT clear`, `(b) A2 cleared experimentally but flag-off did NOT`, `(c) flag-off cleared`.
+- MEDIUM straight-to-main preflight: **PARTIAL.**
+  Evidence: it now requires `git status --short` and only intended planning files staged. But Task 1 modifies `docs/promotion_decision.md`, while Task 2’s commit preflight only allows the three planning files. The plan does not clearly say when/how the finalized promotion doc itself is committed.
+- LOW PROMO row greps: **RESOLVED.**
+  Evidence: the regex checks now assert full rows like `| PROMO-01 | Phase 15 | Complete |`.
+
+**New concerns**
+
+- MEDIUM: the immutable-doc verification command prints `FAIL` but still exits 0:
+  `grep -q . && echo "FAIL: verdict doc changed" || echo "OK..."`
+  That is not a failing automated check. Use `git diff --quiet -- docs/decisiveness_arm_verdicts.md docs/replay_arm_verdicts.md`.
+- MEDIUM: clarify commit sequencing for `docs/promotion_decision.md`. It is part of Plan 04, but the bookkeeping commit preflight excludes it.
+
+**Risk Assessment:** MEDIUM.
+
+## Overall Verdict
+
+The two prior HIGH findings are **not both genuinely closed**.
+
+- HIGH-2 is closed: the INST-05 closing verdict is now data-dependent.
+- HIGH-1 is still open in substance: the clean-env commands omit `LOW_SIMILARITY_THRESHOLD_OVERRIDE`, even though the harness records it as `arm_flags.viability_threshold_override` and the code treats it as an experiment knob.
+
+I would not execute Plan 02 live spend yet. Minimum fixes before spend:
+
+```bash
+APP_ENV=eval env \
+  -u LOW_SIMILARITY_THRESHOLD_OVERRIDE \
+  -u VIABILITY_CONTRACT_ENABLED \
+  -u PARALLEL_TOOL_EXECUTION_ENABLED \
+  -u REPLAY_MULTI_MESSAGE_ENABLED \
+  -u REPLAY_CONTENT_BLOCKS_ENABLED \
+  FORCED_COMMIT_STEP=6 make eval-matrix-arm RUNS=1
+```
+
+and for Run #2:
+
+```bash
+APP_ENV=eval env \
+  -u FORCED_COMMIT_STEP \
+  -u LOW_SIMILARITY_THRESHOLD_OVERRIDE \
+  -u VIABILITY_CONTRACT_ENABLED \
+  -u PARALLEL_TOOL_EXECUTION_ENABLED \
+  -u REPLAY_MULTI_MESSAGE_ENABLED \
+  -u REPLAY_CONTENT_BLOCKS_ENABLED \
+  make eval-matrix-arm RUNS=1
+```
+
+Then require smoke inspection to show `viability_threshold_override: null`. Also replace `make probe-providers` with probes matching the actual 3-provider arm config, or explicitly add Anthropic/Gemini keys/spend back into scope.
+
+---
+
+## Round-2 Verification (orchestrator-confirmed against repo)
+
+Codex's three substantive claims were checked against the actual source:
+
+1. **HIGH — `LOW_SIMILARITY_THRESHOLD_OVERRIDE` is a real sixth experiment knob.** CONFIRMED:
+   read in `app/agent/revision.py:29` (default `0.55`, the A1 arm knob) and recorded in
+   `arm_flags.viability_threshold_override` at `scripts/eval_agent.py:933`. The round-1
+   clean-env commands unset only 5 flags and miss this one — a genuine provenance hole on
+   BOTH runs, worst on the Run #2 baseline source. Fix: add `-u LOW_SIMILARITY_THRESHOLD_OVERRIDE`
+   to both commands and require the smoke `arm_flags` dict to show `viability_threshold_override: null`.
+
+2. **MEDIUM — `APP_ENV=eval` required for real-provider runs.** CONFIRMED:
+   `scripts/eval_matrix.py:827` hard-errors ("APP_ENV=eval required for real-provider matrix
+   runs") without it. `env -u` preserves an already-exported `APP_ENV`, so this only bites if
+   the operator hasn't exported it — but making the live commands explicit (`APP_ENV=eval env -u ...`)
+   removes the footgun.
+
+3. **MEDIUM — `make probe-providers` probes 4 providers, only 2 in scope.** CONFIRMED:
+   the `probe-providers` Makefile target (line 161) runs openai + deepseek + **anthropic + gemini**,
+   but anthropic/gemini are deferred (D-12-09, no keys/top-up) for this milestone. The plan should
+   use provider-specific probes for the 3-model arm (openai + deepseek only — gpt-4o-mini and
+   gpt-5-mini share the OpenAI key) rather than the all-four target, or the probe will fail/spend
+   out of scope.
+
+4. **MEDIUM (15-04) — immutable-doc check exits 0 even on failure.** CONFIRMED by inspection:
+   `git diff --stat ... | grep -q . && echo FAIL || echo OK` always exits 0. Use
+   `git diff --quiet -- docs/decisiveness_arm_verdicts.md docs/replay_arm_verdicts.md` so a
+   changed verdict doc actually fails the automated check. Also clarify when `docs/promotion_decision.md`
+   itself is committed (Task 1 edits it; Task 2's preflight only allows the 3 planning files).
+
+5. **LOW/MEDIUM (15-03) — forced-commit "unlock mechanism" rationale should be data-dependent.**
+   If the flag-off Run #2 clears 0.6 with all flags OFF, then forced-commit was NOT the mechanism;
+   the rationale must reflect the measured telemetry, not the expected forced-commit story.
+
+**Round-2 verdict:** one new HIGH (env knob) + three verified MEDIUMs + one LOW. A second
+targeted replan is warranted before any live spend.
