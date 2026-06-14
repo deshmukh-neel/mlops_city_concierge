@@ -926,11 +926,15 @@ def query_result_from_state(
             commit_forced=bool(getattr(state, "commit_forced", False)),
             forced_commit_step=getattr(state, "forced_commit_step", None),
             arm_flags={
+                # Phase-13 DEC arm keys (unchanged)
                 "viability_contract": env_flag("VIABILITY_CONTRACT_ENABLED"),
                 "forced_commit_step": int(os.environ.get("FORCED_COMMIT_STEP", "0") or "0"),
                 "parallel_tool": env_flag("PARALLEL_TOOL_EXECUTION_ENABLED"),
                 "viability_threshold_override": os.environ.get("LOW_SIMILARITY_THRESHOLD_OVERRIDE")
                 or None,
+                # Phase-14 REPLAY arm keys (new)
+                "replay_multi_message": env_flag("REPLAY_MULTI_MESSAGE_ENABLED"),
+                "replay_content_blocks": env_flag("REPLAY_CONTENT_BLOCKS_ENABLED"),
             },
         ),
         final_reply=state.final_reply or "",

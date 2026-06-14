@@ -1837,6 +1837,158 @@ async def test_retime_noop_when_first_stop_has_no_arrival(monkeypatch, mocker) -
     assert out["final_reply"] == "Here is your plan."
 
 
+# ---------- Phase 14 Plan 01: REPLAY-01 + REPLAY-02 flag-gated tests ----------
+
+
+def test_replay_flags_read_at_build_time() -> None:
+    """REPLAY_MULTI_MESSAGE_ENABLED and REPLAY_CONTENT_BLOCKS_ENABLED must appear in graph.py.
+
+    Mirrors test_forced_commit_step_flag_reads_at_build_time in test_graph_forced_commit.py —
+    greppable source check so flag names are never silently renamed without updating tests.
+    """
+    import inspect
+
+    import app.agent.graph as graph_module
+
+    src = inspect.getsource(graph_module)
+    assert "REPLAY_MULTI_MESSAGE_ENABLED" in src, (
+        "REPLAY_MULTI_MESSAGE_ENABLED must appear in graph.py (REPLAY-01 build-time read)"
+    )
+    assert "REPLAY_CONTENT_BLOCKS_ENABLED" in src, (
+        "REPLAY_CONTENT_BLOCKS_ENABLED must appear in graph.py (REPLAY-02 build-time read)"
+    )
+
+
+def test_prune_for_llm_flag_on_preserves_list_content() -> None:
+    """REPLAY-02 flag-ON: pre-cutoff AIMessage retains list content (not str).
+
+    With preserve_content_blocks=True, _prune_for_llm must keep the original
+    content shape (list) verbatim for pre-cutoff tool-calling AIMessages.
+    """
+    msgs: list[BaseMessage] = [
+        HumanMessage(content="hi"),
+        AIMessage(
+            content=["block1", "block2"],
+            tool_calls=[{"name": "semantic_search", "id": "a1", "args": {"q": "1"}}],
+            additional_kwargs={"_reasoning_state": {"provider": "openai"}},
+        ),
+        ToolMessage(content="r1", tool_call_id="a1"),
+        AIMessage(
+            content="searching",
+            tool_calls=[{"name": "semantic_search", "id": "a2", "args": {"q": "2"}}],
+        ),
+        ToolMessage(content="r2", tool_call_id="a2"),
+        AIMessage(
+            content="done",
+            tool_calls=[{"name": "semantic_search", "id": "a3", "args": {"q": "3"}}],
+        ),
+        ToolMessage(content="r3", tool_call_id="a3"),
+    ]
+    pruned = _prune_for_llm(msgs, preserve_content_blocks=True)
+    # The oldest tool-calling AIMessage (index 1) should retain list content.
+    pre_cutoff_ai = pruned[1]
+    assert isinstance(pre_cutoff_ai, AIMessage)
+    assert isinstance(pre_cutoff_ai.content, list), (
+        f"flag-on: pre-cutoff AIMessage content must be list, got {type(pre_cutoff_ai.content)}"
+    )
+    # tool_calls must still be stripped regardless.
+    assert pre_cutoff_ai.tool_calls == []
+
+
+def test_prune_for_llm_flag_off_collapses_list_content_to_str() -> None:
+    """REPLAY-02 flag-OFF (default): pre-cutoff AIMessage list content is collapsed to str.
+
+    Paired counterpart of test_prune_for_llm_flag_on_preserves_list_content.
+    The flag-off path is byte-identical to the Phase-13 plateau.
+    """
+    msgs: list[BaseMessage] = [
+        HumanMessage(content="hi"),
+        AIMessage(
+            content=["block1", "block2"],
+            tool_calls=[{"name": "semantic_search", "id": "a1", "args": {"q": "1"}}],
+            additional_kwargs={"_reasoning_state": {"provider": "openai"}},
+        ),
+        ToolMessage(content="r1", tool_call_id="a1"),
+        AIMessage(
+            content="searching",
+            tool_calls=[{"name": "semantic_search", "id": "a2", "args": {"q": "2"}}],
+        ),
+        ToolMessage(content="r2", tool_call_id="a2"),
+        AIMessage(
+            content="done",
+            tool_calls=[{"name": "semantic_search", "id": "a3", "args": {"q": "3"}}],
+        ),
+        ToolMessage(content="r3", tool_call_id="a3"),
+    ]
+    # Default (flag off) — no preserve_content_blocks
+    pruned = _prune_for_llm(msgs)
+    pre_cutoff_ai = pruned[1]
+    assert isinstance(pre_cutoff_ai, AIMessage)
+    assert isinstance(pre_cutoff_ai.content, str), (
+        f"flag-off: pre-cutoff AIMessage content must be str, got {type(pre_cutoff_ai.content)}"
+    )
+    # tool_calls stripped in flag-off path too.
+    assert pre_cutoff_ai.tool_calls == []
+
+
+async def test_replay_multi_message_flag_on_routes_through_multi_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REPLAY-01 flag-ON: plan() calls adapter.replay_reasoning_state_multi instead of
+    single-message replay_reasoning_state.
+
+    Strategy: monkeypatch REPLAY_MULTI_MESSAGE_ENABLED=1, build graph with all Phase-13
+    DEC flags off, patch the adapter with a spy, run one plan() turn via graph.ainvoke,
+    and assert replay_reasoning_state_multi was called (not replay_reasoning_state).
+    """
+
+    from app.agent.adapters import ADAPTERS, NoOpAdapter
+
+    monkeypatch.setenv("REPLAY_MULTI_MESSAGE_ENABLED", "1")
+    monkeypatch.setenv("FORCED_COMMIT_STEP", "0")
+    monkeypatch.setenv("VIABILITY_CONTRACT_ENABLED", "0")
+    monkeypatch.setenv("PARALLEL_TOOL_EXECUTION_ENABLED", "0")
+    monkeypatch.delenv("REPLAY_CONTENT_BLOCKS_ENABLED", raising=False)
+
+    # Build a spy adapter: real NoOpAdapter with multi_replay tracked.
+    spy_adapter = NoOpAdapter()
+    multi_calls: list[int] = []
+    original_multi = spy_adapter.replay_reasoning_state_multi
+
+    def _spy_multi(outbound):  # type: ignore[no-untyped-def]
+        multi_calls.append(len(outbound))
+        return original_multi(outbound)
+
+    spy_adapter.replay_reasoning_state_multi = _spy_multi  # type: ignore[method-assign]
+
+    single_calls: list[int] = []
+    original_single = spy_adapter.replay_reasoning_state
+
+    def _spy_single(outbound, state):  # type: ignore[no-untyped-def]
+        single_calls.append(len(outbound))
+        return original_single(outbound, state)
+
+    spy_adapter.replay_reasoning_state = _spy_single  # type: ignore[method-assign]
+
+    monkeypatch.setitem(ADAPTERS, "scripted", spy_adapter)
+
+    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    # Build graph AFTER monkeypatch so flag reads see the patched values.
+    graph = build_agent_graph(fake, max_steps=4, provider="scripted")
+    await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
+
+    # REPLAY-01 flag-ON: multi path must have been invoked.
+    assert len(multi_calls) >= 1, (
+        "REPLAY_MULTI_MESSAGE_ENABLED=1: expected adapter.replay_reasoning_state_multi "
+        f"to be called at least once, got {multi_calls}"
+    )
+    # Single-message path must NOT have been invoked (multi replaces it).
+    assert len(single_calls) == 0, (
+        "REPLAY_MULTI_MESSAGE_ENABLED=1: adapter.replay_reasoning_state (single-message) "
+        f"should not be called, got {single_calls}"
+    )
+
+
 # ---------- Phase 8 Plan 05: __main__ regen-fixture entrypoint (D-08-15) ----------
 #
 # `--regen-reason-04-fixture` regenerates tests/unit/fixtures/reason_04_prune_baseline.json

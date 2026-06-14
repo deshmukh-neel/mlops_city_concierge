@@ -2863,14 +2863,21 @@ class TestArmFlagsAndForcedCommitTelemetry:
         monkeypatch.delenv("FORCED_COMMIT_STEP", raising=False)
         monkeypatch.delenv("PARALLEL_TOOL_EXECUTION_ENABLED", raising=False)
         monkeypatch.delenv("LOW_SIMILARITY_THRESHOLD_OVERRIDE", raising=False)
+        # Phase-14 replay keys (also off by default)
+        monkeypatch.delenv("REPLAY_MULTI_MESSAGE_ENABLED", raising=False)
+        monkeypatch.delenv("REPLAY_CONTENT_BLOCKS_ENABLED", raising=False)
 
         result = query_result_from_state(eval_case(), ItineraryState())
 
         assert result.deterministic.arm_flags == {
+            # Phase-13 DEC arm keys
             "viability_contract": False,
             "forced_commit_step": 0,
             "parallel_tool": False,
             "viability_threshold_override": None,
+            # Phase-14 REPLAY arm keys
+            "replay_multi_message": False,
+            "replay_content_blocks": False,
         }
 
     def test_arm_flags_reflects_env_vars_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2879,14 +2886,21 @@ class TestArmFlagsAndForcedCommitTelemetry:
         monkeypatch.setenv("FORCED_COMMIT_STEP", "6")
         monkeypatch.setenv("PARALLEL_TOOL_EXECUTION_ENABLED", "true")
         monkeypatch.setenv("LOW_SIMILARITY_THRESHOLD_OVERRIDE", "0.50")
+        # Phase-14 replay keys left unset (verifies Phase-13 keys still present alongside new ones)
+        monkeypatch.delenv("REPLAY_MULTI_MESSAGE_ENABLED", raising=False)
+        monkeypatch.delenv("REPLAY_CONTENT_BLOCKS_ENABLED", raising=False)
 
         result = query_result_from_state(eval_case(), ItineraryState())
 
         assert result.deterministic.arm_flags == {
+            # Phase-13 DEC arm keys
             "viability_contract": True,
             "forced_commit_step": 6,
             "parallel_tool": True,
             "viability_threshold_override": "0.50",
+            # Phase-14 REPLAY arm keys (unset → False)
+            "replay_multi_message": False,
+            "replay_content_blocks": False,
         }
 
     def test_commit_forced_default_false_when_state_not_forced(self) -> None:

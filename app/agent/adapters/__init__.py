@@ -60,6 +60,26 @@ class ProviderAdapter(ABC):
         messages' `additional_kwargs` are acceptable per D-08-06.
         """
 
+    def replay_reasoning_state_multi(self, outbound: list[BaseMessage]) -> list[BaseMessage]:
+        """Replay per-message _reasoning_state for every in-window AIMessage.
+
+        REPLAY-01 (D-14-03): iterates outbound, and for each AIMessage that
+        carries a ``_reasoning_state`` in its ``additional_kwargs``, calls
+        the existing single-message ``replay_reasoning_state`` on the
+        sub-list up to and including that message.
+
+        Generic default: iterate all AIMessages in outbound and apply
+        per-message injection via the existing ``replay_reasoning_state``
+        contract. Per-adapter overrides only where wire format demands.
+        Flag-off path (the existing ``replay_reasoning_state``) is UNTOUCHED.
+        """
+        for i, m in enumerate(outbound):
+            if isinstance(m, AIMessage):
+                per_msg_state = m.additional_kwargs.get("_reasoning_state")
+                if per_msg_state is not None:
+                    self.replay_reasoning_state(outbound[: i + 1], per_msg_state)
+        return outbound
+
 
 class NoOpAdapter(ProviderAdapter):
     """Default adapter — captures nothing, replays nothing.
@@ -75,6 +95,9 @@ class NoOpAdapter(ProviderAdapter):
     def replay_reasoning_state(
         self, outbound: list[BaseMessage], state: StatePayload | None
     ) -> list[BaseMessage]:
+        return outbound
+
+    def replay_reasoning_state_multi(self, outbound: list[BaseMessage]) -> list[BaseMessage]:
         return outbound
 
 
