@@ -50,6 +50,15 @@ migrate: ## Run Alembic database migrations
 migration: ## Create a new Alembic migration (usage: make migration MSG="add cities table")
 	$(POETRY_RUN) alembic revision --autogenerate -m "$(MSG)"
 
+.PHONY: sandbox-provision
+sandbox-provision: ## Provision the isolated falsifier sandbox DB (LOOP-00; never prod)
+	@[ -n "$${SANDBOX_DATABASE_URL:-}" ] || { \
+	  echo "ERROR: SANDBOX_DATABASE_URL is not set."; \
+	  echo "  Export it first: export SANDBOX_DATABASE_URL=postgresql://postgres:cityconcierge@127.0.0.1:5433/city_concierge_sandbox"; \
+	  exit 1; \
+	}
+	bash scripts/provision_sandbox.sh
+
 # ─── Ingestion ────────────────────────────────────────────────────────────────
 .PHONY: ingest
 ingest: ## Run the data ingestion pipeline
