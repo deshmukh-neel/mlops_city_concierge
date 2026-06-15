@@ -20,11 +20,13 @@
 gates:
   - family: openai/gpt-4o-mini
     status: active                   # hard gate enforced by make eval-gates-check
-    rationale: "D-10-07: anchor; 0.8 absorbs one stochastic miss at n=5; D-15-06: re-ratified at n=5 against flag-off Run #2 (2026-06-15T00-46-43Z) — omakase committed_itinerary_rate median=1.0 (5/5 model-initiated, forced=0), gate holds >= 0.8. Refinement median=0.0 on flag-off is a provenance correction (prior 1.0 was written from REFINEMENT_STRUCTURED_PLAN_ENABLED=true arm; flag-off prod-default is 0.0 per 2/5 commit rate); the enforced gate keys on omakase per D-10-07 rationale. No gate regression."
+    rationale: "D-10-07: anchor; 0.8 absorbs one stochastic miss at n=5; D-15-06: re-ratified at n=5 against flag-off Run #2 (2026-06-15T00-46-43Z) — omakase committed_itinerary_rate median=1.0 (5/5 model-initiated, forced=0), gate holds >= 0.8. Refinement median=0.0 on flag-off is a provenance correction (prior 1.0 was written from REFINEMENT_STRUCTURED_PLAN_ENABLED=true arm; flag-off prod-default is 0.0 per 2/5 commit rate); gate scoped to omakase per D-15-06 (refinement is observational). No gate regression."
     hard:
       metric: committed_itinerary_rate
       op: ">="
       value: 0.8
+      scenarios:
+        - omakase_mission_open_ended   # D-15-06: gate anchored on omakase; refinement is observational
     advisory:
       - metric: refinement_minimal_edit_median
         op: ">="

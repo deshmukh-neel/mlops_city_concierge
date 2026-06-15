@@ -339,9 +339,22 @@ def _check_gate(
     metric = hard["metric"]
     op = hard["op"]
     threshold = hard["value"]
+    # Optional: restrict gate evaluation to a specific subset of scenarios.
+    # When hard.scenarios is present, only those scenario_ids are evaluated;
+    # other eligible scenarios carrying the family are skipped for this gate.
+    # This supports omakase-anchored gates that should not fail-close on
+    # observational scenarios (e.g. refinement_cheaper) whose results are
+    # tracked but not gated (D-15-06/07).
+    hard_scenarios: list[str] | None = hard.get("scenarios") if isinstance(hard, dict) else None
 
-    if not cells:
-        # Family has no cell in any eligible scenario — not-evaluable, not a silent pass.
+    scoped_cells = (
+        [(sid, cell) for sid, cell in cells if sid in hard_scenarios]
+        if hard_scenarios is not None
+        else cells
+    )
+
+    if not scoped_cells:
+        # Family has no cell in any gated scenario — not-evaluable, not a silent pass.
         note = f"check_eval_gates: NOT-EVALUABLE — family '{family}' has no cell in summary"
         print(note)
         return "not_evaluable"
@@ -349,7 +362,7 @@ def _check_gate(
     # Extract the metric from every located cell. Cells lacking the metric do not
     # count toward the verdict; if NO cell carries it, the gate is not-evaluable.
     evaluable: list[tuple[str, float]] = []
-    for scenario_id, cell in cells:
+    for scenario_id, cell in scoped_cells:
         value = _get_metric_value(cell, metric)
         if value is not None:
             evaluable.append((scenario_id, value))

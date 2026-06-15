@@ -1,6 +1,6 @@
 {
   "closure_check_confirmed": "2026-05-21",
-  "generated_at": "2026-06-11T22-54-36Z",
+  "generated_at": "2026-06-15T01-57-36Z",
   "generated_by": "scripts/write_baselines.py",
   "providers": {
     "deepseek/deepseek-chat": {
@@ -81,7 +81,7 @@
       }
     },
     "deepseek/deepseek-reasoner": {
-      "generated_at": "2026-06-11T22-54-36Z",
+      "generated_at": "2026-06-15T01-57-36Z",
       "generated_by": "scripts/write_baselines.py",
       "scorers": {
         "category_compliance_strict": {
@@ -151,29 +151,29 @@
     },
     "openai/gpt-4o-mini": {
       "_observations": "Post-Phase-4 baseline. category_compliance_strict is now a measurable scorer (Plan 04-01 added it; Plan 04-07 wired it into eval_agent.DETERMINISTIC_CHECKS). Slot extraction (Plan 04-06) populates UserConstraints.requested_primary_types so the family + strict scorers no longer abstain at 1.0 by D-03; the family scorer is exercised against actual committed primary_types and the strict scorer surfaces within-family drift. Graph-layer primary_type_family injection (Plan 04-03) fires when slot_index is present, and the rationale_misaligned revision hint (Plan 04-05) self-corrects on category-misaligned rationales. rationale_stop_alignment is the Phase 4 merge-gate metric per D-04-13.",
-      "generated_at": "2026-06-11T19-37-42Z",
+      "generated_at": "2026-06-15T01-57-36Z",
       "generated_by": "scripts/write_baselines.py",
       "scorers": {
         "category_compliance": {
           "max": 1.0,
-          "median": 1.0,
+          "median": 0.6666666666666666,
           "min": 0.3333333333333333,
-          "n": 5,
-          "stdev": 0.29814239699997197
+          "n": 4,
+          "stdev": 0.3849001794597505
         },
         "category_compliance_strict": {
           "max": 1.0,
           "median": 1.0,
           "min": 0.3333333333333333,
           "n": 5,
-          "stdev": 0.29814239699997197
+          "stdev": 0.36514837167011077
         },
         "committed_itinerary_rate": {
           "max": 1.0,
           "median": 1.0,
-          "min": 1.0,
+          "min": 0.0,
           "n": 5,
-          "stdev": 0.0
+          "stdev": 0.4472135954999579
         },
         "constraints_satisfied": {
           "max": 1.0,
@@ -199,9 +199,9 @@
         "rationale_stop_alignment": {
           "max": 1.0,
           "median": 1.0,
-          "min": 0.6666666666666666,
+          "min": 1.0,
           "n": 5,
-          "stdev": 0.14907119849998599
+          "stdev": 0.0
         },
         "refinement_minimal_edit": {
           "max": 1.0,
@@ -227,29 +227,29 @@
       }
     },
     "openai/gpt-5-mini": {
-      "generated_at": "2026-06-11T22-54-36Z",
+      "generated_at": "2026-06-15T01-57-36Z",
       "generated_by": "scripts/write_baselines.py",
       "scorers": {
         "category_compliance": {
-          "max": 1.0,
-          "median": 0.8333333333333333,
+          "max": 0.6666666666666666,
+          "median": 0.6666666666666666,
           "min": 0.3333333333333333,
-          "n": 4,
-          "stdev": 0.3191423692521127
+          "n": 3,
+          "stdev": 0.19245008972987523
         },
         "category_compliance_strict": {
           "max": 1.0,
-          "median": 1.0,
+          "median": 0.6666666666666666,
           "min": 0.3333333333333333,
           "n": 5,
-          "stdev": 0.29814239699997197
+          "stdev": 0.27888667551135854
         },
         "committed_itinerary_rate": {
           "max": 1.0,
           "median": 1.0,
           "min": 0.0,
           "n": 5,
-          "stdev": 0.4472135954999579
+          "stdev": 0.5477225575051661
         },
         "constraints_satisfied": {
           "max": 1.0,
@@ -261,9 +261,9 @@
         "geographic_coherence": {
           "max": 1.0,
           "median": 1.0,
-          "min": 0.5,
+          "min": 1.0,
           "n": 5,
-          "stdev": 0.22360679774997896
+          "stdev": 0.0
         },
         "no_hallucinated_place_ids": {
           "max": 1.0,
@@ -277,7 +277,7 @@
           "median": 1.0,
           "min": 0.6666666666666666,
           "n": 5,
-          "stdev": 0.14907119849998599
+          "stdev": 0.18257418583505539
         },
         "refinement_minimal_edit": {
           "max": 1.0,
