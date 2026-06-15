@@ -28,8 +28,35 @@ from pydantic import BaseModel
 
 from app.agent.revision import LOW_SIMILARITY_THRESHOLD
 from app.agent.state import ItineraryState
+from app.tools.filters import family_of
 
-__all__ = ["all_slots_viable", "best_viable_candidate_per_slot"]
+__all__ = ["all_slots_viable", "best_viable_candidate_per_slot", "requested_type_for_hit"]
+
+
+def requested_type_for_hit(hit_primary_type: str, requested_types: list[str]) -> str | None:
+    """Map a hit's primary_type to the requested slot type it satisfies.
+
+    2026-06-15 fix: matching is by FAMILY, not exact string equality. The user
+    asks for "Dessert Shop" but real venues are typed "Bakery"/"Ice Cream Shop"
+    (zero literal "Dessert Shop" near Hayes Valley); exact-match left the slot
+    permanently unsatisfiable. A hit satisfies a requested type when:
+      - it equals the requested type exactly (fast path / unmapped types), OR
+      - it shares the requested type's family (Bakery ∈ dessert family).
+
+    Returns the matched requested type string (so multiset coverage keys stay the
+    requested-type names), or None when the hit matches no requested slot. When
+    multiple requested types could match (same family requested twice), the first
+    exact match wins, else the first same-family requested type.
+    """
+    if hit_primary_type in requested_types:
+        return hit_primary_type
+    hit_family = family_of(hit_primary_type)
+    if hit_family is None:
+        return None
+    for req in requested_types:
+        if family_of(req) == hit_family:
+            return req
+    return None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -131,13 +158,18 @@ def all_slots_viable(
         if not _is_viable_sim(hit, threshold):
             continue
         ptype = _value_from_hit(hit, "primary_type")
-        if not isinstance(ptype, str) or ptype not in required:
+        if not isinstance(ptype, str):
+            continue
+        # Family-aware matching (2026-06-15): a "Bakery" hit satisfies a
+        # "Dessert Shop" slot. Returns the requested-type key (or None).
+        matched = requested_type_for_hit(ptype, requested_types)
+        if matched is None:
             continue
         pid = _place_id(hit)
         if pid is not None:
-            per_type_ids[ptype].add(pid)
+            per_type_ids[matched].add(pid)
         else:
-            per_type_anon[ptype] += 1
+            per_type_anon[matched] += 1
 
     return all(len(per_type_ids[t]) + per_type_anon[t] >= count for t, count in required.items())
 
@@ -210,7 +242,12 @@ def best_viable_candidate_per_slot(
         if not _is_viable_sim(hit, threshold):
             continue
         ptype = _value_from_hit(hit, "primary_type")
-        if not isinstance(ptype, str) or ptype not in set(requested_types):
+        if not isinstance(ptype, str):
+            continue
+        # Family-aware matching (2026-06-15): bucket the hit under the requested
+        # slot type it satisfies (Bakery -> "Dessert Shop"), not its raw ptype.
+        matched = requested_type_for_hit(ptype, requested_types)
+        if matched is None:
             continue
         sim = _value_from_hit(hit, "similarity")
         pid = _place_id(hit)
@@ -222,7 +259,7 @@ def best_viable_candidate_per_slot(
             hit_dict = hit.model_dump(mode="json")
         else:
             continue  # skip unusable shapes — no {} placeholder
-        type_candidates.setdefault(ptype, []).append((float(sim), pid, hit_dict))
+        type_candidates.setdefault(matched, []).append((float(sim), pid, hit_dict))
 
     # Sort each type's candidates by descending cosine.
     for cands in type_candidates.values():

@@ -38,6 +38,9 @@ from app.agent.input_parsing import explicit_num_stops_from_text
 from app.agent.io import build_refinement_prompt_message, messages_from_history
 from app.agent.revision import LOW_SIMILARITY_THRESHOLD  # D-12-04: import, never hardcode 0.55
 from app.agent.state import ItineraryState, Stop, UserConstraints
+from app.agent.viability import (  # D-13-03: shared family-aware slot matcher (2026-06-15)
+    requested_type_for_hit,
+)
 from app.config import env_flag, get_settings
 from app.eval.config import (
     DEFAULT_EVAL_QUERIES_PATH,
@@ -619,7 +622,12 @@ def viable_candidates_per_step_from_state(
                 continue
             if requested_types:
                 ptype = value_from_hit(hit, "primary_type")
-                if ptype not in requested_types:
+                # Family-aware matching (2026-06-15): a Bakery hit satisfies a
+                # "Dessert Shop" requested slot. Mirrors app.agent.viability.
+                if (
+                    not isinstance(ptype, str)
+                    or requested_type_for_hit(ptype, requested_types) is None
+                ):
                     continue
             viable += 1
         counts.append(viable)
@@ -731,13 +739,19 @@ def rule8_met_per_step_from_state(
             if not _viable_sim(hit):
                 continue
             ptype = value_from_hit(hit, "primary_type")
-            if not isinstance(ptype, str) or ptype not in required:
+            if not isinstance(ptype, str):
+                continue
+            # Family-aware matching (2026-06-15): bucket under the requested slot
+            # type the hit satisfies (Bakery -> "Dessert Shop"). Mirrors
+            # app.agent.viability.requested_type_for_hit (D-13-03 single source).
+            matched = requested_type_for_hit(ptype, requested_types)
+            if matched is None:
                 continue
             pid = _place_id(hit)
             if pid is not None:
-                per_type_ids[ptype].add(pid)
+                per_type_ids[matched].add(pid)
             else:
-                per_type_anon[ptype] += 1
+                per_type_anon[matched] += 1
         bools.append(
             all(len(per_type_ids[t]) + per_type_anon[t] >= count for t, count in required.items())
         )
