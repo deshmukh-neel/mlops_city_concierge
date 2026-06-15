@@ -406,12 +406,43 @@ def main() -> None:  # noqa: C901
     # ── Step 3: Coerce DATABASE_URL to sandbox ──────────────────────────────
     os.environ["DATABASE_URL"] = sandbox_url
 
+    # Immediately invalidate the lru_cache so the next get_settings() call
+    # rebuilds from the coerced env (not the stale prod Settings frozen at
+    # module-import time by `settings = get_settings()` in app/config.py line ~160).
+    # Also reset the DB pool in case it was already initialized pointing at prod.
+    # close_db_pool() is a no-op when the pool is None — safe unconditionally.
+    from app.config import get_settings  # noqa: PLC0415
+    from app.db_pool import close_db_pool  # noqa: PLC0415
+
+    get_settings.cache_clear()
+    close_db_pool()
+
     # ── Step 4: W1 resolved-target assertion (belt-and-suspenders) ──────────
-    # Import AFTER coercion to avoid lru_cache footgun
+    # Import AFTER coercion to avoid lru_cache footgun.
+    # Validate BOTH code paths that resolve the database URL:
+    #   (a) resolve_database_url(os.environ) — the free function (existing check)
+    #   (b) get_settings().resolved_database_url — the SAME path the DB pool uses
+    # The pool calls _ensure_db_pool() -> get_settings().resolved_database_url.
+    # The prior code only checked (a), which always sees the coerced env and
+    # passes — giving FALSE assurance while the pool still targets the stale
+    # cached Settings = prod (FALSIFY-01 gate crash root cause).
     from app.config import resolve_database_url  # noqa: PLC0415
 
     resolved = resolve_database_url(os.environ)
     assert_resolved_target(sandbox_url=sandbox_url, resolved_url=resolved)
+
+    # Strengthen: also assert the cached-settings path (the pool's actual path)
+    settings_resolved = get_settings().resolved_database_url
+    if settings_resolved != sandbox_url:
+        print(
+            f"[INFRA] get_settings().resolved_database_url ({settings_resolved!r}) does not match "
+            f"SANDBOX_DATABASE_URL ({sandbox_url!r}). "
+            "The settings lru_cache was not cleared properly after DATABASE_URL injection. "
+            "This is the path the DB pool uses — mismatch means the pool would target prod.",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_INFRA)
+
     print(f"[resolved-target] in-process target confirmed: {resolved!r}")
 
     # ── Step 5: Deferred imports (all settings-touching app.* imports) ──────
