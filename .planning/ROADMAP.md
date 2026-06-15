@@ -179,7 +179,7 @@
 
 **Wave 4** *(milestone close — autonomous)*
 
-- [ ] 15-04-PLAN.md — finalize docs/promotion_decision.md (cross-links both immutable verdict docs) + milestone-close bookkeeping (ROADMAP/REQUIREMENTS/STATE straight to main)
+- [x] 15-04-PLAN.md — finalize docs/promotion_decision.md (cross-links both immutable verdict docs) + milestone-close bookkeeping (ROADMAP/REQUIREMENTS/STATE straight to main)
 
 ## Progress
 
@@ -199,7 +199,7 @@
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 15. Gate Promotion + Baseline Regen | v2.2 | 4/4 | Complete | 2026-06-15 |
+| 15. Gate Promotion + Baseline Regen | v2.2 | 4/4 | Complete    | 2026-06-15 |
 
 ---
 

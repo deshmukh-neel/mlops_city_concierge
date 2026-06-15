@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 15
-status: complete
-last_updated: "2026-06-15T00:00:00.000Z"
+status: milestone_complete
+last_updated: 2026-06-15T02:22:05.873Z
 last_activity: 2026-06-15
 progress:
   total_phases: 4
@@ -12,6 +12,7 @@ progress:
   total_plans: 24
   completed_plans: 24
   percent: 100
+stopped_at: Milestone complete (Phase 15 was final phase)
 ---
 
 # Project State
@@ -27,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-06-11 for v2.2 milestone start)
 See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 15 — gate-promotion-baseline-regen
+**Current focus:** Milestone complete
 
 ## Current Position
 
 Phase: 15 (gate-promotion-baseline-regen) — COMPLETE
-Plan: 4 of 4 (all plans executed)
-Status: v2.2 milestone CLOSED — 2026-06-15
+Plan: Not started
+Status: Milestone complete
 Last activity: 2026-06-15
 
 Progress: [██████████] 100%
