@@ -1,17 +1,42 @@
 # v2.2 Milestone Promotion Decision
 
+**Role:** D-15-03 milestone-audit anchor — the single document a reviewer reads to understand
+how the v2.2 milestone closed: the INST-05 verdict (data-dependent on the A2 retest),
+anchor ratified, ARCH-FUT-01 deferred, what is enforced vs logged, and the latency budget
+reality.
+
 **Created:** 2026-06-14
+**Finalized:** 2026-06-15
 **Phase:** 15 — Gate Promotion + Baseline Regen
 **Milestone:** v2.2 Reasoning-Model Decisiveness
-**Status:** In progress — Plans 02 (A2 retest) and 03 (baseline regen) still to execute
+**Status:** COMPLETE — all four Phase-15 plans executed; milestone closed 2026-06-15
 
-## Cross-References (Immutable Input Documents)
+---
 
-- `docs/decisiveness_arm_verdicts.md` — Phase-13 DEC record: INST-05 falsifier, A1/A2/A3
-  results, CR-01 forced-synthesizer-broken annotation. **Closed record — do not append.**
-- `docs/replay_arm_verdicts.md` — Phase-14 REPLAY record: R1/R2/R3/valve results,
-  ARCH-FUT-01 evaluation and deferral, D-14-08 user checkpoint resolving Phase-15 scope.
-  **Closed record — do not append.**
+## Inputs (Immutable Cross-Links)
+
+The following documents are the immutable inputs to this record. They are referenced here as
+closed records and are NOT appended to or modified by this document. Their verdicts stand as
+written; this document cross-links them and synthesizes a milestone-closing record from their
+findings.
+
+- [`docs/decisiveness_arm_verdicts.md`](decisiveness_arm_verdicts.md) — **Phase-13 DEC-05
+  record**: INST-05 falsifier definition, A1/A2/A3 arm results, CR-01 forced-synthesizer-broken
+  annotation (inoperative mechanism), CR-02 split-reader tool bug annotation, A4 skip decision,
+  closing verdict (no arm cleared INST-05). Phase 14 entry gate: OPEN.
+  **Closed record — this document does NOT append to or modify it.**
+
+- [`docs/replay_arm_verdicts.md`](replay_arm_verdicts.md) — **Phase-14 REPLAY-05 record**:
+  R1/R2 arm results (R1=0.500 matching A2, R2=NEGATIVE catastrophic 400s), R3/valve NOT RUN,
+  ARCH-FUT-01 evaluation (state richness not the bottleneck; behavioral gap in refinement
+  scenarios), USER CHECKPOINT RESOLVED (2026-06-12: anchor ratified, ARCH-FUT-01 deferred,
+  Phase-15 scope approved).
+  **Closed record — this document does NOT append to or modify it.**
+
+**Gate thresholds:** Enforced gate values live in [`configs/eval_gates.yaml`](../configs/eval_gates.yaml)
+as the source of truth. Measured rates may appear in this document, but the yaml is the authority
+for what is enforced vs logged. Do NOT read threshold numbers from this document as definitive;
+check the yaml.
 
 ---
 
@@ -765,3 +790,79 @@ The ratification is appropriate because: (a) no better-performing alternative cl
 decisiveness bar, (b) the latency gap is due to step count (decisiveness), not model speed
 per-call, and (c) the path to meeting the 30s budget runs through decisiveness improvements
 (future milestone), not anchor replacement.
+
+---
+
+## Milestone Closing Summary
+
+**Closed:** 2026-06-15
+**Milestone:** v2.2 Reasoning-Model Decisiveness
+
+### INST-05 Verdict (Data-Dependent)
+
+**CASE (a) — Honest Null Result: No arm cleared INST-05.**
+
+The Phase-15 A2 retest (Run #1, `FORCED_COMMIT_STEP=6`, `eval_reports/2026-06-14T23-44-15Z`)
+measured `gpt-5-mini pooled committed_itinerary_rate = 0.500` (omakase=1.000, refinement=0.000).
+This is below the 0.600 aspirational floor. The INST-05 falsifier returned exit code 2 (FAIL).
+
+The flag-off prod-config run (Run #2, `eval_reports/2026-06-15T00-46-43Z`) also measured
+`gpt-5-mini pooled = 0.500` (omakase=1.000, refinement=0.000). Neither the experimental
+(FORCED_COMMIT_STEP=6) nor the prod-default configuration cleared the 0.600 bar.
+
+**The v2.2 INST-05 falsifier records an honest null result: no arm cleared the bar across
+Phases 13, 14, or 15.** The A2 forced-commit path DID NOT fire on refinement_cheaper in
+either retest (all_slots_viable never True for the typed 3-slot constraint — structural
+root cause documented in the Root-Cause section above). The CR-01 synthesizer fix (Plan
+13-08) did not change the refinement_cheaper outcome, confirming the blocker is retrieval
+coverage, not synthesizer correctness.
+
+### Locked-Regardless Statements
+
+The following decisions are confirmed regardless of the INST-05 outcome:
+
+1. **gpt-4o-mini anchor RATIFIED.** `committed_itinerary_rate >= 0.8` gate re-ratified at
+   Run #2 flag-off omakase median = 1.000. All 5 omakase commits were model-initiated
+   (forced=0/5). No regression. Gate source of truth: `configs/eval_gates.yaml`.
+
+2. **ARCH-FUT-01 DEFERRED** as tracked technical debt (not executed). The evidence chain
+   (Phases 13–14) showed state richness interventions produced zero marginal improvement:
+   R1 (multi-message replay) delta vs A2 = ±0.000. The decisive gap is behavioral
+   (refinement scenario-class), not architectural (state round-tripping). ARCH-FUT-01 is
+   filed as a future contingency with the Phase 13–14 evidence package as its trigger
+   criteria. See `docs/replay_arm_verdicts.md` (ARCH-FUT-01 Evaluation section) for the
+   full evidence chain and deferral rationale.
+
+3. **Prod-default FORCED_COMMIT_STEP=6 flip is DEFERRED (D-15-07).** Run #1 with
+   FORCED_COMMIT_STEP=6 yielded the same pooled 0.500 as the flag-off run, confirming the
+   refinement_cheaper gap is structural and cannot be closed by the forced-commit path alone.
+   Flipping the prod default is a separate architectural decision, NOT implemented in Phase 15.
+
+4. **What is enforced vs logged:** `configs/eval_gates.yaml` is the source of truth.
+   Post-Phase-15 state: gpt-4o-mini stays `active` (hard gate >= 0.8, sourced from flag-off
+   omakase median); gpt-5-mini changed from `aspirational` to `logged` (flag-off pooled 0.500
+   does not meet the 0.600 floor; logged entries are skipped by `check_eval_gates.py`);
+   deepseek-reasoner stays `logged`; anthropic/gemini stay `logged` (deferred D-12-09).
+   No known-failing config has a 0.0-floor enforced gate.
+
+### Anchor Provenance Correction (D-15-07)
+
+The prior `gpt-4o-mini / refinement_cheaper` baseline of `1.000` was generated with
+`REFINEMENT_STRUCTURED_PLAN_ENABLED=true` (flag-ON arm condition). The honest flag-off
+prod-default measurement is `0.000` (Run #2, median). This is a provenance correction,
+NOT an anchor regression: the enforced gate keys on omakase (which held at 1.000 flag-off),
+not refinement separately. The baseline has been re-written to the honest flag-off value
+with a corrected `_observations` note (see Baseline Regen Provenance section above).
+
+### Phase-15 Outcome Summary
+
+| Deliverable | Status | Source |
+|-------------|--------|--------|
+| Root-cause: refinement_cheaper = 0.000 | Documented — typed viability gate never satisfied (structural) | This doc, Root-Cause section |
+| A2 retest (FORCED_COMMIT_STEP=6) | Executed — gpt-5-mini 0.500 pooled; INST-05 FAIL | Run #1 dir `eval_reports/2026-06-14T23-44-15Z` |
+| Gate promotions (PROMO-02) | gpt-4o-mini re-ratified active; gpt-5-mini demoted to logged | `configs/eval_gates.yaml` |
+| Baseline regen (PROMO-01) | 6 runnable cells written; anchor provenance corrected | `configs/eval_baselines/` |
+| Latency report (PROMO-03) | Documented — anchor median 47s omakase; 30s budget NOT met | This doc, PROMO-03 section |
+| ARCH-FUT-01 | Deferred with evidence chain as trigger criteria | `docs/replay_arm_verdicts.md` |
+| Prod-default FORCED_COMMIT_STEP=6 flip | Flagged, NOT implemented (D-15-07) | This doc |
+| v2.2 milestone | Closed — honest null result on INST-05; anchor ratified | This doc |
