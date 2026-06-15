@@ -66,9 +66,14 @@ def test_inject_primary_type_family_noop_when_requested_empty() -> None:
     assert out is not args
 
 
-def test_inject_primary_type_family_noop_when_slot_index_none() -> None:
-    """D-04-06 trust boundary: model didn't cooperate (no slot_index) — graph
-    does NOT inject."""
+def test_inject_primary_type_family_noop_when_slot_index_none_and_query_ambiguous() -> None:
+    """No slot_index AND no family keyword in the query → graph does NOT inject.
+
+    The 2026-06-15 fallback (family_from_query) only fires when the query text
+    carries a keyword for a requested family; "ramen" matches none of the
+    restaurant keywords, so the fallback no-ops and the historical D-04-06
+    behavior (no injection) is preserved for keyword-free queries.
+    """
     # slot_index missing entirely
     args1 = {"query": "ramen"}
     out1 = _inject_primary_type_family("semantic_search", args1, ["Sushi Restaurant"])
@@ -79,6 +84,31 @@ def test_inject_primary_type_family_noop_when_slot_index_none() -> None:
     out2 = _inject_primary_type_family("semantic_search", args2, ["Sushi Restaurant"])
     assert out2 == args2
     assert "filters" not in out2
+
+
+def test_inject_primary_type_family_fallback_infers_from_query_without_slot_index() -> None:
+    """2026-06-15 refinement_cheaper fix: when the model omits slot_index but the
+    query carries a keyword for a REQUESTED family, the graph infers and injects
+    that family (the live failure mode: models emit "drinks in Hayes Valley"
+    with no slot_index, leaving every slot below the viability threshold)."""
+    requested = ["Restaurant", "Cocktail Bar", "Dessert Shop"]
+    out = _inject_primary_type_family(
+        "semantic_search", {"query": "drinks in Hayes Valley"}, requested
+    )
+    assert out["filters"]["primary_type_family"] == "bar"
+    out2 = _inject_primary_type_family(
+        "semantic_search", {"query": "dessert in Hayes Valley"}, requested
+    )
+    assert out2["filters"]["primary_type_family"] == "dessert"
+
+
+def test_inject_primary_type_family_fallback_only_uses_requested_families() -> None:
+    """The query-text fallback never injects a family the user did not request:
+    a "coffee" query with only Restaurant+Bar requested stays uninjected."""
+    out = _inject_primary_type_family(
+        "semantic_search", {"query": "coffee shop nearby"}, ["Restaurant", "Cocktail Bar"]
+    )
+    assert "filters" not in out or "primary_type_family" not in (out.get("filters") or {})
 
 
 def test_inject_primary_type_family_noop_when_slot_index_out_of_range() -> None:
@@ -359,15 +389,17 @@ async def test_act_injects_primary_type_family_when_model_passes_slot_index(
 async def test_act_does_not_inject_when_model_omits_slot_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """D-04-06 trust boundary: model emits NO slot_index → graph does NOT
-    inject (scorer measures the non-cooperation)."""
+    """No slot_index AND a keyword-free query ("omakase") → graph does NOT
+    inject. The 2026-06-15 family_from_query fallback only fires on queries
+    that carry a requested-family keyword; "omakase" matches none, so the
+    historical D-04-06 non-cooperation behavior is preserved here."""
     constraints = UserConstraints(requested_primary_types=["Sushi Restaurant", "Cocktail Bar"])
     state = await _drive_act_once(
         monkeypatch,
         {
             "name": "semantic_search",
             "id": "call_2",
-            "args": {"query": "omakase"},  # no slot_index
+            "args": {"query": "omakase"},  # no slot_index, no family keyword
             "type": "tool_call",
         },
         constraints,
