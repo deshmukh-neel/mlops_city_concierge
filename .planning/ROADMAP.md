@@ -173,7 +173,7 @@
 
 **Wave 3** *(gate promotion + baselines-last + latency — autonomous, reads produced artifacts)*
 
-- [ ] 15-03-PLAN.md — PROMO-02 gate promotion (D-15-06/07 provenance honesty) + PROMO-01 write_baselines.py last (runnable cells only) + PROMO-03 latency report vs ~30s/turn budget
+- [x] 15-03-PLAN.md — PROMO-02 gate promotion (D-15-06/07 provenance honesty) + PROMO-01 write_baselines.py last (runnable cells only) + PROMO-03 latency report vs ~30s/turn budget
 
 **Wave 4** *(milestone close — autonomous)*
 
@@ -197,7 +197,7 @@
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 15. Gate Promotion + Baseline Regen | v2.2 | 2/4 | In Progress|  |
+| 15. Gate Promotion + Baseline Regen | v2.2 | 3/4 | In Progress|  |
 
 ---
 
