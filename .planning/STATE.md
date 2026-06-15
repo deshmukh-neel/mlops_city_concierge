@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 15
-status: "Phase 15 shipped — PR #110"
-last_updated: "2026-06-15T05:00:38.091Z"
-last_activity: 2026-06-14
+status: Awaiting next milestone
+last_updated: "2026-06-15T06:22:04.812Z"
+last_activity: 2026-06-15 — Milestone v2.2 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
@@ -18,59 +18,56 @@ progress:
 
 **Project:** City Concierge
 **Initialized:** 2026-05-14
-**Active milestone:** v2.2 Reasoning-Model Decisiveness (started 2026-06-11)
-**Current phase:** 15
+**Active milestone:** None — v2.2 shipped 2026-06-15; awaiting next milestone
+**Last shipped:** v2.2 Reasoning-Model Decisiveness (Phases 12-15)
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-11 for v2.2 milestone start)
-See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
+See: .planning/PROJECT.md (updated 2026-06-15 after v2.2 milestone)
+See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1, v2.2)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Milestone complete
+**Current focus:** Planning next milestone (`/gsd-new-milestone`)
 
 ## Current Position
 
-Phase: 15 (gate-promotion-baseline-regen) — COMPLETE
-Plan: Not started
-Status: Phase 15 shipped — PR #110
-Last activity: 2026-06-14
-
-Progress: [██████████] 100%
+Phase: Milestone v2.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-15 — Milestone v2.2 completed and archived
 
 ## Blockers / Readiness Notes
 
-- **ANCH-01 (anthropic n=5): DEFERRED out of v2.2 scope** (2026-06-11, user declined billing top-up). Anthropic stays logged-not-gated with its `_DEFERRED_BASELINE_CELLS` entry intact; revisit when budget allows.
-- **ANCH-02 (gemini n=5):** requires Gemini quota resolution. INST plans in Phase 12 have no external dependency and execute first; the gemini baseline plan runs when quota is available.
-- **Phase 14 is CONDITIONAL:** only entered if all Phase 13 DEC arms plateau below the INST-05 falsifier bar (gpt-5-mini < 0.6 at n=5). If any arm clears, Phase 14 is skipped.
-- **DEC-01 constraint:** viability-contract prompt change must not touch any text covered by the Phase-7 CI grep gate. Verify gate stays green before merging.
-- **All arm judging:** Phase-10 honest gates, n=5, temp=1.0 — no exceptions.
-- **Baselines only via `scripts/write_baselines.py`** (D-11-14 locked).
+No active blockers — v2.2 is closed. Open threads to weigh when scoping the next milestone:
+
+- **Reasoning-model decisiveness is confirmed architectural.** v2.2 ran six interventions (four DEC arms + two REPLAY arms); none cleared the INST-05 falsifier bar (best 0.500 vs 0.6). The deferred contingency is ARCH-FUT-01 (replace the LangGraph loop with a custom imperative loop); trigger = the Phases 13-14 evidence chain. Don't re-derive — the verdict docs settle it.
+- **gpt-4o-mini is the ratified prod anchor** (omakase median 1.000 flag-off, gate ≥ 0.8 enforced). gpt-5-mini stays logged-not-gated.
+- **Standing invariants (locked, carry forward):** baselines only via `scripts/write_baselines.py` (D-11-14); all eval judging at n=5, temp=1.0 against Phase-10 honest gates.
 
 ## Accumulated Context
 
-### Key Decisions (v2.2)
+### Key Decisions (v2.2 — full log in PROJECT.md Key Decisions)
 
-- Decision 3 (resolved at milestone start): prod latency budget ~30s/turn; gpt-4o-mini stays anchor; reasoning models are documented alternates. Bounds investment in Phase 13/14.
-- Anti-scope locked: no LangGraph replacement, no multi-agent split, no new scorers, no provider-shopping.
-- Falsifier definition (INST-05): "works" iff gpt-5-mini commit rate ≥ 0.6 at n=5 AND gpt-4o-mini holds ≥ its honest baseline.
-- Phase 14 conditional entry gate: all DEC arms must plateau below the INST-05 bar to enter REPLAY work.
+- Decision 3: prod latency budget ~30s/turn; gpt-4o-mini stays anchor; reasoning models are documented alternates.
+- INST-05 falsifier: "works" iff gpt-5-mini commit rate ≥ 0.6 at n=5 AND gpt-4o-mini holds ≥ its honest baseline. No goalpost-moving — every arm judged against it.
+- v2.2 closed as an honest null: no arm cleared the bar; anchor re-ratified; ARCH-FUT-01 deferred as tracked debt (user-ratified D-14-08). Canonical record: `docs/promotion_decision.md`.
 
-### Deferred Items (carried from v2.1)
+### Deferred Items (open at v2.2 close)
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Baselines | anthropic n=5 (billing exhaustion) | Deferred out of v2.2 (no top-up — user decision) | Phase 11 close; extended 2026-06-11 |
-| Baselines | gemini n=5 (quota) | Blocked on quota | Phase 11 close |
-| Gates | gpt-5-mini aspirational gate (≥0.6) | Logged-not-enforced | Phase 11 close |
-| Decisiveness | gpt-5-mini 2/5 + deepseek 0/5 commit rate | v2.2 scope | Phase 9/11 close |
+| Baselines | anthropic n=5 (billing) | Deferred — no top-up (user decision); logged-not-gated, promotion path in `docs/baseline_regen.md` | Phase 11 close; extended 2026-06-11 |
+| Baselines | gemini n=5 (billing/quota) | Deferred (D-12-09) — single scored run already 1.0; logged-not-gated | Phase 12 (D-12-09) |
+| Baselines | `refinement_cheaper` gpt-4o-mini (committed 0.0) | Stale vs post-retrieval-fix ~0.8 rate; clean follow-up regen | Phase 15 close |
+| Architecture | ARCH-FUT-01 (custom imperative loop) | Deferred as tracked debt; trigger = Phases 13-14 evidence chain | Phase 14 (D-14-08) |
+| Config | Prod-default `FORCED_COMMIT_STEP=6` flip | Flagged, NOT implemented (D-15-07) | Phase 15 close |
 
 ## Session Continuity
 
-Last session: 2026-06-15T02:04:29.584Z
-Stopped at: Phase 15 context gathered
+Last session: 2026-06-15 — v2.2 milestone completed and archived
+Stopped at: Milestone close (archived, tagged v2.2)
 Resume file: None
-Next step: `/gsd-plan-phase 12`
+Next step: `/gsd-new-milestone`
 
 ## Performance Metrics
 
@@ -112,3 +109,7 @@ Next step: `/gsd-plan-phase 12`
 - [Phase ?]: Valve NOT RUN: precondition met but R1 zero-delta vs A2 makes expected marginal signal = 0; A2 retest is Phase 15 scope
 - [Phase ?]: ARCH-FUT-01: ratify gpt-4o-mini anchor; defer ARCH-FUT-01; Phase 15 = A2 retest on fixed synthesizer + refinement_cheaper root cause analysis
 - [Phase 15]: v2.2 CLOSED 2026-06-15: A2 retest (FORCED_COMMIT_STEP=6) confirmed gpt-5-mini 0.500 pooled — INST-05 honest null (no arm cleared 0.600 bar across Phases 13/14/15). Root cause: refinement_cheaper typed-slot viability gate never satisfied (structural, not code bug). gpt-4o-mini anchor RATIFIED (omakase 1.000 flag-off, gate >= 0.8). Baseline provenance corrected (prior refinement_cheaper 1.000 was flag-ON arm artifact; re-baselined to honest 0.000 flag-off). 6 runnable cells written. ARCH-FUT-01 DEFERRED as tracked debt. Prod-default FORCED_COMMIT_STEP=6 flip flagged but NOT implemented (D-15-07). Canonical record: docs/promotion_decision.md.
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

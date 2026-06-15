@@ -16,26 +16,21 @@ The agentic redesign shipped as workstreams W0 → W8 (`implementation_plan/jame
 
 Five live runs against the omakase Mission/Japantown query revealed the next class of bugs — category compliance, rationale-stop alignment, refinement-turn explosions, and the lack of any reproducible way to measure agent quality without invading the shared MLflow `production` alias. **v2.0 Production Readiness shipped that work on 2026-06-03 (PR #100 → `14e01dd`):** the eval harness + model-override env var + three agent-behavior fixes, all measured against committed cross-model baselines with a CI hard gate on baseline staleness. The Phase 6 minimal-edit refinement probe also empirically confirmed an architectural limit (`_prune_for_llm` drops `reasoning_content` across turns), which scopes v2.1: reasoning-model compat.
 
-## Current Milestone: v2.2 Reasoning-Model Decisiveness
-
-**Goal:** Make reasoning models decisive on the tool loop — v2.1 proved reasoning state round-trips byte-correctly through all four provider adapters, yet the models still burn their step budget exploring and never (or rarely) call `commit_itinerary` (gpt-5-mini 2/5, deepseek-reasoner 0/5 vs the gpt-4o-mini anchor's 5/5).
-
-**Target features:**
-- Decisiveness instrumentation + falsifier: per-run telemetry (steps-to-first-commit-consideration, viable-candidate counts per step, rule-8 precondition objectively-met flag) plus per-turn latency decomposition; intervention "works" iff gpt-5-mini commit rate ≥ 0.6 at n=5 with no gpt-4o-mini anchor regression
-- First gemini n=5 baseline (quota resolution) — completes the comparison floor minus the anthropic cell; anthropic n=5 deferred at milestone start (no billing top-up — gemini + deepseek + gpt-5-mini give enough reasoning-model coverage for the falsifier)
-- Viability-contract / forced-commit experiment arms, judged jointly (explicit viability definition in the commit precondition; forced-commit-at-step-N graph mechanism; critique recalibration co-tuned with the viability contract; parallel tool execution in `act()` as the all-provider latency arm)
-- Richer state replay (multi-message `_reasoning_state` replay, content-block preservation through prune) — only if the experiment arms plateau, justified by A/B
-- Gate promotion + baseline regen: winning arm's baselines regenerated via `write_baselines.py`; reasoning-model gates promoted from logged-not-gated to enforced where earned
-
-**Anti-scope (locked from seed):** no LangGraph replacement (ARCH-FUT-01 stays a contingency), no multi-agent planner-executor split, no new scorers, no provider-shopping.
-
-**Decision 3 resolved (latency budget):** prod budget is ~30s/turn — reasoning models target gate-passage as documented alternates; `openai/gpt-4o-mini` stays the prod anchor. Latency reduction is a first-class goal: decisiveness (step-count) is the dominant latency lever, and the parallel-tool-execution arm benefits the anchor directly.
-
 ## Current State
 
-**Shipped milestone:** v2.1 Reasoning-Model Compat (2026-06-11; PRs #103, #105, #106; 5 phases, 35 plans, 48 tasks; 156 files changed, +24k/−6.4k vs v2.0). Audit: 26/26 requirements, integration COMPLETE, status tech_debt (documented deferrals only) — see `milestones/v2.1-MILESTONE-AUDIT.md`.
-**Active milestone:** v2.2 Reasoning-Model Decisiveness (started 2026-06-11; seeded from `milestones/v2.2-MILESTONE-SEED.md`). Phase 13 complete (2026-06-12): four decisiveness experiment arms run at n=5 — honest null result, no arm cleared the INST-05 falsifier bar; gap closure fixed the forced-commit synthesizer (CR-01), the falsifier split reader (CR-02), and respecified the A3 latency criterion; re-verification passed 5/5. Phase 14 complete (2026-06-12): both REPLAY arms plateaued — R1 multi-message replay hit 0.500 (= A2 exactly, below the 0.6 bar); R2 content-block preservation was refuted in the breaking direction (gpt-5-mini 10/10 deterministic provider 400s — the `str()` collapse was load-bearing for the Responses API path); R3/valve not run per D-14-01 preconditions; ARCH-FUT-01 evaluated and DEFERRED as tracked debt (user-ratified at the D-14-08 checkpoint). Canonical record: `docs/replay_arm_verdicts.md`. Phase-15 scope approved: A2 retest on fixed synthesizer + refinement_cheaper root-cause analysis + gate promotion/baseline regen.
-**Agent driver:** still `openai/gpt-4o-mini` (anchor held commit-rate median 1.0 throughout v2.1). Reasoning-state loss is FIXED (adapters + conformance harness in CI), but reasoning-model *decisiveness* remains the gap — that's v2.2's scope, not an architecture problem.
+**Shipped milestone:** v2.2 Reasoning-Model Decisiveness (2026-06-15; PR #110 + phase 12-14 branches; 4 phases (12-15), 24 plans, 26 tasks; 188 files changed, +24k/−8.2k vs v2.1). Audit: 17/17 requirements, integration COMPLETE, 6/6 flows, status PASSED — see `milestones/v2.2-MILESTONE-AUDIT.md`.
+
+**The v2.2 result is an honest negative.** v2.1 proved reasoning state round-trips byte-correctly through all four provider adapters; v2.2 set out to make those models *decisive* (call `commit_itinerary` instead of burning the step budget exploring). It instrumented the loop, ran four joint experiment arms, and entered the conditional replay phase — and **no intervention cleared the falsifier bar** (gpt-5-mini ≥ 0.6 commit rate at n=5; best result A2 = 0.500 pooled). The decisiveness gap is architectural, not tunable under the ~30s/turn budget. `openai/gpt-4o-mini` is re-ratified as the prod anchor (omakase median 1.000 flag-off, gate ≥ 0.8 enforced); gpt-5-mini stays logged-not-gated. ARCH-FUT-01 (replacing the LangGraph loop with a custom imperative loop) is deferred as tracked debt, user-ratified at the D-14-08 checkpoint. Canonical record: `docs/promotion_decision.md`, cross-linking the two immutable verdict docs (`docs/decisiveness_arm_verdicts.md`, `docs/replay_arm_verdicts.md`).
+
+**Agent driver:** `openai/gpt-4o-mini` (anchor held commit-rate median 1.0 throughout v2.1 and v2.2). Reasoning-state loss is FIXED (adapters + conformance harness in CI); reasoning-model *decisiveness* is an open architectural question, now bounded by evidence rather than left as a hypothesis.
+
+**Between milestones:** no active milestone. Next milestone via `/gsd-new-milestone`. The decisiveness gap, anthropic/gemini baselines, and the stale `refinement_cheaper` baseline are the live threads for scoping (see Active requirements + Key Decisions).
+
+**v2.2 delivered:**
+- Decisiveness instrumentation + executable falsifier: per-run telemetry (steps-to-first-commit-consideration, per-step viable-candidate counts, rule-8 precondition flag) + per-turn latency decomposition; `make eval-falsifier` is a single pass/fail report (Phase 12 / INST-01..05).
+- Four joint experiment arms run at n=5 temp=1.0 — viability contract, forced-commit-at-step-N, co-tuned critique recalibration, parallel tool execution — judged against the comparison floor; honest null, no arm cleared 0.6 (Phase 13 / DEC-01..05).
+- Conditional replay phase entered and plateaued: R1 multi-message replay = 0.500 (= A2); R2 content-block preservation refuted in the breaking direction (str() collapse was load-bearing for the Responses API path) (Phase 14 / REPLAY-01/02).
+- Gate promotion + honest baseline regen: gpt-4o-mini enforced, gpt-5-mini logged; 6 runnable cells re-baselined flag-off n=5 with corrected provenance; latency report documents the 47s median vs the ~30s budget (Phase 15 / PROMO-01..03).
 
 **v2.1 delivered:**
 - Prompt/rubric decoupling: behavioral rules live in the `refinement_minimal_edit` scorer (D-07-07 `primary_type` matrix), locked out of prompts by a CI grep gate; PROMPT-05 falsifier resolved (gpt-5-mini flat 0/5 → state-loss dominated, Phase 9 stayed full scope).
@@ -84,13 +79,19 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 - ✓ Eval-harness honesty: error-status records, `baseline_eligible` quarantine, per-family gates vs real summary shape, fail-closed probe redaction — v2.1 Phase 10 (EVAL-01..06)
 - ✓ Honest n=5 baselines via `write_baselines.py`; 3 cross-model matrix anchors; `--baselines-mode` live-key-free CI gate (fail-closed); staleness watch-set covers `app/llm_factory.py` + matrix configs; `docs/baseline_regen.md` runbook — v2.1 Phase 11 (BASE-01..04)
 
-### Active (v2.2 — defined in REQUIREMENTS.md)
+- ✓ Decisiveness instrumentation + executable falsifier: per-run telemetry (first-commit step, viable-candidate counts, rule-8 precondition flag) + per-turn latency decomposition; `make eval-falsifier` single pass/fail report — v2.2 Phase 12 (INST-01..05)
+- ✓ Joint decisiveness experiment arms (viability contract, forced-commit-at-step-N, co-tuned critique recalibration, parallel tool execution) judged at n=5 against the comparison floor — **honest null, no arm cleared the 0.6 bar** — v2.2 Phase 13 (DEC-01..05)
+- ✓ Conditional richer state replay (multi-message `_reasoning_state` replay, content-block preservation), A/B-measured against the DEC plateau — both plateaued; R2 refuted in the breaking direction — v2.2 Phase 14 (REPLAY-01/02)
+- ✓ Gate promotion + honest baseline regen: gpt-4o-mini re-ratified `enforced`, gpt-5-mini demoted to `logged`; 6 runnable cells re-baselined flag-off n=5 with corrected provenance; latency report vs ~30s budget — v2.2 Phase 15 (PROMO-01..03)
 
-- Decisiveness instrumentation + executable falsifier (telemetry, latency decomposition)
-- Deferred anchor baseline: gemini n=5 (anthropic n=5 stays deferred — billing decision)
-- Joint decisiveness experiment arms (viability contract, forced-commit, critique recalibration, parallel tool execution)
-- Conditional richer state replay (A/B-justified, only on arm plateau)
-- Gate promotion + honest baseline regen for the winning arm
+### Active (between milestones — scope next via `/gsd-new-milestone`)
+
+Open threads carried out of v2.2 (none are committed scope yet):
+
+- [ ] Reasoning-model decisiveness — confirmed architectural; ARCH-FUT-01 (custom imperative loop replacing LangGraph) is the deferred contingency, trigger = the Phases 13-14 evidence chain
+- [ ] anthropic n=5 + gemini n=5 baselines — deferred at user billing decision (D-11-20, D-12-09); promotion path in `docs/baseline_regen.md`
+- [ ] `refinement_cheaper` gpt-4o-mini baseline (committed 0.0) is stale vs the post-retrieval-fix ~0.8 rate — clean follow-up baseline regen
+- [ ] Prod-default `FORCED_COMMIT_STEP=6` flip — flagged but not implemented (D-15-07)
 
 ### Out of Scope (v2.0 — archived)
 
@@ -133,6 +134,11 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 | Baselines only ever written by `scripts/write_baselines.py`; matrix execution stays sequential (D-11-14) | Hand-rolled baselines caused the v2.0 fail-open saturation; the tool refuses partial/quarantined cells mechanically. Parallel runs would contaminate latency measurements — scoped temp matrix configs are the sanctioned subset-rerun mechanism | ✓ Good — locked 2026-06-11 |
 | v2.2 Decision 3: prod latency budget ~30s/turn — reasoning models are documented alternates, not prod-promotion candidates; gpt-4o-mini stays anchor | Sub-10s "frontier chat" latency is a single ungrounded forward pass; this agent's 50-90s is 12-18 sequential grounded tool calls. Decisiveness (step-count) + parallel tool execution are the levers that close the gap for the anchor; reasoning models' 20-30s/call thinking cost can't fit ~30s/turn regardless of convergence | Decided 2026-06-11 at v2.2 start; bounds investment in experiment/replay phases |
 | Stay on LangGraph for v2.1 unless Phase 8's conformance harness shows `graph.invoke` itself drops the round-tripped state | The W10 failure was at the langchain-openai library boundary, not at LangGraph's reducer. Swapping the harness now would pay full architectural cost for a problem we haven't proven the harness causes. Phase 8 is the cheapest place to test the harness in isolation | ✓ Resolved 2026-06-04 — Phase 8 REASON-05 gate PASSED: `add_messages` reducer preserves `additional_kwargs["_reasoning_state"]` through `graph.invoke`. LangGraph retained for v2.1; no v2.1.1 replan triggered |
+| INST-05 falsifier defined as a single executable report: intervention "works" iff gpt-5-mini commit rate ≥ 0.6 at n=5 AND gpt-4o-mini holds ≥ its honest baseline | A milestone chasing a behavior needs one objective, pre-registered pass/fail criterion or it drifts into post-hoc rationalization. `make eval-falsifier` makes the bar non-negotiable and machine-checked | ✓ Good — locked 2026-06-11; every v2.2 arm judged against it, no goalpost-moving |
+| D-12-09: gemini n=5 baseline deferred at user billing decision, joining anthropic; comparison floor = matrix minus BOTH cells | No quota/billing top-up; gemini's single scored run already hit 1.0 (measurement debt, not unknown risk). Deferring keeps the floor honest (non-deferred cells stay n=5) without blocking the falsifier | — Both cells stay logged-not-gated; revisit when budget allows |
+| Phase 14 (richer state replay) gated on all DEC arms plateauing below the falsifier bar | Replay is more expensive and more architectural than prompt/graph tuning; entering it speculatively would burn spend on an unproven lever. The conditional gate forced the cheaper arms to fail first | ✓ Good — gate opened correctly (DEC null); replay ran and also plateaued, converting a hypothesis into evidence |
+| v2.2 closes as an honest null: no arm cleared the falsifier; gpt-4o-mini anchor re-ratified; ARCH-FUT-01 deferred as tracked debt | Four experiment arms + two replay arms all plateaued at/below 0.500 vs the 0.6 bar. The decisiveness gap is architectural, not tunable under the ~30s/turn budget. Ratifying the anchor and deferring the loop rewrite (vs forcing a weak promotion) is the evidence-driven call | ✓ Good — user-ratified at D-14-08; canonical record `docs/promotion_decision.md`. Trigger for ARCH-FUT-01 reconsideration: the Phases 13-14 evidence chain |
+| gpt-4o-mini gate promoted to `enforced` (≥ 0.8 omakase); gpt-5-mini demoted to `logged`; baselines re-measured flag-off n=5 with corrected provenance | The prior `refinement_cheaper` 1.000 was a flag-ON arm artifact, not honest prod config; promoting a gate on a contaminated number repeats the v2.0 fail-open mistake. Enforce only what honest flag-off data earns | ✓ Good — locked 2026-06-15 (Phase 15); 6 runnable cells re-baselined; `refinement_cheaper` 0.0 baseline noted stale, flagged for follow-up regen |
 
 ## Evolution
 
@@ -152,4 +158,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 after Phase 14 completion (replay arms — plateau; ARCH-FUT-01 deferred; Phase-15 scope user-ratified).*
+*Last updated: 2026-06-15 after v2.2 milestone (Reasoning-Model Decisiveness — honest null result; gpt-4o-mini anchor re-ratified; ARCH-FUT-01 deferred as tracked debt).*

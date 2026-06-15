@@ -1,5 +1,37 @@
 # Milestones
 
+## v2.2 — Reasoning-Model Decisiveness (Shipped: 2026-06-15)
+
+**Phases completed:** 4 phases (12-15), 24 plans, 26 tasks
+**Timeline:** 2026-06-11 → 2026-06-15 (~4 days) | 188 files changed, +23,970/−8,173 vs v2.1
+**PRs:** #110 (phase 15) and the phase 12-14 branches merged ahead of it
+**Git range:** `beadb44` (v2.1 tag) → `3d7adc8` — 173 commits
+
+**Delivered:** An honest negative result. v2.1 proved reasoning state round-trips byte-correctly through all four provider adapters; v2.2 set out to make those models *decisive* — to call `commit_itinerary` instead of burning the step budget exploring. After instrumenting the loop, running four joint experiment arms, and entering the conditional replay phase, **no intervention cleared the falsifier bar** (gpt-5-mini ≥ 0.6 commit rate at n=5). The decisiveness gap is architectural, not tunable under the ~30s/turn budget. `openai/gpt-4o-mini` is re-ratified as the prod anchor; ARCH-FUT-01 (custom imperative loop) is deferred as tracked debt.
+
+**Key accomplishments:**
+
+- **Decisiveness instrumentation + executable falsifier (Phase 12 / INST-01..05):** per-run telemetry — steps-to-first-commit-consideration, per-step viable-candidate counts, rule-8 precondition objectively-met flag, and per-turn latency decomposition (LLM-call vs sequential tool-execution time) — all in the run JSON without post-processing; `make eval-falsifier` answers pass/fail in one report.
+- **Four joint experiment arms, honest null (Phase 13 / DEC-01..05):** viability-contract prompt addendum, forced-commit-at-step-N graph mechanism, critique recalibration (co-tuned, not isolated), and parallel tool execution in `act()` — all run at n=5 temp=1.0 against the comparison floor. Best result A2 = 0.500 pooled; no arm cleared the 0.6 bar. Gap closure fixed the forced-commit synthesizer (CR-01) and the falsifier split reader (CR-02).
+- **Conditional replay phase entered and also plateaued (Phase 14 / REPLAY-01/02):** R1 multi-message `_reasoning_state` replay hit 0.500 (identical to A2, delta ±0.000); R2 content-block preservation was *refuted in the breaking direction* — gpt-5-mini 10/10 deterministic provider 400s, proving the `str()` collapse was load-bearing for the Responses API path. R3/valve correctly skipped per D-14-01 preconditions.
+- **Gate promotion + honest baseline regen (Phase 15 / PROMO-01..03):** gpt-4o-mini re-ratified to `enforced` (omakase median 1.000 flag-off, ≥ 0.8 gate holds); gpt-5-mini demoted to `logged` (0.500 < 0.600). Baselines regenerated honest flag-off n=5 for 6 runnable cells with corrected provenance (the prior `refinement_cheaper` 1.000 was a flag-ON arm artifact). Latency report: gpt-4o-mini omakase median 47s — budget NOT met, documented honestly.
+- **Canonical decision record:** `docs/promotion_decision.md` cross-links both immutable verdict docs (`docs/decisiveness_arm_verdicts.md`, `docs/replay_arm_verdicts.md`) — the milestone's evidence chain from instrumentation through ARCH-FUT-01 deferral.
+
+**Known deferred items at close (tracked debt, not gaps):**
+
+- ARCH-FUT-01 (custom imperative agent loop) — deferred, user-ratified at the D-14-08 checkpoint; trigger is the Phases 13-14 evidence chain
+- anthropic + gemini n=5 baselines — deferred (D-12-09, no billing top-up); stay logged-not-gated with `_DEFERRED_BASELINE_CELLS` entries intact
+- Prod-default `FORCED_COMMIT_STEP=6` flip — flagged but NOT implemented (D-15-07, likely-deferred)
+- `refinement_cheaper` baseline (committed 0.0 for gpt-4o-mini) is stale vs the post-retrieval-fix ~0.8 rate — a clean follow-up PR
+
+**Archives:**
+
+- [milestones/v2.2-ROADMAP.md](milestones/v2.2-ROADMAP.md) — full phase details + decisions
+- [milestones/v2.2-REQUIREMENTS.md](milestones/v2.2-REQUIREMENTS.md) — final traceability (17/17, 2 deferred-with-note)
+- [milestones/v2.2-MILESTONE-AUDIT.md](milestones/v2.2-MILESTONE-AUDIT.md) — audit PASSED (17/17 reqs, 6/6 flows, integration complete)
+
+---
+
 ## v2.1 Reasoning-Model Compat (Shipped: 2026-06-11)
 
 **Phases completed:** 5 phases (7-11), 35 plans, 48 tasks
