@@ -371,18 +371,53 @@ def test_metric_not_in_summary_is_not_evaluable_not_silent_pass(
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
-    script.main([str(summary_file), "--gates-config", str(gates_file)])
-    # Must NOT silently pass (exit 0 without reporting) — must report not-evaluable
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
     captured = capsys.readouterr()
     combined = captured.out + captured.err
-    assert (
-        "not-evaluable" in combined.lower()
-        or "not evaluable" in combined.lower()
-        or "evaluable" in combined.lower()
-    ), f"not-evaluable condition must be reported: out={captured.out!r} err={captured.err!r}"
-    # Not-evaluable is a non-zero exit (not a silent pass) — either 0-with-warning
-    # or 1/2; the key contract is it's REPORTED, not silently pass.
-    # Per plan: "reported (not a silent pass)" — checking the report above is sufficient.
+    assert "evaluable" in combined.lower(), (
+        f"not-evaluable condition must be reported: out={captured.out!r} err={captured.err!r}"
+    )
+    # Codex PR#110 finding A: committed_itinerary_rate is now WIRED, so an ACTIVE
+    # hard gate whose cell exists but lacks the metric must FAIL CLOSED (exit 2),
+    # not vacuously pass (exit 0). The Phase 11 pre-wiring allowance is retired.
+    assert rc == 2, f"active gate with absent hard metric must fail closed (exit 2), got {rc}"
+
+
+def test_active_gate_with_boolean_median_fails_closed(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """Codex PR#110 finding B: a boolean median must NOT be coerced to 1.0 and
+    satisfy a >= gate. `_get_metric_value` rejects bool → the metric reads as
+    absent → the active gate is not-evaluable → exit 2 (fail closed)."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    summary = _make_summary(
+        {
+            "openai/gpt-4o-mini": {
+                "scorers": {"committed_itinerary_rate": {"median": True, "mean": True}},
+                "n_scored": 5,
+                "n_errored": 0,
+                "cell_valid": True,
+            },
+        }
+    )
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 2, f"boolean median must not satisfy the gate (expect exit 2), got {rc}"
+
+
+def test_get_metric_value_rejects_bool() -> None:
+    """Unit-level guard for finding B: float(True)==1.0 must not leak through."""
+    from scripts.check_eval_gates import _get_metric_value
+
+    assert _get_metric_value({"scorers": {"m": {"median": True}}}, "m") is None
+    assert _get_metric_value({"scorers": {"m": True}}, "m") is None
+    # real numbers still work
+    assert _get_metric_value({"scorers": {"m": {"median": 0.9}}}, "m") == 0.9
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +452,48 @@ def test_family_absent_from_summary_is_not_evaluable(
         or "evaluable" in combined.lower()
         or "missing" in combined.lower()
     ), f"absent family must not be a silent pass: out={captured.out!r} err={captured.err!r}"
+
+
+# ---------------------------------------------------------------------------
+# Scoped active gate whose scoped scenario is absent → fail closed (exit 2)
+# ---------------------------------------------------------------------------
+
+
+_SCOPED_GATES_YAML = """\
+gates:
+  - family: openai/gpt-4o-mini
+    status: active
+    rationale: "D-15-06: omakase-scoped anchor"
+    hard:
+      metric: committed_itinerary_rate
+      op: ">="
+      value: 0.8
+      scenarios:
+        - omakase_mission_open_ended
+    advisory: []
+"""
+
+
+def test_scoped_active_gate_missing_scoped_cell_fails_closed(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    script: ModuleType,
+) -> None:
+    """Codex PR#110 finding 1: an ACTIVE hard gate scoped to omakase must NOT
+    silently pass when no omakase cell exists. The synthetic summary only carries
+    a refinement_cheaper cell, so the scoped gate is not-evaluable — and for a
+    hard-status gate that is an infrastructure failure (exit 2), never exit 0."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_SCOPED_GATES_YAML)
+
+    # _make_summary nests cells under _SYNTHETIC_SCENARIO_ID == "refinement_cheaper";
+    # the gate is scoped to "omakase_mission_open_ended" which is absent.
+    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(1.0)})
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc != 0, "scoped active gate with no scoped cell must NOT exit 0 (fail-open)"
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +670,11 @@ def test_check_gate_not_evaluable_when_family_absent_from_all_scenarios(
         }
     }
     result = script._check_gate(gate, nested_summary)
-    assert result == "not_evaluable", f"absent family must return 'not_evaluable', got {result!r}"
+    # Codex PR#110 finding 1: an ACTIVE (hard-status) gate whose cell is absent is
+    # a fail-closed infrastructure error, not a silent pass.
+    assert result == "not_evaluable_hard", (
+        f"absent family on an active gate must return 'not_evaluable_hard', got {result!r}"
+    )
     captured = capsys.readouterr()
     assert "NOT-EVALUABLE" in captured.out, (
         f"NOT-EVALUABLE must be printed to stdout; got: {captured.out!r}"
@@ -629,8 +710,10 @@ def test_check_gate_skips_quarantined_scenario_for_cell_lookup(script: ModuleTyp
         }
     }
     result = script._check_gate(gate, nested_summary)
-    assert result == "not_evaluable", (
-        f"quarantined scenario's cell must not satisfy gate; got {result!r}"
+    # Active gate + only-cell-quarantined → cannot be evaluated; for a hard-status
+    # gate that is fail-closed (Codex PR#110 finding 1), not a silent pass.
+    assert result == "not_evaluable_hard", (
+        f"quarantined-only cell on an active gate must return 'not_evaluable_hard'; got {result!r}"
     )
 
 
@@ -944,16 +1027,21 @@ def test_baselines_mode_hard_gate_regression_exits_1(
     """D-11-15b / main acceptance test: committed gpt-4o-mini baseline below 0.8 exits 1.
 
     This is the synthetic-regression test proving the gate fires.
+    The gpt-4o-mini gate is scoped to omakase_mission_open_ended (D-15-06) — a regression
+    in refinement_cheaper is observational and does not trip the gate; a regression in
+    omakase must trip it.
     """
     baselines_dir = tmp_path / "eval_baselines"
     baselines_dir.mkdir()
 
-    # gpt-4o-mini: 0.4 < 0.8 (active hard gate) → violation
+    # gpt-4o-mini: 0.4 < 0.8 (active hard gate) → violation on omakase (the gated scenario)
     payload = _make_baseline_json(
-        "refinement_cheaper",
+        "omakase_mission_open_ended",
         {"openai/gpt-4o-mini": _baseline_provider_cell(0.4, 5)},
     )
-    (baselines_dir / "refinement_cheaper.json").write_text(json.dumps(payload), encoding="utf-8")
+    (baselines_dir / "omakase_mission_open_ended.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
 
     gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
     rc = script.main(
@@ -982,6 +1070,18 @@ def test_baselines_mode_aspirational_miss_exits_0(
         {"openai/gpt-5-mini": _baseline_provider_cell(0.0, 5)},
     )
     (baselines_dir / "refinement_cheaper.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    # The real gpt-4o-mini gate is omakase-scoped (D-15-06); provide a passing
+    # omakase cell so the anchor gate is EVALUABLE (else it now fail-closes per
+    # Codex PR#110 finding 1, which would conflate this aspirational-miss test
+    # with a not-evaluable infra failure).
+    omakase_payload = _make_baseline_json(
+        "omakase_mission_open_ended",
+        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+    )
+    (baselines_dir / "omakase_mission_open_ended.json").write_text(
+        json.dumps(omakase_payload), encoding="utf-8"
+    )
 
     gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
     rc = script.main(

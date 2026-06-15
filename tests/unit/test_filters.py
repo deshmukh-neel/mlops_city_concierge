@@ -10,6 +10,7 @@ from app.tools.filters import (
     _PRIMARY_TYPE_FAMILIES,
     SearchFilters,
     compile_filters,
+    family_from_query,
     family_of,
     family_of_types,
 )
@@ -201,6 +202,50 @@ def test_family_of_types_resolves_via_types_array() -> None:
     assert family_of_types(["italian_restaurant", "restaurant"]) == "restaurant"
     assert family_of_types(["dessert_shop"]) == "dessert"
     assert family_of_types([]) is None
+
+
+# ─── family_from_query (slot-index-free fallback inference) ──────────────
+
+
+def test_family_from_query_infers_requested_slot_family() -> None:
+    requested = ["Restaurant", "Cocktail Bar", "Dessert Shop"]
+    # Queries the agent actually emits on the refinement scenario.
+    assert family_from_query("dessert in Hayes Valley", requested) == "dessert"
+    assert family_from_query("drinks in Hayes Valley", requested) == "bar"
+    assert (
+        family_from_query("romantic dinner restaurant in Hayes Valley", requested) == "restaurant"
+    )
+
+
+def test_family_from_query_only_returns_requested_families() -> None:
+    # "cafe" is a real family but was NOT requested — must not be inferred.
+    assert family_from_query("coffee shop nearby", ["Restaurant", "Bar"]) is None
+
+
+def test_family_from_query_noops_without_signal() -> None:
+    assert family_from_query("", ["Restaurant"]) is None
+    assert family_from_query("something generic", []) is None
+    assert family_from_query("a place to go", ["Restaurant"]) is None
+
+
+def test_family_from_query_noops_when_multiple_requested_families_match() -> None:
+    """Codex PR#110 finding 3: a combined-family query must NOT silently pick one
+    family (which would filter out the other requested category). When keywords for
+    two requested families both appear, the query is ambiguous → return None (no
+    filter), the safe fail-open."""
+    assert (
+        family_from_query("dinner and drinks in Hayes Valley", ["Restaurant", "Cocktail Bar"])
+        is None
+    )
+    assert family_from_query("coffee and dessert", ["Cafe", "Dessert Shop"]) is None
+
+
+def test_family_from_query_still_infers_single_family_in_combined_text() -> None:
+    """An unambiguous query still infers, even with extra words: only 'drinks'
+    matches a requested family here, so 'bar' is returned."""
+    assert (
+        family_from_query("drinks somewhere nice tonight", ["Restaurant", "Cocktail Bar"]) == "bar"
+    )
 
 
 def test_primary_type_family_filter_compiles_both_columns() -> None:

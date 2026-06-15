@@ -232,18 +232,28 @@ def _get_metric_value(cell: dict, metric: str) -> float | None:
     if metric not in scorers:
         return None
     metric_block = scorers[metric]
+
+    def _num(v: object) -> float | None:
+        # Codex PR#110 finding B: bool is a subclass of int — float(True)==1.0
+        # would let a malformed boolean median satisfy a >= gate. Reject it so a
+        # malformed metric surfaces as not-present (caller treats as not-evaluable)
+        # rather than a vacuous pass.
+        if isinstance(v, bool):
+            return None
+        try:
+            return float(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
     if isinstance(metric_block, dict):
         # Prefer median; fall back to mean for robustness.
         if "median" in metric_block:
-            return float(metric_block["median"])
+            return _num(metric_block["median"])
         if "mean" in metric_block:
-            return float(metric_block["mean"])
+            return _num(metric_block["mean"])
         return None
     # Scalar value (less common but handle gracefully)
-    try:
-        return float(metric_block)
-    except (TypeError, ValueError):
-        return None
+    return _num(metric_block)
 
 
 def _evaluate_op(value: float, op: str, threshold: float) -> bool:
@@ -339,29 +349,48 @@ def _check_gate(
     metric = hard["metric"]
     op = hard["op"]
     threshold = hard["value"]
+    # Optional: restrict gate evaluation to a specific subset of scenarios.
+    # When hard.scenarios is present, only those scenario_ids are evaluated;
+    # other eligible scenarios carrying the family are skipped for this gate.
+    # This supports omakase-anchored gates that should not fail-close on
+    # observational scenarios (e.g. refinement_cheaper) whose results are
+    # tracked but not gated (D-15-06/07).
+    hard_scenarios: list[str] | None = hard.get("scenarios") if isinstance(hard, dict) else None
 
-    if not cells:
-        # Family has no cell in any eligible scenario — not-evaluable, not a silent pass.
+    scoped_cells = (
+        [(sid, cell) for sid, cell in cells if sid in hard_scenarios]
+        if hard_scenarios is not None
+        else cells
+    )
+
+    if not scoped_cells:
+        # Family has no cell in any gated scenario — not-evaluable, not a silent pass.
         note = f"check_eval_gates: NOT-EVALUABLE — family '{family}' has no cell in summary"
         print(note)
-        return "not_evaluable"
+        # Codex PR#110 finding 1: a HARD-status gate that cannot be evaluated is an
+        # infrastructure failure (exit 2), never a silent pass. Only logged/aspirational
+        # gates may be non-blocking when not-evaluable.
+        return "not_evaluable_hard" if status in _HARD_STATUSES else "not_evaluable"
 
     # Extract the metric from every located cell. Cells lacking the metric do not
     # count toward the verdict; if NO cell carries it, the gate is not-evaluable.
     evaluable: list[tuple[str, float]] = []
-    for scenario_id, cell in cells:
+    for scenario_id, cell in scoped_cells:
         value = _get_metric_value(cell, metric)
         if value is not None:
             evaluable.append((scenario_id, value))
 
     if not evaluable:
         # Metric absent from every eligible cell — not-evaluable, not a silent pass.
-        note = (
-            f"check_eval_gates: NOT-EVALUABLE — metric '{metric}' absent from cell "
-            f"'{family}' (Phase 11 BASE-01 will wire this metric)"
-        )
+        # Codex PR#110 finding A: the Phase 11 "pre-wiring allowance" (metric not
+        # yet added → non-blocking) is now STALE — committed_itinerary_rate is
+        # wired (eval_gates.yaml header / D-11-02), and it is the only hard-gated
+        # metric. So a HARD-status gate whose metric is absent from a present cell
+        # is a fail-closed infrastructure failure (exit 2), never a vacuous pass.
+        # Non-hard statuses (logged/aspirational) remain non-blocking.
+        note = f"check_eval_gates: NOT-EVALUABLE — metric '{metric}' absent from cell '{family}'"
         print(note)
-        return "not_evaluable"
+        return "not_evaluable_hard" if status in _HARD_STATUSES else "not_evaluable"
 
     # Evaluate the gate against every evaluable scenario — fail-closed on any miss.
     failing_scenarios = [
@@ -470,6 +499,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     violations: list[str] = []
     aspirational_misses: list[str] = []
+    not_evaluable_hard: list[str] = []
 
     # WR-04: structural defects in a gate entry or in summary cell values
     # (missing keys, null medians, non-dict scenario blocks, unknown ops) are
@@ -482,12 +512,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 violations.append(gate["family"])
             elif result == "aspirational_miss":
                 aspirational_misses.append(gate["family"])
+            elif result == "not_evaluable_hard":
+                not_evaluable_hard.append(gate["family"])
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         sys.stderr.write(f"check_eval_gates: malformed gates config or summary shape: {exc!r}\n")
         return 2
 
     if aspirational_misses:
         print(f"check_eval_gates: ASPIRATIONAL miss (not blocking): {sorted(aspirational_misses)}")
+
+    # Codex PR#110 finding 1: a hard-status gate that could not be evaluated (its
+    # scoped scenario cell is absent) is an infrastructure failure, never a silent
+    # pass. Surfaces before the violation check so a misconfigured scoped gate is
+    # caught even when no other gate violated.
+    if not_evaluable_hard:
+        sys.stderr.write(
+            f"check_eval_gates: HARD GATE NOT EVALUABLE (scoped cell missing): "
+            f"{sorted(not_evaluable_hard)}\n"
+        )
+        return 2
 
     if violations:
         sys.stderr.write(f"check_eval_gates: HARD GATE VIOLATION: {sorted(violations)}\n")

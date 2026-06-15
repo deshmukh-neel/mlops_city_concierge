@@ -46,7 +46,7 @@ from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
 from app.agent.viability import all_slots_viable, best_viable_candidate_per_slot
 from app.config import env_flag
 from app.tools.directions import route_legs
-from app.tools.filters import SearchFilters, family_of
+from app.tools.filters import SearchFilters, family_from_query, family_of
 
 logger = logging.getLogger(__name__)
 
@@ -95,13 +95,31 @@ def _inject_primary_type_family(
     if not requested_primary_types:
         return dict(args)
     slot_index = args.get("slot_index")
-    # `bool` is a subclass of `int` — reject it explicitly so True/False
-    # don't sneak in as indices.
-    if slot_index is None or not isinstance(slot_index, int) or isinstance(slot_index, bool):
-        return dict(args)
-    if slot_index < 0 or slot_index >= len(requested_primary_types):
-        return dict(args)
-    target_family = family_of(requested_primary_types[slot_index])
+    # Primary path (Phase 4): the model declared which slot this retrieval is
+    # for via `slot_index`. `bool` is a subclass of `int` — reject it
+    # explicitly so True/False don't sneak in as indices.
+    target_family: str | None = None
+    if (
+        slot_index is not None
+        and isinstance(slot_index, int)
+        and not isinstance(slot_index, bool)
+        and 0 <= slot_index < len(requested_primary_types)
+    ):
+        target_family = family_of(requested_primary_types[slot_index])
+
+    # Fallback (2026-06-15 refinement_cheaper fix): the models routinely omit
+    # `slot_index` and emit thin queries like "drinks in Hayes Valley", which
+    # leaves every slot below the viability threshold and the agent never
+    # commits. When no usable slot_index was supplied, infer the family from
+    # the query text — but ONLY a family the user actually requested
+    # (family_from_query enforces that). Ambiguous queries still no-op.
+    if target_family is None:
+        query = args.get("query")
+        target_family = family_from_query(
+            query if isinstance(query, str) else None,
+            requested_primary_types,
+        )
+
     if target_family is None:
         return dict(args)
 

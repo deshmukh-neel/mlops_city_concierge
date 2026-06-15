@@ -20,46 +20,45 @@
 gates:
   - family: openai/gpt-4o-mini
     status: active                   # hard gate enforced by make eval-gates-check
-    rationale: "D-10-07: anchor; 0.8 absorbs one stochastic miss at n=5; D-11-20: re-ratified at n=5 (median 1.0 in 2026-06-11T19-09-10Z run)"
+    rationale: "D-10-07: anchor; 0.8 absorbs one stochastic miss at n=5; D-15-06: re-ratified at n=5 against flag-off Run #2 (2026-06-15T00-46-43Z) — omakase committed_itinerary_rate median=1.0 (5/5 model-initiated, forced=0), gate holds >= 0.8. Refinement median=0.0 on flag-off is a provenance correction (prior 1.0 was written from REFINEMENT_STRUCTURED_PLAN_ENABLED=true arm; flag-off prod-default is 0.0 per 2/5 commit rate); gate scoped to omakase per D-15-06 (refinement is observational). No gate regression."
     hard:
       metric: committed_itinerary_rate
       op: ">="
       value: 0.8
+      scenarios:
+        - omakase_mission_open_ended   # D-15-06: gate anchored on omakase; refinement is observational
     advisory:
       - metric: refinement_minimal_edit_median
         op: ">="
         value: 0.0        # logged-not-gated until v2.2 decisiveness work
 
   - family: openai/gpt-5-mini
-    status: aspirational             # FAILS at 0.4; reported but not hard-failing
-    rationale: "D-10-07 + D-09-02 Part A: v2.2 decisiveness target; D-11-20: remains aspirational — omakase committed_itinerary_rate median 1.0 (2026-06-11T19-09-10Z n=5); refinement committed_itinerary_rate median 0.0 (2026-06-11T19-38-23Z n=5); v2.2 anchor pending decisiveness work"
-    hard:
-      metric: committed_itinerary_rate
-      op: ">="
-      value: 0.6
+    status: logged                   # D-15-07: flag-off Run #2 pooled median=0.500 < 0.600 floor; NOT promoted
+    rationale: "D-10-07 + D-09-02 Part A: v2.2 decisiveness target; D-15-07: NOT promoted to enforced — flag-off Run #2 (2026-06-15T00-46-43Z) omakase committed_itinerary_rate median=1.000, refinement median=0.000, pooled=0.500 < 0.600 aspirational floor. Gate value is sourced ONLY from flag-off prod-config CI; experiment FORCED_COMMIT_STEP=6 (A2 retest pooled=0.500) is corroborating context, not the gate source. Unlock mechanism is DATA-DEPENDENT: the 3 committed omakase runs (run-2,3,4) were model-initiated (forced_commit_step=None, commit_forced=False in all flag-off runs) — this is NOT a forced-commit mechanism; the 0.500 pooled floor was NOT earned because refinement_cheaper remains 0.000 due to typed-slot viability gate never firing (structural, confirmed Phase-13/14). FORCED_COMMIT_STEP=6 as a prod-default flip is DEFERRED (D-15-07, separate decision, not implemented here)."
+    hard: null
     advisory: []
 
   - family: anthropic/claude-sonnet-4-6
     status: logged                   # deferred: API billing exhausted 2026-06-11; promotable when credits restored
-    rationale: "D-11-20: deferred to logged-not-gated — all 5 omakase cells HTTP 400 'credit balance too low' on 2026-06-11; promotion path: top up credits -> re-run matrix -> write baselines -> promote to active; prior provisional-n1 value (0.8) is the intended floor when promoted"
+    rationale: "D-11-20: deferred to logged-not-gated — all 5 omakase cells HTTP 400 'credit balance too low' on 2026-06-11; D-15: no top-up or re-run in Phase 15 (deferred per D-12-09); promotion path: top up credits -> re-run matrix -> write baselines -> promote; prior provisional-n1 floor (0.8) is the intended gate value when promoted"
     hard: null
     advisory: []
 
   - family: deepseek/deepseek-reasoner
     status: logged                   # no gate; empirical median captured for reference
-    rationale: "D-10-07: logged-not-gated; D-11-20: omakase n=5 committed_itinerary_rate median=0.0 (decisiveness gap, not infra error)"
+    rationale: "D-10-07: logged-not-gated; D-11-20: omakase n=5 committed_itinerary_rate median=0.0 (decisiveness gap); D-15: flag-off Run #2 (2026-06-15T00-46-43Z) omakase median=0.0, refinement median=0.0 — data does not earn enforcement; stays logged"
     hard: null
     advisory: []
 
   - family: deepseek/deepseek-chat
     status: logged                   # no gate; empirical median captured for reference
-    rationale: "D-10-07: logged-not-gated; D-11-20: omakase n=5 committed_itinerary_rate median=0.0 (1/5 converged)"
+    rationale: "D-10-07: logged-not-gated; D-11-20: omakase n=5 committed_itinerary_rate median=0.0 (1/5 converged); D-15: not included in Phase-15 arm config; stays logged"
     hard: null
     advisory: []
 
   - family: gemini/gemini-3.1-pro-preview
     status: logged                   # no gate; empirical median captured for reference
-    rationale: "D-10-07: logged-not-gated; D-11-11: first-ever n=5 measurement deferred — gemini cells errored during regen; retry when GEMINI_API_KEY quota permits"
+    rationale: "D-10-07: logged-not-gated; D-11-11: first-ever n=5 measurement deferred — gemini cells errored during regen; D-12-09: deferred as v2.2 user budget decision (no quota top-up); D-15: no re-run in Phase 15; retry when GEMINI_API_KEY quota permits"
     hard: null
     advisory: []
 

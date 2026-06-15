@@ -8,6 +8,7 @@ not need to know about — it just sets `open_at`.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -266,6 +267,20 @@ _PRIMARY_TYPE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = {
 _FAMILY_LOOKUP_PRIORITY: tuple[str, ...] = ("bar", "restaurant", "cafe", "dessert")
 
 
+# Free-text keywords that signal each family in an agent-issued query string.
+# Used by `family_from_query` to bind a per-slot family filter when the model
+# omits `slot_index`. Lowercase, matched on whole words. Kept deliberately
+# tight (high-precision) so an ambiguous query infers nothing rather than the
+# wrong family — the fail-open default (no filter) is preferable to a wrong
+# filter. Walked in `_FAMILY_LOOKUP_PRIORITY` order by the caller.
+_FAMILY_QUERY_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "bar": ("drinks", "drink", "cocktail", "cocktails", "bar", "wine", "pub", "nightcap"),
+    "restaurant": ("dinner", "lunch", "restaurant", "eat", "meal", "dining", "brunch", "supper"),
+    "cafe": ("coffee", "cafe", "espresso", "latte"),
+    "dessert": ("dessert", "desserts", "sweets", "bakery", "pastry", "pastries", "gelato"),
+}
+
+
 def family_of(primary_type: str | None) -> str | None:
     """Reverse lookup: scalar primary_type column value -> family name.
 
@@ -297,6 +312,52 @@ def family_of_types(types: list[str] | None) -> str | None:
         if any(t in _PRIMARY_TYPE_FAMILIES[family]["types"] for t in types):
             return family
     return None
+
+
+def family_from_query(query: str | None, requested_primary_types: list[str] | None) -> str | None:
+    """Infer a slot family from free-text query when the model omits `slot_index`.
+
+    `_inject_primary_type_family` only binds a per-slot family filter when the
+    model voluntarily emits `slot_index`. Live traces (2026-06-15) show the
+    models (incl. gpt-4o-mini and the reasoning models) routinely DON'T — they
+    emit thin, unfiltered queries like "drinks in Hayes Valley", so the
+    typed-slot viability gate never sees per-slot candidates and the agent
+    fails to commit on multi-type requests (the refinement_cheaper failure).
+
+    This is the slot-index-free fallback: derive the family from the query
+    text, but ONLY return a family the user actually requested. The query's
+    words are matched (lowercased, whole-word) against `_FAMILY_QUERY_KEYWORDS`
+    for each requested type's family. It never invents a family outside
+    `requested_primary_types`, so a "coffee shop" query cannot smuggle in the
+    `cafe` family when the user asked only for Restaurant + Bar.
+
+    Returns None when there is no query, no requested types, or no keyword from
+    a requested family appears — leaving the existing fail-open (no filter)
+    behavior untouched in the ambiguous case.
+    """
+    if not query or not requested_primary_types:
+        return None
+
+    requested_families: list[str] = []
+    for pt in requested_primary_types:
+        fam = family_of(pt)
+        if fam is not None and fam not in requested_families:
+            requested_families.append(fam)
+    if not requested_families:
+        return None
+
+    q_words = set(re.findall(r"[a-z]+", query.lower()))
+    # Collect EVERY requested family whose keywords appear. If more than one
+    # matches, the query is ambiguous (e.g. "dinner and drinks" → restaurant AND
+    # bar) — return None rather than silently filtering out a requested category
+    # (Codex PR#110 finding 3). Only an unambiguous single match injects a filter.
+    matched_families = [
+        family
+        for family in _FAMILY_LOOKUP_PRIORITY
+        if family in requested_families
+        and any(kw in q_words for kw in _FAMILY_QUERY_KEYWORDS.get(family, ()))
+    ]
+    return matched_families[0] if len(matched_families) == 1 else None
 
 
 def compile_filters(f: SearchFilters) -> tuple[str, list]:

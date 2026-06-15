@@ -108,6 +108,75 @@ def test_all_slots_viable_false_when_one_slot_has_no_hit() -> None:
     assert all_slots_viable(state, THRESHOLD) is False
 
 
+def test_all_slots_viable_matches_requested_type_by_family() -> None:
+    """2026-06-15 fix: a hit satisfies a requested slot when it shares the slot's
+    FAMILY, not only on exact primary_type string equality.
+
+    The live refinement_cheaper failure: the user asks for "Dessert Shop" but the
+    real dessert venues near Hayes Valley are typed "Bakery" / "Ice Cream Shop"
+    (zero literal "Dessert Shop"). Exact-match left the dessert slot permanently
+    unsatisfiable; family-match (Bakery ∈ dessert family) fixes it.
+    """
+    from app.agent.viability import all_slots_viable
+
+    state = _state_with_hits(
+        hits=[
+            _hit(0.8, "Italian Restaurant", "pid1"),  # satisfies "Restaurant" slot (restaurant fam)
+            _hit(0.7, "Wine Bar", "pid2"),  # satisfies "Cocktail Bar" slot (bar family)
+            _hit(0.7, "Bakery", "pid3"),  # satisfies "Dessert Shop" slot (dessert family)
+        ],
+        requested_types=["Restaurant", "Cocktail Bar", "Dessert Shop"],
+    )
+
+    assert all_slots_viable(state, THRESHOLD) is True
+
+
+def test_all_slots_viable_two_same_family_slots_need_two_distinct_places() -> None:
+    """Codex PR#110 finding 2: two requested types in the SAME family (Cocktail Bar
+    + Wine Bar) require two DISTINCT viable bar-family places. Two distinct generic
+    'Bar' hits must cover both slots — the family matcher must not starve the second
+    slot by mapping both hits to the first requested type."""
+    from app.agent.viability import all_slots_viable
+
+    state = _state_with_hits(
+        hits=[
+            _hit(0.8, "Bar", "b1"),
+            _hit(0.7, "Bar", "b2"),
+        ],
+        requested_types=["Cocktail Bar", "Wine Bar"],
+        num_stops=2,
+    )
+    assert all_slots_viable(state, THRESHOLD) is True
+
+
+def test_all_slots_viable_two_same_family_slots_false_with_one_place() -> None:
+    """Same family, two slots, but only ONE distinct viable place → not covered."""
+    from app.agent.viability import all_slots_viable
+
+    state = _state_with_hits(
+        hits=[_hit(0.8, "Bar", "b1"), _hit(0.7, "Bar", "b1")],  # same place_id twice
+        requested_types=["Cocktail Bar", "Wine Bar"],
+        num_stops=2,
+    )
+    assert all_slots_viable(state, THRESHOLD) is False
+
+
+def test_all_slots_viable_family_match_still_requires_correct_family() -> None:
+    """Family-match must not over-match: a Bakery (dessert) does NOT satisfy a
+    Cocktail Bar (bar) slot."""
+    from app.agent.viability import all_slots_viable
+
+    state = _state_with_hits(
+        hits=[
+            _hit(0.8, "Italian Restaurant", "pid1"),  # Restaurant slot OK
+            _hit(0.7, "Bakery", "pid2"),  # dessert family — wrong for a Cocktail Bar slot
+        ],
+        requested_types=["Restaurant", "Cocktail Bar"],
+    )
+
+    assert all_slots_viable(state, THRESHOLD) is False
+
+
 def test_all_slots_viable_false_when_hit_below_threshold() -> None:
     """Returns False when the only hit has cosine < threshold."""
     from app.agent.viability import all_slots_viable

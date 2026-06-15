@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 15
-status: "Phase 14 shipped — PR #109"
-last_updated: "2026-06-12T22:21:05.573Z"
-last_activity: 2026-06-12
+status: "Phase 15 shipped — PR #110"
+last_updated: "2026-06-15T05:00:38.091Z"
+last_activity: 2026-06-14
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 20
-  completed_plans: 20
-  percent: 75
+  completed_phases: 4
+  total_plans: 24
+  completed_plans: 24
+  percent: 100
 ---
 
 # Project State
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md (updated 2026-06-11 for v2.2 milestone start)
 See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Phase 15 — gate promotion + baseline regen
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 14 (richer-state-replay-conditional) — EXECUTING
+Phase: 15 (gate-promotion-baseline-regen) — COMPLETE
 Plan: Not started
-Status: Phase 14 shipped — PR #109
-Last activity: 2026-06-12
+Status: Phase 15 shipped — PR #110
+Last activity: 2026-06-14
 
 Progress: [██████████] 100%
 
@@ -67,8 +67,8 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-06-12T21:45:06.727Z
-Stopped at: Completed 14-05-combo-closing-verdict-and-archfut-PLAN.md
+Last session: 2026-06-15T02:04:29.584Z
+Stopped at: Phase 15 context gathered
 Resume file: None
 Next step: `/gsd-plan-phase 12`
 
@@ -92,6 +92,8 @@ Next step: `/gsd-plan-phase 12`
 | Phase 14 P03 | 10min | 2 tasks | 1 files |
 | Phase 14 P14-04 | 95min | 3 tasks | 1 files |
 | Phase 14 P14-05 | 15min | 3 tasks | 3 files |
+| Phase 15 P02 | 6960 | 2 tasks | 1 files |
+| Phase 15 P03 | 513 | 3 tasks | 8 files |
 
 ## Decisions
 
@@ -109,3 +111,4 @@ Next step: `/gsd-plan-phase 12`
 - [Phase ?]: R3 NOT RUN: D-14-01 precondition 2 fails — R2 negative (catastrophic 400s), not positive-but-short
 - [Phase ?]: Valve NOT RUN: precondition met but R1 zero-delta vs A2 makes expected marginal signal = 0; A2 retest is Phase 15 scope
 - [Phase ?]: ARCH-FUT-01: ratify gpt-4o-mini anchor; defer ARCH-FUT-01; Phase 15 = A2 retest on fixed synthesizer + refinement_cheaper root cause analysis
+- [Phase 15]: v2.2 CLOSED 2026-06-15: A2 retest (FORCED_COMMIT_STEP=6) confirmed gpt-5-mini 0.500 pooled — INST-05 honest null (no arm cleared 0.600 bar across Phases 13/14/15). Root cause: refinement_cheaper typed-slot viability gate never satisfied (structural, not code bug). gpt-4o-mini anchor RATIFIED (omakase 1.000 flag-off, gate >= 0.8). Baseline provenance corrected (prior refinement_cheaper 1.000 was flag-ON arm artifact; re-baselined to honest 0.000 flag-off). 6 runnable cells written. ARCH-FUT-01 DEFERRED as tracked debt. Prod-default FORCED_COMMIT_STEP=6 flip flagged but NOT implemented (D-15-07). Canonical record: docs/promotion_decision.md.

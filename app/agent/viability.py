@@ -28,8 +28,49 @@ from pydantic import BaseModel
 
 from app.agent.revision import LOW_SIMILARITY_THRESHOLD
 from app.agent.state import ItineraryState
+from app.tools.filters import family_of
 
-__all__ = ["all_slots_viable", "best_viable_candidate_per_slot"]
+__all__ = ["all_slots_viable", "best_viable_candidate_per_slot", "requested_type_for_hit"]
+
+
+def requested_type_for_hit(hit_primary_type: str, requested_types: list[str]) -> str | None:
+    """Map a hit's primary_type to the requested slot type it satisfies.
+
+    2026-06-15 fix: matching is by FAMILY, not exact string equality. The user
+    asks for "Dessert Shop" but real venues are typed "Bakery"/"Ice Cream Shop"
+    (zero literal "Dessert Shop" near Hayes Valley); exact-match left the slot
+    permanently unsatisfiable. A hit satisfies a requested type when:
+      - it equals the requested type exactly (fast path / unmapped types), OR
+      - it shares the requested type's family (Bakery ∈ dessert family).
+
+    Returns the matched requested type string (so multiset coverage keys stay the
+    requested-type names), or None when the hit matches no requested slot. When
+    multiple requested types could match (same family requested twice), the first
+    exact match wins, else the first same-family requested type.
+    """
+    if hit_primary_type in requested_types:
+        return hit_primary_type
+    hit_family = family_of(hit_primary_type)
+    if hit_family is None:
+        return None
+    for req in requested_types:
+        if family_of(req) == hit_family:
+            return req
+    return None
+
+
+def _canonical_slot_key(requested_type: str) -> str:
+    """Coverage-bucket key for a requested slot type.
+
+    Codex PR#110 finding 2: two distinct requested types in the SAME family
+    (e.g. "Cocktail Bar" + "Wine Bar") must share one coverage bucket that needs
+    two DISTINCT place_ids — otherwise a generic "Bar" hit, which maps to only the
+    first requested type via requested_type_for_hit, starves the second slot. The
+    bucket key is the family when the type maps to one, else the exact type string
+    (unmapped types keep exact-match semantics).
+    """
+    fam = family_of(requested_type)
+    return f"family:{fam}" if fam is not None else f"exact:{requested_type}"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -122,24 +163,31 @@ def all_slots_viable(
                 anon_count += 1
         return (len(seen_ids) + anon_count) >= target
 
-    # Typed path: multiset coverage (WR-02).
-    required = Counter(requested_types)
-    per_type_ids: dict[str, set[str]] = {t: set() for t in required}
-    per_type_anon: dict[str, int] = dict.fromkeys(required, 0)
+    # Typed path: multiset coverage (WR-02), keyed on CANONICAL slot buckets so
+    # same-family slots share a pool of distinct place_ids (Codex PR#110 finding 2).
+    required = Counter(_canonical_slot_key(t) for t in requested_types)
+    per_key_ids: dict[str, set[str]] = {k: set() for k in required}
+    per_key_anon: dict[str, int] = dict.fromkeys(required, 0)
 
     for hit in hits:
         if not _is_viable_sim(hit, threshold):
             continue
         ptype = _value_from_hit(hit, "primary_type")
-        if not isinstance(ptype, str) or ptype not in required:
+        if not isinstance(ptype, str):
             continue
+        # Family-aware matching (2026-06-15): a "Bakery" hit satisfies a
+        # "Dessert Shop" slot. Resolve the requested type, then its canonical key.
+        matched = requested_type_for_hit(ptype, requested_types)
+        if matched is None:
+            continue
+        key = _canonical_slot_key(matched)
         pid = _place_id(hit)
         if pid is not None:
-            per_type_ids[ptype].add(pid)
+            per_key_ids[key].add(pid)
         else:
-            per_type_anon[ptype] += 1
+            per_key_anon[key] += 1
 
-    return all(len(per_type_ids[t]) + per_type_anon[t] >= count for t, count in required.items())
+    return all(len(per_key_ids[k]) + per_key_anon[k] >= count for k, count in required.items())
 
 
 def best_viable_candidate_per_slot(
@@ -210,8 +258,15 @@ def best_viable_candidate_per_slot(
         if not _is_viable_sim(hit, threshold):
             continue
         ptype = _value_from_hit(hit, "primary_type")
-        if not isinstance(ptype, str) or ptype not in set(requested_types):
+        if not isinstance(ptype, str):
             continue
+        # Family-aware matching (2026-06-15): resolve the requested slot the hit
+        # satisfies (Bakery -> "Dessert Shop"), then bucket by CANONICAL key so
+        # same-family slots share a candidate pool (Codex PR#110 finding 2).
+        matched = requested_type_for_hit(ptype, requested_types)
+        if matched is None:
+            continue
+        key = _canonical_slot_key(matched)
         sim = _value_from_hit(hit, "similarity")
         pid = _place_id(hit)
         if pid is None:
@@ -222,18 +277,21 @@ def best_viable_candidate_per_slot(
             hit_dict = hit.model_dump(mode="json")
         else:
             continue  # skip unusable shapes — no {} placeholder
-        type_candidates.setdefault(ptype, []).append((float(sim), pid, hit_dict))
+        type_candidates.setdefault(key, []).append((float(sim), pid, hit_dict))
 
-    # Sort each type's candidates by descending cosine.
+    # Sort each bucket's candidates by descending cosine.
     for cands in type_candidates.values():
         cands.sort(key=lambda x: -x[0])
 
-    # Assign one candidate per slot; multiset-aware: track used ids per type.
-    used_per_type: dict[str, set[str]] = {}
+    # Assign one candidate per slot in requested order; same-family slots draw
+    # from the shared canonical bucket, tracking used ids per bucket so two
+    # bar-family slots cannot reuse the same place_id.
+    used_per_key: dict[str, set[str]] = {}
     result: list[dict[str, Any] | None] = []
     for slot_type in requested_types:
-        cands = type_candidates.get(slot_type, [])
-        used = used_per_type.setdefault(slot_type, set())
+        key = _canonical_slot_key(slot_type)
+        cands = type_candidates.get(key, [])
+        used = used_per_key.setdefault(key, set())
         picked: dict[str, Any] | None = None
         for _, pid, hit_dict in cands:
             if pid not in used:
