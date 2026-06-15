@@ -3,16 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 15
-status: milestone_complete
-last_updated: 2026-06-15T02:22:05.873Z
-last_activity: 2026-06-15
+status: "Phase 15 shipped — PR #110"
+last_updated: "2026-06-15T05:00:38.091Z"
+last_activity: 2026-06-14
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 24
   completed_plans: 24
   percent: 100
-stopped_at: Milestone complete (Phase 15 was final phase)
 ---
 
 # Project State
@@ -34,8 +33,8 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 Phase: 15 (gate-promotion-baseline-regen) — COMPLETE
 Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-15
+Status: Phase 15 shipped — PR #110
+Last activity: 2026-06-14
 
 Progress: [██████████] 100%
 
