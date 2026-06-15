@@ -22,7 +22,6 @@ import pytest
 # Import orchestrator module (may fail until implementation exists — RED phase)
 # ---------------------------------------------------------------------------
 import scripts.loop_falsifier as lf
-
 from app.loop.falsifier_core import EXIT_FAIL, EXIT_INFRA, EXIT_PASS, GuardResult
 
 # ---------------------------------------------------------------------------
@@ -202,9 +201,16 @@ class TestDecideExit:
 
 
 class TestNoMakeJudgeAtGateTime:
-    @patch("scripts.loop_falsifier.make_judge", side_effect=AssertionError("make_judge was called"))
+    @patch(
+        "app.agent.critique.vibe.make_judge",
+        side_effect=AssertionError("make_judge was called at gate time"),
+    )
     def test_gate_does_not_call_make_judge(self, mock_make_judge):
-        """Gate-time code must never regenerate paraphrases."""
+        """Gate-time code must never regenerate paraphrases (D-06).
+
+        Patches the real vibe.make_judge and asserts it is never called during
+        gate-time operations (load_paraphrases, run_guards, decide_exit).
+        """
         # load_paraphrases doesn't call make_judge
         # run_guards doesn't call make_judge
         # decide_exit doesn't call make_judge
@@ -218,6 +224,14 @@ class TestNoMakeJudgeAtGateTime:
         # If we reach here without AssertionError, make_judge was not called
         assert guard_result.ok
         mock_make_judge.assert_not_called()
+        # Also verify make_judge is not referenced in the module at all
+        import inspect  # noqa: PLC0415
+
+        source = inspect.getsource(lf)
+        assert "make_judge" not in source, (
+            "scripts/loop_falsifier.py must not reference make_judge — "
+            "paraphrases are frozen and never regenerated at gate time (D-06)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +278,7 @@ class TestPremarkSeedIsolation:
         mock_conn.cursor.return_value = mock_cur
         return mock_conn, mock_cur
 
-    @patch("scripts.loop_falsifier.build_seed_queries")
+    @patch("scripts.ingest_places_sf.build_seed_queries")
     def test_premark_upsertes_catalog_minus_seed(self, mock_bsq):
         """UPSERTs completed rows for catalog-minus-seed; inserts SEED as pending."""
         mock_bsq.return_value = self.MINI_CATALOG
@@ -281,7 +295,7 @@ class TestPremarkSeedIsolation:
         upsert_calls = [c for c in execute_calls if "places_ingest_query_checkpoints" in c]
         assert len(upsert_calls) >= 1, "Expected at least one UPSERT into checkpoints"
 
-    @patch("scripts.loop_falsifier.build_seed_queries")
+    @patch("scripts.ingest_places_sf.build_seed_queries")
     def test_premark_exits_infra_when_seed_absent_from_catalog(self, mock_bsq):
         """If SEED_QUERY is not in the catalog, exit EXIT_INFRA."""
         # Catalog does NOT contain the seed
@@ -294,7 +308,7 @@ class TestPremarkSeedIsolation:
             lf.premark_seed_isolation(mock_conn, self.SEED)
         assert exc_info.value.code == EXIT_INFRA
 
-    @patch("scripts.loop_falsifier.build_seed_queries")
+    @patch("scripts.ingest_places_sf.build_seed_queries")
     def test_premark_clears_stale_pending_proposals(self, mock_bsq):
         """Stale pending proposals != SEED_QUERY are updated to 'rejected'."""
         mock_bsq.return_value = self.MINI_CATALOG
@@ -312,7 +326,7 @@ class TestPremarkSeedIsolation:
         rejected_calls = [c for c in execute_calls if "rejected" in c and "proposals" in c.lower()]
         assert len(rejected_calls) >= 1, "Expected UPDATE to 'rejected' on stale proposals"
 
-    @patch("scripts.loop_falsifier.build_seed_queries")
+    @patch("scripts.ingest_places_sf.build_seed_queries")
     def test_premark_exits_infra_when_stale_pending_remain(self, mock_bsq):
         """If stale pending rows remain after clearing, exit EXIT_INFRA."""
         mock_bsq.return_value = self.MINI_CATALOG
@@ -334,13 +348,17 @@ class TestPremarkSeedIsolation:
 
 class TestDotenvMergedProdResolution:
     @patch("scripts.loop_falsifier.dotenv_values")
-    def test_prod_url_only_in_dotenv_trips_prod_safety(self, mock_dotenv_values):
+    @patch("app.config.resolve_database_url")
+    def test_prod_url_only_in_dotenv_trips_prod_safety(self, mock_resolve, mock_dotenv_values):
         """Even if prod URL is only in .env (not os.environ), it must be detected."""
         sandbox_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
         # prod URL is the same as sandbox URL -> collision
         mock_dotenv_values.return_value = {
             "DATABASE_URL": sandbox_url,
         }
+        # resolve_database_url called with merged env (DATABASE_URL popped) returns sandbox_url
+        # simulating prod == sandbox (they share the same URL in .env)
+        mock_resolve.return_value = sandbox_url
 
         prod_url = lf.resolve_prod_url(sandbox_url=sandbox_url)
         guard_result = lf.run_guards(
@@ -352,11 +370,13 @@ class TestDotenvMergedProdResolution:
         assert not guard_result.ok
 
     @patch("scripts.loop_falsifier.dotenv_values")
-    def test_prod_url_from_dotenv_merged_with_os_environ(self, mock_dotenv_values):
+    @patch("app.config.resolve_database_url")
+    def test_prod_url_from_dotenv_merged_with_os_environ(self, mock_resolve, mock_dotenv_values):
         """os.environ takes precedence over .env per {**dotenv, **os.environ} merge."""
         sandbox_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
         prod_url_in_dotenv = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge"
         mock_dotenv_values.return_value = {"DATABASE_URL": prod_url_in_dotenv}
+        mock_resolve.return_value = prod_url_in_dotenv
 
         # The resolved prod URL should be the .env one (sandbox is popped from copy)
         prod_url = lf.resolve_prod_url(sandbox_url=sandbox_url)
@@ -450,7 +470,7 @@ class TestMlflowFailure:
 
 
 class TestPremarkSetSize:
-    @patch("scripts.loop_falsifier.build_seed_queries")
+    @patch("scripts.ingest_places_sf.build_seed_queries")
     def test_premark_set_equals_catalog_minus_seed(self, mock_bsq):
         """The set of queries marked completed == catalog - SEED_QUERY."""
         catalog = [
