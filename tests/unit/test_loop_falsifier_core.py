@@ -10,6 +10,7 @@ TDD: these tests were written BEFORE the implementation.
 from __future__ import annotations
 
 import pytest
+
 from app.loop.falsifier_core import (
     EXIT_FAIL,
     EXIT_INFRA,
@@ -106,10 +107,13 @@ class TestComputeHitRate:
         assert pytest.approx(result.hit_rate) == 0.0
 
     def test_match_at_index_beyond_k_does_not_hit(self) -> None:
-        # 7-element list; the matching place_id is at index 6 (beyond K=5 cutoff)
-        # Per spec: defensively truncated to K entries inside the function
+        # A list of exactly K=5 elements, none of which match -> no hit.
+        # IN-02: compute_hit_rate now asserts len(topk) <= K instead of silently
+        # truncating; the caller (semantic_search with k=K) is the single source of
+        # truth for the retrieval window. We verify that a list of exactly K elements
+        # with no match returns 0 — the "beyond K" is enforced at the call site.
         per_paraphrase_topk = [
-            ["old-a", "old-b", "old-c", "old-d", "old-e", "old-f", "new-1"],
+            ["old-a", "old-b", "old-c", "old-d", "old-e"],  # K=5 elements, no match
         ]
         result = compute_hit_rate(per_paraphrase_topk, {"new-1"})
         assert result.hit_count == 0
@@ -269,10 +273,12 @@ class TestCheckProdSafety:
         result = check_prod_safety(sandbox_socket, prod_socket)
         assert result.ok is False
 
-    def test_cloud_sql_socket_different_instance_is_ok(self) -> None:
+    def test_cloud_sql_socket_different_instance_is_ok_when_allow_remote(self) -> None:
+        # WR-01: Different Cloud SQL instances are OK when allow_remote=True.
+        # Without allow_remote, ANY Cloud SQL sandbox is rejected (mirrors shell guard).
         prod_socket = "postgresql://user:pw@/proddb?host=/cloudsql/proj:reg:prod-inst"
         sandbox_socket = "postgresql://user:pw@/sandbox_db?host=/cloudsql/proj:reg:sandbox-inst"
-        result = check_prod_safety(sandbox_socket, prod_socket)
+        result = check_prod_safety(sandbox_socket, prod_socket, allow_remote=True)
         assert result.ok is True
 
     def test_same_cloud_sql_instance_different_db_is_still_violation(self) -> None:
@@ -281,6 +287,39 @@ class TestCheckProdSafety:
         prod_socket = f"postgresql://user:pw@/proddb?host=/cloudsql/{instance}"
         sandbox_socket = f"postgresql://user:pw@/different_sandbox?host=/cloudsql/{instance}"
         result = check_prod_safety(sandbox_socket, prod_socket)
+        assert result.ok is False
+
+    # WR-01: Cloud SQL sandbox URL must be rejected unless allow_remote=True
+    def test_cloud_sql_sandbox_url_rejected_when_allow_remote_false(self) -> None:
+        """WR-01: A Cloud SQL sandbox URL must be rejected when allow_remote=False."""
+        prod_tcp = "postgresql://user:pw@127.0.0.1:5432/proddb"
+        # Different Cloud SQL instance from prod — but still Cloud SQL socket
+        sandbox_socket = "postgresql://user:pw@/sandbox_db?host=/cloudsql/proj:reg:sandbox-inst"
+        result = check_prod_safety(sandbox_socket, prod_tcp, allow_remote=False)
+        assert result.ok is False
+        assert "Cloud SQL" in result.message or "cloudsql" in result.message.lower()
+
+    def test_cloud_sql_sandbox_url_allowed_when_allow_remote_true(self) -> None:
+        """WR-01: allow_remote=True bypasses the Cloud SQL rejection."""
+        prod_tcp = "postgresql://user:pw@127.0.0.1:5432/proddb"
+        sandbox_socket = "postgresql://user:pw@/sandbox_db?host=/cloudsql/proj:reg:sandbox-inst"
+        result = check_prod_safety(sandbox_socket, prod_tcp, allow_remote=True)
+        # No Cloud SQL rejection; sandbox and prod are different instances -> ok
+        assert result.ok is True
+
+    def test_local_sandbox_not_rejected_by_cloud_sql_check(self) -> None:
+        """WR-01: A plain TCP sandbox URL must NOT be rejected as Cloud SQL."""
+        sandbox = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
+        prod = "postgresql://postgres:pw@127.0.0.1:5432/city_concierge"
+        result = check_prod_safety(sandbox, prod, allow_remote=False)
+        assert result.ok is True
+
+    def test_allow_remote_defaults_to_false(self) -> None:
+        """WR-01: allow_remote defaults to False; old callers passing 2 args get the strict guard."""
+        prod_tcp = "postgresql://user:pw@127.0.0.1:5432/proddb"
+        sandbox_socket = "postgresql://user:pw@/sandbox_db?host=/cloudsql/proj:reg:sandbox-inst"
+        # Call with 2 positional args (old call site style)
+        result = check_prod_safety(sandbox_socket, prod_tcp)
         assert result.ok is False
 
 
@@ -312,6 +351,14 @@ class TestCheckNonCircularity:
         assert result.ok is False
         assert paraphrase in result.message
         assert forbidden_query in result.message
+
+    def test_topk_exceeding_k_raises_assertion(self) -> None:
+        """IN-02: lists longer than K must raise AssertionError — single source of truth."""
+        per_paraphrase_topk = [
+            ["a", "b", "c", "d", "e", "f"],  # 6 elements > K=5
+        ]
+        with pytest.raises(AssertionError):
+            compute_hit_rate(per_paraphrase_topk, {"f"})
 
     def test_whitespace_sensitive_no_match(self) -> None:
         # Trailing space makes it a different string -> ok (exact-string match)

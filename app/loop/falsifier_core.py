@@ -76,11 +76,16 @@ def compute_hit_rate(
 
     Each element of *per_paraphrase_topk* is an ordered list of place_id strings
     returned by semantic_search for one paraphrase. A paraphrase "hits" iff at least
-    one place_id in its top-K results (defensively truncated to K entries inside this
-    function, even if the caller forgot) appears in *newly_ingested_ids*.
+    one place_id in its top-K results appears in *newly_ingested_ids*.
+
+    The caller is responsible for passing lists of at most K elements. An
+    AssertionError is raised if any list exceeds K — this enforces a single source
+    of truth: the retrieval window is set once (semantic_search(k=K)) and this
+    function does not silently clamp it. (IN-02)
 
     Args:
         per_paraphrase_topk: One list of place_id strings per paraphrase.
+            Each inner list must have at most K entries.
         newly_ingested_ids: Set of place_ids that are newly ingested (DB-diff, D-03).
 
     Returns:
@@ -91,11 +96,13 @@ def compute_hit_rate(
     if n == 0:
         return HitRateResult(hit_count=0, n=0, hit_rate=0.0)
 
-    hit_count = sum(
-        1
-        for topk in per_paraphrase_topk
-        if set(topk[:K]) & newly_ingested_ids  # defensive truncation to K
-    )
+    for topk in per_paraphrase_topk:
+        assert len(topk) <= K, (  # noqa: S101
+            f"compute_hit_rate received a top-k list of length {len(topk)} > K={K}. "
+            "The caller must pass semantic_search(k=K) results — do not exceed K. (IN-02)"
+        )
+
+    hit_count = sum(1 for topk in per_paraphrase_topk if set(topk) & newly_ingested_ids)
     return HitRateResult(hit_count=hit_count, n=n, hit_rate=hit_count / n)
 
 
@@ -202,21 +209,39 @@ def _normalize_url(url: str) -> tuple[str, str, str, str]:
 def check_prod_safety(
     sandbox_url: str | None,
     resolvable_prod_url: str | None,
+    allow_remote: bool = False,
 ) -> GuardResult:
     """Assert that sandbox_url is safe to use (D-12).
 
     Returns a violation GuardResult when:
     - sandbox_url is None or empty (SANDBOX_DATABASE_URL unset)
+    - sandbox_url targets a Cloud SQL instance AND allow_remote is False (WR-01: mirrors
+      the shell provisioner guard; the falsifier sandbox must be a local Docker container)
     - sandbox_url's normalized target equals resolvable_prod_url's normalized target
     - both share the same non-empty cloud_sql_instance connection name
 
     Returns ok=True when resolvable_prod_url is None (prod URL unresolvable means no
     known collision; the provisioning script is the belt-and-suspenders).
 
+    Collision check semantics (WR-07 precision):
+    - TCP path: compares (host, dbname) — port is intentionally NOT included because the
+      legitimate local workflow uses prod on :5432 (Postgres.app) and sandbox on :5433
+      (Docker). Including port would cause false-negatives on that setup. Same-host +
+      same-dbname is the meaningful signal; the _sandbox dbname suffix convention is the
+      primary guard against accidental collisions that differ only by port.
+    - Cloud SQL path: compares instance connection names (same instance = same server
+      regardless of dbname or port), which is a stricter check than (host, dbname).
+    - Different-dbname on the same host is considered safe by design: the _sandbox suffix
+      enforced by the provisioner is the real guard, and the TCP collision check only
+      fires when BOTH host AND dbname match exactly.
+
     Args:
         sandbox_url: The SANDBOX_DATABASE_URL value (may be None/empty).
         resolvable_prod_url: The resolved prod DATABASE_URL (may be None — means the
             orchestrator could not resolve a prod URL; treated as no collision).
+        allow_remote: When True, suppress the Cloud SQL sandbox URL rejection. Set via
+            bool(os.environ.get("SANDBOX_ALLOW_REMOTE")) in the orchestrator — never read
+            os.environ here to keep this module import-pure and unit-testable. (WR-01)
     """
     if not sandbox_url:
         return GuardResult(
@@ -224,12 +249,27 @@ def check_prod_safety(
             message="SANDBOX_DATABASE_URL is unset or empty — refusing to run against an unknown database.",
         )
 
+    sb_host, sb_port, sb_dbname, sb_instance = _normalize_url(sandbox_url)
+
+    # WR-01: Reject Cloud SQL sandbox URLs unless explicitly allowed.
+    # Mirrors the shell provisioner guard (provision_sandbox.sh:136-150).
+    # A Cloud SQL socket sandbox on a DIFFERENT instance than prod would pass the
+    # instance-collision check below but still be a remote write target — reject it.
+    if sb_instance and not allow_remote:
+        return GuardResult(
+            ok=False,
+            message=(
+                f"SANDBOX_DATABASE_URL targets a Cloud SQL instance ({sb_instance!r}); "
+                "the falsifier sandbox must be a local Docker container. "
+                "Set SANDBOX_ALLOW_REMOTE=1 to override."
+            ),
+        )
+
     if resolvable_prod_url is None:
         return GuardResult(
             ok=True, message="ok (prod URL not resolvable; no collision check possible)"
         )
 
-    sb_host, sb_port, sb_dbname, sb_instance = _normalize_url(sandbox_url)
     prod_host, prod_port, prod_dbname, prod_instance = _normalize_url(resolvable_prod_url)
 
     # Cloud SQL instance collision (same instance = same server regardless of dbname)
@@ -242,7 +282,7 @@ def check_prod_safety(
             ),
         )
 
-    # TCP collision: same host AND same dbname
+    # TCP collision: same host AND same dbname (port intentionally excluded — see docstring)
     if sb_host == prod_host and sb_dbname == prod_dbname:
         return GuardResult(
             ok=False,
