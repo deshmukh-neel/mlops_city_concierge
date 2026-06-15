@@ -44,9 +44,9 @@ Entry gate: only if all DEC arms plateau below the INST-05 falsifier bar. Justif
 
 ### Gate Promotion & Baseline Regen (PROMO)
 
-- [x] **PROMO-01**: Winning arm's baselines regenerated honest n=5 via `write_baselines.py` for all matrix cells (refuses partial/quarantined per D-11-14)
-- [x] **PROMO-02**: Reasoning-model gates promoted from logged-not-gated to enforced in `configs/eval_gates.yaml` where measured data earns it (and explicitly left logged where it doesn't)
-- [x] **PROMO-03**: Latency report vs the ~30s/turn prod budget: anchor latency with the winning arm documented (decomposition from INST-04), prod driver recommendation ratified or revised
+- [x] **PROMO-01**: Winning arm's baselines regenerated honest n=5 via `write_baselines.py` for all matrix cells (refuses partial/quarantined per D-11-14) — _6 runnable cells written honest flag-off n=5; anchor provenance corrected (REFINEMENT_STRUCTURED_PLAN_ENABLED was ON in the prior baseline)_
+- [x] **PROMO-02**: Reasoning-model gates promoted from logged-not-gated to enforced in `configs/eval_gates.yaml` where measured data earns it (and explicitly left logged where it doesn't) — _gpt-4o-mini re-ratified active (≥ 0.8 omakase gate holds); gpt-5-mini demoted to logged (pooled 0.500 < 0.600 floor); gates source of truth: `configs/eval_gates.yaml`_
+- [x] **PROMO-03**: Latency report vs the ~30s/turn prod budget: anchor latency with the winning arm documented (decomposition from INST-04), prod driver recommendation ratified or revised — _gpt-4o-mini omakase median 47s (budget NOT met; honest); ratify-anchor recommendation recorded in `docs/promotion_decision.md`_
 
 ## Future Requirements
 
@@ -93,9 +93,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEC-05 | Phase 13 | Complete — honest null result; no arm cleared INST-05 bar; docs/decisiveness_arm_verdicts.md closing verdict: Phase 14 entry gate OPEN |
 | REPLAY-01 | Phase 14 | Complete — R1 (multi-message replay) measured at n=5: gpt-5-mini 0.500 (delta vs A2 = ±0.000); no arm cleared INST-05 bar; docs/replay_arm_verdicts.md is the canonical record |
 | REPLAY-02 | Phase 14 | Complete — R2 (content-block preservation) measured at n=5: NEGATIVE (gpt-5-mini 10/10 provider 400s; str() collapse was load-bearing); docs/replay_arm_verdicts.md is the canonical record |
-| PROMO-01 | Phase 15 | Complete — 6 runnable cells written honest flag-off n=5; anchor provenance corrected (REFINEMENT_STRUCTURED_PLAN_ENABLED was ON in prior baseline) |
-| PROMO-02 | Phase 15 | Complete — gpt-4o-mini re-ratified active (>= 0.8 gate holds); gpt-5-mini demoted to logged (pooled 0.500 < 0.600 floor); gates source of truth: configs/eval_gates.yaml |
-| PROMO-03 | Phase 15 | Complete — latency report written; gpt-4o-mini omakase median 47s (budget NOT met; honest); ratify-anchor recommendation recorded in docs/promotion_decision.md |
+| PROMO-01 | Phase 15 | Complete |
+| PROMO-02 | Phase 15 | Complete |
+| PROMO-03 | Phase 15 | Complete |
 | ANCH-01 | None (deferred 2026-06-11, future) | Deferred |
 | PROD-01 | None (future milestone) | Deferred |
 | PROD-02 | None (future milestone) | Deferred |
