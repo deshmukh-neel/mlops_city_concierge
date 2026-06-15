@@ -217,6 +217,17 @@ snapshot-baselines: ## Snapshot current canonical baselines to _snapshots/ as pr
 	cp configs/eval_baselines/late_night_closure_cascade.json \
 	   configs/eval_baselines/_snapshots/late_night_closure_cascade.pre-phase11.json
 
+# Phase 16 / FALSIFY-01 / D-08/D-09: loop falsifier gate.
+# Runs the full end-to-end sequence: freeze-check -> prod-safety guard ->
+# seed-isolation pre-mark -> before-snapshot -> real Google Places ingest ->
+# embed-v2 -> DB-diff -> after-snapshot -> strictly-positive hit@k gate.
+# Requires: SANDBOX_DATABASE_URL, GOOGLE_PLACES_API_KEY, OPENAI_API_KEY exported.
+# Exit 0 = PASS; 1 = FAIL (re-scopes milestone); 2 = INFRA error.
+# See docs/loop_falsifier.md for the full runbook.
+.PHONY: loop-falsifier
+loop-falsifier: ## FALSIFY-01: loop falsifier gate — strictly-positive hit@k delta proves the adaptive-data loop works (requires SANDBOX_DATABASE_URL + GOOGLE_PLACES_API_KEY + OPENAI_API_KEY)
+	$(POETRY_RUN) python scripts/loop_falsifier.py
+
 # Phase 12 / INST-05 / D-12-06..08: falsifier report — reads eval artifacts
 # and answers whether gpt-5-mini hit the pooled >= 0.6 committed_itinerary_rate
 # bar and gpt-4o-mini held its anchor baseline. Never fans out live API calls.
