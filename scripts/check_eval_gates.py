@@ -357,7 +357,10 @@ def _check_gate(
         # Family has no cell in any gated scenario — not-evaluable, not a silent pass.
         note = f"check_eval_gates: NOT-EVALUABLE — family '{family}' has no cell in summary"
         print(note)
-        return "not_evaluable"
+        # Codex PR#110 finding 1: a HARD-status gate that cannot be evaluated is an
+        # infrastructure failure (exit 2), never a silent pass. Only logged/aspirational
+        # gates may be non-blocking when not-evaluable.
+        return "not_evaluable_hard" if status in _HARD_STATUSES else "not_evaluable"
 
     # Extract the metric from every located cell. Cells lacking the metric do not
     # count toward the verdict; if NO cell carries it, the gate is not-evaluable.
@@ -369,6 +372,10 @@ def _check_gate(
 
     if not evaluable:
         # Metric absent from every eligible cell — not-evaluable, not a silent pass.
+        # NOTE: this branch stays non-blocking by design (the Phase 11 pre-wiring
+        # allowance — metrics not yet added must not hard-fail CI). The Codex
+        # finding-1 fail-closed behavior applies only to the SCOPED-CELL-MISSING
+        # case above, which is a misconfiguration, not a pre-wiring gap.
         note = (
             f"check_eval_gates: NOT-EVALUABLE — metric '{metric}' absent from cell "
             f"'{family}' (Phase 11 BASE-01 will wire this metric)"
@@ -483,6 +490,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     violations: list[str] = []
     aspirational_misses: list[str] = []
+    not_evaluable_hard: list[str] = []
 
     # WR-04: structural defects in a gate entry or in summary cell values
     # (missing keys, null medians, non-dict scenario blocks, unknown ops) are
@@ -495,12 +503,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 violations.append(gate["family"])
             elif result == "aspirational_miss":
                 aspirational_misses.append(gate["family"])
+            elif result == "not_evaluable_hard":
+                not_evaluable_hard.append(gate["family"])
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         sys.stderr.write(f"check_eval_gates: malformed gates config or summary shape: {exc!r}\n")
         return 2
 
     if aspirational_misses:
         print(f"check_eval_gates: ASPIRATIONAL miss (not blocking): {sorted(aspirational_misses)}")
+
+    # Codex PR#110 finding 1: a hard-status gate that could not be evaluated (its
+    # scoped scenario cell is absent) is an infrastructure failure, never a silent
+    # pass. Surfaces before the violation check so a misconfigured scoped gate is
+    # caught even when no other gate violated.
+    if not_evaluable_hard:
+        sys.stderr.write(
+            f"check_eval_gates: HARD GATE NOT EVALUABLE (scoped cell missing): "
+            f"{sorted(not_evaluable_hard)}\n"
+        )
+        return 2
 
     if violations:
         sys.stderr.write(f"check_eval_gates: HARD GATE VIOLATION: {sorted(violations)}\n")

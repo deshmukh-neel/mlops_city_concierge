@@ -228,6 +228,26 @@ def test_family_from_query_noops_without_signal() -> None:
     assert family_from_query("a place to go", ["Restaurant"]) is None
 
 
+def test_family_from_query_noops_when_multiple_requested_families_match() -> None:
+    """Codex PR#110 finding 3: a combined-family query must NOT silently pick one
+    family (which would filter out the other requested category). When keywords for
+    two requested families both appear, the query is ambiguous → return None (no
+    filter), the safe fail-open."""
+    assert (
+        family_from_query("dinner and drinks in Hayes Valley", ["Restaurant", "Cocktail Bar"])
+        is None
+    )
+    assert family_from_query("coffee and dessert", ["Cafe", "Dessert Shop"]) is None
+
+
+def test_family_from_query_still_infers_single_family_in_combined_text() -> None:
+    """An unambiguous query still infers, even with extra words: only 'drinks'
+    matches a requested family here, so 'bar' is returned."""
+    assert (
+        family_from_query("drinks somewhere nice tonight", ["Restaurant", "Cocktail Bar"]) == "bar"
+    )
+
+
 def test_primary_type_family_filter_compiles_both_columns() -> None:
     where, params = compile_filters(
         SearchFilters(

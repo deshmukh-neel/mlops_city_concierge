@@ -131,6 +131,36 @@ def test_all_slots_viable_matches_requested_type_by_family() -> None:
     assert all_slots_viable(state, THRESHOLD) is True
 
 
+def test_all_slots_viable_two_same_family_slots_need_two_distinct_places() -> None:
+    """Codex PR#110 finding 2: two requested types in the SAME family (Cocktail Bar
+    + Wine Bar) require two DISTINCT viable bar-family places. Two distinct generic
+    'Bar' hits must cover both slots — the family matcher must not starve the second
+    slot by mapping both hits to the first requested type."""
+    from app.agent.viability import all_slots_viable
+
+    state = _state_with_hits(
+        hits=[
+            _hit(0.8, "Bar", "b1"),
+            _hit(0.7, "Bar", "b2"),
+        ],
+        requested_types=["Cocktail Bar", "Wine Bar"],
+        num_stops=2,
+    )
+    assert all_slots_viable(state, THRESHOLD) is True
+
+
+def test_all_slots_viable_two_same_family_slots_false_with_one_place() -> None:
+    """Same family, two slots, but only ONE distinct viable place → not covered."""
+    from app.agent.viability import all_slots_viable
+
+    state = _state_with_hits(
+        hits=[_hit(0.8, "Bar", "b1"), _hit(0.7, "Bar", "b1")],  # same place_id twice
+        requested_types=["Cocktail Bar", "Wine Bar"],
+        num_stops=2,
+    )
+    assert all_slots_viable(state, THRESHOLD) is False
+
+
 def test_all_slots_viable_family_match_still_requires_correct_family() -> None:
     """Family-match must not over-match: a Bakery (dessert) does NOT satisfy a
     Cocktail Bar (bar) slot."""

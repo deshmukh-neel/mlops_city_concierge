@@ -39,6 +39,7 @@ from app.agent.io import build_refinement_prompt_message, messages_from_history
 from app.agent.revision import LOW_SIMILARITY_THRESHOLD  # D-12-04: import, never hardcode 0.55
 from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.agent.viability import (  # D-13-03: shared family-aware slot matcher (2026-06-15)
+    _canonical_slot_key,
     requested_type_for_hit,
 )
 from app.config import env_flag, get_settings
@@ -729,11 +730,12 @@ def rule8_met_per_step_from_state(
             bools.append(len(seen_ids) + anon_count >= target)
         return bools
 
-    # Typed path (WR-02): multiset coverage — each requested-type slot needs
-    # its own distinct viable place_id.
-    required = Counter(requested_types)
-    per_type_ids: dict[str, set[str]] = {t: set() for t in required}
-    per_type_anon: dict[str, int] = dict.fromkeys(required, 0)
+    # Typed path (WR-02): multiset coverage keyed on CANONICAL slot buckets so
+    # same-family slots share a distinct-place pool (Codex PR#110 finding 2).
+    # Mirrors app.agent.viability.all_slots_viable exactly (D-13-03 single source).
+    required = Counter(_canonical_slot_key(t) for t in requested_types)
+    per_key_ids: dict[str, set[str]] = {k: set() for k in required}
+    per_key_anon: dict[str, int] = dict.fromkeys(required, 0)
     for i in range(max_step + 1):
         for hit in step_hits.get(i, []):
             if not _viable_sim(hit):
@@ -741,19 +743,19 @@ def rule8_met_per_step_from_state(
             ptype = value_from_hit(hit, "primary_type")
             if not isinstance(ptype, str):
                 continue
-            # Family-aware matching (2026-06-15): bucket under the requested slot
-            # type the hit satisfies (Bakery -> "Dessert Shop"). Mirrors
-            # app.agent.viability.requested_type_for_hit (D-13-03 single source).
+            # Family-aware matching (2026-06-15): resolve the requested slot the
+            # hit satisfies (Bakery -> "Dessert Shop"), then its canonical bucket.
             matched = requested_type_for_hit(ptype, requested_types)
             if matched is None:
                 continue
+            key = _canonical_slot_key(matched)
             pid = _place_id(hit)
             if pid is not None:
-                per_type_ids[matched].add(pid)
+                per_key_ids[key].add(pid)
             else:
-                per_type_anon[matched] += 1
+                per_key_anon[key] += 1
         bools.append(
-            all(len(per_type_ids[t]) + per_type_anon[t] >= count for t, count in required.items())
+            all(len(per_key_ids[k]) + per_key_anon[k] >= count for k, count in required.items())
         )
     return bools
 

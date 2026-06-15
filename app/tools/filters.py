@@ -347,12 +347,17 @@ def family_from_query(query: str | None, requested_primary_types: list[str] | No
         return None
 
     q_words = set(re.findall(r"[a-z]+", query.lower()))
-    for family in _FAMILY_LOOKUP_PRIORITY:
-        if family not in requested_families:
-            continue
-        if any(kw in q_words for kw in _FAMILY_QUERY_KEYWORDS.get(family, ())):
-            return family
-    return None
+    # Collect EVERY requested family whose keywords appear. If more than one
+    # matches, the query is ambiguous (e.g. "dinner and drinks" → restaurant AND
+    # bar) — return None rather than silently filtering out a requested category
+    # (Codex PR#110 finding 3). Only an unambiguous single match injects a filter.
+    matched_families = [
+        family
+        for family in _FAMILY_LOOKUP_PRIORITY
+        if family in requested_families
+        and any(kw in q_words for kw in _FAMILY_QUERY_KEYWORDS.get(family, ()))
+    ]
+    return matched_families[0] if len(matched_families) == 1 else None
 
 
 def compile_filters(f: SearchFilters) -> tuple[str, list]:
