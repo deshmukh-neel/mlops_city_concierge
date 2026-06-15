@@ -35,6 +35,7 @@ Design notes (D-08 through D-12):
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -192,7 +193,7 @@ def premark_seed_isolation(
     """
     # Deferred import to avoid module-scope side-effect (ingest resolves DATABASE_URL
     # at import time; the sandbox injection must have happened BEFORE this call)
-    from scripts.ingest_places_sf import build_seed_queries  # noqa: PLC0415
+    from scripts.ingest_places_sf import build_seed_queries, checkpoint_key  # noqa: PLC0415
 
     catalog = build_seed_queries()
     if chosen_seed_query not in set(catalog):
@@ -205,7 +206,13 @@ def premark_seed_isolation(
 
     to_mark = build_premark_set(catalog, chosen_seed_query)
 
-    # Step 3: UPSERT catalog-minus-seed as 'completed' in checkpoints table
+    # Step 3: UPSERT catalog-minus-seed as 'completed' in checkpoints table.
+    # WR-02: Use checkpoint_key(query_text) for the row key — this matches the key
+    # format that record_query_checkpoint() writes (f"{FIELD_MODE}::{query_text}",
+    # currently "all::<query>"). The ingest's select_seed_queries_for_run skips a
+    # query when checkpoint_key(query) OR raw query is in completed; using only the
+    # raw query relied on the raw-match fallback clause. Using checkpoint_key() here
+    # makes the premark robust against future removal of that fallback.
     upsert_sql = """
         INSERT INTO places_ingest_query_checkpoints (query_text, status)
         VALUES (%s, 'completed')
@@ -213,14 +220,20 @@ def premark_seed_isolation(
     """
     with conn.cursor() as cur:
         for query_text in to_mark:
-            cur.execute(upsert_sql, [query_text])
+            cur.execute(upsert_sql, [checkpoint_key(query_text)])
     conn.commit()
 
-    # Step 4: Insert SEED_QUERY as pending proposal (idempotent)
+    # Step 4: Insert SEED_QUERY as pending proposal.
+    # WR-05: Use ON CONFLICT DO UPDATE SET status='pending', applied_at=NULL instead
+    # of DO NOTHING. With DO NOTHING, a re-run against a data-reset-but-proposals-
+    # retained sandbox leaves the SEED row in 'applied' status, so fetch_pending_proposals
+    # returns nothing and ingest skips the gap entirely — producing embed_added_count==0
+    # and confusing EXIT_INFRA. The upsert resets the row back to pending so the gate
+    # is robust against partial resets (only data tables truncated, not proposals table).
     insert_pending_sql = """
         INSERT INTO places_ingest_query_proposals (query_text, status, rationale)
         VALUES (%s, 'pending', 'loop falsifier seed isolation — gap query')
-        ON CONFLICT (query_text) DO NOTHING
+        ON CONFLICT (query_text) DO UPDATE SET status = 'pending', applied_at = NULL
     """
     with conn.cursor() as cur:
         cur.execute(insert_pending_sql, [chosen_seed_query])
@@ -300,6 +313,13 @@ def decide_exit(
     3. before_rate != 0.0 -> EXIT_INFRA (sandbox was not clean)
     4. is_strictly_positive_delta(before, after) -> EXIT_PASS
     5. else -> EXIT_FAIL
+
+    Note on guard_violation (IN-03): the live orchestrator path always passes
+    guard_violation=None here because the prod-safety and non-circularity guards
+    already ran earlier (lines ~400-458) and raised SystemExit(EXIT_INFRA) on any
+    violation — so this function is never reached with an uncleared violation in
+    production. The parameter exists solely for the pure-unit-test contract so tests
+    can exercise the guard-violation branch without mocking SystemExit side-effects.
     """
     if guard_violation is not None and not guard_violation.ok:
         return EXIT_INFRA
@@ -310,13 +330,6 @@ def decide_exit(
     if is_strictly_positive_delta(before_rate, after_rate):
         return EXIT_PASS
     return EXIT_FAIL
-
-
-def _snapshot_ids(conn: Any, table: str, id_col: str = "place_id") -> set[str]:
-    """Capture a set of place_ids from the given table via a direct psycopg2 conn."""
-    with conn.cursor() as cur:
-        cur.execute(f"SELECT {id_col} FROM {table}")  # noqa: S608
-        return {row[0] for row in cur.fetchall()}
 
 
 def log_to_mlflow(
@@ -347,18 +360,22 @@ def log_to_mlflow(
             mlflow.log_param("k", K)
             mlflow.log_param("n", N)
 
-            mlflow.log_metric("before_hit_rate", before_hit_rate)
-            mlflow.log_metric("after_hit_rate", after_hit_rate)
-            mlflow.log_metric("hit_rate_delta", hit_rate_delta)
-            mlflow.log_metric("new_place_count", new_place_count)
-            mlflow.log_metric("embed_added_count", embed_added_count)
-
+            # IN-05: Log artifacts BEFORE metrics so a partial failure (e.g. log_dict
+            # raises) never leaves a run with numeric metrics but no backing snapshots.
+            # A run that survives always has its evidence; a run that fails on artifacts
+            # exits EXIT_INFRA without committing any metrics.
             mlflow.log_dict(
                 {"paraphrases": paraphrases, "seed_query": seed_query}, "frozen_paraphrases.json"
             )
             mlflow.log_dict(before_snapshot, "before_snapshot.json")
             mlflow.log_dict(after_snapshot, "after_snapshot.json")
             mlflow.log_dict({"place_ids": db_diff_ids}, "db_diff_place_ids.json")
+
+            mlflow.log_metric("before_hit_rate", before_hit_rate)
+            mlflow.log_metric("after_hit_rate", after_hit_rate)
+            mlflow.log_metric("hit_rate_delta", hit_rate_delta)
+            mlflow.log_metric("new_place_count", new_place_count)
+            mlflow.log_metric("embed_added_count", embed_added_count)
     except Exception as exc:
         print(
             f"[INFRA] MLflow logging failed: {exc}. "
@@ -397,7 +414,10 @@ def main() -> None:  # noqa: C901
     prod_url = resolve_prod_url(sandbox_url=sandbox_url)
 
     # ── Step 2: Prod-safety guard BEFORE any coercion or destructive op ─────
-    safety_result = check_prod_safety(sandbox_url, prod_url)
+    # allow_remote is read from os.environ here (not inside falsifier_core) so the
+    # pure core stays import-pure and unit-testable. (WR-01)
+    allow_remote = bool(os.environ.get("SANDBOX_ALLOW_REMOTE"))
+    safety_result = check_prod_safety(sandbox_url, prod_url, allow_remote=allow_remote)
     if not safety_result.ok:
         print(f"[INFRA] Prod-safety guard FAILED: {safety_result.message}", file=sys.stderr)
         raise SystemExit(EXIT_INFRA)
@@ -462,7 +482,7 @@ def main() -> None:  # noqa: C901
     import psycopg2  # noqa: PLC0415
 
     print("[seed-isolation] Pre-marking static catalog in sandbox ...")
-    with psycopg2.connect(sandbox_url) as sandbox_conn:
+    with contextlib.closing(psycopg2.connect(sandbox_url)) as sandbox_conn:
         premark_seed_isolation(sandbox_conn, SEED_QUERY)
 
     # ── Step 7a: Capture before-snapshot (empty sandbox -> hit_rate must be 0) ──
@@ -470,24 +490,47 @@ def main() -> None:  # noqa: C901
     before_raw_ids_result = _snapshot_ids_from_url(sandbox_url, "places_raw")
     before_v2_ids_result = _snapshot_ids_from_url(sandbox_url, "place_embeddings_v2")
 
+    # CR-01: Assert sandbox is actually empty in-process before running any probes.
+    # The integration smoke test checked this via APP_ENV=integration, but the live
+    # gate had no row-count assertion at all — meaning a dirty sandbox produced
+    # before_hit_rate=0.0 by construction (hardcoded empty target set), not by proof.
+    # This guard makes "the sandbox was empty" a *verified* precondition, not assumed.
+    if before_raw_ids_result or before_v2_ids_result:
+        print(
+            f"[INFRA] Sandbox is not empty before ingest: "
+            f"places_raw={len(before_raw_ids_result)}, "
+            f"place_embeddings_v2={len(before_v2_ids_result)}. "
+            "The before→after delta would be unsound. Run `make sandbox-provision` "
+            "with a DROP+recreate to reset.",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_INFRA)
+
     before_topk: list[list[str]] = []
     for paraphrase in paraphrases:
         hits = semantic_search(paraphrase, k=K)
         before_topk.append([h.place_id for h in hits])
 
-    # With empty sandbox, target set is empty -> hit_rate is 0.0
-    before_hit_result = compute_hit_rate(before_topk, set())
+    # Compute hit rate against the real before-snapshot IDs (honest measurement).
+    # With a verified-empty sandbox, before_v2_ids_result is empty -> hit_rate is 0.0
+    # because the data is empty, not because the target set is hardcoded empty. (CR-01)
+    before_hit_result = compute_hit_rate(before_topk, before_v2_ids_result)
     before_hit_rate = before_hit_result.hit_rate
 
     if before_hit_rate != 0.0:
+        # Belt-and-suspenders: should be impossible after the emptiness assertion above,
+        # but catches edge cases where semantic_search returns results from another DB
+        # or the in-process pool is pointing at a different target.
         print(
-            f"[INFRA] Before-snapshot hit_rate={before_hit_rate:.3f} != 0.0. "
-            "Sandbox is not clean — use `make sandbox-provision` to reset.",
+            f"[INFRA] Before-snapshot hit_rate={before_hit_rate:.3f} != 0.0 even though "
+            "the sandbox appeared empty. The in-process semantic_search may be targeting "
+            "a different database. Check the resolved-target assertion output.",
             file=sys.stderr,
         )
         raise SystemExit(EXIT_INFRA)
     print(
-        f"[before-snapshot] hit@{K} = {before_hit_result.hit_count}/{before_hit_result.n} = {before_hit_rate:.3f} (expected 0.0 for empty sandbox)"
+        f"[before-snapshot] hit@{K} = {before_hit_result.hit_count}/{before_hit_result.n} = "
+        f"{before_hit_rate:.3f} (verified 0.0: sandbox is empty)"
     )
 
     # ── Step 7b: Run ingest subprocess ──────────────────────────────────────
@@ -527,7 +570,11 @@ def main() -> None:  # noqa: C901
             "Exit EXIT_INFRA — this is the LOOP-02 loud-fail.",
             file=sys.stderr,
         )
-        # Will be caught by decide_exit below, but print early for clarity
+        # WR-03: Raise immediately — do not continue to after-snapshot probes which
+        # would burn OpenAI embedding API calls on a run already known to be infra-failed.
+        # decide_exit's embed_added_count==0 branch is kept as belt-and-suspenders for
+        # the pure-unit-test path where this code isn't reached.
+        raise SystemExit(EXIT_INFRA)
 
     # ── Step 7e: After-snapshot ───────────────────────────────────────────────
     print(
@@ -605,10 +652,15 @@ def _snapshot_ids_from_url(db_url: str, table: str) -> set[str]:
 
     Uses a direct connection (not the pool) to avoid dependency on the
     pool's cached settings (which may point to a different target).
+
+    WR-04: Wraps the connection in contextlib.closing so it is explicitly closed after
+    the cursor exits. psycopg2's context manager protocol only commits/rolls back the
+    transaction on __exit__ — it does NOT close the connection. Without closing, each
+    call leaks a connection until interpreter exit.
     """
     import psycopg2  # noqa: PLC0415
 
-    with psycopg2.connect(db_url) as conn, conn.cursor() as cur:
+    with contextlib.closing(psycopg2.connect(db_url)) as conn, conn.cursor() as cur:
         cur.execute(f"SELECT place_id FROM {table}")  # noqa: S608
         return {row[0] for row in cur.fetchall()}
 

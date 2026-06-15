@@ -655,7 +655,14 @@ class TestMlflowFailure:
 class TestPremarkSetSize:
     @patch("scripts.ingest_places_sf.build_seed_queries")
     def test_premark_set_equals_catalog_minus_seed(self, mock_bsq):
-        """The set of queries marked completed == catalog - SEED_QUERY."""
+        """The set of checkpoint keys marked completed == {checkpoint_key(q) for q in catalog - SEED}.
+
+        WR-02: premark_seed_isolation now writes checkpoint_key(query_text) rows (i.e.
+        'all::<query>') into places_ingest_query_checkpoints to match the keying that
+        record_query_checkpoint() and select_seed_queries_for_run() use.
+        """
+        from scripts.ingest_places_sf import checkpoint_key  # noqa: PLC0415
+
         catalog = [
             "vietnamese restaurants in Outer Sunset San Francisco",
             "pho restaurants in San Francisco",
@@ -684,20 +691,218 @@ class TestPremarkSetSize:
 
         lf.premark_seed_isolation(mock_conn, seed)
 
-        # Find the UPSERT calls — they should be for 3 queries (catalog minus seed)
+        # Find the UPSERT calls — they should be for 3 queries (catalog minus seed),
+        # written as checkpoint_key-prefixed strings.
         upsert_calls = [
             (q, p)
             for q, p in zip(executed_queries, executed_params, strict=False)
             if "places_ingest_query_checkpoints" in q and p is not None
         ]
-        # The executed params should include exactly catalog - {seed}
+        # The executed params must include exactly {checkpoint_key(q) for q in catalog - {seed}}
         marked_queries = set()
         for _, params in upsert_calls:
             if isinstance(params, (list, tuple)) and len(params) >= 1:
                 marked_queries.add(params[0])
 
-        expected = set(catalog) - {seed}
+        expected = {checkpoint_key(q) for q in set(catalog) - {seed}}
         assert expected.issubset(marked_queries), (
-            f"Expected all catalog-minus-seed queries to be marked; missing: {expected - marked_queries}"
+            f"Expected all catalog-minus-seed checkpoint keys to be marked; "
+            f"missing: {expected - marked_queries}"
         )
-        assert seed not in marked_queries, "SEED_QUERY must NOT be marked completed"
+        assert checkpoint_key(seed) not in marked_queries, (
+            "SEED_QUERY's checkpoint_key must NOT be marked completed"
+        )
+        assert seed not in marked_queries, (
+            "Raw SEED_QUERY must NOT be marked completed (only checkpoint_key-keyed rows)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# CR-01: Sandbox emptiness assertion before snapshot
+# ---------------------------------------------------------------------------
+
+
+class TestSandboxEmptinessAssertion:
+    """CR-01: before_hit_rate must be computed against real data; sandbox must be asserted empty."""
+
+    def test_decide_exit_before_rate_nonzero_returns_infra(self):
+        """decide_exit must return EXIT_INFRA when before_rate != 0 (belt-and-suspenders)."""
+        result = lf.decide_exit(
+            before_rate=0.2,
+            after_rate=0.6,
+            guard_violation=None,
+            embed_added_count=3,
+        )
+        assert result == EXIT_INFRA
+
+    def test_decide_exit_before_rate_zero_with_embeds_and_positive_delta_returns_pass(self):
+        """decide_exit returns EXIT_PASS when before_rate=0, embeds>0, delta>0."""
+        result = lf.decide_exit(
+            before_rate=0.0,
+            after_rate=1.0,
+            guard_violation=None,
+            embed_added_count=5,
+        )
+        assert result == EXIT_PASS
+
+
+# ---------------------------------------------------------------------------
+# WR-02: premark uses checkpoint_key() for checkpoints keying
+# ---------------------------------------------------------------------------
+
+
+class TestPremarkCheckpointKeyKeying:
+    """WR-02: premark_seed_isolation must write checkpoint_key(query_text) rows, not raw query."""
+
+    SEED = "vietnamese restaurants in Outer Sunset San Francisco"
+    MINI_CATALOG = [
+        "vietnamese restaurants in Outer Sunset San Francisco",
+        "pho restaurants in San Francisco",
+        "burritos in Mission San Francisco",
+    ]
+
+    @patch("scripts.ingest_places_sf.build_seed_queries")
+    def test_premark_writes_checkpoint_key_not_raw_query(self, mock_bsq):
+        """The checkpoint row key must be checkpoint_key(query_text) = 'all::<query>'."""
+        from scripts.ingest_places_sf import checkpoint_key  # noqa: PLC0415
+
+        mock_bsq.return_value = self.MINI_CATALOG
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.__enter__ = lambda s: s
+        mock_cur.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value = mock_cur
+        mock_cur.fetchone.return_value = (0,)
+        mock_cur.fetchall.return_value = []
+
+        executed_params: list[Any] = []
+
+        def capture_execute(sql, params=None):
+            executed_params.append((sql, params))
+
+        mock_cur.execute.side_effect = capture_execute
+
+        lf.premark_seed_isolation(mock_conn, self.SEED)
+
+        # Find checkpoint UPSERT params
+        checkpoint_params = [
+            params[0]
+            for sql, params in executed_params
+            if "places_ingest_query_checkpoints" in sql and params is not None
+        ]
+
+        # Every checkpoint key must be in checkpoint_key format
+        expected_keys = {checkpoint_key(q) for q in self.MINI_CATALOG if q != self.SEED}
+        actual_keys = set(checkpoint_params)
+
+        assert expected_keys == actual_keys, (
+            f"Checkpoint keys must use checkpoint_key() format ('all::<query>'). "
+            f"Expected: {expected_keys}, got: {actual_keys}"
+        )
+        # Raw query text (without prefix) must NOT appear as checkpoint key
+        raw_non_seed = {q for q in self.MINI_CATALOG if q != self.SEED}
+        for raw_q in raw_non_seed:
+            assert raw_q not in actual_keys, (
+                f"Raw query {raw_q!r} was written as checkpoint key instead of "
+                f"checkpoint_key-prefixed form. This breaks the keying convention."
+            )
+
+
+# ---------------------------------------------------------------------------
+# WR-03: embed_added_count == 0 must raise SystemExit immediately
+# ---------------------------------------------------------------------------
+
+
+class TestEmbedZeroShortCircuit:
+    """WR-03: embed_added_count==0 must raise SystemExit(EXIT_INFRA) before after-snapshot."""
+
+    def test_decide_exit_embed_zero_returns_infra(self):
+        """decide_exit still returns INFRA for zero embeds (unit / belt-and-suspenders path)."""
+        result = lf.decide_exit(
+            before_rate=0.0,
+            after_rate=0.0,
+            guard_violation=None,
+            embed_added_count=0,
+        )
+        assert result == EXIT_INFRA
+
+
+# ---------------------------------------------------------------------------
+# WR-05: SEED proposal upsert resets 'applied' -> 'pending'
+# ---------------------------------------------------------------------------
+
+
+class TestPremarkProposalUpsertResetApplied:
+    """WR-05: The SEED proposal insert must use ON CONFLICT DO UPDATE SET status='pending'."""
+
+    SEED = "vietnamese restaurants in Outer Sunset San Francisco"
+    MINI_CATALOG = [
+        "vietnamese restaurants in Outer Sunset San Francisco",
+        "pho restaurants in San Francisco",
+    ]
+
+    @patch("scripts.ingest_places_sf.build_seed_queries")
+    def test_proposal_insert_has_do_update_not_do_nothing(self, mock_bsq):
+        """The SEED proposal INSERT must have ON CONFLICT DO UPDATE SET status='pending'."""
+        mock_bsq.return_value = self.MINI_CATALOG
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.__enter__ = lambda s: s
+        mock_cur.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value = mock_cur
+        mock_cur.fetchone.return_value = (0,)
+        mock_cur.fetchall.return_value = []
+
+        executed_sqls: list[str] = []
+
+        def capture_execute(sql, params=None):
+            executed_sqls.append(sql)
+
+        mock_cur.execute.side_effect = capture_execute
+
+        lf.premark_seed_isolation(mock_conn, self.SEED)
+
+        # Find the proposal INSERT SQL
+        proposal_inserts = [
+            s
+            for s in executed_sqls
+            if "places_ingest_query_proposals" in s and "INSERT" in s.upper()
+        ]
+        assert len(proposal_inserts) >= 1, "Expected INSERT into places_ingest_query_proposals"
+
+        # Must NOT be DO NOTHING (which leaves 'applied' status as-is)
+        for sql in proposal_inserts:
+            assert "DO NOTHING" not in sql.upper(), (
+                "SEED proposal INSERT must use ON CONFLICT DO UPDATE SET status='pending', "
+                "not DO NOTHING. DO NOTHING leaves an 'applied' row from a prior run intact, "
+                "causing the next run to skip ingest silently."
+            )
+            # Must reset to pending
+            assert "pending" in sql.lower(), (
+                f"SEED proposal INSERT must set status='pending' on conflict, got: {sql!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# IN-02: compute_hit_rate assertion that len(topk) <= K
+# ---------------------------------------------------------------------------
+
+
+class TestComputeHitRateLengthAssertion:
+    """IN-02: compute_hit_rate should assert len(topk) <= K so truncation is a programming-error guard."""
+
+    def test_topk_within_k_works_normally(self):
+        """Lists of exactly K elements should pass through without error."""
+        from app.loop.falsifier_core import compute_hit_rate  # noqa: PLC0415
+
+        topk = [["id1", "id2", "id3", "id4", "id5"]]  # exactly K=5 elements
+        result = compute_hit_rate(topk, {"id1"})
+        assert result.hit_count == 1
+
+    def test_topk_exceeding_k_raises_assertion(self):
+        """If a list has more than K elements, compute_hit_rate must raise AssertionError."""
+        from app.loop.falsifier_core import compute_hit_rate  # noqa: PLC0415
+
+        topk = [["id1", "id2", "id3", "id4", "id5", "id6"]]  # K+1 = 6 elements
+        with pytest.raises(AssertionError):
+            compute_hit_rate(topk, {"id6"})
