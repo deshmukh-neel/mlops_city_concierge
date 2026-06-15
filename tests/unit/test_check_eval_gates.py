@@ -944,16 +944,21 @@ def test_baselines_mode_hard_gate_regression_exits_1(
     """D-11-15b / main acceptance test: committed gpt-4o-mini baseline below 0.8 exits 1.
 
     This is the synthetic-regression test proving the gate fires.
+    The gpt-4o-mini gate is scoped to omakase_mission_open_ended (D-15-06) — a regression
+    in refinement_cheaper is observational and does not trip the gate; a regression in
+    omakase must trip it.
     """
     baselines_dir = tmp_path / "eval_baselines"
     baselines_dir.mkdir()
 
-    # gpt-4o-mini: 0.4 < 0.8 (active hard gate) → violation
+    # gpt-4o-mini: 0.4 < 0.8 (active hard gate) → violation on omakase (the gated scenario)
     payload = _make_baseline_json(
-        "refinement_cheaper",
+        "omakase_mission_open_ended",
         {"openai/gpt-4o-mini": _baseline_provider_cell(0.4, 5)},
     )
-    (baselines_dir / "refinement_cheaper.json").write_text(json.dumps(payload), encoding="utf-8")
+    (baselines_dir / "omakase_mission_open_ended.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
 
     gates_file = REPO_ROOT / "configs" / "eval_gates.yaml"
     rc = script.main(
