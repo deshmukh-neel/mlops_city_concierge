@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 15
 status: executing
-last_updated: "2026-06-14T23:28:11.376Z"
-last_activity: 2026-06-14
+last_updated: "2026-06-15T01:44:41.076Z"
+last_activity: 2026-06-15
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 24
-  completed_plans: 21
+  completed_plans: 22
   percent: 75
 ---
 
@@ -32,11 +32,11 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 ## Current Position
 
 Phase: 15 (gate-promotion-baseline-regen) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
-Last activity: 2026-06-14
+Last activity: 2026-06-15
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 92%
 
 ## Blockers / Readiness Notes
 
@@ -67,7 +67,7 @@ Progress: [█████████░] 88%
 
 ## Session Continuity
 
-Last session: 2026-06-14T23:28:11.368Z
+Last session: 2026-06-15T01:44:41.070Z
 Stopped at: Phase 15 context gathered
 Resume file: None
 Next step: `/gsd-plan-phase 12`
@@ -92,6 +92,7 @@ Next step: `/gsd-plan-phase 12`
 | Phase 14 P03 | 10min | 2 tasks | 1 files |
 | Phase 14 P14-04 | 95min | 3 tasks | 1 files |
 | Phase 14 P14-05 | 15min | 3 tasks | 3 files |
+| Phase 15 P02 | 6960 | 2 tasks | 1 files |
 
 ## Decisions
 

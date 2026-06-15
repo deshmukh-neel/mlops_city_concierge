@@ -169,7 +169,7 @@
 
 **Wave 2** *(live runs — checkpoint, real API spend, <=4-run cap)*
 
-- [ ] 15-02-PLAN.md — Run #1 A2 retest (FORCED_COMMIT_STEP=6, experiment) + Run #2 flag-off prod-config (baseline source), smoke-first, anchor non-regression on both
+- [x] 15-02-PLAN.md — Run #1 A2 retest (FORCED_COMMIT_STEP=6, experiment) + Run #2 flag-off prod-config (baseline source), smoke-first, anchor non-regression on both
 
 **Wave 3** *(gate promotion + baselines-last + latency — autonomous, reads produced artifacts)*
 
@@ -197,7 +197,7 @@
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 15. Gate Promotion + Baseline Regen | v2.2 | 1/4 | In Progress|  |
+| 15. Gate Promotion + Baseline Regen | v2.2 | 2/4 | In Progress|  |
 
 ---
 

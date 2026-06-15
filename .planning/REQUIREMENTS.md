@@ -93,8 +93,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEC-05 | Phase 13 | Complete — honest null result; no arm cleared INST-05 bar; docs/decisiveness_arm_verdicts.md closing verdict: Phase 14 entry gate OPEN |
 | REPLAY-01 | Phase 14 | Complete — R1 (multi-message replay) measured at n=5: gpt-5-mini 0.500 (delta vs A2 = ±0.000); no arm cleared INST-05 bar; docs/replay_arm_verdicts.md is the canonical record |
 | REPLAY-02 | Phase 14 | Complete — R2 (content-block preservation) measured at n=5: NEGATIVE (gpt-5-mini 10/10 provider 400s; str() collapse was load-bearing); docs/replay_arm_verdicts.md is the canonical record |
-| PROMO-01 | Phase 15 | Pending |
-| PROMO-02 | Phase 15 | Pending |
+| PROMO-01 | Phase 15 | Pending (blocked — anchor regression on gpt-4o-mini/refinement_cheaper halts regen; Plan 03) |
+| PROMO-02 | Phase 15 | Pending (Plan 03/04) |
 | PROMO-03 | Phase 15 | Pending |
 | ANCH-01 | None (deferred 2026-06-11, future) | Deferred |
 | PROD-01 | None (future milestone) | Deferred |
