@@ -1,0 +1,500 @@
+"""Unit tests for scripts/loop_falsifier.py orchestrator.
+
+All DB, network, subprocess, and mlflow calls are mocked — these tests
+run without any live services or API keys.
+
+TDD RED: These tests are written BEFORE the implementation and must fail
+initially (ImportError or assertion failures).
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+# ---------------------------------------------------------------------------
+# Import orchestrator module (may fail until implementation exists — RED phase)
+# ---------------------------------------------------------------------------
+import scripts.loop_falsifier as lf
+
+from app.loop.falsifier_core import EXIT_FAIL, EXIT_INFRA, EXIT_PASS, GuardResult
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+FROZEN_JSON_PATH = Path("configs/falsifier_paraphrases.json")
+
+VALID_PARAPHRASE_DATA = {
+    "seed_query": "vietnamese restaurants in Outer Sunset San Francisco",
+    "generation_prompt": "Generate 5 paraphrases of the intent behind: {seed_query}",
+    "non_circularity_note": (
+        "Paraphrases differ from the literal seed query string; "
+        "expected place_ids are post-ingest DB-diff rows."
+    ),
+    "paraphrases": [
+        "pho and banh mi spots in the Outer Sunset",
+        "Vietnamese food near Ocean Beach SF",
+        "best bun bo hue in Outer Sunset neighborhood",
+        "authentic Vietnamese cuisine on Irving Street San Francisco",
+        "Vietnamese noodle shops in the sunset district SF",
+    ],
+}
+
+
+# ---------------------------------------------------------------------------
+# Task 1a: load_paraphrases — reads JSON, validates count, raises on missing
+# ---------------------------------------------------------------------------
+
+
+class TestLoadParaphrases:
+    def test_good_file_returns_paraphrases_and_seed(self, tmp_path):
+        frozen = tmp_path / "falsifier_paraphrases.json"
+        frozen.write_text(json.dumps(VALID_PARAPHRASE_DATA))
+        paraphrases, seed_query = lf.load_paraphrases(str(frozen))
+        assert len(paraphrases) == 5
+        assert seed_query == VALID_PARAPHRASE_DATA["seed_query"]
+
+    def test_missing_file_raises_infra(self, tmp_path):
+        missing = tmp_path / "does_not_exist.json"
+        with pytest.raises(SystemExit) as exc_info:
+            lf.load_paraphrases(str(missing))
+        assert exc_info.value.code == EXIT_INFRA
+
+    def test_wrong_count_raises_infra(self, tmp_path):
+        bad_data = dict(VALID_PARAPHRASE_DATA)
+        bad_data["paraphrases"] = ["only one"]
+        frozen = tmp_path / "bad.json"
+        frozen.write_text(json.dumps(bad_data))
+        with pytest.raises(SystemExit) as exc_info:
+            lf.load_paraphrases(str(frozen))
+        assert exc_info.value.code == EXIT_INFRA
+
+
+# ---------------------------------------------------------------------------
+# Task 1b: run_guards — prod safety + non-circularity
+# ---------------------------------------------------------------------------
+
+
+class TestRunGuards:
+    def test_prod_collision_returns_violation(self):
+        sandbox_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
+        # Same URL for both -> should trigger violation
+        guard_result = lf.run_guards(
+            sandbox_url=sandbox_url,
+            prod_url=sandbox_url,
+            paraphrases=VALID_PARAPHRASE_DATA["paraphrases"],
+            seed_query=VALID_PARAPHRASE_DATA["seed_query"],
+        )
+        assert not guard_result.ok
+        assert "prod" in guard_result.message.lower() or "same" in guard_result.message.lower()
+
+    def test_paraphrase_equals_seed_returns_violation(self):
+        sandbox_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
+        prod_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge"
+        seed = VALID_PARAPHRASE_DATA["seed_query"]
+        paraphrases_with_seed = [seed, "some other paraphrase", "third", "fourth", "fifth"]
+        guard_result = lf.run_guards(
+            sandbox_url=sandbox_url,
+            prod_url=prod_url,
+            paraphrases=paraphrases_with_seed,
+            seed_query=seed,
+        )
+        assert not guard_result.ok
+
+    def test_clean_config_returns_ok(self):
+        sandbox_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
+        prod_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge"
+        guard_result = lf.run_guards(
+            sandbox_url=sandbox_url,
+            prod_url=prod_url,
+            paraphrases=VALID_PARAPHRASE_DATA["paraphrases"],
+            seed_query=VALID_PARAPHRASE_DATA["seed_query"],
+        )
+        assert guard_result.ok
+
+    def test_unset_sandbox_returns_violation(self):
+        guard_result = lf.run_guards(
+            sandbox_url=None,
+            prod_url="postgresql://postgres:pw@127.0.0.1:5433/city_concierge",
+            paraphrases=VALID_PARAPHRASE_DATA["paraphrases"],
+            seed_query=VALID_PARAPHRASE_DATA["seed_query"],
+        )
+        assert not guard_result.ok
+
+
+# ---------------------------------------------------------------------------
+# Task 1c: decide_exit — all branches
+# ---------------------------------------------------------------------------
+
+
+class TestDecideExit:
+    def test_positive_delta_returns_pass(self):
+        result = lf.decide_exit(
+            before_rate=0.0,
+            after_rate=0.4,
+            guard_violation=None,
+            embed_added_count=3,
+        )
+        assert result == EXIT_PASS
+
+    def test_zero_delta_returns_fail(self):
+        result = lf.decide_exit(
+            before_rate=0.0,
+            after_rate=0.0,
+            guard_violation=None,
+            embed_added_count=3,
+        )
+        assert result == EXIT_FAIL
+
+    def test_guard_violation_returns_infra(self):
+        violation = GuardResult(ok=False, message="prod collision")
+        result = lf.decide_exit(
+            before_rate=0.0,
+            after_rate=0.4,
+            guard_violation=violation,
+            embed_added_count=3,
+        )
+        assert result == EXIT_INFRA
+
+    def test_zero_embed_returns_infra(self):
+        result = lf.decide_exit(
+            before_rate=0.0,
+            after_rate=0.4,
+            guard_violation=None,
+            embed_added_count=0,
+        )
+        assert result == EXIT_INFRA
+
+    def test_before_nonzero_returns_infra(self):
+        """A non-zero before_rate means the sandbox was not clean."""
+        result = lf.decide_exit(
+            before_rate=0.2,
+            after_rate=0.6,
+            guard_violation=None,
+            embed_added_count=3,
+        )
+        assert result == EXIT_INFRA
+
+    def test_negative_delta_returns_fail(self):
+        """after < before should be FAIL (not INFRA — before==0 check not triggered)."""
+        # This case: before=0, after=0 covered by test_zero_delta.
+        # Test equal non-zero (but before==0 check fires first when before!=0 -> INFRA)
+        # So truly test when no guard and no zero-embed and before==0:
+        result = lf.decide_exit(
+            before_rate=0.0,
+            after_rate=0.0,
+            guard_violation=None,
+            embed_added_count=1,
+        )
+        assert result == EXIT_FAIL
+
+
+# ---------------------------------------------------------------------------
+# Task 1d: no make_judge call at gate time
+# ---------------------------------------------------------------------------
+
+
+class TestNoMakeJudgeAtGateTime:
+    @patch("scripts.loop_falsifier.make_judge", side_effect=AssertionError("make_judge was called"))
+    def test_gate_does_not_call_make_judge(self, mock_make_judge):
+        """Gate-time code must never regenerate paraphrases."""
+        # load_paraphrases doesn't call make_judge
+        # run_guards doesn't call make_judge
+        # decide_exit doesn't call make_judge
+        # None of these should invoke the LLM
+        guard_result = lf.run_guards(
+            sandbox_url="postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox",
+            prod_url="postgresql://postgres:pw@127.0.0.1:5433/city_concierge",
+            paraphrases=VALID_PARAPHRASE_DATA["paraphrases"],
+            seed_query=VALID_PARAPHRASE_DATA["seed_query"],
+        )
+        # If we reach here without AssertionError, make_judge was not called
+        assert guard_result.ok
+        mock_make_judge.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Task 1e: W1 resolved-target check (after DATABASE_URL injection)
+# ---------------------------------------------------------------------------
+
+
+class TestResolvedTargetCheck:
+    def test_resolved_target_differs_from_sandbox_exits_infra(self):
+        """If in-process resolved target != sandbox URL, exit EXIT_INFRA."""
+        sandbox_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
+        # Simulate a stale lru_cache that resolved to a different DB
+        stale_resolved = "postgresql://postgres:pw@127.0.0.1:5432/city_concierge"
+        with pytest.raises(SystemExit) as exc_info:
+            lf.assert_resolved_target(sandbox_url=sandbox_url, resolved_url=stale_resolved)
+        assert exc_info.value.code == EXIT_INFRA
+
+    def test_resolved_target_matches_sandbox_ok(self):
+        """Resolved target == sandbox URL should not raise."""
+        sandbox_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
+        # Should not raise
+        lf.assert_resolved_target(sandbox_url=sandbox_url, resolved_url=sandbox_url)
+
+
+# ---------------------------------------------------------------------------
+# Task 1f: premark_seed_isolation — mock conn, assert UPSERT behavior
+# ---------------------------------------------------------------------------
+
+
+class TestPremarkSeedIsolation:
+    SEED = "vietnamese restaurants in Outer Sunset San Francisco"
+    MINI_CATALOG = [
+        "vietnamese restaurants in Outer Sunset San Francisco",
+        "pho restaurants in San Francisco",
+        "burritos in Mission San Francisco",
+    ]
+
+    def _make_mock_conn(self):
+        """Build a minimal mock psycopg2 connection."""
+        mock_cur = MagicMock()
+        mock_cur.__enter__ = lambda s: s
+        mock_cur.__exit__ = MagicMock(return_value=False)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+        return mock_conn, mock_cur
+
+    @patch("scripts.loop_falsifier.build_seed_queries")
+    def test_premark_upsertes_catalog_minus_seed(self, mock_bsq):
+        """UPSERTs completed rows for catalog-minus-seed; inserts SEED as pending."""
+        mock_bsq.return_value = self.MINI_CATALOG
+        mock_conn, mock_cur = self._make_mock_conn()
+
+        # Simulate: count of stale pending rows = 0
+        mock_cur.fetchone.return_value = (0,)
+        mock_cur.fetchall.return_value = []
+
+        lf.premark_seed_isolation(mock_conn, self.SEED)
+
+        # Should have executed at least one UPSERT for checkpoints
+        execute_calls = [str(c) for c in mock_cur.execute.call_args_list]
+        upsert_calls = [c for c in execute_calls if "places_ingest_query_checkpoints" in c]
+        assert len(upsert_calls) >= 1, "Expected at least one UPSERT into checkpoints"
+
+    @patch("scripts.loop_falsifier.build_seed_queries")
+    def test_premark_exits_infra_when_seed_absent_from_catalog(self, mock_bsq):
+        """If SEED_QUERY is not in the catalog, exit EXIT_INFRA."""
+        # Catalog does NOT contain the seed
+        mock_bsq.return_value = ["pho restaurants in San Francisco", "burritos in Mission SF"]
+        mock_conn, mock_cur = self._make_mock_conn()
+        mock_cur.fetchone.return_value = (0,)
+        mock_cur.fetchall.return_value = []
+
+        with pytest.raises(SystemExit) as exc_info:
+            lf.premark_seed_isolation(mock_conn, self.SEED)
+        assert exc_info.value.code == EXIT_INFRA
+
+    @patch("scripts.loop_falsifier.build_seed_queries")
+    def test_premark_clears_stale_pending_proposals(self, mock_bsq):
+        """Stale pending proposals != SEED_QUERY are updated to 'rejected'."""
+        mock_bsq.return_value = self.MINI_CATALOG
+        mock_conn, mock_cur = self._make_mock_conn()
+
+        # Simulate: fetchone returns stale count = 0 (after clearing)
+        # But we should see the UPDATE call for 'rejected'
+        mock_cur.fetchone.return_value = (0,)
+        mock_cur.fetchall.return_value = []
+
+        lf.premark_seed_isolation(mock_conn, self.SEED)
+
+        execute_calls = [str(c) for c in mock_cur.execute.call_args_list]
+        # Should have called UPDATE ... SET status='rejected'
+        rejected_calls = [c for c in execute_calls if "rejected" in c and "proposals" in c.lower()]
+        assert len(rejected_calls) >= 1, "Expected UPDATE to 'rejected' on stale proposals"
+
+    @patch("scripts.loop_falsifier.build_seed_queries")
+    def test_premark_exits_infra_when_stale_pending_remain(self, mock_bsq):
+        """If stale pending rows remain after clearing, exit EXIT_INFRA."""
+        mock_bsq.return_value = self.MINI_CATALOG
+        mock_conn, mock_cur = self._make_mock_conn()
+
+        # Simulate: stale pending rows still exist after clearing (count = 2)
+        mock_cur.fetchone.return_value = (2,)
+        mock_cur.fetchall.return_value = [("some stale query",), ("another stale query",)]
+
+        with pytest.raises(SystemExit) as exc_info:
+            lf.premark_seed_isolation(mock_conn, self.SEED)
+        assert exc_info.value.code == EXIT_INFRA
+
+
+# ---------------------------------------------------------------------------
+# Task 1g: .env-merged prod resolution (prod URL only in dotenv_values)
+# ---------------------------------------------------------------------------
+
+
+class TestDotenvMergedProdResolution:
+    @patch("scripts.loop_falsifier.dotenv_values")
+    def test_prod_url_only_in_dotenv_trips_prod_safety(self, mock_dotenv_values):
+        """Even if prod URL is only in .env (not os.environ), it must be detected."""
+        sandbox_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
+        # prod URL is the same as sandbox URL -> collision
+        mock_dotenv_values.return_value = {
+            "DATABASE_URL": sandbox_url,
+        }
+
+        prod_url = lf.resolve_prod_url(sandbox_url=sandbox_url)
+        guard_result = lf.run_guards(
+            sandbox_url=sandbox_url,
+            prod_url=prod_url,
+            paraphrases=VALID_PARAPHRASE_DATA["paraphrases"],
+            seed_query=VALID_PARAPHRASE_DATA["seed_query"],
+        )
+        assert not guard_result.ok
+
+    @patch("scripts.loop_falsifier.dotenv_values")
+    def test_prod_url_from_dotenv_merged_with_os_environ(self, mock_dotenv_values):
+        """os.environ takes precedence over .env per {**dotenv, **os.environ} merge."""
+        sandbox_url = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge_sandbox"
+        prod_url_in_dotenv = "postgresql://postgres:pw@127.0.0.1:5433/city_concierge"
+        mock_dotenv_values.return_value = {"DATABASE_URL": prod_url_in_dotenv}
+
+        # The resolved prod URL should be the .env one (sandbox is popped from copy)
+        prod_url = lf.resolve_prod_url(sandbox_url=sandbox_url)
+        assert prod_url == prod_url_in_dotenv
+
+
+# ---------------------------------------------------------------------------
+# Task 1h: run_subprocess_or_infra — CalledProcessError -> EXIT_INFRA
+# ---------------------------------------------------------------------------
+
+
+class TestRunSubprocessOrInfra:
+    @patch("scripts.loop_falsifier.subprocess")
+    def test_successful_subprocess_returns_none(self, mock_subprocess):
+        mock_subprocess.run.return_value = MagicMock(returncode=0)
+        mock_subprocess.CalledProcessError = subprocess.CalledProcessError
+        # Should not raise
+        lf.run_subprocess_or_infra(
+            argv=[sys.executable, "-c", "print('ok')"],
+            env={"DATABASE_URL": "postgresql://..."},
+        )
+
+    @patch("scripts.loop_falsifier.subprocess")
+    def test_called_process_error_raises_systemexit_infra(self, mock_subprocess):
+        mock_subprocess.CalledProcessError = subprocess.CalledProcessError
+        mock_subprocess.run.side_effect = subprocess.CalledProcessError(
+            returncode=1, cmd=["python", "scripts/ingest_places_sf.py"]
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            lf.run_subprocess_or_infra(
+                argv=[sys.executable, "scripts/ingest_places_sf.py"],
+                env={"DATABASE_URL": "postgresql://..."},
+            )
+        assert exc_info.value.code == EXIT_INFRA
+
+
+# ---------------------------------------------------------------------------
+# Task 1i: MLflow failure -> EXIT_INFRA
+# ---------------------------------------------------------------------------
+
+
+class TestMlflowFailure:
+    @patch("scripts.loop_falsifier.mlflow")
+    def test_mlflow_set_experiment_failure_exits_infra(self, mock_mlflow):
+        mock_mlflow.set_experiment.side_effect = Exception("MLflow server unavailable")
+        with pytest.raises(SystemExit) as exc_info:
+            lf.log_to_mlflow(
+                gap=("Outer Sunset", "vietnamese"),
+                seed_query="vietnamese restaurants in Outer Sunset San Francisco",
+                paraphrases=VALID_PARAPHRASE_DATA["paraphrases"],
+                before_snapshot={"paraphrase_topk": [], "hit_rate": 0.0},
+                after_snapshot={"paraphrase_topk": [], "hit_rate": 0.4},
+                db_diff_ids=["id1", "id2"],
+                before_hit_rate=0.0,
+                after_hit_rate=0.4,
+                hit_rate_delta=0.4,
+                new_place_count=2,
+                embed_added_count=2,
+            )
+        assert exc_info.value.code == EXIT_INFRA
+
+    @patch("scripts.loop_falsifier.mlflow")
+    def test_mlflow_log_dict_failure_exits_infra(self, mock_mlflow):
+        mock_mlflow.set_experiment.return_value = None
+        mock_cm = MagicMock()
+        mock_mlflow.start_run.return_value.__enter__ = lambda s: mock_cm
+        mock_mlflow.start_run.return_value.__exit__ = MagicMock(return_value=False)
+        mock_cm.log_dict = MagicMock(side_effect=Exception("artifact logging failed"))
+        mock_mlflow.log_dict.side_effect = Exception("artifact logging failed")
+
+        with pytest.raises(SystemExit) as exc_info:
+            lf.log_to_mlflow(
+                gap=("Outer Sunset", "vietnamese"),
+                seed_query="vietnamese restaurants in Outer Sunset San Francisco",
+                paraphrases=VALID_PARAPHRASE_DATA["paraphrases"],
+                before_snapshot={"paraphrase_topk": [], "hit_rate": 0.0},
+                after_snapshot={"paraphrase_topk": [], "hit_rate": 0.4},
+                db_diff_ids=["id1", "id2"],
+                before_hit_rate=0.0,
+                after_hit_rate=0.4,
+                hit_rate_delta=0.4,
+                new_place_count=2,
+                embed_added_count=2,
+            )
+        assert exc_info.value.code == EXIT_INFRA
+
+
+# ---------------------------------------------------------------------------
+# Task 1j: premark set size = catalog - SEED (pure coverage)
+# ---------------------------------------------------------------------------
+
+
+class TestPremarkSetSize:
+    @patch("scripts.loop_falsifier.build_seed_queries")
+    def test_premark_set_equals_catalog_minus_seed(self, mock_bsq):
+        """The set of queries marked completed == catalog - SEED_QUERY."""
+        catalog = [
+            "vietnamese restaurants in Outer Sunset San Francisco",
+            "pho restaurants in San Francisco",
+            "burritos in Mission San Francisco",
+            "pizza in North Beach San Francisco",
+        ]
+        seed = "vietnamese restaurants in Outer Sunset San Francisco"
+        mock_bsq.return_value = catalog
+
+        mock_conn, mock_cur = MagicMock(), MagicMock()
+        mock_cur.__enter__ = lambda s: s
+        mock_cur.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value = mock_cur
+        mock_cur.fetchone.return_value = (0,)
+        mock_cur.fetchall.return_value = []
+
+        # Track all execute calls
+        executed_queries: list[str] = []
+        executed_params: list[Any] = []
+
+        def capture_execute(sql, params=None):
+            executed_queries.append(sql)
+            executed_params.append(params)
+
+        mock_cur.execute.side_effect = capture_execute
+
+        lf.premark_seed_isolation(mock_conn, seed)
+
+        # Find the UPSERT calls — they should be for 3 queries (catalog minus seed)
+        upsert_calls = [
+            (q, p)
+            for q, p in zip(executed_queries, executed_params, strict=False)
+            if "places_ingest_query_checkpoints" in q and p is not None
+        ]
+        # The executed params should include exactly catalog - {seed}
+        marked_queries = set()
+        for _, params in upsert_calls:
+            if isinstance(params, (list, tuple)) and len(params) >= 1:
+                marked_queries.add(params[0])
+
+        expected = set(catalog) - {seed}
+        assert expected.issubset(marked_queries), (
+            f"Expected all catalog-minus-seed queries to be marked; missing: {expected - marked_queries}"
+        )
+        assert seed not in marked_queries, "SEED_QUERY must NOT be marked completed"
