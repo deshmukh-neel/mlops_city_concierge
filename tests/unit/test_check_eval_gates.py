@@ -371,18 +371,53 @@ def test_metric_not_in_summary_is_not_evaluable_not_silent_pass(
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
-    script.main([str(summary_file), "--gates-config", str(gates_file)])
-    # Must NOT silently pass (exit 0 without reporting) — must report not-evaluable
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
     captured = capsys.readouterr()
     combined = captured.out + captured.err
-    assert (
-        "not-evaluable" in combined.lower()
-        or "not evaluable" in combined.lower()
-        or "evaluable" in combined.lower()
-    ), f"not-evaluable condition must be reported: out={captured.out!r} err={captured.err!r}"
-    # Not-evaluable is a non-zero exit (not a silent pass) — either 0-with-warning
-    # or 1/2; the key contract is it's REPORTED, not silently pass.
-    # Per plan: "reported (not a silent pass)" — checking the report above is sufficient.
+    assert "evaluable" in combined.lower(), (
+        f"not-evaluable condition must be reported: out={captured.out!r} err={captured.err!r}"
+    )
+    # Codex PR#110 finding A: committed_itinerary_rate is now WIRED, so an ACTIVE
+    # hard gate whose cell exists but lacks the metric must FAIL CLOSED (exit 2),
+    # not vacuously pass (exit 0). The Phase 11 pre-wiring allowance is retired.
+    assert rc == 2, f"active gate with absent hard metric must fail closed (exit 2), got {rc}"
+
+
+def test_active_gate_with_boolean_median_fails_closed(
+    tmp_path: Path,
+    script: ModuleType,
+) -> None:
+    """Codex PR#110 finding B: a boolean median must NOT be coerced to 1.0 and
+    satisfy a >= gate. `_get_metric_value` rejects bool → the metric reads as
+    absent → the active gate is not-evaluable → exit 2 (fail closed)."""
+    gates_file = tmp_path / "eval_gates.yaml"
+    gates_file.write_text(_MINIMAL_GATES_YAML)
+
+    summary = _make_summary(
+        {
+            "openai/gpt-4o-mini": {
+                "scorers": {"committed_itinerary_rate": {"median": True, "mean": True}},
+                "n_scored": 5,
+                "n_errored": 0,
+                "cell_valid": True,
+            },
+        }
+    )
+    summary_file = tmp_path / "summary.json"
+    summary_file.write_text(json.dumps(summary))
+
+    rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
+    assert rc == 2, f"boolean median must not satisfy the gate (expect exit 2), got {rc}"
+
+
+def test_get_metric_value_rejects_bool() -> None:
+    """Unit-level guard for finding B: float(True)==1.0 must not leak through."""
+    from scripts.check_eval_gates import _get_metric_value
+
+    assert _get_metric_value({"scorers": {"m": {"median": True}}}, "m") is None
+    assert _get_metric_value({"scorers": {"m": True}}, "m") is None
+    # real numbers still work
+    assert _get_metric_value({"scorers": {"m": {"median": 0.9}}}, "m") == 0.9
 
 
 # ---------------------------------------------------------------------------

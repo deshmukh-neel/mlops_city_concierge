@@ -232,18 +232,28 @@ def _get_metric_value(cell: dict, metric: str) -> float | None:
     if metric not in scorers:
         return None
     metric_block = scorers[metric]
+
+    def _num(v: object) -> float | None:
+        # Codex PR#110 finding B: bool is a subclass of int — float(True)==1.0
+        # would let a malformed boolean median satisfy a >= gate. Reject it so a
+        # malformed metric surfaces as not-present (caller treats as not-evaluable)
+        # rather than a vacuous pass.
+        if isinstance(v, bool):
+            return None
+        try:
+            return float(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
     if isinstance(metric_block, dict):
         # Prefer median; fall back to mean for robustness.
         if "median" in metric_block:
-            return float(metric_block["median"])
+            return _num(metric_block["median"])
         if "mean" in metric_block:
-            return float(metric_block["mean"])
+            return _num(metric_block["mean"])
         return None
     # Scalar value (less common but handle gracefully)
-    try:
-        return float(metric_block)
-    except (TypeError, ValueError):
-        return None
+    return _num(metric_block)
 
 
 def _evaluate_op(value: float, op: str, threshold: float) -> bool:
@@ -372,16 +382,15 @@ def _check_gate(
 
     if not evaluable:
         # Metric absent from every eligible cell — not-evaluable, not a silent pass.
-        # NOTE: this branch stays non-blocking by design (the Phase 11 pre-wiring
-        # allowance — metrics not yet added must not hard-fail CI). The Codex
-        # finding-1 fail-closed behavior applies only to the SCOPED-CELL-MISSING
-        # case above, which is a misconfiguration, not a pre-wiring gap.
-        note = (
-            f"check_eval_gates: NOT-EVALUABLE — metric '{metric}' absent from cell "
-            f"'{family}' (Phase 11 BASE-01 will wire this metric)"
-        )
+        # Codex PR#110 finding A: the Phase 11 "pre-wiring allowance" (metric not
+        # yet added → non-blocking) is now STALE — committed_itinerary_rate is
+        # wired (eval_gates.yaml header / D-11-02), and it is the only hard-gated
+        # metric. So a HARD-status gate whose metric is absent from a present cell
+        # is a fail-closed infrastructure failure (exit 2), never a vacuous pass.
+        # Non-hard statuses (logged/aspirational) remain non-blocking.
+        note = f"check_eval_gates: NOT-EVALUABLE — metric '{metric}' absent from cell '{family}'"
         print(note)
-        return "not_evaluable"
+        return "not_evaluable_hard" if status in _HARD_STATUSES else "not_evaluable"
 
     # Evaluate the gate against every evaluable scenario — fail-closed on any miss.
     failing_scenarios = [
