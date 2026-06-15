@@ -40,22 +40,45 @@ if [[ -z "${SANDBOX_DATABASE_URL:-}" ]]; then
   exit 1
 fi
 
-# ─── Parse dbname and host from SANDBOX_DATABASE_URL ─────────────────────────
+# ─── Parse dbname from SANDBOX_DATABASE_URL (Python-delegated, WR-06) ────────
+#
+# WR-06: URL parsing is delegated to app.loop.falsifier_core._normalize_url via Python.
+# The prior bash string-slicing parser mis-handled:
+#   - Passwords containing '@' (splits at the wrong '@')
+#   - Cloud SQL ?host= socket URLs (host lives in query string, not netloc)
+# Python's urllib.parse handles both correctly; reusing the same parser as the
+# in-process guard ensures the two guards agree by construction (DRY).
+#
+# The Python call emits three tab-separated fields: dbname, host, cloud_sql_instance
+# (empty string when absent). On failure it prints ERROR to stderr and exits non-zero.
 
-# Strip any query string, then extract everything after the last '/'.
-_url_no_query="${SANDBOX_DATABASE_URL%%\?*}"
-_parsed_dbname="${_url_no_query##*/}"
+_PARSED_FIELDS=$(
+  poetry run python -c "
+import sys, os
+try:
+    from app.loop.falsifier_core import _normalize_url
+    url = os.environ.get('SANDBOX_DATABASE_URL', '')
+    host, port, dbname, instance = _normalize_url(url)
+    print(dbname + '\t' + host + '\t' + instance)
+except Exception as e:
+    print(f'ERROR: could not parse SANDBOX_DATABASE_URL via _normalize_url: {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>&1
+) || {
+  echo "ERROR: Python URL parser failed for SANDBOX_DATABASE_URL." >&2
+  echo "  Ensure poetry and app.loop.falsifier_core are available." >&2
+  exit 1
+}
+
+_parsed_dbname=$(printf '%s' "${_PARSED_FIELDS}" | cut -f1)
+_parsed_host=$(printf '%s' "${_PARSED_FIELDS}" | cut -f2)
+_parsed_instance=$(printf '%s' "${_PARSED_FIELDS}" | cut -f3)
 
 if [[ -z "${_parsed_dbname}" ]]; then
   echo "ERROR: Could not parse dbname from SANDBOX_DATABASE_URL='${SANDBOX_DATABASE_URL}'." >&2
   echo "  Expected format: postgresql://user:pass@host:port/dbname" >&2
   exit 1
 fi
-
-# Extract host (between @ and the next : or /)
-_after_at="${SANDBOX_DATABASE_URL#*@}"
-_host_port="${_after_at%%/*}"
-_parsed_host="${_host_port%%:*}"
 
 # DB_NAME is the canonical variable for this script — every DDL step uses this.
 DB_NAME="${_parsed_dbname}"
@@ -86,71 +109,47 @@ if [[ "${DB_NAME}" != *"${EXPECTED_SUFFIX}"* ]]; then
   exit 1
 fi
 
-# (b) Resolve the prod DATABASE_URL (with .env merged) and compare (host, dbname).
-#     We use dotenv_values(".env") so prod sitting UNEXPORTED in .env is still compared.
-#     If the resolver is unavailable, fail closed.
-PROD_URL=""
+# (b) Resolve prod URL and compare (host, dbname, instance) using Python.
+#     The Python check_prod_safety guard uses the same _normalize_url logic, so
+#     the comparison here is consistent with the in-process guard.  (WR-06 DRY)
 if command -v poetry &>/dev/null; then
-  PROD_URL=$(
+  _GUARD_RESULT=$(
     poetry run python -c "
-import sys
+import sys, os
 try:
     from dotenv import dotenv_values
-    import os
     from app.config import resolve_database_url
+    from app.loop.falsifier_core import check_prod_safety
     env = {**dotenv_values('.env'), **os.environ}
     env.pop('SANDBOX_DATABASE_URL', None)
-    result = resolve_database_url(env) or ''
-    print(result)
+    prod_url = resolve_database_url(env)
+    allow_remote = bool(os.environ.get('SANDBOX_ALLOW_REMOTE'))
+    sandbox_url = os.environ.get('SANDBOX_DATABASE_URL', '')
+    result = check_prod_safety(sandbox_url, prod_url, allow_remote=allow_remote)
+    if result.ok:
+        print('OK')
+    else:
+        print('FAIL:' + result.message)
 except Exception as e:
-    print('', end='')  # empty = fail-closed will trigger
-    import sys
-    print(f'WARN: prod URL resolver raised: {e}', file=sys.stderr)
-" 2>/dev/null || echo ""
-  ) || true
-fi
-
-if [[ -n "${PROD_URL}" ]]; then
-  # Parse host and dbname from prod URL
-  _prod_no_query="${PROD_URL%%\?*}"
-  _prod_dbname="${_prod_no_query##*/}"
-  _prod_after_at="${PROD_URL#*@}"
-  _prod_host_port="${_prod_after_at%%/*}"
-  _prod_host="${_prod_host_port%%:*}"
-
-  if [[ "${_parsed_host}" == "${_prod_host}" && "${DB_NAME}" == "${_prod_dbname}" ]]; then
-    echo "ERROR: Prod-safety guard rejected SANDBOX_DATABASE_URL." >&2
-    echo "  Reason: (host='${_parsed_host}', dbname='${DB_NAME}') matches the resolved prod URL." >&2
-    echo "  SANDBOX_DATABASE_URL must not point at the production database. Aborting." >&2
-    exit 1
-  fi
+    print(f'WARN: prod-safety resolver raised: {e}', file=sys.stderr)
+    print('WARN')
+" 2>/dev/null || echo "WARN"
+  ) || _GUARD_RESULT="WARN"
 else
-  # Resolver unavailable or returned empty — fall back to string-only checks.
-  # Check (a) already passed. Proceed but note the fallback.
+  _GUARD_RESULT="WARN"
+fi
+
+if [[ "${_GUARD_RESULT}" == FAIL:* ]]; then
+  echo "ERROR: Prod-safety guard rejected SANDBOX_DATABASE_URL." >&2
+  echo "  Reason: ${_GUARD_RESULT#FAIL:}" >&2
+  echo "  Aborting — no DDL has been run." >&2
+  exit 1
+elif [[ "${_GUARD_RESULT}" == "WARN" ]]; then
   echo "WARN: Could not resolve prod DATABASE_URL (python/poetry resolver unavailable or .env absent)."
-  echo "      Prod-safety relies on the _sandbox suffix check only. Proceed with caution."
+  echo "      Falling back to dbname suffix check only. Proceed with caution."
 fi
 
-# (c) Reject obvious Cloud SQL / prod hostnames unless SANDBOX_ALLOW_REMOTE=1.
-#     A '/cloudsql/' socket path or a known GCP prod host pattern indicates prod.
-if [[ -z "${SANDBOX_ALLOW_REMOTE:-}" ]]; then
-  if [[ "${SANDBOX_DATABASE_URL}" == */cloudsql/* ]]; then
-    echo "ERROR: Prod-safety guard rejected SANDBOX_DATABASE_URL." >&2
-    echo "  Reason: URL contains '/cloudsql/' (Cloud SQL socket path)." >&2
-    echo "  The sandbox target must be a local Docker container." >&2
-    echo "  Set SANDBOX_ALLOW_REMOTE=1 only if you are intentionally targeting a remote sandbox." >&2
-    exit 1
-  fi
-  # Reject GCP project-style hostnames (e.g. mlops-491820:us-central1:instance)
-  if [[ "${_parsed_host}" == *":"*":"* ]]; then
-    echo "ERROR: Prod-safety guard rejected SANDBOX_DATABASE_URL." >&2
-    echo "  Reason: host '${_parsed_host}' looks like a Cloud SQL instance connection name." >&2
-    echo "  Set SANDBOX_ALLOW_REMOTE=1 only if you are intentionally targeting a remote sandbox." >&2
-    exit 1
-  fi
-fi
-
-echo "Prod-safety guard PASSED: dbname='${DB_NAME}', host='${_parsed_host}' (local Docker)."
+echo "Prod-safety guard PASSED: dbname='${DB_NAME}', host='${_parsed_host}'."
 
 # ─── Step 1: Start the pgvector Docker container ──────────────────────────────
 
