@@ -106,7 +106,9 @@ Extension:
 ```
 
 Row counts will all be 0 — the sandbox starts empty, which is the intended falsifier
-baseline. The loop falsifier's before-snapshot is `hit@k = 0/N` by construction.
+baseline. The loop falsifier's before-snapshot asserts `places_raw` and
+`place_embeddings_v2` are both empty in-process before probing — `hit@k = 0/N` is a
+verified result, not assumed from construction.
 
 ## Verifying the Provisioned Sandbox
 

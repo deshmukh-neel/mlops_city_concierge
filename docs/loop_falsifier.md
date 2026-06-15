@@ -140,7 +140,9 @@ Watch the staged output:
 1. `[prod-safety] PASS` — prod-safety guard confirmed sandbox != prod.
 2. `[non-circularity] PASS` — no paraphrase is byte-identical to the seed.
 3. `[seed-isolation]` — pre-marked N catalog queries as completed.
-4. `[before-snapshot]` — hit@5 = 0/5 = 0.000 (expected for empty sandbox).
+4. `[before-snapshot]` — hit@5 = 0/5 = 0.000 (verified 0.0: sandbox is empty).
+   The orchestrator asserts `places_raw` and `place_embeddings_v2` are both empty
+   before running any probes. Exit 2 if not.
 5. `[ingest]` — real Google Places `searchText` call for the chosen gap (~1 call).
 6. `[embed-v2]` — embeddings generated for the new places.
 7. `[db-diff]` — small new_place_count (consistent with 1 gap query, NOT thousands).
@@ -211,7 +213,7 @@ Under the `coverage_agent` experiment, each run logs:
 | `before_snapshot.json` | Per-paraphrase top-K lists + hit_rate before ingest |
 | `after_snapshot.json` | Per-paraphrase top-K lists + hit_rate after ingest + embed |
 | `db_diff_place_ids.json` | place_ids present after ingest but absent before |
-| `before_hit_rate` | Metric: 0.0 for empty sandbox (asserted by orchestrator) |
+| `before_hit_rate` | Metric: 0.0 for empty sandbox (verified by in-process row-count assertion before probing) |
 | `after_hit_rate` | Metric: M/N hit rate after ingest |
 | `hit_rate_delta` | Metric: after - before (strictly positive -> PASS) |
 | `new_place_count` | Metric: number of new places_raw rows |
