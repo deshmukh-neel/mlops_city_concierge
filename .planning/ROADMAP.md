@@ -5,7 +5,7 @@
 - ✅ **v1.0 Knowledge Graph** — Phase 1 (shipped 2026-05-14, PR merged into main)
 - ✅ **v2.0 Production Readiness** — Phases 2-6 (shipped 2026-06-03, PR #100 at `14e01dd`) — see [milestones/v2.0-ROADMAP.md](milestones/v2.0-ROADMAP.md)
 - ✅ **v2.1 Reasoning-Model Compat** — Phases 7-11 (shipped 2026-06-11, PRs #103/#105/#106) — see [milestones/v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md)
-- 🚧 **v2.2 Reasoning-Model Decisiveness** — Phases 12-15 (started 2026-06-11)
+- ✅ **v2.2 Reasoning-Model Decisiveness** — Phases 12-15 (closed 2026-06-15; honest null INST-05; gpt-4o-mini anchor ratified; ARCH-FUT-01 deferred) — see [docs/promotion_decision.md](../docs/promotion_decision.md)
 
 ## Phases
 
@@ -44,14 +44,16 @@
 
 </details>
 
-### 🚧 v2.2 Reasoning-Model Decisiveness (In Progress)
+### ✅ v2.2 Reasoning-Model Decisiveness (CLOSED 2026-06-15)
 
 **Milestone Goal:** Make reasoning models decisive on the tool loop — pass gpt-5-mini commit rate ≥ 0.6 at n=5 with no gpt-4o-mini anchor regression, and reduce per-turn latency via decisiveness (step-count).
 
+**Outcome:** Honest null result on INST-05 (no arm cleared gpt-5-mini >= 0.6 across Phases 13/14/15). gpt-4o-mini anchor ratified (omakase median=1.000, gate >= 0.8 holds). ARCH-FUT-01 deferred as tracked technical debt. Canonical record: `docs/promotion_decision.md`.
+
 - [x] **Phase 12: Decisiveness Instrumentation + Comparison Floor** — Per-run telemetry, executable falsifier, and the v2.2 comparison floor confirmed (BOTH anthropic AND gemini cells deferred at user decision — D-12-09; non-deferred cells honest n=5) (completed 2026-06-12)
 - [x] **Phase 13: Decisiveness Experiment Arms** — Four coupled experiment arms (viability contract, forced-commit, critique recalibration, parallel tools) judged jointly against the falsifier (completed 2026-06-12; honest null result — no arm cleared INST-05; Phase 14 entry gate OPEN)
-- [x] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar (completed 2026-06-12; honest plateau — no replay arm cleared INST-05; ARCH-FUT-01 evaluation written; Phase 15 scope is a USER CHECKPOINT)
-- [ ] **Phase 15: Gate Promotion + Baseline Regen** — Winning arm's honest n=5 baselines regenerated, reasoning-model gates promoted from logged-not-gated where data earns it, latency report vs ~30s/turn prod budget
+- [x] **Phase 14: Richer State Replay** — CONDITIONAL: multi-message reasoning-state replay and content-block preservation, entered only if all Phase 13 arms plateau below the falsifier bar (completed 2026-06-12; honest plateau — no replay arm cleared INST-05; ARCH-FUT-01 evaluation written; Phase 15 scope approved at USER CHECKPOINT)
+- [x] **Phase 15: Gate Promotion + Baseline Regen** — A2 retest (FORCED_COMMIT_STEP=6) confirmed 0.500 pooled (honest null); baselines regenerated honest flag-off n=5; gpt-4o-mini gate re-ratified active; gpt-5-mini demoted to logged; latency report written (median 47s omakase, budget NOT met) (completed 2026-06-15)
 
 ## Phase Details
 
@@ -197,8 +199,8 @@
 | 12. Decisiveness Instrumentation + Comparison Floor | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 5/5 | Complete    | 2026-06-12 |
-| 15. Gate Promotion + Baseline Regen | v2.2 | 3/4 | In Progress|  |
+| 15. Gate Promotion + Baseline Regen | v2.2 | 4/4 | Complete | 2026-06-15 |
 
 ---
 
-*Last updated: 2026-06-12 — Phase 14 (Richer State Replay) closed: 5/5 plans complete; all REPLAY arms plateaued below INST-05 bar (R1=0.500, R2=NEGATIVE, R3/valve NOT RUN); ARCH-FUT-01 evaluation written with recommendation to ratify anchor + defer ARCH-FUT-01; Phase 15 scope is USER CHECKPOINT per D-14-08.*
+*Last updated: 2026-06-15 — v2.2 milestone CLOSED. Phase 15 complete (4/4 plans). Honest null INST-05 result (gpt-5-mini 0.500 pooled, below 0.600 bar across all Phase-13/14/15 arms). gpt-4o-mini anchor ratified (omakase median=1.000, gate >= 0.8 holds). ARCH-FUT-01 deferred as tracked debt. Baselines regenerated honest flag-off n=5. Canonical milestone record: docs/promotion_decision.md.*

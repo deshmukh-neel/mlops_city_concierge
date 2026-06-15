@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Reasoning-Model Decisiveness
 current_phase: 15
-status: executing
-last_updated: "2026-06-15T02:04:29.589Z"
+status: complete
+last_updated: "2026-06-15T00:00:00.000Z"
 last_activity: 2026-06-15
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 24
-  completed_plans: 23
-  percent: 75
+  completed_plans: 24
+  percent: 100
 ---
 
 # Project State
@@ -31,12 +31,12 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1)
 
 ## Current Position
 
-Phase: 15 (gate-promotion-baseline-regen) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
+Phase: 15 (gate-promotion-baseline-regen) — COMPLETE
+Plan: 4 of 4 (all plans executed)
+Status: v2.2 milestone CLOSED — 2026-06-15
 Last activity: 2026-06-15
 
-Progress: [██████████] 96%
+Progress: [██████████] 100%
 
 ## Blockers / Readiness Notes
 
@@ -111,3 +111,4 @@ Next step: `/gsd-plan-phase 12`
 - [Phase ?]: R3 NOT RUN: D-14-01 precondition 2 fails — R2 negative (catastrophic 400s), not positive-but-short
 - [Phase ?]: Valve NOT RUN: precondition met but R1 zero-delta vs A2 makes expected marginal signal = 0; A2 retest is Phase 15 scope
 - [Phase ?]: ARCH-FUT-01: ratify gpt-4o-mini anchor; defer ARCH-FUT-01; Phase 15 = A2 retest on fixed synthesizer + refinement_cheaper root cause analysis
+- [Phase 15]: v2.2 CLOSED 2026-06-15: A2 retest (FORCED_COMMIT_STEP=6) confirmed gpt-5-mini 0.500 pooled — INST-05 honest null (no arm cleared 0.600 bar across Phases 13/14/15). Root cause: refinement_cheaper typed-slot viability gate never satisfied (structural, not code bug). gpt-4o-mini anchor RATIFIED (omakase 1.000 flag-off, gate >= 0.8). Baseline provenance corrected (prior refinement_cheaper 1.000 was flag-ON arm artifact; re-baselined to honest 0.000 flag-off). 6 runnable cells written. ARCH-FUT-01 DEFERRED as tracked debt. Prod-default FORCED_COMMIT_STEP=6 flip flagged but NOT implemented (D-15-07). Canonical record: docs/promotion_decision.md.
