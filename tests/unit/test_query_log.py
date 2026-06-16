@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import pytest
+
 from app.query_log import log_user_query
 
 # ---------------------------------------------------------------------------
