@@ -640,6 +640,105 @@ def test_chat_endpoint_alternative_path_falls_through_to_graph(mocker) -> None:
     assert "Mochill" in combined_humans or "find something cheaper" in combined_humans
 
 
+# ─── WR-01: early-return paths must NOT schedule a demand-query log ──────
+#
+# These pin the behavioral contract documented at app/main.py: the
+# _try_accept_path / _decline_path early-returns exit before
+# background_tasks.add_task(log_user_query, ...) is reached, so closure
+# replies are never logged. Both tests install a LOCAL spy that OVERRIDES the
+# autouse `_neutralize_query_log` no-op (tests/conftest.py) — the no-op alone
+# cannot detect a regression, since it swallows every call. With a real spy,
+# `assert_not_called()` fails loudly if a future refactor hoists add_task above
+# the early-return branches (which would also log with extracted_types /
+# num_stops undefined). Same override pattern as
+# test_chat_endpoint_schedules_query_log_with_captured_slots.
+
+
+def test_chat_endpoint_accept_path_does_not_log(mocker) -> None:
+    """Accept early-return exits before add_task → log_user_query NOT scheduled."""
+    fake_graph = mocker.Mock()
+    fake_graph.ainvoke = mocker.AsyncMock(
+        side_effect=AssertionError("graph should not run on accept path")
+    )
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+    # Re-validation of proposed_alternative: re-fetch details + re-check open
+    # (same setup as test_chat_endpoint_accept_path_inserts_proposed_alternative,
+    # so the accept path early-returns rather than escalating to the graph).
+    from app.tools.retrieval import PlaceDetails
+
+    mocker.patch(
+        "app.main.get_details",
+        return_value=PlaceDetails(
+            place_id="ChIJtest_sophies_aaa",
+            name="Sophie's Crepes",
+            source="google_places",
+            similarity=0.0,
+            latitude=37.7849,
+            longitude=-122.4093,
+            primary_type="Dessert Shop",
+            formatted_address="123 Fillmore",
+            regular_opening_hours={
+                "periods": [{"open": {"day": 2, "hour": 10}, "close": {"day": 2, "hour": 22}}]
+            },
+        ),
+    )
+    mocker.patch("app.main._place_is_open_now", return_value=True)
+    mocker.patch("app.main._per_stop_closure_status", return_value=[False, False, False])
+    mocker.patch("app.main._bounded_retime_after_swap", side_effect=lambda stops: stops)
+    mocker.patch("app.main.enrich_stops_with_booking", return_value=None)
+
+    # Override the autouse conftest no-op with a real spy for this test.
+    spy = mocker.patch("app.main.log_user_query")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "yes",
+                "history": [
+                    {"role": "user", "content": "plan a date"},
+                    {"role": "assistant", "content": "The closest open dessert..."},
+                ],
+                "conversation_state": _pending_state(),
+            },
+        )
+
+    assert response.status_code == 200
+    # Accept is an early return — the demand-query log must never be scheduled.
+    spy.assert_not_called()
+
+
+def test_chat_endpoint_decline_path_does_not_log(mocker) -> None:
+    """Decline early-return exits before add_task → log_user_query NOT scheduled."""
+    fake_graph = mocker.Mock()
+    fake_graph.ainvoke = mocker.AsyncMock(
+        side_effect=AssertionError("graph should not run on decline path")
+    )
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    # Override the autouse conftest no-op with a real spy for this test.
+    spy = mocker.patch("app.main.log_user_query")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "message": "no thanks",
+                "conversation_state": _pending_state(),
+            },
+        )
+
+    assert response.status_code == 200
+    # Decline is an early return — the demand-query log must never be scheduled.
+    spy.assert_not_called()
+
+
 # ─── Phase 4 hybrid intake pipeline (D-04-01..D-04-03) ─────────────────
 
 
