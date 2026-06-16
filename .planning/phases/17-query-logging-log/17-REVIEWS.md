@@ -1,17 +1,43 @@
 ---
 phase: 17
 reviewers: [codex]
-reviewed_at: 2026-06-16T08:30:18Z
-review_passes: 2
+reviewed_at: 2026-06-16T09:21:36Z
+review_passes: 3
 plans_reviewed: [17-01-PLAN.md, 17-02-PLAN.md]
 model: codex-cli 0.135.0 (default model)
 ---
 
 # Cross-AI Plan Review — Phase 17 (Query Logging / LOG)
 
-> Two review passes. **Pass 2** (below, codex re-review of the revised plans) is the
-> current verdict: overall risk **LOW**, ready to execute after 2 optional LOW edits.
-> **Pass 1** is retained for provenance — it produced the 5 findings folded in via
+> Three review passes (converged). **Pass 3** (below) is the current verdict: all
+> pass-2 hygiene items ADDRESSED, overall risk **LOW**, **ready to execute** — no
+> material blocker. The single residual latency-wording nit was closed by a one-line
+> edit after pass 3. **Passes 1 & 2** are retained below for provenance.
+
+## Codex Review — Pass 3 (convergence check, 2026-06-16T09:21:36Z)
+
+**Pass-2 Items Disposition**
+
+1. **ADDRESSED** — `17-02` `files_modified` now includes `tests/unit/test_chat_endpoint.py` (`17-02-PLAN.md:7`); Task 3 still edits that file (`:143`).
+2. **ADDRESSED** — `17-01` Task 2 automated `<verify>` now literally runs `poetry run alembic downgrade -1`, asserts `to_regclass('public.user_query_log')` is `None`, then `poetry run alembic upgrade head` and re-checks the 7 columns + index (`17-01-PLAN.md:95`); acceptance criteria require the round-trip in the automated command, not just prose (`:98`).
+3. **ADDRESSED** — `17-02` requires the conftest fixture comment/docstring to contain literal `override` and the verify command greps for it (`17-02-PLAN.md:123`, `:126`). The override mechanism is sound: autouse `monkeypatch.setattr("app.main.log_user_query", ...)` runs before the test body, then the local `mocker.patch("app.main.log_user_query")` wins for the scheduling assertion (`:147`).
+
+**Outstanding / New Concerns**
+
+- **LOW residual wording nit** — `17-02` still said "never blocks or delays the reply" (`17-02-PLAN.md:18`). Starlette background tasks are off response construction/body-send but still consume request-lifecycle/threadpool time. Documentation precision, not a design blocker. *(Closed post-pass-3: the must_haves D-01 truth was reworded to "never blocks the reply on the synchronous response path … consumes background threadpool time only, never response-path latency.")*
+
+**Live-code sanity check** still matches the plan: `/chat` early accept/decline returns before slot extraction (`app/main.py:688`), `extracted_types` at `:724`, inline `num_stops` at `:786`, main response return at `:800`. Single Alembic head confirmed: `e0cd7069bc8f`.
+
+**Execute-Readiness Verdict**
+
+Ready to execute. Overall risk remains **LOW**. The three pass-2 hygiene edits are addressed; no material new blocker found.
+
+---
+
+> Below: earlier passes (provenance).
+>
+> **Pass 2** re-review of the revised plans: overall risk **LOW**, 3 LOW hygiene items
+> (all since folded in). **Pass 1**: the original 5 findings folded in via
 > `/gsd-plan-phase 17 --reviews`.
 
 ## Codex Review — Pass 2 (re-review of revised plans, 2026-06-16T08:30:18Z)
