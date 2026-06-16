@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Adaptive Data Loop
-status: executing
-last_updated: 2026-06-15T23:55:00.000Z
-last_activity: 2026-06-15 -- Phase 16 complete (FALSIFY-01 gate PASSED, hit@5 delta +1.000)
+status: "Phase 16 SHIPPED — PR #111 open (CI running); FALSIFY-01 gate passed (hit@5 delta +1.000)"
+last_updated: "2026-06-16T07:11:30.667Z"
+last_activity: 2026-06-15 -- Phase 16 verified (7/7 must-haves), gate PASSED twice live
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 3
   completed_plans: 3
   percent: 25
-stopped_at: Phase 16 complete; Phases 17-19 (LOG/GAP/LOOP) not yet planned
 ---
 
 # Project State
@@ -64,9 +63,9 @@ Last activity: 2026-06-15 -- Phase 16 verified (7/7 must-haves), gate PASSED twi
 
 ## Session Continuity
 
-Last session: 2026-06-15T23:55:00.000Z
-Stopped at: Phase 16 (Loop Falsifier) executed + verified; FALSIFY-01 gate PASSED. STATE hand-corrected after phase.complete mis-marked the milestone done.
-Resume file: .planning/phases/16-loop-falsifier/16-VERIFICATION.md
+Last session: 2026-06-16T07:11:30.658Z
+Stopped at: Phase 17 context gathered
+Resume file: .planning/phases/17-query-logging-log/17-CONTEXT.md
 Next step: Merge PR #111 when CI green (user merges), then `/gsd-discuss-phase 17` (LOG). v2.3 roadmap rendered.
 
 ## Performance Metrics
