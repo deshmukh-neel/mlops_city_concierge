@@ -33,7 +33,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1, v2.2)
 
 Phase: 16 of 19 (Loop Falsifier) — COMPLETE
 Plan: 3 of 3 complete
-Status: Phase 16 complete; FALSIFY-01 gate passed (hit@5 delta +1.000, exit 0)
+Status: Phase 16 SHIPPED — PR #111 open (CI running); FALSIFY-01 gate passed (hit@5 delta +1.000)
 Last activity: 2026-06-15 -- Phase 16 verified (7/7 must-haves), gate PASSED twice live
 
 ## Blockers / Readiness Notes
@@ -67,7 +67,7 @@ Last activity: 2026-06-15 -- Phase 16 verified (7/7 must-haves), gate PASSED twi
 Last session: 2026-06-15T23:55:00.000Z
 Stopped at: Phase 16 (Loop Falsifier) executed + verified; FALSIFY-01 gate PASSED. STATE hand-corrected after phase.complete mis-marked the milestone done.
 Resume file: .planning/phases/16-loop-falsifier/16-VERIFICATION.md
-Next step: Render v2.3 (Phases 16-19) into ROADMAP.md/MILESTONES.md, then `/gsd-discuss-phase 17` (LOG). Phase 16 itself is complete — do NOT re-execute.
+Next step: Merge PR #111 when CI green (user merges), then `/gsd-discuss-phase 17` (LOG). v2.3 roadmap rendered.
 
 ## Performance Metrics
 
