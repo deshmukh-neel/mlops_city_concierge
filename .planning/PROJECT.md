@@ -18,7 +18,7 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 
 ## Current State
 
-**Active milestone:** v2.3 Adaptive Data Loop (Phases 16-19) — productionizes the `coverage_agent.py` retrieval-gap loop to learn from real USER queries. **Phase 16 (Loop Falsifier) COMPLETE 2026-06-15: FALSIFY-01 hard gate PASSED** (hit@5 delta +1.000, exit 0, against an isolated `city_concierge_sandbox` DB, prod untouched) — the milestone go/no-go is cleared. Phases 17 (LOG), 18 (GAP), 19 (LOOP-01..03 + METRIC) are scoped (see 16-CONTEXT.md) but not yet planned. Next: `/gsd-discuss-phase 17`.
+**Active milestone:** v2.3 Adaptive Data Loop (Phases 16-19) — productionizes the `coverage_agent.py` retrieval-gap loop to learn from real USER queries. **Phase 16 (Loop Falsifier) COMPLETE 2026-06-15: FALSIFY-01 hard gate PASSED** (hit@5 delta +1.000, exit 0, against an isolated `city_concierge_sandbox` DB, prod untouched) — the milestone go/no-go is cleared. **Phase 17 (LOG) COMPLETE 2026-06-16: 9/9 must-haves verified** — `user_query_log` table (Alembic migration chained to head `e0cd7069bc8f`, 7 cols) + fire-and-forget `log_user_query` write path wired into `chat()` via `BackgroundTasks`; full suite green (1516 passed), zero behavior change to the existing loop. Phases 18 (GAP), 19 (LOOP-01..03 + METRIC) are scoped (see 16-CONTEXT.md) but not yet planned. Next: `/gsd-discuss-phase 18`.
 
 **Last shipped milestone:** v2.2 Reasoning-Model Decisiveness (2026-06-15; PR #110 + phase 12-14 branches; 4 phases (12-15), 24 plans, 26 tasks; 188 files changed, +24k/−8.2k vs v2.1). Audit: 17/17 requirements, integration COMPLETE, 6/6 flows, status PASSED — see `milestones/v2.2-MILESTONE-AUDIT.md`.
 
@@ -26,7 +26,7 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 
 **Agent driver:** `openai/gpt-4o-mini` (anchor held commit-rate median 1.0 throughout v2.1 and v2.2). Reasoning-state loss is FIXED (adapters + conformance harness in CI); reasoning-model *decisiveness* is an open architectural question, now bounded by evidence rather than left as a hypothesis.
 
-**v2.3 in flight:** Phase 16 falsified the loop mechanism (it can add places that weren't there and make them retrievable). Remaining v2.3 threads to scope into Phases 17-19: user-query logging to Cloud SQL (LOG, the loop's learning signal), the real demand/supply gap miner (GAP, replaces the hardcoded gap constant), and the productionized ingest→embed→metric loop + hit@k scorer (LOOP/METRIC). Carried-over deferred threads from v2.2 (anthropic/gemini baselines, stale `refinement_cheaper` baseline, ARCH-FUT-01) remain open — see Active requirements + Key Decisions.
+**v2.3 in flight:** Phase 16 falsified the loop mechanism (it can add places that weren't there and make them retrievable). Phase 17 delivered the loop's learning signal: every main-path `/chat` demand query is now logged to Cloud SQL (`user_query_log`) fire-and-forget. Remaining v2.3 threads to scope into Phases 18-19: the real demand/supply gap miner (GAP, mines `user_query_log` to replace the hardcoded gap constant), and the productionized ingest→embed→metric loop + hit@k scorer (LOOP/METRIC). Carried-over deferred threads from v2.2 (anthropic/gemini baselines, stale `refinement_cheaper` baseline, ARCH-FUT-01) remain open — see Active requirements + Key Decisions.
 
 **v2.2 delivered:**
 - Decisiveness instrumentation + executable falsifier: per-run telemetry (steps-to-first-commit-consideration, per-step viable-candidate counts, rule-8 precondition flag) + per-turn latency decomposition; `make eval-falsifier` is a single pass/fail report (Phase 12 / INST-01..05).
@@ -85,6 +85,8 @@ Five live runs against the omakase Mission/Japantown query revealed the next cla
 - ✓ Joint decisiveness experiment arms (viability contract, forced-commit-at-step-N, co-tuned critique recalibration, parallel tool execution) judged at n=5 against the comparison floor — **honest null, no arm cleared the 0.6 bar** — v2.2 Phase 13 (DEC-01..05)
 - ✓ Conditional richer state replay (multi-message `_reasoning_state` replay, content-block preservation), A/B-measured against the DEC plateau — both plateaued; R2 refuted in the breaking direction — v2.2 Phase 14 (REPLAY-01/02)
 - ✓ Gate promotion + honest baseline regen: gpt-4o-mini re-ratified `enforced`, gpt-5-mini demoted to `logged`; 6 runnable cells re-baselined flag-off n=5 with corrected provenance; latency report vs ~30s budget — v2.2 Phase 15 (PROMO-01..03)
+
+- ✓ Query logging (LOG): net-new `user_query_log` table via Alembic migration `d1be72aea7d4` (chained to head `e0cd7069bc8f`, 7 cols, raw message text stored verbatim per D-04 private-capstone posture); fire-and-forget `log_user_query` sync INSERT helper (fail-open, 100% unit coverage) wired into `chat()` via FastAPI `BackgroundTasks`; autouse `_neutralize_query_log` test-isolation fixture + scheduling spy + integration round-trip; zero behavior change — v2.3 Phase 17 (D-01..04)
 
 ### Active (between milestones — scope next via `/gsd-new-milestone`)
 
@@ -160,4 +162,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-15 after v2.2 milestone (Reasoning-Model Decisiveness — honest null result; gpt-4o-mini anchor re-ratified; ARCH-FUT-01 deferred as tracked debt).*
+*Last updated: 2026-06-16 after v2.3 Phase 17 (Query Logging / LOG) — `user_query_log` table + fire-and-forget `/chat` write path shipped, 9/9 must-haves verified. v2.2 milestone (Reasoning-Model Decisiveness) was an honest null; gpt-4o-mini anchor re-ratified; ARCH-FUT-01 deferred as tracked debt.*
