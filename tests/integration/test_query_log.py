@@ -29,6 +29,26 @@ from app.query_log import log_user_query  # noqa: E402
 class TestQueryLogIntegration:
     """Real-DB INSERT round-trip tests for log_user_query."""
 
+    @pytest.fixture(autouse=True)
+    def _table_writable_or_skip(self) -> None:
+        """Skip when user_query_log is absent or the DB role can't write it.
+
+        Mirrors the guard in ``test_build_place_relations.py`` /
+        ``test_coverage_agent.py``: CI integration runs against the shared Cloud
+        SQL instance (which may lag the 17-01 migration) authenticating as an
+        IAM role that may have read-only access. Existence isn't enough — without
+        INSERT/DELETE grants the round-trip hard-errors instead of skipping.
+        """
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.user_query_log')")
+            if cur.fetchone()[0] is None:
+                pytest.skip("user_query_log not migrated on this DB (run `make migrate`)")
+            cur.execute(
+                "SELECT has_table_privilege(current_user, 'user_query_log', 'INSERT, DELETE')"
+            )
+            if not cur.fetchone()[0]:
+                pytest.skip("current DB role lacks INSERT/DELETE on user_query_log")
+
     def test_populated_round_trip(self) -> None:
         """log_user_query inserts a real row that SELECTs back verbatim."""
         session_marker = f"it-marker-{uuid.uuid4()}"
