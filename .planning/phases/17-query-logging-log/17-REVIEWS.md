@@ -1,14 +1,52 @@
 ---
 phase: 17
 reviewers: [codex]
-reviewed_at: 2026-06-16T07:48:53Z
+reviewed_at: 2026-06-16T08:30:18Z
+review_passes: 2
 plans_reviewed: [17-01-PLAN.md, 17-02-PLAN.md]
 model: codex-cli 0.135.0 (default model)
 ---
 
 # Cross-AI Plan Review — Phase 17 (Query Logging / LOG)
 
-## Codex Review
+> Two review passes. **Pass 2** (below, codex re-review of the revised plans) is the
+> current verdict: overall risk **LOW**, ready to execute after 2 optional LOW edits.
+> **Pass 1** is retained for provenance — it produced the 5 findings folded in via
+> `/gsd-plan-phase 17 --reviews`.
+
+## Codex Review — Pass 2 (re-review of revised plans, 2026-06-16T08:30:18Z)
+
+**Prior-Findings Disposition**
+
+1. **PARTIALLY ADDRESSED — BackgroundTasks latency wording.** The plan now says the task runs after response construction (`17-02-PLAN.md:17`, `:122`), which is better. But it still says "never blocks or delays the reply" in multiple places. Starlette background tasks are off the response-construction path, but still run in the request lifecycle and consume worker/threadpool capacity. The revised wording is mostly acceptable, but still too absolute.
+2. **ADDRESSED — existing `/chat` tests accidentally activating the DB pool.** Revised plan adds an autouse `tests/conftest.py` patch for `app.main.log_user_query` (`17-02-PLAN.md:123`). The patch target is correct because `main.py` imports the callable into its own namespace and `chat()` schedules that local name. `get_conn()` lazily opens the pool (`app/db_pool.py:93`) and tests default `DATABASE_URL` to localhost (`tests/conftest.py:25`), so the concern was real. The scheduling-assertion test overrides the autouse no-op via `mocker.patch("app.main.log_user_query")` (`17-02-PLAN.md:153`).
+3. **ADDRESSED — "every query" vs main-path-only.** Now explicitly scoped to "main-path `/chat` demand query" (`17-02-PLAN.md:47`) and excludes accept/decline closure early-returns (`17-02-PLAN.md:122`). Matches live code: accept/decline return before slot extraction (`app/main.py:689`, `:695`), `extracted_types` computed later (`app/main.py:724`).
+4. **ADDRESSED — empty-array coverage.** Now calls out the common `requested_primary_types=[]` case and asserts it binds as `[]`, not `None` (`17-02-PLAN.md:85`, `:92`, `:100`).
+5. **ADDRESSED — `make migration` / autogenerate risk.** Switched to plain `poetry run alembic revision -m "add user_query_log"` and explains why `make migration` is wrong here (`17-01-PLAN.md:60`, `:63`). Verified the repo has a single Alembic head `e0cd7069bc8f`; the Alembic template fills `down_revision` from the resolved head (`alembic/script.py.mako:16`), so the claim is valid.
+
+**Summary**
+
+The revision materially improves both plans. The DB-pool contamination risk is now handled, the main-path-only scope is explicit, the migration generation path is corrected, and the query-log helper has the right failure posture and parameterization tests. No HIGH or MEDIUM blocker. The remaining issues are plan hygiene and verification sharpness, not design flaws.
+
+**New Concerns (all LOW)**
+
+- **LOW — `files_modified` omits a file Task 3 edits.** `17-02` frontmatter lists `app/query_log.py`, `app/main.py`, `tests/conftest.py`, `tests/unit/test_query_log.py`, `tests/integration/test_query_log.py`, but Task 3 modifies `tests/unit/test_chat_endpoint.py` (`17-02-PLAN.md:7`, `:142`). Add it to frontmatter so automation/review scoping doesn't miss it.
+- **LOW — 17-01 automated verify does not execute the downgrade/upgrade round-trip.** Action and acceptance require `alembic downgrade -1` then `alembic upgrade head` (`17-01-PLAN.md:93`, `:102`), but the automated `<verify>` command only runs `make migrate` + schema checks (`17-01-PLAN.md:96`). The plan can pass automated verification without proving reversibility.
+- **LOW — the global autouse patch is intentionally broad.** Acceptable for this phase, and the local spy test can override it. But it will also hide future endpoint-level "real `/chat` writes a DB row" tests unless those tests explicitly override/disable the fixture. Add a short fixture comment making that contract explicit.
+
+**Suggestions**
+
+- Add `tests/unit/test_chat_endpoint.py` to `17-02` frontmatter `files_modified`.
+- Extend the `17-01` automated `<verify>` command to include `poetry run alembic downgrade -1 && poetry run alembic upgrade head`, then rerun the schema check.
+- Consider making the integration test use `requested_primary_types=[]` (or add a second empty-array row) to prove psycopg2/Postgres adaptation for the dominant free-text case in a real DB round-trip.
+
+**Risk Assessment**
+
+Overall risk is now **LOW**. The revised plans are ready to execute after the two small plan edits above. No further design review needed unless the implementation diverges from the main-path-only logging and test-isolation strategy.
+
+---
+
+## Codex Review — Pass 1 (original review, 2026-06-16T07:48:53Z)
 
 **Summary**
 
@@ -66,6 +104,18 @@ Single reviewer (codex) — no cross-reviewer consensus to compute. Codex indepe
 
 None (single reviewer).
 
-### Disposition Note
+### Disposition Note (updated after Pass 2)
 
-All findings are MEDIUM/LOW — none block execution. Concerns 1–3 are the meaningful ones and are all cheaply addressable by replanning. Recommended: incorporate via `/gsd-plan-phase 17 --reviews` (folds the test-isolation task + wording reconciliation + empty-array test + migration-prereq into the plans), then execute.
+**Pass 1** raised 5 findings (3 MEDIUM, 2 LOW). All were folded into the plans via
+`/gsd-plan-phase 17 --reviews`. **Pass 2** re-reviewed the revised plans and confirmed:
+findings 2–5 ADDRESSED, finding 1 (latency wording) PARTIALLY ADDRESSED ("never blocks/delays
+the reply" is still slightly too absolute — wording-only nit, not a design flaw). Overall risk
+dropped MEDIUM → **LOW**; plans are execute-ready.
+
+**Pass 2 left 3 new LOW plan-hygiene items** (none blocking):
+1. Add `tests/unit/test_chat_endpoint.py` to `17-02` `files_modified` (Task 3 edits it but frontmatter omits it).
+2. Extend `17-01` Task 1's automated `<verify>` to actually run `alembic downgrade -1 && alembic upgrade head` (reversibility is in acceptance text but not in the automated command).
+3. Add a one-line comment on the autouse conftest fixture documenting that it suppresses `log_user_query` globally, so a future "real `/chat` writes a row" test knows to override it. (Optional: also give the integration test the empty-array case for real-DB adaptation proof.)
+
+These are cheap and worth doing before execution but do not require another full replan/verify
+cycle — they can be applied as a light `--reviews` pass or fixed inline during execution.
