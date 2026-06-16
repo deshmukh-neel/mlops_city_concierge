@@ -6,6 +6,7 @@
 - ✅ **v2.0 Production Readiness** — Phases 2-6 (shipped 2026-06-03, PR #100 at `14e01dd`) — see [milestones/v2.0-ROADMAP.md](milestones/v2.0-ROADMAP.md)
 - ✅ **v2.1 Reasoning-Model Compat** — Phases 7-11 (shipped 2026-06-11, PRs #103/#105/#106) — see [milestones/v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md)
 - ✅ **v2.2 Reasoning-Model Decisiveness** — Phases 12-15 (closed 2026-06-15; honest null INST-05; gpt-4o-mini anchor ratified; ARCH-FUT-01 deferred) — see [milestones/v2.2-ROADMAP.md](milestones/v2.2-ROADMAP.md)
+- 🚧 **v2.3 Adaptive Data Loop** — Phases 16-19 (active; productionizes the `coverage_agent` loop to learn from real USER queries). Gate: Phase 16 FALSIFY-01 PASSED 2026-06-15 (hit@5 delta +1.000). Phases 17-19 not yet planned.
 
 ## Phases
 
@@ -58,6 +59,20 @@
 
 </details>
 
+<details open>
+<summary>🚧 v2.3 Adaptive Data Loop (Phases 16-19) — ACTIVE</summary>
+
+**Goal:** Productionize the `coverage_agent.py` retrieval-gap loop so it learns from real USER queries (not ingestion hits), gated by a falsifier that proves a positive before→after hit@k delta before the full build. Never writes shared prod `places_raw` — all ingest goes to an isolated sandbox DB.
+
+- [x] Phase 16: Loop Falsifier + Sandbox Provisioning (3/3 plans) — completed 2026-06-15 (FALSIFY-01 + LOOP-00). **Hard gate PASSED: hit@5 delta +1.000 (0/5 → 5/5), exit 0, prod untouched.**
+- [ ] Phase 17: Query Logging (LOG) — log `/chat` user queries to Cloud SQL as the loop's learning signal (foundational requirement; thin-sliced in 16). *Not yet planned.*
+- [ ] Phase 18: Gap Mining (GAP) — real demand/supply gap miner (replaces Phase 16's hardcoded gap constant). *Not yet planned.*
+- [ ] Phase 19: Productionized Loop + Metric (LOOP-01..03 + METRIC) — full Make-targeted ingest→embed→metric loop + productionized hit@k/recall@k scorer. *Not yet planned.*
+
+**Success gate:** FALSIFY-01 (Phase 16) was the milestone go/no-go — a strictly-positive delta proves the loop can add retrievable places. PASSED, so Phases 17-19 are cleared to proceed.
+
+</details>
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -77,7 +92,11 @@
 | 13. Decisiveness Experiment Arms | v2.2 | 10/10 | Complete    | 2026-06-12 |
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 4/4 | Complete    | 2026-06-15 |
+| 16. Loop Falsifier + Sandbox Provisioning | v2.3 | 3/3 | Complete | 2026-06-15 |
+| 17. Query Logging (LOG) | v2.3 | — | Not planned | — |
+| 18. Gap Mining (GAP) | v2.3 | — | Not planned | — |
+| 19. Productionized Loop + Metric | v2.3 | — | Not planned | — |
 
 ---
 
-*Last updated: 2026-06-15 — v2.2 milestone ARCHIVED (full phase details in milestones/v2.2-ROADMAP.md). Honest null INST-05 result; gpt-4o-mini anchor re-ratified; ARCH-FUT-01 deferred. No active milestone — next via `/gsd-new-milestone`.*
+*Last updated: 2026-06-15 — v2.3 Adaptive Data Loop ACTIVE. Phase 16 (Loop Falsifier) COMPLETE — FALSIFY-01 hard gate PASSED (hit@5 delta +1.000). Phases 17-19 (LOG/GAP/LOOP) scoped but not yet planned. Next: `/gsd-discuss-phase 17`. v2.2 archived in milestones/v2.2-ROADMAP.md.*
