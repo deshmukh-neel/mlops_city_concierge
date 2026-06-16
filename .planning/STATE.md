@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Adaptive Data Loop
-status: milestone_complete
-last_updated: 2026-06-16T18:55:56.010Z
+status: "Phase 17 shipped — PR #112"
+last_updated: "2026-06-16T21:28:27.353Z"
 last_activity: 2026-06-16
 progress:
   total_phases: 4
@@ -11,7 +11,6 @@ progress:
   total_plans: 5
   completed_plans: 29
   percent: 50
-stopped_at: Milestone complete (Phase 17 was final phase)
 ---
 
 # Project State
@@ -33,7 +32,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1, v2.2)
 
 Phase: 17
 Plan: Not started
-Status: Milestone complete
+Status: Phase 17 shipped — PR #112
 Last activity: 2026-06-16
 
 ## Blockers / Readiness Notes
