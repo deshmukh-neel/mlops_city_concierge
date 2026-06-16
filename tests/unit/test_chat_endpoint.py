@@ -129,6 +129,11 @@ def test_chat_endpoint_schedules_query_log_with_captured_slots(mocker) -> None:
         # No explicit stop count in message → None
         num_stops=None,
         rag_label="openai:gpt-4o-mini",
+        # WR-03: session_id is now threaded from the in-scope trace_id. In the
+        # test env LANGFUSE_SECRET_KEY is unset so trace_request yields None
+        # (session_id=None), but the value is non-deterministic when a real
+        # Langfuse client exists — match with ANY to pin the kwarg, not the value.
+        session_id=mocker.ANY,
     )
 
 

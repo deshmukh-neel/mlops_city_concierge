@@ -822,6 +822,7 @@ async def chat(
         requested_primary_types=extracted_types,
         num_stops=num_stops,
         rag_label=rag_label,
+        session_id=trace_id,  # cheap per-turn correlation marker (17-CONTEXT D-02)
     )
     return response
 
