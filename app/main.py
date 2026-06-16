@@ -816,6 +816,10 @@ async def chat(
     # early-returns are NOT logged because (a) they are short closure replies
     # with low demand-signal, and (b) extracted_types / num_stops are not yet
     # derived at those exit points (D-02 constraint: pass captured args, not re-derived).
+    # Likewise, requests where graph.ainvoke(...) RAISES are intentionally not
+    # logged: the exception propagates out of the `with trace_request(...)` block
+    # before this add_task is reached, so failed-planner turns are dropped — the
+    # demand signal favors successfully-planned queries (WR-02; D-01/D-02 intent).
     background_tasks.add_task(
         log_user_query,
         message=req.message,
