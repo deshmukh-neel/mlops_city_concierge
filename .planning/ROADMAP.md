@@ -65,7 +65,9 @@
 **Goal:** Productionize the `coverage_agent.py` retrieval-gap loop so it learns from real USER queries (not ingestion hits), gated by a falsifier that proves a positive before→after hit@k delta before the full build. Never writes shared prod `places_raw` — all ingest goes to an isolated sandbox DB.
 
 - [x] Phase 16: Loop Falsifier + Sandbox Provisioning (3/3 plans) — completed 2026-06-15 (FALSIFY-01 + LOOP-00). **Hard gate PASSED: hit@5 delta +1.000 (0/5 → 5/5), exit 0, prod untouched.**
-- [ ] Phase 17: Query Logging (LOG) — log `/chat` user queries to Cloud SQL as the loop's learning signal (foundational requirement; thin-sliced in 16). *Not yet planned.*
+- [ ] Phase 17: Query Logging (LOG) — log `/chat` user queries to Cloud SQL as the loop's learning signal (foundational requirement; thin-sliced in 16). **2 plans (2 waves) — planned 2026-06-16.**
+  - [ ] 17-01-PLAN.md — create the `user_query_log` table via Alembic (migration + apply + schema verify) [D-02/D-03/D-04]
+  - [ ] 17-02-PLAN.md — fire-and-forget `log_user_query` write fn + BackgroundTasks wiring in `chat()` + unit/integration tests [D-01/D-02/D-04]
 - [ ] Phase 18: Gap Mining (GAP) — real demand/supply gap miner (replaces Phase 16's hardcoded gap constant). *Not yet planned.*
 - [ ] Phase 19: Productionized Loop + Metric (LOOP-01..03 + METRIC) — full Make-targeted ingest→embed→metric loop + productionized hit@k/recall@k scorer. *Not yet planned.*
 
@@ -93,10 +95,10 @@
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 4/4 | Complete    | 2026-06-15 |
 | 16. Loop Falsifier + Sandbox Provisioning | v2.3 | 3/3 | Complete | 2026-06-15 |
-| 17. Query Logging (LOG) | v2.3 | — | Not planned | — |
+| 17. Query Logging (LOG) | v2.3 | 0/2 | Planned | — |
 | 18. Gap Mining (GAP) | v2.3 | — | Not planned | — |
 | 19. Productionized Loop + Metric | v2.3 | — | Not planned | — |
 
 ---
 
-*Last updated: 2026-06-15 — v2.3 Adaptive Data Loop ACTIVE. Phase 16 (Loop Falsifier) COMPLETE — FALSIFY-01 hard gate PASSED (hit@5 delta +1.000). Phases 17-19 (LOG/GAP/LOOP) scoped but not yet planned. Next: `/gsd-discuss-phase 17`. v2.2 archived in milestones/v2.2-ROADMAP.md.*
+*Last updated: 2026-06-15 — v2.3 Adaptive Data Loop ACTIVE. Phase 16 (Loop Falsifier) COMPLETE — FALSIFY-01 hard gate PASSED (hit@5 delta +1.000). Phase 17 (LOG) PLANNED 2026-06-16 (2 plans). Phases 18-19 scoped but not yet planned. Next: `/gsd-discuss-phase 17`. v2.2 archived in milestones/v2.2-ROADMAP.md.*
