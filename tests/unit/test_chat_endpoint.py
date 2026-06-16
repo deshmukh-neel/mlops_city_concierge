@@ -91,6 +91,47 @@ def test_chat_endpoint_returns_reply_places_raglabel(mocker) -> None:
     assert body["places"][0]["place_id"] == "ChIJtest_p1_aaaaaaaa"
 
 
+def test_chat_endpoint_schedules_query_log_with_captured_slots(mocker) -> None:
+    """Proves that chat() schedules log_user_query exactly once with the D-02 captured slots.
+
+    Installs a LOCAL spy via mocker.patch (overrides the autouse conftest no-op),
+    so this test can assert the exact kwargs BackgroundTasks passed — without
+    touching the real DB pool.  TestClient runs BackgroundTasks synchronously
+    before client.post() returns, so the spy is guaranteed called by assertion time.
+    """
+    fake_graph = mocker.Mock()
+
+    async def _ainvoke(state, config=None):
+        return _final_state_dict(reply="Sure, here is your plan.")
+
+    fake_graph.ainvoke = _ainvoke
+    mocker.patch(
+        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+    )
+    mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
+
+    # Override the autouse conftest no-op with a real spy for this test.
+    spy = mocker.patch("app.main.log_user_query")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/chat",
+            json={"message": "find me a great taco spot", "history": []},
+        )
+
+    assert response.status_code == 200
+
+    # BackgroundTasks runs synchronously under TestClient — spy must have been called.
+    spy.assert_called_once_with(
+        message="find me a great taco spot",
+        # Free-text message → has_slot_structure returns False → extracted_types = []
+        requested_primary_types=[],
+        # No explicit stop count in message → None
+        num_stops=None,
+        rag_label="openai:gpt-4o-mini",
+    )
+
+
 def test_chat_endpoint_returns_503_when_agent_unavailable(mocker) -> None:
     mocker.patch(
         "app.main.load_registered_rag_chain",
