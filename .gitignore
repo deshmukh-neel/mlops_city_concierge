@@ -27,6 +27,11 @@ eval_reports/
 !configs/eval_baselines/_snapshots/
 !configs/eval_baselines/_snapshots/*.json
 
+# Committed frozen paraphrases for the loop falsifier gate (Phase 16 Plan 03 / FALSIFY-01).
+# The blanket *.json rule above would catch this, so explicitly re-include it.
+# This file must be committed — it is the frozen, non-regenerating paraphrase set (D-06).
+!configs/falsifier_paraphrases.json
+
 # Committed test fixtures (Phase 8 Plan 05 / REASON-06 / D-08-15). The
 # REASON-06 byte-identity regression baseline lives at
 # tests/unit/fixtures/reason_04_prune_baseline.json — it MUST be committed

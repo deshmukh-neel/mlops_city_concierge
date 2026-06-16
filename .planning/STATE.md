@@ -1,48 +1,48 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.2
-milestone_name: Reasoning-Model Decisiveness
-current_phase: 15
-status: Awaiting next milestone
-last_updated: "2026-06-15T06:22:04.812Z"
-last_activity: 2026-06-15 — Milestone v2.2 completed and archived
+milestone: v2.3
+milestone_name: Adaptive Data Loop
+status: executing
+last_updated: 2026-06-15T23:55:00.000Z
+last_activity: 2026-06-15 -- Phase 16 complete (FALSIFY-01 gate PASSED, hit@5 delta +1.000)
 progress:
   total_phases: 4
-  completed_phases: 4
-  total_plans: 24
-  completed_plans: 24
-  percent: 100
+  completed_phases: 1
+  total_plans: 3
+  completed_plans: 3
+  percent: 25
+stopped_at: Phase 16 complete; Phases 17-19 (LOG/GAP/LOOP) not yet planned
 ---
 
 # Project State
 
 **Project:** City Concierge
 **Initialized:** 2026-05-14
-**Active milestone:** None — v2.2 shipped 2026-06-15; awaiting next milestone
-**Last shipped:** v2.2 Reasoning-Model Decisiveness (Phases 12-15)
+**Active milestone:** v2.3 Adaptive Data Loop (Phases 16-19)
+**Last shipped:** v2.2 Reasoning-Model Decisiveness (Phases 12-15, 2026-06-15)
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-15 after v2.2 milestone)
+See: .planning/PROJECT.md (updated 2026-06-15 after v2.3 scoping)
 See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1, v2.2)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** Planning next milestone (`/gsd-new-milestone`)
+**Current focus:** v2.3 Phase 16 (Loop Falsifier) COMPLETE — FALSIFY-01 hard gate PASSED. Next: Phase 17 (LOG) — not yet planned.
 
 ## Current Position
 
-Phase: Milestone v2.2 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-15 — Milestone v2.2 completed and archived
+Phase: 16 of 19 (Loop Falsifier) — COMPLETE
+Plan: 3 of 3 complete
+Status: Phase 16 SHIPPED — PR #111 open (CI running); FALSIFY-01 gate passed (hit@5 delta +1.000)
+Last activity: 2026-06-15 -- Phase 16 verified (7/7 must-haves), gate PASSED twice live
 
 ## Blockers / Readiness Notes
 
-No active blockers — v2.2 is closed. Open threads to weigh when scoping the next milestone:
-
-- **Reasoning-model decisiveness is confirmed architectural.** v2.2 ran six interventions (four DEC arms + two REPLAY arms); none cleared the INST-05 falsifier bar (best 0.500 vs 0.6). The deferred contingency is ARCH-FUT-01 (replace the LangGraph loop with a custom imperative loop); trigger = the Phases 13-14 evidence chain. Don't re-derive — the verdict docs settle it.
-- **gpt-4o-mini is the ratified prod anchor** (omakase median 1.000 flag-off, gate ≥ 0.8 enforced). gpt-5-mini stays logged-not-gated.
-- **Standing invariants (locked, carry forward):** baselines only via `scripts/write_baselines.py` (D-11-14); all eval judging at n=5, temp=1.0 against Phase-10 honest gates.
+- **FALSIFY-01 PASSED (the v2.3 hard gate).** Phase 16 proved the loop can add places that weren't there and make them retrievable: hit@5 0/5 → 5/5, delta +1.000, exit 0, against an isolated `city_concierge_sandbox` DB; prod untouched. The milestone is cleared to proceed to Phases 17-19. Canonical evidence: `.planning/phases/16-loop-falsifier/16-VERIFICATION.md` + MLflow `coverage_agent` experiment.
+- **Phases 17-19 are NOT yet planned and NOT in ROADMAP.** The v2.3 milestone was started in STATE with Phases 16-19 (LOG=17, GAP=18, LOOP-01..03+METRIC=19 per 16-CONTEXT.md) but only Phase 16 was ever scoped/rendered. ROADMAP.md/MILESTONES.md/PROJECT.md still describe v2.2 as the last milestone — **v2.3 roadmap rendering is outstanding doc work** before Phase 17 can be discussed/planned.
+- **`phase.complete` mis-marked the milestone "complete" (corrected).** Because the ROADMAP had no Phase 17 row, the SDK treated Phase 16 as the final phase and reverted STATE to a v2.2-milestone-complete snapshot. This STATE.md was hand-corrected to reflect v2.3 active / Phase 16 of 4 complete. The phase WORK is genuinely done (verified); only the bookkeeping was wrong.
+- **gpt-4o-mini remains the ratified prod anchor** — no model changes in v2.3 (carried from v2.2).
+- **Sandbox DB invariant:** `SANDBOX_DATABASE_URL` is a SEPARATE Postgres DB (`city_concierge_sandbox`), never the shared prod `places_raw`. The falsifier coerces `DATABASE_URL` at runtime and MUST `get_settings.cache_clear()` + `close_db_pool()` after (lru_cache footgun — see 16-03).
 
 ## Accumulated Context
 
@@ -64,10 +64,10 @@ No active blockers — v2.2 is closed. Open threads to weigh when scoping the ne
 
 ## Session Continuity
 
-Last session: 2026-06-15 — v2.2 milestone completed and archived
-Stopped at: Milestone close (archived, tagged v2.2)
-Resume file: None
-Next step: `/gsd-new-milestone`
+Last session: 2026-06-15T23:55:00.000Z
+Stopped at: Phase 16 (Loop Falsifier) executed + verified; FALSIFY-01 gate PASSED. STATE hand-corrected after phase.complete mis-marked the milestone done.
+Resume file: .planning/phases/16-loop-falsifier/16-VERIFICATION.md
+Next step: Merge PR #111 when CI green (user merges), then `/gsd-discuss-phase 17` (LOG). v2.3 roadmap rendered.
 
 ## Performance Metrics
 
@@ -91,6 +91,7 @@ Next step: `/gsd-new-milestone`
 | Phase 14 P14-05 | 15min | 3 tasks | 3 files |
 | Phase 15 P02 | 6960 | 2 tasks | 1 files |
 | Phase 15 P03 | 513 | 3 tasks | 8 files |
+| Phase 16-loop-falsifier P01 | 12 | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -108,8 +109,11 @@ Next step: `/gsd-new-milestone`
 - [Phase ?]: R3 NOT RUN: D-14-01 precondition 2 fails — R2 negative (catastrophic 400s), not positive-but-short
 - [Phase ?]: Valve NOT RUN: precondition met but R1 zero-delta vs A2 makes expected marginal signal = 0; A2 retest is Phase 15 scope
 - [Phase ?]: ARCH-FUT-01: ratify gpt-4o-mini anchor; defer ARCH-FUT-01; Phase 15 = A2 retest on fixed synthesizer + refinement_cheaper root cause analysis
+- [Phase 16]: v2.3 FALSIFY-01 gate PASSED 2026-06-15: loop falsifier proved before→after hit@5 delta +1.000 (0/5 → 5/5) against isolated sandbox; exit 0; 1 paid Google Places call (seed-isolation), 20 places ingested to sandbox only, prod untouched. Gap = ("Outer Sunset","vietnamese"). Two live bugs found+fixed during execution: (1) settings lru_cache prod-leak (cache_clear+close_db_pool after DATABASE_URL coercion — 3101577/250b93b); (2) code-review CR-01 before-snapshot was 0.0-by-construction, now asserts sandbox emptiness in-process. All 13 code-review findings fixed. Verified 7/7. MLflow under coverage_agent exp 6. Milestone cleared to proceed to Phases 17-19 (NOT yet planned/roadmapped).
 - [Phase 15]: v2.2 CLOSED 2026-06-15: A2 retest (FORCED_COMMIT_STEP=6) confirmed gpt-5-mini 0.500 pooled — INST-05 honest null (no arm cleared 0.600 bar across Phases 13/14/15). Root cause: refinement_cheaper typed-slot viability gate never satisfied (structural, not code bug). gpt-4o-mini anchor RATIFIED (omakase 1.000 flag-off, gate >= 0.8). Baseline provenance corrected (prior refinement_cheaper 1.000 was flag-ON arm artifact; re-baselined to honest 0.000 flag-off). 6 runnable cells written. ARCH-FUT-01 DEFERRED as tracked debt. Prod-default FORCED_COMMIT_STEP=6 flip flagged but NOT implemented (D-15-07). Canonical record: docs/promotion_decision.md.
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Phase 16 (Loop Falsifier) is COMPLETE and verified — FALSIFY-01 gate PASSED. Branch: `gsd/phase-16-loop-falsifier` (13 source commits; ready to PR/merge per your usual flow).
+- Render the v2.3 milestone (Phases 16-19) into ROADMAP.md + MILESTONES.md so tracking tools see Phase 17 as next (the gap that caused phase.complete to mis-mark the milestone).
+- Then `/gsd-discuss-phase 17` (LOG — user-query logging to Cloud SQL, the foundational v2.3 requirement).

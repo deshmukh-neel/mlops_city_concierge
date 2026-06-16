@@ -50,6 +50,15 @@ migrate: ## Run Alembic database migrations
 migration: ## Create a new Alembic migration (usage: make migration MSG="add cities table")
 	$(POETRY_RUN) alembic revision --autogenerate -m "$(MSG)"
 
+.PHONY: sandbox-provision
+sandbox-provision: ## Provision the isolated falsifier sandbox DB (LOOP-00; never prod)
+	@[ -n "$${SANDBOX_DATABASE_URL:-}" ] || { \
+	  echo "ERROR: SANDBOX_DATABASE_URL is not set."; \
+	  echo "  Export it first: export SANDBOX_DATABASE_URL=postgresql://postgres:cityconcierge@127.0.0.1:5433/city_concierge_sandbox"; \
+	  exit 1; \
+	}
+	bash scripts/provision_sandbox.sh
+
 # ─── Ingestion ────────────────────────────────────────────────────────────────
 .PHONY: ingest
 ingest: ## Run the data ingestion pipeline
@@ -207,6 +216,17 @@ snapshot-baselines: ## Snapshot current canonical baselines to _snapshots/ as pr
 	   configs/eval_baselines/_snapshots/refinement_cheaper.pre-phase11.json
 	cp configs/eval_baselines/late_night_closure_cascade.json \
 	   configs/eval_baselines/_snapshots/late_night_closure_cascade.pre-phase11.json
+
+# Phase 16 / FALSIFY-01 / D-08/D-09: loop falsifier gate.
+# Runs the full end-to-end sequence: freeze-check -> prod-safety guard ->
+# seed-isolation pre-mark -> before-snapshot -> real Google Places ingest ->
+# embed-v2 -> DB-diff -> after-snapshot -> strictly-positive hit@k gate.
+# Requires: SANDBOX_DATABASE_URL, GOOGLE_PLACES_API_KEY, OPENAI_API_KEY exported.
+# Exit 0 = PASS; 1 = FAIL (re-scopes milestone); 2 = INFRA error.
+# See docs/loop_falsifier.md for the full runbook.
+.PHONY: loop-falsifier
+loop-falsifier: ## FALSIFY-01: loop falsifier gate — strictly-positive hit@k delta proves the adaptive-data loop works (requires SANDBOX_DATABASE_URL + GOOGLE_PLACES_API_KEY + OPENAI_API_KEY)
+	$(POETRY_RUN) python scripts/loop_falsifier.py
 
 # Phase 12 / INST-05 / D-12-06..08: falsifier report — reads eval artifacts
 # and answers whether gpt-5-mini hit the pooled >= 0.6 committed_itinerary_rate

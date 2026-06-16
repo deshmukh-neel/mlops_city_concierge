@@ -1,0 +1,12 @@
+{
+  "seed_query": "vietnamese restaurants in Outer Sunset San Francisco",
+  "generation_prompt": "Generate exactly 5 distinct rephrasings of the search intent: 'vietnamese restaurants in Outer Sunset San Francisco'. Each rephrasing must express the same intent (finding Vietnamese food in the Outer Sunset neighborhood of SF) but use different words and phrasing. Do NOT repeat the original string. Return only the 5 strings as a JSON array.",
+  "non_circularity_note": "Paraphrases differ from the literal seed query string (exact-string check enforced at gate time). Expected place_ids are post-ingest DB-diff rows — they did not exist before the ingest, so the metric cannot be gamed by pre-existing data.",
+  "paraphrases": [
+    "pho and banh mi spots in the Outer Sunset neighborhood",
+    "Vietnamese food near Ocean Beach in San Francisco",
+    "best Vietnamese noodle shops on Irving Street SF",
+    "authentic pho restaurants in the Sunset District San Francisco",
+    "bun bo hue and com tam spots in Outer Sunset SF"
+  ]
+}
