@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 import mlflow
 import psycopg2
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
@@ -45,6 +45,7 @@ from .config import get_settings, resolve_llm_api_key
 from .db import get_conn, get_db
 from .db_pool import close_db_pool, init_db_pool
 from .observability import langgraph_callbacks, trace_request
+from .query_log import log_user_query
 from .tools.filters import family_of
 from .tools.retrieval import get_details
 
@@ -660,7 +661,9 @@ def _decline_path(
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest, request: Request) -> ChatResponse:
+async def chat(
+    req: ChatRequest, request: Request, background_tasks: BackgroundTasks
+) -> ChatResponse:
     graph = getattr(request.app.state, "agent_graph", None)
     if graph is None:
         raise HTTPException(status_code=503, detail=AGENT_UNAVAILABLE_DETAIL)
@@ -775,6 +778,9 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
                 len(incoming.committed_stops),
             )
 
+        # Hoist num_stops to a local so it can be passed to log_user_query below
+        # (D-02: pass captured slots as args, never re-derive in the background task).
+        num_stops = explicit_num_stops_from_conversation(req.history, req.message)
         state = ItineraryState(
             messages=[
                 *messages_from_history(req.history),
@@ -783,7 +789,7 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
                 HumanMessage(content=req.message),
             ],
             constraints=UserConstraints(
-                num_stops=explicit_num_stops_from_conversation(req.history, req.message),
+                num_stops=num_stops,
                 requested_primary_types=extracted_types,
             ),
             closure_context=incoming.closure_context,
@@ -797,12 +803,27 @@ async def chat(req: ChatRequest, request: Request) -> ChatResponse:
         )
     final_state = raw if isinstance(raw, ItineraryState) else ItineraryState(**raw)
 
-    return ChatResponse(
+    response = ChatResponse(
         reply=final_state.final_reply or "",
         places=state_to_cards(final_state),
         ragLabel=rag_label,
         conversation_state=_build_outbound_state(final_state.closure_context, final_state.stops),
     )
+    # Log the demand query as a fire-and-forget side-channel write (D-01).
+    # Scheduled AFTER the response is built, off the synchronous response path —
+    # runs in BackgroundTasks threadpool and never delays the reply.
+    # Only the main graph path is logged; the _try_accept_path / _decline_path
+    # early-returns are NOT logged because (a) they are short closure replies
+    # with low demand-signal, and (b) extracted_types / num_stops are not yet
+    # derived at those exit points (D-02 constraint: pass captured args, not re-derived).
+    background_tasks.add_task(
+        log_user_query,
+        message=req.message,
+        requested_primary_types=extracted_types,
+        num_stops=num_stops,
+        rag_label=rag_label,
+    )
+    return response
 
 
 @app.post("/predict", response_model=RecommendationResponse)

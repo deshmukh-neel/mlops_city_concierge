@@ -23,6 +23,29 @@ from app.tools.retrieval import PlaceHit
 
 
 @pytest.fixture(autouse=True)
+def _neutralize_query_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Suppress app.main.log_user_query globally in all unit/functional tests.
+
+    The new BackgroundTask scheduled by chat() runs synchronously under
+    TestClient before client.post() returns.  Without this fixture, the
+    no-op spy it installs prevents the BackgroundTask from ever calling the
+    real get_conn() / activating a real ThreadedConnectionPool — closing the
+    known full-suite DB-pool-contamination class (see project memory
+    project_full_suite_db_pool_contamination).
+
+    Contract (document for future contributors): this fixture suppresses
+    app.main.log_user_query so the BackgroundTask never opens a real DB pool
+    in unit/functional tests.  Any future test that needs the REAL write to
+    run (e.g. "real /chat writes a DB row" integration test) MUST override
+    this suppression — either re-patch app.main.log_user_query locally via
+    mocker.patch(...) or use the APP_ENV=integration integration test in
+    tests/integration/test_query_log.py.  The word "override" is intentional:
+    grep -q 'override' tests/conftest.py is a contract check.
+    """
+    monkeypatch.setattr("app.main.log_user_query", lambda **kwargs: None)
+
+
+@pytest.fixture(autouse=True)
 def _patch_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Provide safe defaults for required env vars so unit tests never hit
     real services. setdefault semantics — caller-supplied env wins so
