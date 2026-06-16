@@ -95,7 +95,7 @@
 | 14. Richer State Replay (CONDITIONAL) | v2.2 | 5/5 | Complete    | 2026-06-12 |
 | 15. Gate Promotion + Baseline Regen | v2.2 | 4/4 | Complete    | 2026-06-15 |
 | 16. Loop Falsifier + Sandbox Provisioning | v2.3 | 3/3 | Complete | 2026-06-15 |
-| 17. Query Logging (LOG) | v2.3 | 2/2 | Complete   | 2026-06-16 |
+| 17. Query Logging (LOG) | v2.3 | 2/2 | Complete    | 2026-06-16 |
 | 18. Gap Mining (GAP) | v2.3 | — | Not planned | — |
 | 19. Productionized Loop + Metric | v2.3 | — | Not planned | — |
 
