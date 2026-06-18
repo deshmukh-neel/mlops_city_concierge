@@ -59,6 +59,15 @@ sandbox-provision: ## Provision the isolated falsifier sandbox DB (LOOP-00; neve
 	}
 	bash scripts/provision_sandbox.sh
 
+.PHONY: sandbox-migrate
+sandbox-migrate: ## Apply all migrations to the sandbox DB (SANDBOX_DATABASE_URL)
+	@[ -n "$${SANDBOX_DATABASE_URL:-}" ] || { \
+	  echo "ERROR: SANDBOX_DATABASE_URL is not set."; \
+	  echo "  Export it first: export SANDBOX_DATABASE_URL=postgresql://postgres:cityconcierge@127.0.0.1:5433/city_concierge_sandbox"; \
+	  exit 1; \
+	}
+	DATABASE_URL=$${SANDBOX_DATABASE_URL} $(POETRY_RUN) alembic upgrade head
+
 # ─── Ingestion ────────────────────────────────────────────────────────────────
 .PHONY: ingest
 ingest: ## Run the data ingestion pipeline
