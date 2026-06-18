@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Adaptive Data Loop
 status: executing
-last_updated: "2026-06-18T18:50:00.819Z"
+last_updated: "2026-06-18T19:01:34.080Z"
 last_activity: 2026-06-18
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 50
 ---
 
@@ -31,7 +31,7 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1, v2.2)
 ## Current Position
 
 Phase: 18 (gap-mining-gap) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-06-18
 
@@ -63,10 +63,10 @@ Last activity: 2026-06-18
 
 ## Session Continuity
 
-Last session: 2026-06-18T18:50:00.813Z
-Stopped at: Phase 18 context gathered
+Last session: 2026-06-18T19:01:34.075Z
+Stopped at: Completed 18-03-gap-scoring-cli-PLAN.md
 Resume file: None
-Next step: Merge PR #111 when CI green (user merges), then `/gsd-discuss-phase 17` (LOG). v2.3 roadmap rendered.
+Next step: Execute 18-04-tests-make-docs-PLAN.md (smoke/functional/integration tests + make gap-mine + docs sync).
 
 ## Performance Metrics
 
@@ -94,6 +94,7 @@ Next step: Merge PR #111 when CI green (user merges), then `/gsd-discuss-phase 1
 | Phase 17-query-logging-log P01 | 117 | 2 tasks | 1 files |
 | Phase 18-gap-mining-gap P01 | 20 | 4 tasks | 6 files |
 | Phase 18-gap-mining-gap P02 | 287 | 2 tasks | 2 files |
+| Phase 18-gap-mining-gap P03 | 421 | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -115,6 +116,7 @@ Next step: Merge PR #111 when CI green (user merges), then `/gsd-discuss-phase 1
 - [Phase 15]: v2.2 CLOSED 2026-06-15: A2 retest (FORCED_COMMIT_STEP=6) confirmed gpt-5-mini 0.500 pooled — INST-05 honest null (no arm cleared 0.600 bar across Phases 13/14/15). Root cause: refinement_cheaper typed-slot viability gate never satisfied (structural, not code bug). gpt-4o-mini anchor RATIFIED (omakase 1.000 flag-off, gate >= 0.8). Baseline provenance corrected (prior refinement_cheaper 1.000 was flag-ON arm artifact; re-baselined to honest 0.000 flag-off). 6 runnable cells written. ARCH-FUT-01 DEFERRED as tracked debt. Prod-default FORCED_COMMIT_STEP=6 flip flagged but NOT implemented (D-15-07). Canonical record: docs/promotion_decision.md.
 - [Phase ?]: D-02/D-03/D-04: user_query_log 7-column demand-signal table created; raw-message verbatim store documented; chained to head e0cd7069bc8f; write path deferred to 17-02
 - [Phase ?]: Shared guard module path and H3 pass condition
+- [Phase 18-03]: TRUE pair-level supply (gather_pair_supply) supersedes RESEARCH Open Question #1 per-cuisine resolution; ingested_query_texts filters checkpoints to status='completed' AND normalizes FIELD_MODE:: prefix; sandbox guard runs on SAME conn as insert_pending; cold-start keyed on empty demand (not judge absence)
 
 ## Operator Next Steps
 
