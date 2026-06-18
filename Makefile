@@ -107,6 +107,14 @@ coverage-agent: ## Dry-run the coverage-gap ingestion agent (W5)
 coverage-agent-apply: ## Run the coverage-gap agent and insert proposals (W5)
 	$(POETRY_RUN) python scripts/coverage_agent.py
 
+.PHONY: gap-mine
+gap-mine: ## Mine real demand×supply gaps from user_query_log → pending proposals (GAP); reads sandbox by default or DEMAND_DATABASE_URL when set
+	$(POETRY_RUN) python -c "from scripts.coverage_agent import gap_mine_main; import sys; sys.exit(gap_mine_main())"
+
+.PHONY: gap-mine-dry
+gap-mine-dry: ## Dry-run the demand gap miner (no inserts; reads same source as gap-mine)
+	$(POETRY_RUN) python -c "from scripts.coverage_agent import gap_mine_main; import sys; sys.exit(gap_mine_main(['--dry-run']))"
+
 .PHONY: set-production-alias
 set-production-alias: ## Promote a registered model version to production (usage: make set-production-alias VERSION=42)
 	$(POETRY_RUN) python scripts/set_production_alias.py --version $(VERSION)
