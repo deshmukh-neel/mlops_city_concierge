@@ -436,6 +436,125 @@ def gather_demand(
     return dict(demand_counts), len(rows), unmapped_count
 
 
+@dataclass
+class DemandGap:
+    neighborhood: str
+    cuisine: str
+    place_count: int  # pair-level supply (TRUE pair count from place_query_hits)
+    demand_count: int
+
+
+def gap_to_seed_query(neighborhood: str, cuisine: str) -> str:
+    """Return the exact loop-consumable seed string for a (neighborhood, cuisine) pair.
+
+    Format matches build_seed_queries():
+        "{cuisine} restaurants in {neighborhood} San Francisco"
+
+    Raises AssertionError when either argument is not a catalog member —
+    off-catalog inputs would produce un-ingestable seeds (D-03, T-18-03-SEED).
+    """
+    assert neighborhood in _NEIGHBORHOODS_SET, (
+        f"gap_to_seed_query: {neighborhood!r} is not a catalog neighborhood"
+    )
+    assert cuisine in _CUISINES_SET, f"gap_to_seed_query: {cuisine!r} is not a catalog cuisine"
+    seed = f"{cuisine} restaurants in {neighborhood} San Francisco"
+    # Catalog-membership assertion so every emitted seed is loop-consumable
+    # (premark_seed_isolation membership — D-03).  Evaluated lazily to avoid
+    # importing build_seed_queries at module level on every startup.
+    from scripts.ingest_places_sf import build_seed_queries
+
+    assert seed in set(build_seed_queries()), (
+        f"gap_to_seed_query: emitted seed {seed!r} is not in build_seed_queries() — "
+        "this should never happen for valid catalog inputs"
+    )
+    return seed
+
+
+def gather_pair_supply(pairs: list[tuple[str, str]], conn=None) -> dict[tuple[str, str], int]:
+    """Count DISTINCT places for each (neighborhood, cuisine) pair via place_query_hits.
+
+    For each pair we compute the exact seed query_text (via gap_to_seed_query) and
+    issue ONE parameterised SELECT that counts DISTINCT place_id grouped by query_text.
+    This is TRUE pair-level supply (REVIEW HIGH-1) — it counts places that matched
+    the neighborhood-AND-cuisine seed, so a cuisine present city-wide but absent in
+    the demanded neighborhood's seed returns 0 for that pair.
+
+    Seed strings are passed as a %s param list (NEVER interpolated — T-18-03-SQLi).
+    Never-ingested pairs yield 0 (no rows in place_query_hits for that seed).
+
+    Args:
+        pairs: List of (neighborhood, cuisine) tuples to score.
+        conn: Optional already-open connection; if None, opens a pooled connection.
+
+    Returns:
+        Dict mapping each (neighborhood, cuisine) pair to its place count (0 if absent).
+    """
+    if not pairs:
+        return {}
+
+    # Build seed→pair mapping (catalog-validated)
+    seed_to_pair: dict[str, tuple[str, str]] = {}
+    for n, c in pairs:
+        seed = gap_to_seed_query(n, c)
+        seed_to_pair[seed] = (n, c)
+
+    seed_strings = list(seed_to_pair.keys())
+
+    sql = """
+        SELECT query_text, COUNT(DISTINCT place_id) AS cnt
+        FROM place_query_hits
+        WHERE query_text = ANY(%s)
+        GROUP BY query_text
+    """
+
+    ctx = conn if conn is not None else get_conn()
+    # When conn is provided directly (not a context manager), we need different handling
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, [seed_strings])
+            rows = cur.fetchall()
+    else:
+        with ctx as c2, c2.cursor() as cur:
+            cur.execute(sql, [seed_strings])
+            rows = cur.fetchall()
+
+    # Initialise all pairs to 0 (never-ingested → 0)
+    result: dict[tuple[str, str], int] = {pair: 0 for pair in pairs}
+    for query_text, cnt in rows:
+        pair = seed_to_pair.get(query_text)
+        if pair is not None:
+            result[pair] = int(cnt)
+    return result
+
+
+def find_demand_gaps(
+    demand_counts: dict[tuple[str, str], int],
+    pair_supply: dict[tuple[str, str], int],
+    min_place_count: int = 5,
+) -> list[DemandGap]:
+    """Apply the D-02 filter at TRUE pair level: demand > 0 AND pair supply < floor.
+
+    Returns a list of DemandGap instances sorted by demand_count descending.
+    Pairs with demand == 0 are excluded regardless of supply.
+    Pairs with pair supply >= min_place_count are excluded regardless of demand.
+
+    This implements REVIEW HIGH-1: the supply check is against the PAIR-level count
+    from place_query_hits, NOT the city-wide per-cuisine count — so "Vietnamese
+    everywhere in SF but zero in Outer Sunset" correctly flags (Outer Sunset, vietnamese)
+    as a gap.
+    """
+    gaps: list[DemandGap] = []
+    for pair, demand in demand_counts.items():
+        if demand <= 0:
+            continue
+        supply = pair_supply.get(pair, 0)
+        if supply < min_place_count:
+            neighborhood, cuisine = pair
+            gaps.append(DemandGap(neighborhood, cuisine, supply, demand))
+    gaps.sort(key=lambda g: g.demand_count, reverse=True)
+    return gaps
+
+
 def _format_gap_line(g: CoverageStat) -> str:
     axis, _, name = g.bucket.partition(":")
     return f"- type={axis} name='{name}' place_count={g.place_count}"
