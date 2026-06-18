@@ -590,17 +590,21 @@ def gap_to_seed_query(neighborhood: str, cuisine: str) -> str:
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> Both questions were answered at research time with the recommendations below and are
+> implemented by the plans (18-03-T1 cites "RESEARCH Open Question #1 resolution"; 18-03-T2
+> cites "RESEARCH Open Question #2"). Retained here for provenance.
 
 1. **Exact supply join for neighborhood+cuisine cross-buckets**
    - What we know: `gather_stats` returns `neighborhood:X` and `cuisine:Y` as separate rows, not cross-product rows. There is no `(neighborhood, cuisine)` combined row in the current stats.
    - What's unclear: Should the D-02 supply check use neighborhood supply, cuisine supply, or min(both)? The code example above uses min(both) but this may be wrong — a neighborhood might have many Italian places but zero Vietnamese, and the cuisine bucket might show 0 for Vietnamese overall (all of SF).
-   - Recommendation: Use per-cuisine supply for ranking (covers the "no Vietnamese anywhere in SF" case) AND per-neighborhood for the proposal text. This matches the intent of D-02 ("place_count < min_places" means both axes are thin).
+   - RESOLVED: Use per-cuisine supply for ranking (covers the "no Vietnamese anywhere in SF" case) AND per-neighborhood for the proposal text. This matches the intent of D-02 ("place_count < min_places" means both axes are thin).
 
 2. **`--top-n` cap placement**
    - What we know: CONTEXT.md says `--top-n` caps inserted gaps; the ranked list is by `demand_count` descending.
    - What's unclear: Does `--top-n` cap before or after `filter_already_covered`? Capping before means you might insert 0 if the top N are all already covered.
-   - Recommendation: Apply `--top-n` after `filter_already_covered` (cap the kept proposals list) so you always insert up to N truly-new gaps.
+   - RESOLVED: Apply `--top-n` after `filter_already_covered` (cap the kept proposals list) so you always insert up to N truly-new gaps.
 
 ---
 
