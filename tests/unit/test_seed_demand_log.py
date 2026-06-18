@@ -81,9 +81,8 @@ class TestSeedDemandRows:
 
     def test_cuisine_types_are_catalog_valid(self) -> None:
         """Test 1: every requested_primary_types entry maps to a CUISINES member."""
-        from scripts.seed_demand_log import seed_demand_rows
-
         from scripts.ingest_places_sf import CUISINES
+        from scripts.seed_demand_log import seed_demand_rows
 
         rows = seed_demand_rows()
         for row in rows:
@@ -98,9 +97,8 @@ class TestSeedDemandRows:
 
     def test_message_contains_neighborhood(self) -> None:
         """Test 1: every message contains a NEIGHBORHOODS member."""
-        from scripts.seed_demand_log import seed_demand_rows
-
         from scripts.ingest_places_sf import NEIGHBORHOODS
+        from scripts.seed_demand_log import seed_demand_rows
 
         rows = seed_demand_rows()
         for row in rows:
@@ -230,7 +228,6 @@ class TestInsertDemandRows:
     def test_guard_imported_from_sandbox_guard(self) -> None:
         """Verify assert_sandbox_write_target is imported from scripts.sandbox_guard (MEDIUM-2)."""
         import scripts.seed_demand_log as seed_mod
-
         from scripts.sandbox_guard import assert_sandbox_write_target as canonical_guard
 
         # The module-level attribute must be the canonical guard function
