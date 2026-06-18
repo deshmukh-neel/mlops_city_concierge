@@ -1,8 +1,9 @@
 ---
 phase: 18
 reviewers: [codex]
-review_round: 3
-reviewed_at: 2026-06-18T07:57:12Z
+review_round: 4
+reviewed_at: 2026-06-18T17:07:03Z
+verdict: EXECUTE NOW
 plans_reviewed:
   - 18-01-sandbox-prereqs-PLAN.md
   - 18-02-demand-extraction-PLAN.md
@@ -11,123 +12,90 @@ plans_reviewed:
 prior_rounds:
   - 18-REVIEWS-round1-codex.md
   - 18-REVIEWS-round2-codex.md
+  - 18-REVIEWS-round3-codex.md
 ---
 
-# Cross-AI Plan Review — Phase 18 (Gap Mining) — ROUND 3
+# Cross-AI Plan Review — Phase 18 (Gap Mining) — ROUND 4 (FINAL GATE)
 
-Third review round. Rounds 1-2 found and fixed 4 HIGHs (per-cuisine supply,
-static-catalog dedup, unenforced sandbox write, checkpoint-prefix dedup) + the H3
-env-var hole. This round verifies the round-2 fixes and hunts for anything new.
+Fourth review round, run as an explicit final execute-readiness gate with a high
+bar (do not inflate nitpicks; decisive execute-vs-revise verdict). Rounds 1-3
+found and fixed 5 HIGH + supporting issues; this round checks the round-3 fixes
+and looks for any genuine remaining must-fix.
 
-## Codex Review (round 3)
+**Verdict: EXECUTE NOW. Zero remaining HIGH or MEDIUM findings.**
 
-### Round-2 Fix Verification
+## Codex Review (round 4)
 
-| Item | Verdict | Proof in Plan |
+### Round-3 Fix Verification
+
+| Fix | Verdict | Proving Test |
 |---|---|---|
-| Checkpoint-prefix HIGH | **CONFIRMED**, with one related concern below | `18-03` Task 2 Test 3 requires `all::vietnamese restaurants in Outer Sunset San Francisco` to normalize to the raw seed and dedupe the mined proposal. `split("::", 1)[1]` handles raw queries containing later `::`, no-prefix rows as-is, and all `FIELD_MODE` values equally. |
-| H3 write guard | **CONFIRMED** | `18-01` Task 3 Tests 1-5 require live `SELECT current_database()` and specifically prove a mis-set `SANDBOX_DATABASE_URL` naming prod cannot whitelist prod. `18-01` creates `scripts/sandbox_guard.py`; `18-01` Task 4 and `18-03` Task 2 import that one module. |
-| MEDIUM-1 integration target | **CONFIRMED** | `18-04` Task 2 chooses a catalog pair absent from both existing proposals and `ingested_query_texts(conn)` normalized checkpoint set, or skips. It also forces the gap with high `--min-places`. |
-| MEDIUM-3 judge absence | **CONFIRMED for the intended judge-none semantics** | `18-02` Task 1 Test 4, `18-02` Task 2 Test 8, and `18-03` Task 2 Test 11 prove lexical demand survives `llm=None`; cold-start fires only on empty mappable demand. |
-| LOW env verify | **CONFIRMED** | `18-01` Task 1 verifies `grep -c '^# *DEMAND_DATABASE_URL' .env.example >= 1`, so the documented env var remains commented out by default. |
+| Cuisine-recall HIGH | CONFIRMED | `18-02 Task 1` Tests 2/8 and `18-02 Task 2` Tests 7/8/9 prove empty `requested_primary_types=[]` free-text rows still map cuisine from `message` via `_lexical_cuisines` or batched LLM. `18-04 Task 1 Functional 1` repeats this through `gap_mine_main`. |
+| Checkpoint-status MEDIUM | CONFIRMED | `18-03 Task 2` Tests 3/4 prove completed prefixed checkpoints dedupe, but `incomplete` checkpoints do not. This matches ingest's real `WHERE status = 'completed'` skip logic. |
+| Guard/insert same-connection LOW | CONFIRMED | `18-03 Task 2` Test 5 proves `assert_sandbox_write_target(conn)` and `insert_pending(..., conn=conn)` use the same connection object. Tests 7/8 prove guard failure prevents inserts. |
 
-### New / Remaining Concerns
+### Remaining Concerns
 
-**HIGH: Free-text cuisine demand is still dropped when `requested_primary_types[]` is empty.**
-`18-02` extracts cuisines only from `requested_primary_types[]` and uses the LLM only for neighborhoods. But the app intake prompt explicitly returns `[]` for free-text/no clear slot structure (`app/main.py:72`), so real rows like "vietnamese restaurants in Outer Sunset" can have an empty type list. Those rows would map neighborhood but no cuisine, increment `unmapped_count`, and never become demand gaps. This undercuts GAP-01's core "real demand" purpose. Minimal fix: add message-level cuisine fallback, preferably lexical CUISINES scan first, then batched LLM for unresolved cuisines, with tests for `requested_primary_types=[]`.
+No remaining HIGH or MEDIUM findings.
 
-**MEDIUM: `ingested_query_texts` should filter checkpoints to completed only.**
-The plans repeatedly say "completed checkpoint set," and ingest skips only completed checkpoints via `get_completed_queries(... WHERE status = 'completed')` (`scripts/ingest_places_sf.py:487`, `:738`). But `18-03` Task 2's action says select all rows from `places_ingest_query_checkpoints`. That can falsely suppress a proposal for an incomplete/budget-stopped query that ingest would retry. Minimal fix: `WHERE status = 'completed'` plus a regression test that an `incomplete` prefixed checkpoint does **not** dedupe the raw mined proposal.
+**LOW:** Cartesian pairing can overcount noisy demand for messages like "sushi in Mission and tacos in Outer Sunset," producing false pairs. For this phase, that is acceptable because the output is a demand-count ranking signal, catalog-constrained, supply-gated, and deduped before insert. It is not a correctness/safety blocker.
 
-**LOW: Guard and insert are not literally the same connection in `gap_mine_main`.**
-Literal `18-03` calls `assert_sandbox_write_target()` and then `insert_pending(...)`; existing `insert_pending` opens its own pooled connection (`scripts/coverage_agent.py:236`). This is not a prod-whitelist bug because both borrow from the same pool target, and `ON CONFLICT` handles races, but it does not meet the strict wording "actual write connection." Cleaner: let `insert_pending` accept `conn=None`, call guard on that same `conn`, then insert on it.
+**LOW:** `_extract_demand_batch` exception behavior is not explicitly tested. If `llm.invoke()` raises, the run should fail before writes, so there is no partial-write hazard. During execution, add a small `try/except` to degrade LLM-miss rows to unmapped while preserving lexical rows.
 
 ### Strengths
 
-The main round-1/round-2 structural fixes are solid: true pair-level supply from `place_query_hits`, exact seed-format emission, catalog assertion before proposal creation, dedup split from the static catalog, checkpoint-prefix normalization, `--top-n` after dedup, and a real test pyramid. Wave ordering is sound: `scripts/sandbox_guard.py` is created in wave 0 and imported in wave 2, with no same-wave ownership conflict.
+The recurring ingest-contract class is now well covered: static catalog is not used for demand dedup, checkpoint prefixes are normalized, checkpoint status matches ingest skip logic, and proposal writes are sandbox-guarded on the same connection.
+
+Pair-level supply via `place_query_hits.query_text` is the right correction. It catches the real gap class: cuisine exists city-wide but not for the demanded neighborhood seed.
 
 ### Execute-Readiness Verdict
 
-**Risk: HIGH. Recommendation: REVISE before execution.**
+**EXECUTE NOW.**
 
-Minimal must-fix list:
-1. Add cuisine extraction from `message` when `requested_primary_types[]` maps to no CUISINES.
-2. Restrict `ingested_query_texts` checkpoint dedup to `status='completed'`.
-3. Prefer passing one write connection through guard + insert, or explicitly document/test the same-pool invariant.
+The plans are sound. Remaining items are LOW implementation polish and can be handled during execution without another revision round.
 
 ---
 
-## Consensus Summary (orchestrator, round 3)
+## Consensus Summary (orchestrator, round 4 — FINAL)
 
-Single external reviewer (Codex). All five round-2 fixes independently CONFIRMED.
-The orchestrator verified the two new findings against live source before recording.
+Single external reviewer (Codex). All three round-3 fixes CONFIRMED. **Zero HIGH or
+MEDIUM findings remain. Verdict: EXECUTE NOW.** No code re-verification was needed
+this round — there were no HIGH/MEDIUM claims to ground-check, only two honestly-
+classified LOW polish items.
 
-### Verified against code (orchestrator)
+### Review arc (4 rounds)
 
-- **NEW HIGH (free-text cuisine dropped) — CONFIRMED, real recall gap.**
-  - `app/main.py` slot-intake prompt (~line 77): *"If the message is free-text or
-    has no clear slot structure, return []."* So `requested_primary_types[]` is
-    legitimately empty for exactly the conversational queries the miner most wants.
-  - The round-2 plan (18-02 line 17, `_types_to_cuisines` at line 92) maps cuisine
-    **only** from `requested_primary_types[]` — there is a lexical→LLM two-tier for
-    NEIGHBORHOODS but **no equivalent tier for CUISINE**. The asymmetry is the bug:
-    a row like "vietnamese restaurants in Outer Sunset" with empty types maps the
-    neighborhood, gets no cuisine, lands in `unmapped_count`, and never becomes a
-    gap. That directly undercuts GAP-01 ("real demand"). Rounds 1-2 (and my own
-    reviews) missed it because they focused on dedup/supply/safety mechanics, not
-    extraction RECALL.
-  - **Fix:** add a cuisine fallback symmetric to the neighborhood path — lexical
-    scan of `message` against `CUISINES` first, then fold unresolved-cuisine rows
-    into the existing batched LLM call (extend it to extract BOTH neighborhood and
-    cuisine, or a second batched call), constrained to the catalog. Add tests with
-    `requested_primary_types=[]` proving a free-text cuisine row becomes a gap.
+| Round | Findings | Character |
+|-------|----------|-----------|
+| 1 | 3 HIGH | Correctness/safety: per-cuisine→pair supply, static-catalog dedup blocker, unenforced sandbox write |
+| 2 | 1 new HIGH + 1 refine | Correctness (checkpoint-prefix dedup) + safety (guard env-var hole) |
+| 3 | 1 HIGH + 1 MEDIUM + 1 LOW | Recall (free-text cuisine) + status-filter edge + connection wording |
+| 4 | 0 HIGH, 0 MEDIUM, 2 LOW | Polish only → **EXECUTE NOW** |
 
-- **MEDIUM (checkpoint status filter) — CONFIRMED, same recurring class.**
-  - `get_completed_queries()` (ingest_places_sf.py:487) filters `WHERE status =
-    'completed'`; the ingest skip-check (line ~742) dedupes only against completed
-    checkpoints. A non-completed checkpoint (budget-stopped / `incomplete`) is NOT
-    skipped by ingest — it WILL be retried.
-  - The round-2 `ingested_query_texts` selects ALL checkpoint rows, so it would
-    suppress a proposal for a pair the ingest would actually re-run. This is the
-    SAME "miner's already-ingested view diverges from ingest's real skip logic"
-    class that produced the round-2 HIGH — now in the status dimension.
-  - **Fix:** `ingested_query_texts` checkpoint SELECT must add `WHERE status =
-    'completed'`; add a test that an `incomplete` prefixed checkpoint does NOT
-    dedupe the matching raw proposal (it should still be proposed).
+Severity and category both converged monotonically: "does the wrong thing" → "finds
+less than it could" → "optional polish." The recurring failure class (miner's
+already-ingested/covered view diverging from the ingest's real skip logic), which
+produced a HIGH in rounds 2 and 3, is now explicitly closed on all three dimensions
+the ingest cares about — static-catalog exclusion, `FIELD_MODE::` prefix
+normalization, and `status='completed'` filtering.
 
-- **LOW (guard vs insert connection) — VALID but minor.** `insert_pending` opens
-  its own pooled connection; the guard runs on a separately-resolved connection.
-  Both target the same pool `DATABASE_URL`, so this is not a prod-write hole, and
-  `ON CONFLICT` handles races. It only fails the strict "same write connection"
-  wording. Cheapest honest fix: thread one `conn` through guard → insert (give
-  `insert_pending` a `conn=None` param), OR document + test the same-pool
-  invariant explicitly. Acceptable to take the documentation route.
+### LOW items — handle during execution (NOT blocking, no replan)
 
-### Agreed strengths (now stable across 3 rounds)
+1. **Cartesian over-pairing** — multi-slot messages can create false
+   `(neighborhood, cuisine)` pairs. Acceptable: the signal is a demand-COUNT
+   ranking, catalog-constrained + supply-gated + deduped before insert, so false
+   pairs that have real supply are filtered and those without become low-ranked
+   noise. A per-slot pairing refinement is a Phase-19+ improvement if the simple
+   count proves too coarse (already noted in CONTEXT.md deferred ideas as "tuned
+   demand/supply ratio scoring").
+2. **`_extract_demand_batch` exception path** — wrap `llm.invoke()` in a
+   `try/except` during execution so an LLM error degrades LLM-miss rows to
+   `unmapped_count` while preserving lexically-resolved demand, rather than
+   crashing the run. No partial-write risk either way (the error precedes all
+   writes). The executor should add this when implementing the batch helper.
 
-True pair-level supply from `place_query_hits`; exact seed-format emission with
-catalog assertion; dedup split from the static catalog + checkpoint-prefix
-normalization; `current_database()`-enforced sandbox write guard; single shared
-guard module with sound wave ordering; full unit/smoke/functional/integration
-pyramid; supply-only path + W5 tests preserved; `loop_falsifier.GAP` untouched.
+### Decision
 
-### Must-fix before execute (round-3)
-
-1. **Cuisine recall** (NEW HIGH) — symmetric message-level cuisine fallback
-   (lexical CUISINES scan → batched LLM) so free-text `requested_primary_types=[]`
-   rows still become gaps; tests with empty types.
-2. **Checkpoint status filter** (MEDIUM) — `ingested_query_texts` dedupes only
-   `status='completed'` checkpoints; `incomplete`-checkpoint regression test.
-
-### Should-fix (cheap)
-
-3. **Guard/insert connection** (LOW) — thread one `conn` through guard + insert,
-   or document/test the same-pool invariant.
-
-### Divergent views
-
-None — single reviewer. Note the trend: each round's finding count and severity is
-falling (r1: 3 HIGH; r2: 1 new HIGH + 1 refine; r3: 1 new HIGH + 1 MEDIUM + 1 LOW),
-and the r3 HIGH is a RECALL gap (miner finds fewer gaps than it could), not a
-correctness/safety failure (miner does the wrong thing). After round 3's two
-fixes, the remaining surface is small.
+Planning is complete and gate-passed. Recommend proceeding to
+`/gsd-execute-phase 18`. The two LOW items are captured here for the executor;
+neither warrants a fifth review round or another replan.
