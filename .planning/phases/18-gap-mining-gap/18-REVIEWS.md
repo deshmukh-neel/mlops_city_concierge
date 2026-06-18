@@ -1,138 +1,133 @@
 ---
 phase: 18
 reviewers: [codex]
-review_round: 2
-reviewed_at: 2026-06-18T06:52:54Z
+review_round: 3
+reviewed_at: 2026-06-18T07:57:12Z
 plans_reviewed:
   - 18-01-sandbox-prereqs-PLAN.md
   - 18-02-demand-extraction-PLAN.md
   - 18-03-gap-scoring-cli-PLAN.md
   - 18-04-tests-make-docs-PLAN.md
-prior_round: 18-REVIEWS-round1-codex.md
+prior_rounds:
+  - 18-REVIEWS-round1-codex.md
+  - 18-REVIEWS-round2-codex.md
 ---
 
-# Cross-AI Plan Review — Phase 18 (Gap Mining) — ROUND 2
+# Cross-AI Plan Review — Phase 18 (Gap Mining) — ROUND 3
 
-Re-review of the plans AFTER the round-1 `--reviews` replan. Round 1's three HIGH
-findings (per-cuisine supply, static-catalog dedup blocker, unenforced sandbox
-write) were the input to the revision; this round verifies those fixes and hunts
-for anything the surgical edits introduced or round 1 missed.
+Third review round. Rounds 1-2 found and fixed 4 HIGHs (per-cuisine supply,
+static-catalog dedup, unenforced sandbox write, checkpoint-prefix dedup) + the H3
+env-var hole. This round verifies the round-2 fixes and hunts for anything new.
 
-## Codex Review (round 2)
+## Codex Review (round 3)
 
-### Fix Verification
+### Round-2 Fix Verification
 
-**H1 pair-level supply: CONFIRMED.**
-18-03 Task 1 correctly moves supply scoring to true `(neighborhood, cuisine)` pairs via `gather_pair_supply()` over `place_query_hits`, using exact canonical seed query text and `COUNT(DISTINCT place_id)`. That matches the ingest evidence table populated by `insert_query_hits()` and indexed on `query_text` in `scripts/db/init.sql:77`. The specified tests cover the important cases: city-wide cuisine presence no longer masks neighborhood absence, saturated pairs are excluded, zero-demand pairs are excluded, and output is structured as `DemandGap`.
+| Item | Verdict | Proof in Plan |
+|---|---|---|
+| Checkpoint-prefix HIGH | **CONFIRMED**, with one related concern below | `18-03` Task 2 Test 3 requires `all::vietnamese restaurants in Outer Sunset San Francisco` to normalize to the raw seed and dedupe the mined proposal. `split("::", 1)[1]` handles raw queries containing later `::`, no-prefix rows as-is, and all `FIELD_MODE` values equally. |
+| H3 write guard | **CONFIRMED** | `18-01` Task 3 Tests 1-5 require live `SELECT current_database()` and specifically prove a mis-set `SANDBOX_DATABASE_URL` naming prod cannot whitelist prod. `18-01` creates `scripts/sandbox_guard.py`; `18-01` Task 4 and `18-03` Task 2 import that one module. |
+| MEDIUM-1 integration target | **CONFIRMED** | `18-04` Task 2 chooses a catalog pair absent from both existing proposals and `ingested_query_texts(conn)` normalized checkpoint set, or skips. It also forces the gap with high `--min-places`. |
+| MEDIUM-3 judge absence | **CONFIRMED for the intended judge-none semantics** | `18-02` Task 1 Test 4, `18-02` Task 2 Test 8, and `18-03` Task 2 Test 11 prove lexical demand survives `llm=None`; cold-start fires only on empty mappable demand. |
+| LOW env verify | **CONFIRMED** | `18-01` Task 1 verifies `grep -c '^# *DEMAND_DATABASE_URL' .env.example >= 1`, so the documented env var remains commented out by default. |
 
-**H2 static-catalog dedup blocker: CONFIRMED, with a new adjacent issue below.**
-18-03 Task 2 fixes the original blocker: the demand path uses new `ingested_query_texts(conn)` and explicitly excludes `build_seed_queries()`, while `gap_to_seed_query()` separately asserts catalog membership. The acceptance tests that a catalog-valid seed survives `filter_already_covered(..., ingested_query_texts(conn))` directly prove the original "valid mined proposals all dropped" failure is addressed.
+### New / Remaining Concerns
 
-**H3 sandbox write guard: NOT RESOLVED.**
-The plans correctly require guard calls before both demand seeding and proposal insertion: 18-01 Task 3 and 18-03 Task 2. The problem is the guard's pass condition: `dbname == city_concierge_sandbox OR dbname == SANDBOX_DATABASE_URL's dbname`. If `SANDBOX_DATABASE_URL` is mis-set to a non-sandbox/prod dbname, the guard whitelists that non-sandbox db. That violates the stated fix, "raises on a non-sandbox DB." Tighten this to require the active write target itself to be sandbox-safe, ideally by checking the actual write connection's `current_database()` and requiring `city_concierge_sandbox` or an explicitly sandbox-patterned normalized target, not merely equality to an env var.
+**HIGH: Free-text cuisine demand is still dropped when `requested_primary_types[]` is empty.**
+`18-02` extracts cuisines only from `requested_primary_types[]` and uses the LLM only for neighborhoods. But the app intake prompt explicitly returns `[]` for free-text/no clear slot structure (`app/main.py:72`), so real rows like "vietnamese restaurants in Outer Sunset" can have an empty type list. Those rows would map neighborhood but no cuisine, increment `unmapped_count`, and never become demand gaps. This undercuts GAP-01's core "real demand" purpose. Minimal fix: add message-level cuisine fallback, preferably lexical CUISINES scan first, then batched LLM for unresolved cuisines, with tests for `requested_primary_types=[]`.
 
-### New Concerns
+**MEDIUM: `ingested_query_texts` should filter checkpoints to completed only.**
+The plans repeatedly say "completed checkpoint set," and ingest skips only completed checkpoints via `get_completed_queries(... WHERE status = 'completed')` (`scripts/ingest_places_sf.py:487`, `:738`). But `18-03` Task 2's action says select all rows from `places_ingest_query_checkpoints`. That can falsely suppress a proposal for an incomplete/budget-stopped query that ingest would retry. Minimal fix: `WHERE status = 'completed'` plus a regression test that an `incomplete` prefixed checkpoint does **not** dedupe the raw mined proposal.
 
-**HIGH: checkpoint dedup is probably wrong because checkpoints are prefixed.**
-18-03 Task 2 says `ingested_query_texts()` returns `SELECT query_text FROM places_ingest_query_checkpoints`, but ingest writes checkpoints via `checkpoint_key(query)` as `FIELD_MODE::raw_query` in `scripts/ingest_places_sf.py:344` and `:784`. Proposals use raw query text. Literal set comparison will miss completed checkpoints like `all::vietnamese restaurants in Outer Sunset San Francisco`, insert a pending raw proposal, then ingest will skip it because `select_seed_queries_for_run()` checks `checkpoint_key(query)` in completed. Result: `proposals_inserted > 0` but the downstream loop may consume nothing. Fix: normalize checkpoint rows in `ingested_query_texts()` to include raw forms after `::`, and add a test with a real `all::<seed>` checkpoint.
-
-**MEDIUM: Plan 04 integration determinism ignores checkpoint pre-existence.**
-The integration test checks pre-existing proposal rows but not pre-existing checkpoint rows. Once checkpoint normalization is fixed, the hardcoded `Outer Sunset`/`vietnamese` seed may be deduped and the test will fail or skip unpredictably. The test should choose a catalog pair absent from both proposals and normalized checkpoints, or explicitly skip with a clear reason.
-
-**MEDIUM: 18-01 depends on a future guard in 18-03.**
-The lazy-import fallback note is directionally okay, but it is optional prose for a wave-0 plan that runs before the guard exists. Safer revision: move `assert_sandbox_write_target()` into 18-01 or a small shared module, then have both `seed_demand_log.py` and `coverage_agent.py` import the same guard. If keeping fallback, make lazy import mandatory and test the missing-guard path.
-
-**MEDIUM: judge-unavailable behavior is internally inconsistent.**
-18-02 correctly says lexical neighborhood extraction works without judge creds. 18-03 Task 2 Test 10 says `vibe.make_judge() returns None` should cold-start/no-proposal. That is only true for lexical misses. Clarify that judge absence must not suppress lexically mappable demand rows.
-
-**LOW: 18-01 `.env.example` verification conflicts with commented default.**
-The plan wants `DEMAND_DATABASE_URL` commented out, but the automated verify includes `grep -v '^#' .env.example | grep -c DEMAND_DATABASE_URL`, which fails if the line is correctly commented. Adjust the verify command.
+**LOW: Guard and insert are not literally the same connection in `gap_mine_main`.**
+Literal `18-03` calls `assert_sandbox_write_target()` and then `insert_pending(...)`; existing `insert_pending` opens its own pooled connection (`scripts/coverage_agent.py:236`). This is not a prod-whitelist bug because both borrow from the same pool target, and `ON CONFLICT` handles races, but it does not meet the strict wording "actual write connection." Cleaner: let `insert_pending` accept `conn=None`, call guard on that same `conn`, then insert on it.
 
 ### Strengths
 
-- The `DemandGap` dataclass removes the earlier fragile `demand:n:c` bucket encoding.
-- Multi-neighborhood extraction is now list-per-row and carried through to demand counting.
-- `--top-n` after dedup is the right placement.
-- Pair supply from `place_query_hits` is a defensible phase-18 signal and avoids stale `places_raw.source_query`.
-- The plans preserve the existing supply-only `coverage_agent` path and tests.
+The main round-1/round-2 structural fixes are solid: true pair-level supply from `place_query_hits`, exact seed-format emission, catalog assertion before proposal creation, dedup split from the static catalog, checkpoint-prefix normalization, `--top-n` after dedup, and a real test pyramid. Wave ordering is sound: `scripts/sandbox_guard.py` is created in wave 0 and imported in wave 2, with no same-wave ownership conflict.
 
-### Risk Assessment
+### Execute-Readiness Verdict
 
-**Overall: HIGH as written.**
-The core miner design is close, and H1/H2's original failures are substantially fixed. But H3 is still not a real sandbox guarantee, and the checkpoint-prefix mismatch can create false-positive pending proposals that the ingest immediately skips.
+**Risk: HIGH. Recommendation: REVISE before execution.**
 
-**Recommendation: another surgical revision before execution.** Fix the write guard, normalize checkpoint keys in `ingested_query_texts()`, and update the integration test to account for normalized checkpoints. After those changes, the plan set should be ready.
+Minimal must-fix list:
+1. Add cuisine extraction from `message` when `requested_primary_types[]` maps to no CUISINES.
+2. Restrict `ingested_query_texts` checkpoint dedup to `status='completed'`.
+3. Prefer passing one write connection through guard + insert, or explicitly document/test the same-pool invariant.
 
 ---
 
-## Consensus Summary (orchestrator, round 2)
+## Consensus Summary (orchestrator, round 3)
 
-Single external reviewer (Codex). The orchestrator independently verified the new
-HIGH finding and the H3 refinement against live source before recording them.
+Single external reviewer (Codex). All five round-2 fixes independently CONFIRMED.
+The orchestrator verified the two new findings against live source before recording.
 
 ### Verified against code (orchestrator)
 
-- **H1 / H2 original failures — fixes CONFIRMED.** Matches my own round-1 code
-  trace; the revised plans address both correctly with proving tests.
+- **NEW HIGH (free-text cuisine dropped) — CONFIRMED, real recall gap.**
+  - `app/main.py` slot-intake prompt (~line 77): *"If the message is free-text or
+    has no clear slot structure, return []."* So `requested_primary_types[]` is
+    legitimately empty for exactly the conversational queries the miner most wants.
+  - The round-2 plan (18-02 line 17, `_types_to_cuisines` at line 92) maps cuisine
+    **only** from `requested_primary_types[]` — there is a lexical→LLM two-tier for
+    NEIGHBORHOODS but **no equivalent tier for CUISINE**. The asymmetry is the bug:
+    a row like "vietnamese restaurants in Outer Sunset" with empty types maps the
+    neighborhood, gets no cuisine, lands in `unmapped_count`, and never becomes a
+    gap. That directly undercuts GAP-01 ("real demand"). Rounds 1-2 (and my own
+    reviews) missed it because they focused on dedup/supply/safety mechanics, not
+    extraction RECALL.
+  - **Fix:** add a cuisine fallback symmetric to the neighborhood path — lexical
+    scan of `message` against `CUISINES` first, then fold unresolved-cuisine rows
+    into the existing batched LLM call (extend it to extract BOTH neighborhood and
+    cuisine, or a second batched call), constrained to the catalog. Add tests with
+    `requested_primary_types=[]` proving a free-text cuisine row becomes a gap.
 
-- **NEW HIGH (checkpoint-prefix dedup mismatch) — CONFIRMED, execution-blocking.**
-  Verified in `scripts/ingest_places_sf.py`:
-  - `checkpoint_key(query)` (line 344) returns `f"{FIELD_MODE}::{query_text}"` —
-    checkpoints are stored PREFIXED (e.g. `all::vietnamese restaurants in Outer
-    Sunset San Francisco`), written via `checkpoint_key(query)` at line 784.
-  - `get_completed_queries()` (line 487-493) reads `query_text` from the
-    checkpoints table — i.e. the PREFIXED strings.
-  - The ingest skip-check (line 742): `if checkpoint_key(query) not in completed
-    and query not in completed` — ingest dedupes on the prefixed key.
-  - The planned `ingested_query_texts()` would store the prefixed checkpoint
-    string and compare it against the miner's RAW proposal `query_text`
-    (`vietnamese restaurants in Outer Sunset San Francisco`) → NO match → the
-    already-ingested pair is re-proposed as "new" → `insert_pending` writes it →
-    ingest later computes `checkpoint_key` from the raw proposal, finds it IN
-    `completed`, and SKIPS it. Net: `proposals_inserted > 0` but the loop ingests
-    nothing for those pairs. This is the SAME class of silent-no-op as the
-    original H2, just scoped to already-completed pairs. **Real bug.**
-  - **Fix:** `ingested_query_texts()` must strip the `FIELD_MODE::` prefix from
-    checkpoint rows (split on `::`, take the part after) so completed checkpoints
-    dedupe the matching raw proposal. Proposals are already raw; only the
-    checkpoint side needs normalizing. Add a test seeding a real `all::<seed>`
-    checkpoint and asserting the matching gap is deduped (NOT re-proposed).
+- **MEDIUM (checkpoint status filter) — CONFIRMED, same recurring class.**
+  - `get_completed_queries()` (ingest_places_sf.py:487) filters `WHERE status =
+    'completed'`; the ingest skip-check (line ~742) dedupes only against completed
+    checkpoints. A non-completed checkpoint (budget-stopped / `incomplete`) is NOT
+    skipped by ingest — it WILL be retried.
+  - The round-2 `ingested_query_texts` selects ALL checkpoint rows, so it would
+    suppress a proposal for a pair the ingest would actually re-run. This is the
+    SAME "miner's already-ingested view diverges from ingest's real skip logic"
+    class that produced the round-2 HIGH — now in the status dimension.
+  - **Fix:** `ingested_query_texts` checkpoint SELECT must add `WHERE status =
+    'completed'`; add a test that an `incomplete` prefixed checkpoint does NOT
+    dedupe the matching raw proposal (it should still be proposed).
 
-- **H3 refinement — VALID.** The guard accepting `SANDBOX_DATABASE_URL`'s dbname
-  means a mis-set env var (pointed at prod) would whitelist a prod write. The
-  robust form checks the ACTUAL write connection's `current_database()` and
-  requires it to be the known sandbox name (or an explicitly sandbox-patterned
-  target), not equality to a possibly-wrong env var. Cheap to do and closes the
-  gap the round-1 fix left.
+- **LOW (guard vs insert connection) — VALID but minor.** `insert_pending` opens
+  its own pooled connection; the guard runs on a separately-resolved connection.
+  Both target the same pool `DATABASE_URL`, so this is not a prod-write hole, and
+  `ON CONFLICT` handles races. It only fails the strict "same write connection"
+  wording. Cheapest honest fix: thread one `conn` through guard → insert (give
+  `insert_pending` a `conn=None` param), OR document + test the same-pool
+  invariant explicitly. Acceptable to take the documentation route.
 
-### Agreed strengths (carried from the revision)
+### Agreed strengths (now stable across 3 rounds)
 
-- `DemandGap` dataclass (no string-keyed encoding); list-per-row multi-neighborhood
-  extraction; `--top-n` after dedup; pair supply from `place_query_hits` (avoids
-  stale `places_raw.source_query`); supply-only path + tests preserved.
+True pair-level supply from `place_query_hits`; exact seed-format emission with
+catalog assertion; dedup split from the static catalog + checkpoint-prefix
+normalization; `current_database()`-enforced sandbox write guard; single shared
+guard module with sound wave ordering; full unit/smoke/functional/integration
+pyramid; supply-only path + W5 tests preserved; `loop_falsifier.GAP` untouched.
 
-### Must-fix before execute (round-2 blockers)
+### Must-fix before execute (round-3)
 
-1. **Checkpoint-key normalization in `ingested_query_texts()`** (NEW HIGH) — strip
-   `FIELD_MODE::` so completed checkpoints dedupe raw proposals; add the
-   `all::<seed>` test.
-2. **Write guard hardening** (H3 refinement) — check the write connection's
-   `current_database()` against the known sandbox name, not just env-var equality.
-3. **Integration test** (MEDIUM, coupled to #1) — pick a pair absent from BOTH
-   proposals AND normalized checkpoints, or skip with a clear reason.
+1. **Cuisine recall** (NEW HIGH) — symmetric message-level cuisine fallback
+   (lexical CUISINES scan → batched LLM) so free-text `requested_primary_types=[]`
+   rows still become gaps; tests with empty types.
+2. **Checkpoint status filter** (MEDIUM) — `ingested_query_texts` dedupes only
+   `status='completed'` checkpoints; `incomplete`-checkpoint regression test.
 
-### Should-fix (cheap, fold into the same revision)
+### Should-fix (cheap)
 
-4. Guard ownership (MEDIUM) — move `assert_sandbox_write_target` into a shared
-   module both `seed_demand_log.py` and `coverage_agent.py` import, removing the
-   18-01→18-03 forward-reference; or make the lazy import mandatory + tested.
-5. Judge-absence semantics (MEDIUM) — clarify that a `None` judge must NOT
-   suppress lexically-mapped demand; only lexical misses are dropped.
-6. `.env.example` verify command (LOW) — the `grep -v '^#'` check contradicts the
-   commented-out `DEMAND_DATABASE_URL` default; fix the verify assertion.
+3. **Guard/insert connection** (LOW) — thread one `conn` through guard + insert,
+   or document/test the same-pool invariant.
 
 ### Divergent views
 
-None — single reviewer. H1/H2 are settled (confirmed fixed). The round-2 items are
-a tight, well-scoped second surgical pass — the design is sound; these are
-correctness-of-wiring fixes, not a redesign.
+None — single reviewer. Note the trend: each round's finding count and severity is
+falling (r1: 3 HIGH; r2: 1 new HIGH + 1 refine; r3: 1 new HIGH + 1 MEDIUM + 1 LOW),
+and the r3 HIGH is a RECALL gap (miner finds fewer gaps than it could), not a
+correctness/safety failure (miner does the wrong thing). After round 3's two
+fixes, the remaining surface is small.
