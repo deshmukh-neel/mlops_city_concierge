@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Adaptive Data Loop
-status: executing
-last_updated: 2026-06-15T23:55:00.000Z
-last_activity: 2026-06-15 -- Phase 16 complete (FALSIFY-01 gate PASSED, hit@5 delta +1.000)
+status: "Phase 17 shipped — PR #112"
+last_updated: "2026-06-16T21:28:27.353Z"
+last_activity: 2026-06-16
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 25
-stopped_at: Phase 16 complete; Phases 17-19 (LOG/GAP/LOOP) not yet planned
+  completed_phases: 2
+  total_plans: 5
+  completed_plans: 29
+  percent: 50
 ---
 
 # Project State
@@ -27,14 +26,14 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v2.3 scoping)
 See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1, v2.2)
 
 **Core value:** Constraint-heavy multi-stop SF itinerary from a natural-language request, grounded in real places, with a booking deep-link.
-**Current focus:** v2.3 Phase 16 (Loop Falsifier) COMPLETE — FALSIFY-01 hard gate PASSED. Next: Phase 17 (LOG) — not yet planned.
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 16 of 19 (Loop Falsifier) — COMPLETE
-Plan: 3 of 3 complete
-Status: Phase 16 SHIPPED — PR #111 open (CI running); FALSIFY-01 gate passed (hit@5 delta +1.000)
-Last activity: 2026-06-15 -- Phase 16 verified (7/7 must-haves), gate PASSED twice live
+Phase: 17
+Plan: Not started
+Status: Phase 17 shipped — PR #112
+Last activity: 2026-06-16
 
 ## Blockers / Readiness Notes
 
@@ -64,9 +63,9 @@ Last activity: 2026-06-15 -- Phase 16 verified (7/7 must-haves), gate PASSED twi
 
 ## Session Continuity
 
-Last session: 2026-06-15T23:55:00.000Z
-Stopped at: Phase 16 (Loop Falsifier) executed + verified; FALSIFY-01 gate PASSED. STATE hand-corrected after phase.complete mis-marked the milestone done.
-Resume file: .planning/phases/16-loop-falsifier/16-VERIFICATION.md
+Last session: 2026-06-16T18:46:36.556Z
+Stopped at: Phase 17 context gathered
+Resume file: None
 Next step: Merge PR #111 when CI green (user merges), then `/gsd-discuss-phase 17` (LOG). v2.3 roadmap rendered.
 
 ## Performance Metrics
@@ -92,6 +91,7 @@ Next step: Merge PR #111 when CI green (user merges), then `/gsd-discuss-phase 1
 | Phase 15 P02 | 6960 | 2 tasks | 1 files |
 | Phase 15 P03 | 513 | 3 tasks | 8 files |
 | Phase 16-loop-falsifier P01 | 12 | 2 tasks | 4 files |
+| Phase 17-query-logging-log P01 | 117 | 2 tasks | 1 files |
 
 ## Decisions
 
@@ -111,6 +111,7 @@ Next step: Merge PR #111 when CI green (user merges), then `/gsd-discuss-phase 1
 - [Phase ?]: ARCH-FUT-01: ratify gpt-4o-mini anchor; defer ARCH-FUT-01; Phase 15 = A2 retest on fixed synthesizer + refinement_cheaper root cause analysis
 - [Phase 16]: v2.3 FALSIFY-01 gate PASSED 2026-06-15: loop falsifier proved before→after hit@5 delta +1.000 (0/5 → 5/5) against isolated sandbox; exit 0; 1 paid Google Places call (seed-isolation), 20 places ingested to sandbox only, prod untouched. Gap = ("Outer Sunset","vietnamese"). Two live bugs found+fixed during execution: (1) settings lru_cache prod-leak (cache_clear+close_db_pool after DATABASE_URL coercion — 3101577/250b93b); (2) code-review CR-01 before-snapshot was 0.0-by-construction, now asserts sandbox emptiness in-process. All 13 code-review findings fixed. Verified 7/7. MLflow under coverage_agent exp 6. Milestone cleared to proceed to Phases 17-19 (NOT yet planned/roadmapped).
 - [Phase 15]: v2.2 CLOSED 2026-06-15: A2 retest (FORCED_COMMIT_STEP=6) confirmed gpt-5-mini 0.500 pooled — INST-05 honest null (no arm cleared 0.600 bar across Phases 13/14/15). Root cause: refinement_cheaper typed-slot viability gate never satisfied (structural, not code bug). gpt-4o-mini anchor RATIFIED (omakase 1.000 flag-off, gate >= 0.8). Baseline provenance corrected (prior refinement_cheaper 1.000 was flag-ON arm artifact; re-baselined to honest 0.000 flag-off). 6 runnable cells written. ARCH-FUT-01 DEFERRED as tracked debt. Prod-default FORCED_COMMIT_STEP=6 flip flagged but NOT implemented (D-15-07). Canonical record: docs/promotion_decision.md.
+- [Phase ?]: D-02/D-03/D-04: user_query_log 7-column demand-signal table created; raw-message verbatim store documented; chained to head e0cd7069bc8f; write path deferred to 17-02
 
 ## Operator Next Steps
 
