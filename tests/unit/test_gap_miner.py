@@ -635,3 +635,196 @@ class TestGatherDemandSingleBatchCall:
         assert len(batch_calls) <= 1, (
             f"_extract_demand_batch must be called at most once, got {len(batch_calls)}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 3 tests (18-03): DemandGap + gather_pair_supply + find_demand_gaps
+#                       + gap_to_seed_query
+# ---------------------------------------------------------------------------
+
+
+class TestPairLevelGate:
+    """Test 1 (HIGH-1): TRUE pair-level supply — cuisine city-wide but absent in
+    demanded neighborhood IS flagged as a gap (the Outer Sunset / Vietnamese case)."""
+
+    def test_outer_sunset_vietnamese_zero_pair_supply_is_gap(self, monkeypatch) -> None:
+        from scripts.coverage_agent import DemandGap, find_demand_gaps
+
+        # pair supply: Outer Sunset/vietnamese = 0 (never ingested for this pair)
+        pair_supply = {("Outer Sunset", "vietnamese"): 0}
+        demand_counts = {("Outer Sunset", "vietnamese"): 5}
+
+        gaps = find_demand_gaps(demand_counts, pair_supply, min_place_count=5)
+
+        assert len(gaps) == 1
+        g = gaps[0]
+        assert isinstance(g, DemandGap)
+        assert g.neighborhood == "Outer Sunset"
+        assert g.cuisine == "vietnamese"
+        assert g.place_count == 0
+        assert g.demand_count == 5
+
+
+class TestSaturatedPairExcluded:
+    """Test 2: pair with pair_place_count >= min_places is NOT a gap."""
+
+    def test_mission_italian_saturated_not_a_gap(self) -> None:
+        from scripts.coverage_agent import find_demand_gaps
+
+        pair_supply = {("Mission District", "italian"): 40}
+        demand_counts = {("Mission District", "italian"): 3}
+
+        gaps = find_demand_gaps(demand_counts, pair_supply, min_place_count=5)
+
+        assert gaps == []
+
+
+class TestDemandGatesGap:
+    """Test 3: pair with demand_count == 0 is NOT a gap even if supply is 0."""
+
+    def test_zero_demand_pair_not_a_gap(self) -> None:
+        from scripts.coverage_agent import find_demand_gaps
+
+        pair_supply = {("Outer Sunset", "thai"): 0}
+        demand_counts = {("Outer Sunset", "thai"): 0}
+
+        gaps = find_demand_gaps(demand_counts, pair_supply, min_place_count=5)
+
+        assert gaps == []
+
+
+class TestDemandDescendingRanking:
+    """Test 4: find_demand_gaps returns gaps ordered by demand_count descending."""
+
+    def test_higher_demand_comes_first(self) -> None:
+        from scripts.coverage_agent import find_demand_gaps
+
+        pair_supply = {
+            ("Outer Sunset", "vietnamese"): 0,
+            ("Mission District", "thai"): 1,
+        }
+        demand_counts = {
+            ("Outer Sunset", "vietnamese"): 5,
+            ("Mission District", "thai"): 9,
+        }
+
+        gaps = find_demand_gaps(demand_counts, pair_supply, min_place_count=5)
+
+        assert len(gaps) == 2
+        assert gaps[0].demand_count == 9
+        assert gaps[0].neighborhood == "Mission District"
+        assert gaps[1].demand_count == 5
+
+
+class TestGatherPairSupplySQL:
+    """Test 5: gather_pair_supply issues a parameterised SELECT from place_query_hits."""
+
+    def test_sql_shape_and_parameterised_seeds(self) -> None:
+        from scripts.coverage_agent import gather_pair_supply
+
+        captured_sql: list[str] = []
+        captured_params: list = []
+
+        class StubCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+            def execute(self, sql, params=None):
+                captured_sql.append(sql)
+                captured_params.append(params)
+
+            def fetchall(self):
+                return []
+
+        class StubConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+            def cursor(self):
+                return StubCursor()
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def stub_get_conn():
+            yield StubConn()
+
+        import scripts.coverage_agent as ca
+
+        original_get_conn = ca.get_conn
+        ca.get_conn = stub_get_conn
+        try:
+            result = gather_pair_supply([("Outer Sunset", "vietnamese")])
+        finally:
+            ca.get_conn = original_get_conn
+
+        # Must SELECT from place_query_hits
+        assert any("place_query_hits" in sql for sql in captured_sql)
+        # Must count DISTINCT place_id
+        assert any("DISTINCT place_id" in sql for sql in captured_sql)
+        # Seed strings are passed as param, not interpolated
+        assert any(params is not None for params in captured_params)
+        # pair with no rows returns 0
+        assert result.get(("Outer Sunset", "vietnamese"), -1) == 0
+
+
+class TestDemandGapDataclass:
+    """Test 6 (REVIEW MEDIUM): find_demand_gaps returns DemandGap instances with
+    explicit fields, not CoverageStat rows with bucket='demand:...' strings."""
+
+    def test_returns_demand_gap_instances(self) -> None:
+        from scripts.coverage_agent import DemandGap, find_demand_gaps
+
+        pair_supply = {("Outer Sunset", "vietnamese"): 2}
+        demand_counts = {("Outer Sunset", "vietnamese"): 7}
+
+        gaps = find_demand_gaps(demand_counts, pair_supply, min_place_count=5)
+
+        assert len(gaps) == 1
+        g = gaps[0]
+        assert isinstance(g, DemandGap)
+        # Explicit fields — no string parsing required
+        assert g.neighborhood == "Outer Sunset"
+        assert g.cuisine == "vietnamese"
+        assert g.place_count == 2
+        assert g.demand_count == 7
+        # Must NOT have a 'bucket' attribute encoding "demand:..."
+        assert not hasattr(g, "bucket")
+
+
+class TestSeedFormatExactness:
+    """Test 7: gap_to_seed_query returns the exact seed format AND it is a catalog member."""
+
+    def test_outer_sunset_vietnamese_seed(self) -> None:
+        from scripts.coverage_agent import gap_to_seed_query
+        from scripts.ingest_places_sf import build_seed_queries
+
+        seed = gap_to_seed_query("Outer Sunset", "vietnamese")
+        assert seed == "vietnamese restaurants in Outer Sunset San Francisco"
+        assert seed in set(build_seed_queries())
+
+
+class TestSeedFormatOffCatalogRaises:
+    """Test 8 (catalog assertion): gap_to_seed_query raises on off-catalog inputs."""
+
+    def test_off_catalog_neighborhood_raises(self) -> None:
+        import pytest
+
+        from scripts.coverage_agent import gap_to_seed_query
+
+        with pytest.raises((AssertionError, ValueError, KeyError, RuntimeError)):
+            gap_to_seed_query("Berkeley", "vietnamese")
+
+    def test_off_catalog_cuisine_raises(self) -> None:
+        import pytest
+
+        from scripts.coverage_agent import gap_to_seed_query
+
+        with pytest.raises((AssertionError, ValueError, KeyError, RuntimeError)):
+            gap_to_seed_query("Outer Sunset", "fusion")
