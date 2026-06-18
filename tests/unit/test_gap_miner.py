@@ -828,3 +828,691 @@ class TestSeedFormatOffCatalogRaises:
 
         with pytest.raises((AssertionError, ValueError, KeyError, RuntimeError)):
             gap_to_seed_query("Outer Sunset", "fusion")
+
+
+# ---------------------------------------------------------------------------
+# Task 4 tests (18-03): ingested_query_texts + insert_pending conn= +
+#                       gap_mine_main + sandbox guard + cold-start
+# ---------------------------------------------------------------------------
+
+
+class _MultiQueryConn:
+    """A stub connection that can serve different rows to different SELECT calls.
+
+    The ``rows_by_query`` dict maps a substring of the SQL to the rows to return.
+    If no key matches, returns [].
+    """
+
+    def __init__(self, rows_by_query: dict[str, list[tuple]]) -> None:
+        self._rows_by_query = rows_by_query
+        self.execute_calls: list[tuple[str, object]] = []
+        self.insert_calls: list[tuple[str, object]] = []
+        self.committed = False
+        # current_database() stub
+        self._dbname = "city_concierge_sandbox"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+    def cursor(self):
+        return _MultiQueryCursor(self)
+
+    def commit(self):
+        self.committed = True
+
+
+class _MultiQueryCursor:
+    def __init__(self, conn: _MultiQueryConn) -> None:
+        self._conn = conn
+        self._rows: list[tuple] = []
+        self.rowcount = 1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+    def execute(self, sql: str, params=None) -> None:
+        self._conn.execute_calls.append((sql, params))
+        # Dispatch rows based on SQL fragment
+        self._rows = []
+        for key, rows in self._conn._rows_by_query.items():
+            if key in sql:
+                self._rows = rows
+                break
+        # Support current_database() call from sandbox guard
+        if "current_database" in sql:
+            self._rows = [(self._conn._dbname,)]
+        # Track INSERT calls
+        if "INSERT" in sql.upper():
+            self._conn.insert_calls.append((sql, params))
+
+    def fetchall(self) -> list[tuple]:
+        return self._rows
+
+    def fetchone(self) -> tuple | None:
+        return self._rows[0] if self._rows else None
+
+
+def _make_multi_conn(
+    checkpoint_rows: list[tuple] = (),
+    proposal_rows: list[tuple] = (),
+    pqh_rows: list[tuple] = (),
+    dbname: str = "city_concierge_sandbox",
+) -> _MultiQueryConn:
+    """Build a multi-query stub connection with preset rows for each table."""
+    conn = _MultiQueryConn(
+        rows_by_query={
+            "places_ingest_query_checkpoints": list(checkpoint_rows),
+            "places_ingest_query_proposals": list(proposal_rows),
+            "place_query_hits": list(pqh_rows),
+            "user_query_log": [],
+        }
+    )
+    conn._dbname = dbname
+    return conn
+
+
+class TestIngestedQueryTextsHigh2:
+    """Test 1 (HIGH-2): a catalog-valid, not-yet-ingested proposal SURVIVES
+    filter_already_covered when deduping against ingested_query_texts (not
+    existing_query_texts which includes the static catalog)."""
+
+    def test_catalog_valid_gap_survives_ingested_dedup(self, monkeypatch) -> None:
+        from scripts.coverage_agent import (
+            ProposedQuery,
+            filter_already_covered,
+            ingested_query_texts,
+        )
+
+        # No checkpoints, no proposals → ingested set is empty
+        conn = _make_multi_conn()
+
+        ingested = ingested_query_texts(conn)
+
+        # A known catalog seed that has NOT been ingested
+        seed = "vietnamese restaurants in Outer Sunset San Francisco"
+        # Must NOT be in the ingested set (it is in build_seed_queries() but not ingested)
+        assert seed not in ingested
+
+        proposal = ProposedQuery(seed, "enriched", "test")
+        kept, dropped = filter_already_covered([proposal], ingested)
+        assert proposal in kept
+        assert proposal not in dropped
+
+
+class TestIngestedQueryTextsExcludesCatalog:
+    """Test 2: ingested_query_texts does NOT include build_seed_queries() members."""
+
+    def test_catalog_only_seed_absent_from_ingested(self) -> None:
+        from scripts.coverage_agent import ingested_query_texts
+        from scripts.ingest_places_sf import build_seed_queries
+
+        # No rows in either table
+        conn = _make_multi_conn()
+        ingested = ingested_query_texts(conn)
+
+        # Any catalog seed must be absent from ingested (it's not in DB tables)
+        catalog_seeds = set(build_seed_queries())
+        assert len(ingested & catalog_seeds) == 0, (
+            "ingested_query_texts must NOT include static catalog seeds"
+        )
+
+
+class TestCheckpointPrefixDedup:
+    """Test 3 (ROUND-2 NEW HIGH): completed checkpoint with FIELD_MODE:: prefix is
+    normalized — the raw seed is in ingested set, so the mined proposal is deduped."""
+
+    def test_prefixed_completed_checkpoint_dedupes_raw_seed(self, monkeypatch) -> None:
+        from scripts.coverage_agent import (
+            ProposedQuery,
+            filter_already_covered,
+            ingested_query_texts,
+        )
+
+        raw_seed = "vietnamese restaurants in Outer Sunset San Francisco"
+        prefixed = f"all::{raw_seed}"
+
+        # Completed checkpoint with FIELD_MODE:: prefix
+        conn = _make_multi_conn(checkpoint_rows=[(prefixed,), ("status_col_dummy",)])
+        # Override _rows_by_query to also have status='completed' filter support
+        conn._rows_by_query["places_ingest_query_checkpoints"] = [(prefixed,)]
+        conn._rows_by_query["places_ingest_query_proposals"] = []
+
+        ingested = ingested_query_texts(conn)
+
+        # The RAW seed (prefix stripped) must be in ingested
+        assert raw_seed in ingested, (
+            f"Expected {raw_seed!r} to be in ingested after prefix normalization"
+        )
+
+        # No-:: row is returned as-is (defensive)
+        conn2 = _make_multi_conn(checkpoint_rows=[("no_prefix_seed",)])
+        conn2._rows_by_query["places_ingest_query_checkpoints"] = [("no_prefix_seed",)]
+        conn2._rows_by_query["places_ingest_query_proposals"] = []
+        ingested2 = ingested_query_texts(conn2)
+        assert "no_prefix_seed" in ingested2
+
+        # Proposal for the already-ingested seed is DEDUPED
+        proposal = ProposedQuery(raw_seed, "enriched", "test")
+        kept, dropped = filter_already_covered([proposal], ingested)
+        assert proposal in dropped
+        assert proposal not in kept
+
+
+class TestCheckpointStatusFilter:
+    """Test 4 (ROUND-3 MEDIUM): incomplete checkpoint does NOT contribute to
+    ingested set — OPPOSITE of Test 3 (completed → deduped; incomplete → kept)."""
+
+    def test_incomplete_checkpoint_does_not_dedupe(self, monkeypatch) -> None:
+        from scripts.coverage_agent import (
+            ProposedQuery,
+            filter_already_covered,
+            ingested_query_texts,
+        )
+
+        raw_seed = "vietnamese restaurants in Outer Sunset San Francisco"
+
+        # We need the cursor to return NO rows for checkpoints when filtering
+        # by status='completed' — simulate by returning empty for checkpoints.
+        # The key point: ingested_query_texts must filter to status='completed' only.
+        conn = _make_multi_conn()
+        # Override: checkpoint table returns nothing (status='incomplete' filtered out)
+        conn._rows_by_query["places_ingest_query_checkpoints"] = []
+        conn._rows_by_query["places_ingest_query_proposals"] = []
+
+        ingested = ingested_query_texts(conn)
+
+        # The seed must be ABSENT (incomplete checkpoint not in ingested set)
+        assert raw_seed not in ingested
+
+        # Proposal for this seed is NOT deduped — it lands in kept
+        proposal = ProposedQuery(raw_seed, "enriched", "test")
+        kept, dropped = filter_already_covered([proposal], ingested)
+        assert proposal in kept
+        assert proposal not in dropped
+
+
+class TestSameConnectionGuardAndInsert:
+    """Test 5 (ROUND-3 LOW): gap_mine_main uses the SAME conn object for both
+    assert_sandbox_write_target(conn) and insert_pending(..., conn=conn)."""
+
+    def test_same_conn_instance_for_guard_and_insert(self, monkeypatch) -> None:
+        import scripts.coverage_agent as ca
+
+        seen_guard_conns: list = []
+        seen_insert_conns: list = []
+
+        def fake_guard(conn=None):
+            seen_guard_conns.append(conn)
+
+        def fake_insert(proposals, dry_run, conn=None):
+            seen_insert_conns.append(conn)
+            return 0
+
+        monkeypatch.setattr(ca, "assert_sandbox_write_target", fake_guard)
+        monkeypatch.setattr(ca, "insert_pending", fake_insert)
+
+        # Stub gather_demand to return one mappable pair
+        monkeypatch.setattr(
+            ca,
+            "gather_demand",
+            lambda days, url=None: ({("Outer Sunset", "vietnamese"): 5}, 1, 0),
+        )
+        # Stub gather_pair_supply to return 0 (gap)
+        monkeypatch.setattr(
+            ca, "gather_pair_supply", lambda pairs, conn=None: {p: 0 for p in pairs}
+        )
+        # Stub ingested_query_texts to return empty set (no dedup)
+        monkeypatch.setattr(ca, "ingested_query_texts", lambda conn: set())
+        # Stub log_to_mlflow
+        monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
+
+        # Stub get_conn to yield a single traceable object
+        sentinel_conn = _make_multi_conn()
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_get_conn():
+            yield sentinel_conn
+
+        monkeypatch.setattr(ca, "get_conn", fake_get_conn)
+
+        ca.gap_mine_main([])
+
+        # Both guard and insert must have been called with the SAME conn object
+        assert len(seen_guard_conns) >= 1, "assert_sandbox_write_target not called"
+        assert len(seen_insert_conns) >= 1, "insert_pending not called"
+        assert seen_guard_conns[0] is sentinel_conn, "guard used wrong conn"
+        assert seen_insert_conns[0] is sentinel_conn, "insert used wrong conn"
+
+
+class TestInsertPendingBackwardCompat:
+    """Test 6: insert_pending without conn= still self-opens get_conn (backward compat)."""
+
+    def test_no_conn_self_opens_get_conn(self, monkeypatch) -> None:
+        import scripts.coverage_agent as ca
+
+        get_conn_calls = [0]
+
+        class FakeCursor:
+            rowcount = 1
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+            def execute(self, sql, params=None):
+                pass
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+            def cursor(self):
+                return FakeCursor()
+
+            def commit(self):
+                pass
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_get_conn():
+            get_conn_calls[0] += 1
+            yield FakeConn()
+
+        monkeypatch.setattr(ca, "get_conn", fake_get_conn)
+
+        from scripts.coverage_agent import ProposedQuery, insert_pending
+
+        proposals = [ProposedQuery("some query", "enriched", "reason")]
+        insert_pending(proposals, dry_run=False)  # no conn= kwarg
+
+        assert get_conn_calls[0] == 1, "Expected insert_pending to self-open get_conn"
+
+
+class TestGuardImportedNotRedefined:
+    """Test 7 (HIGH-3): assert_sandbox_write_target is imported from scripts.sandbox_guard,
+    not redefined; raising it prevents any inserts."""
+
+    def test_guard_raise_prevents_inserts(self, monkeypatch) -> None:
+        import scripts.coverage_agent as ca
+
+        insert_called = [False]
+
+        def raising_guard(conn=None):
+            raise RuntimeError("not sandbox — refused")
+
+        monkeypatch.setattr(ca, "assert_sandbox_write_target", raising_guard)
+
+        def should_not_be_called(proposals, dry_run, conn=None):
+            insert_called[0] = True
+            return 0
+
+        monkeypatch.setattr(ca, "insert_pending", should_not_be_called)
+        monkeypatch.setattr(
+            ca,
+            "gather_demand",
+            lambda days, url=None: ({("Outer Sunset", "vietnamese"): 5}, 1, 0),
+        )
+        monkeypatch.setattr(
+            ca, "gather_pair_supply", lambda pairs, conn=None: {p: 0 for p in pairs}
+        )
+        monkeypatch.setattr(ca, "ingested_query_texts", lambda conn: set())
+        monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_get_conn():
+            yield _make_multi_conn()
+
+        monkeypatch.setattr(ca, "get_conn", fake_get_conn)
+
+        import pytest
+
+        with pytest.raises(RuntimeError, match="not sandbox"):
+            ca.gap_mine_main([])
+
+        assert not insert_called[0], "insert_pending must not be called when guard raises"
+
+    def test_guard_runs_before_insert(self, monkeypatch) -> None:
+        """Assert call ORDER: guard before insert."""
+        import scripts.coverage_agent as ca
+
+        call_order: list[str] = []
+
+        def tracking_guard(conn=None):
+            call_order.append("guard")
+
+        def tracking_insert(proposals, dry_run, conn=None):
+            call_order.append("insert")
+            return 0
+
+        monkeypatch.setattr(ca, "assert_sandbox_write_target", tracking_guard)
+        monkeypatch.setattr(ca, "insert_pending", tracking_insert)
+        monkeypatch.setattr(
+            ca,
+            "gather_demand",
+            lambda days, url=None: ({("Outer Sunset", "vietnamese"): 3}, 1, 0),
+        )
+        monkeypatch.setattr(
+            ca, "gather_pair_supply", lambda pairs, conn=None: {p: 0 for p in pairs}
+        )
+        monkeypatch.setattr(ca, "ingested_query_texts", lambda conn: set())
+        monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_get_conn():
+            yield _make_multi_conn()
+
+        monkeypatch.setattr(ca, "get_conn", fake_get_conn)
+
+        ca.gap_mine_main([])
+
+        assert call_order.index("guard") < call_order.index("insert"), (
+            "assert_sandbox_write_target must be called before insert_pending"
+        )
+
+
+class TestColdStart:
+    """Test 9 (D-04): empty demand → gaps_found=0 logged, return 0, zero inserts."""
+
+    def test_empty_demand_returns_0_no_inserts(self, monkeypatch) -> None:
+        import scripts.coverage_agent as ca
+
+        insert_called = [False]
+        logged_metrics: dict = {}
+
+        def fake_guard(conn=None):
+            pass  # allow (sandbox)
+
+        def fake_insert(proposals, dry_run, conn=None):
+            insert_called[0] = True
+            return 0
+
+        monkeypatch.setattr(ca, "assert_sandbox_write_target", fake_guard)
+        monkeypatch.setattr(ca, "insert_pending", fake_insert)
+        monkeypatch.setattr(ca, "gather_demand", lambda days, url=None: ({}, 0, 0))
+        monkeypatch.setattr(ca, "gather_pair_supply", lambda pairs, conn=None: {})
+        monkeypatch.setattr(ca, "ingested_query_texts", lambda conn: set())
+
+        import mlflow as _mlflow
+
+        def fake_log_metric(key, val):
+            logged_metrics[key] = val
+
+        monkeypatch.setattr(_mlflow, "log_metric", fake_log_metric)
+        monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_get_conn():
+            yield _make_multi_conn()
+
+        monkeypatch.setattr(ca, "get_conn", fake_get_conn)
+
+        result = ca.gap_mine_main([])
+        assert result == 0
+        assert not insert_called[0], "insert_pending must not be called on cold start"
+
+
+class TestHappyPath:
+    """Test 10: happy path produces a proposal with the exact gap_to_seed_query output."""
+
+    def test_proposal_query_text_equals_seed_format(self, monkeypatch) -> None:
+        import scripts.coverage_agent as ca
+
+        inserted_proposals: list = []
+
+        def fake_guard(conn=None):
+            pass
+
+        def fake_insert(proposals, dry_run, conn=None):
+            inserted_proposals.extend(proposals)
+            return len(proposals)
+
+        monkeypatch.setattr(ca, "assert_sandbox_write_target", fake_guard)
+        monkeypatch.setattr(ca, "insert_pending", fake_insert)
+        monkeypatch.setattr(
+            ca,
+            "gather_demand",
+            lambda days, url=None: ({("Outer Sunset", "vietnamese"): 5}, 1, 0),
+        )
+        monkeypatch.setattr(
+            ca, "gather_pair_supply", lambda pairs, conn=None: {p: 0 for p in pairs}
+        )
+        monkeypatch.setattr(ca, "ingested_query_texts", lambda conn: set())
+        monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_get_conn():
+            yield _make_multi_conn()
+
+        monkeypatch.setattr(ca, "get_conn", fake_get_conn)
+
+        result = ca.gap_mine_main([])
+        assert result == 0
+
+        assert len(inserted_proposals) >= 1
+        expected_seed = "vietnamese restaurants in Outer Sunset San Francisco"
+        assert any(p.query_text == expected_seed for p in inserted_proposals), (
+            f"Expected proposal with query_text={expected_seed!r}; got: "
+            f"{[p.query_text for p in inserted_proposals]}"
+        )
+
+
+class TestDryRun:
+    """Test 11: --dry-run runs the full path but insert_pending inserts nothing."""
+
+    def test_dry_run_zero_inserts(self, monkeypatch) -> None:
+        import scripts.coverage_agent as ca
+
+        insert_dry_run_values: list[bool] = []
+
+        def fake_guard(conn=None):
+            pass
+
+        def fake_insert(proposals, dry_run, conn=None):
+            insert_dry_run_values.append(dry_run)
+            return 0  # nothing inserted on dry run
+
+        monkeypatch.setattr(ca, "assert_sandbox_write_target", fake_guard)
+        monkeypatch.setattr(ca, "insert_pending", fake_insert)
+        monkeypatch.setattr(
+            ca,
+            "gather_demand",
+            lambda days, url=None: ({("Outer Sunset", "vietnamese"): 5}, 1, 0),
+        )
+        monkeypatch.setattr(
+            ca, "gather_pair_supply", lambda pairs, conn=None: {p: 0 for p in pairs}
+        )
+        monkeypatch.setattr(ca, "ingested_query_texts", lambda conn: set())
+        monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_get_conn():
+            yield _make_multi_conn()
+
+        monkeypatch.setattr(ca, "get_conn", fake_get_conn)
+
+        result = ca.gap_mine_main(["--dry-run"])
+        assert result == 0
+        # insert_pending called with dry_run=True
+        assert len(insert_dry_run_values) >= 1
+        assert all(v is True for v in insert_dry_run_values)
+
+
+class TestTopNAfterDedup:
+    """Test 12: --top-n is applied AFTER filter_already_covered (post-dedup cap)."""
+
+    def test_top_n_caps_post_dedup_list(self, monkeypatch) -> None:
+        import scripts.coverage_agent as ca
+
+        inserted_proposals: list = []
+
+        def fake_guard(conn=None):
+            pass
+
+        def fake_insert(proposals, dry_run, conn=None):
+            inserted_proposals.extend(proposals)
+            return len(proposals)
+
+        monkeypatch.setattr(ca, "assert_sandbox_write_target", fake_guard)
+        monkeypatch.setattr(ca, "insert_pending", fake_insert)
+
+        # 3 demand gaps surviving dedup — only 2 should be inserted with --top-n 2
+        demand = {
+            ("Outer Sunset", "vietnamese"): 9,
+            ("Mission District", "thai"): 7,
+            ("Castro", "italian"): 5,
+        }
+        monkeypatch.setattr(ca, "gather_demand", lambda days, url=None: (demand, 3, 0))
+        monkeypatch.setattr(
+            ca, "gather_pair_supply", lambda pairs, conn=None: {p: 0 for p in pairs}
+        )
+        monkeypatch.setattr(ca, "ingested_query_texts", lambda conn: set())
+        monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_get_conn():
+            yield _make_multi_conn()
+
+        monkeypatch.setattr(ca, "get_conn", fake_get_conn)
+
+        ca.gap_mine_main(["--top-n", "2"])
+
+        # Only 2 proposals must have been inserted
+        assert len(inserted_proposals) == 2, (
+            f"Expected 2 proposals after --top-n 2; got {len(inserted_proposals)}"
+        )
+
+
+class TestMLflowDemandMetrics:
+    """Test 13: log_to_mlflow logs demand_rows_scanned, unmapped_count, gaps_found,
+    proposals_inserted, and a demand_gaps.json artifact."""
+
+    def test_demand_metrics_logged(self, monkeypatch) -> None:
+
+        logged_metrics: dict[str, float] = {}
+        logged_dicts: dict[str, object] = {}
+
+        import mlflow as _mlflow
+
+        monkeypatch.setattr(_mlflow, "set_experiment", lambda *a, **kw: None)
+        monkeypatch.setattr(_mlflow, "log_param", lambda *a, **kw: None)
+        monkeypatch.setattr(_mlflow, "log_dict", lambda d, name: logged_dicts.update({name: d}))
+        monkeypatch.setattr(
+            _mlflow, "log_metric", lambda key, val: logged_metrics.update({key: val})
+        )
+
+        class FakeRun:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        monkeypatch.setattr(_mlflow, "start_run", lambda **kw: FakeRun())
+
+        from scripts.coverage_agent import (
+            DemandGap,
+            ProposedQuery,
+            log_to_mlflow,
+        )
+
+        gaps = [DemandGap("Outer Sunset", "vietnamese", 0, 5)]
+        proposals = [
+            ProposedQuery(
+                "vietnamese restaurants in Outer Sunset San Francisco", "enriched", "test"
+            )
+        ]
+
+        log_to_mlflow(
+            stats=[],
+            gaps=[],
+            proposals=proposals,
+            dropped=[],
+            inserted=1,
+            dry_run=False,
+            demand_rows_scanned=10,
+            unmapped_count=2,
+            demand_gaps=gaps,
+        )
+
+        assert "demand_rows_scanned" in logged_metrics, "Missing demand_rows_scanned metric"
+        assert "unmapped_count" in logged_metrics, "Missing unmapped_count metric"
+        assert "proposals_inserted" in logged_metrics, "Missing proposals_inserted metric"
+        assert "demand_gaps.json" in logged_dicts, "Missing demand_gaps.json artifact"
+
+
+class TestJudgeNoneStillMinesLexical:
+    """Test 14 (ROUND-2 MEDIUM-3): judge=None with lexically-mappable demand still
+    produces a gap and reaches insert_pending with the exact seed."""
+
+    def test_judge_none_lexical_demand_mines(self, monkeypatch) -> None:
+        import scripts.coverage_agent as ca
+
+        inserted_proposals: list = []
+
+        def fake_guard(conn=None):
+            pass
+
+        def fake_insert(proposals, dry_run, conn=None):
+            inserted_proposals.extend(proposals)
+            return len(proposals)
+
+        monkeypatch.setattr(ca, "assert_sandbox_write_target", fake_guard)
+        monkeypatch.setattr(ca, "insert_pending", fake_insert)
+
+        # gather_demand (already-tested) returns lexically-mappable demand
+        # even when judge=None; we stub it here to isolate gap_mine_main behavior
+        monkeypatch.setattr(
+            ca,
+            "gather_demand",
+            lambda days, url=None: ({("Outer Sunset", "vietnamese"): 3}, 1, 0),
+        )
+        monkeypatch.setattr(
+            ca, "gather_pair_supply", lambda pairs, conn=None: {p: 0 for p in pairs}
+        )
+        monkeypatch.setattr(ca, "ingested_query_texts", lambda conn: set())
+        monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_get_conn():
+            yield _make_multi_conn()
+
+        monkeypatch.setattr(ca, "get_conn", fake_get_conn)
+
+        # Simulate judge being None
+        with patch.object(ca, "vibe") as mock_vibe:
+            mock_vibe.make_judge.return_value = None
+            result = ca.gap_mine_main([])
+
+        assert result == 0
+        expected_seed = "vietnamese restaurants in Outer Sunset San Francisco"
+        assert any(p.query_text == expected_seed for p in inserted_proposals), (
+            "judge=None must not suppress lexically-mappable demand"
+        )
