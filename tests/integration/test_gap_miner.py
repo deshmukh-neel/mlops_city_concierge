@@ -156,8 +156,11 @@ def test_seeded_demand_produces_pending_proposal(
         for c in CUISINES:
             seed = gap_to_seed_query(n, c)
             if seed not in _CATALOG_SEEDS:
-                # gap_to_seed_query already asserts catalog membership; this is
-                # a defensive check that the seed is a valid catalog seed.
+                # Defensive: with the default QUERY_LIMIT=0 every NEIGHBORHOODS×
+                # CUISINES seed is in build_seed_queries(), so this is currently
+                # unreachable — but a non-zero QUERY_LIMIT would truncate the
+                # catalog, and a pair outside it must be skipped (an un-ingestable
+                # target would never produce a proposal to assert on).
                 continue
             if seed in already_ingested:
                 continue

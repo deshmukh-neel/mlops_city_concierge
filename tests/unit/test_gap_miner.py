@@ -238,9 +238,14 @@ class TestPromptInjectionSafety:
         prompt = _build_demand_batch_prompt([message])
         # The message must appear json.dumps-encoded, not raw
         assert json.dumps(message) in prompt
-        # The raw injection string must NOT appear literally in the prompt
-        # (it should be JSON-escaped as \"]})... or similar)
-        assert '"]}) DROP TABLE; --' not in prompt or json.dumps([message]) in prompt
+        # The embedded message array must be valid JSON that round-trips back to
+        # the original message — proving the leading `"` was escaped and did not
+        # break out of the JSON string boundary (the real injection-safety check;
+        # a raw `in prompt` substring test is vacuously true and gives false
+        # confidence — WR-01).
+        encoded_array = json.dumps([message])
+        assert encoded_array in prompt
+        assert json.loads(encoded_array) == [message]
 
     def test_prompt_contains_json_array(self) -> None:
         from scripts.coverage_agent import _build_demand_batch_prompt

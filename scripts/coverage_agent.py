@@ -20,6 +20,7 @@ import argparse
 import contextlib
 import json
 import logging
+import os
 import re
 import sys
 from collections import defaultdict
@@ -275,7 +276,7 @@ def _extract_demand_batch(
     silently dropped (T-18-02-INJ residual + ROUND-3 catalog-constraint).
     Fence-tolerant JSON parsing mirrors ``_parse_proposals``/``_FENCE_RE``.
     """
-    empty = [([], [])] * len(messages)
+    empty = [([], []) for _ in range(len(messages))]
     if not messages:
         return []
     if llm is None:
@@ -460,10 +461,8 @@ def gap_to_seed_query(neighborhood: str, cuisine: str) -> str:
     assert cuisine in _CUISINES_SET, f"gap_to_seed_query: {cuisine!r} is not a catalog cuisine"
     seed = f"{cuisine} restaurants in {neighborhood} San Francisco"
     # Catalog-membership assertion so every emitted seed is loop-consumable
-    # (premark_seed_isolation membership — D-03).  Evaluated lazily to avoid
-    # importing build_seed_queries at module level on every startup.
-    from scripts.ingest_places_sf import build_seed_queries
-
+    # (premark_seed_isolation membership — D-03). build_seed_queries is already
+    # imported at module level.
     assert seed in set(build_seed_queries()), (
         f"gap_to_seed_query: emitted seed {seed!r} is not in build_seed_queries() — "
         "this should never happen for valid catalog inputs"
@@ -797,7 +796,7 @@ def gap_mine_main(argv: list[str] | None = None) -> int:
     )
     args = p.parse_args(argv)
 
-    demand_url = __import__("os").environ.get("DEMAND_DATABASE_URL", None)
+    demand_url = os.environ.get("DEMAND_DATABASE_URL", None)
 
     # --- Read demand signal ---
     demand_counts, rows_scanned, unmapped_count = gather_demand(args.days, demand_url)
