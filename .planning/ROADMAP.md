@@ -68,7 +68,7 @@
 - [x] Phase 17: Query Logging (LOG) — log `/chat` user queries to Cloud SQL as the loop's learning signal (foundational requirement; thin-sliced in 16). **2 plans (2 waves) — planned 2026-06-16.** (completed 2026-06-16)
   - [x] 17-01-PLAN.md — create the `user_query_log` table via Alembic (migration + apply + schema verify) [D-02/D-03/D-04]
   - [x] 17-02-PLAN.md — fire-and-forget `log_user_query` write fn + BackgroundTasks wiring in `chat()` + unit/integration tests [D-01/D-02/D-04]
-- [ ] Phase 18: Gap Mining (GAP) — real demand/supply gap miner (replaces Phase 16's hardcoded gap constant). **4 plans (4 waves) — planned 2026-06-17.**
+- [x] Phase 18: Gap Mining (GAP) — real demand/supply gap miner (replaces Phase 16's hardcoded gap constant). **4 plans (4 waves) — planned 2026-06-17.** (completed 2026-06-18)
   - [x] 18-01-sandbox-prereqs-PLAN.md — apply user_query_log migration to sandbox + DEMAND_DATABASE_URL in .env.example + deterministic demand seed helper [D-04/D-05]
   - [x] 18-02-demand-extraction-PLAN.md — gather_demand() over user_query_log + lexical/LLM extraction + get_demand_conn two-DB plumbing [D-01/D-05; GAP-01]
   - [x] 18-03-gap-scoring-cli-PLAN.md — find_demand_gaps (D-02 ranking) + exact seed-format emit + gap_mine_main CLI/MLflow + cold-start no-op [D-02/D-03/D-04; GAP-02/03/04]
@@ -100,7 +100,7 @@
 | 15. Gate Promotion + Baseline Regen | v2.2 | 4/4 | Complete    | 2026-06-15 |
 | 16. Loop Falsifier + Sandbox Provisioning | v2.3 | 3/3 | Complete | 2026-06-15 |
 | 17. Query Logging (LOG) | v2.3 | 2/2 | Complete    | 2026-06-16 |
-| 18. Gap Mining (GAP) | v2.3 | 3/4 | In Progress|  |
+| 18. Gap Mining (GAP) | v2.3 | 4/4 | Complete    | 2026-06-18 |
 | 19. Productionized Loop + Metric | v2.3 | — | Not planned | — |
 
 ---
