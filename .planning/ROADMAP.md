@@ -72,7 +72,7 @@
   - [x] 18-01-sandbox-prereqs-PLAN.md — apply user_query_log migration to sandbox + DEMAND_DATABASE_URL in .env.example + deterministic demand seed helper [D-04/D-05]
   - [x] 18-02-demand-extraction-PLAN.md — gather_demand() over user_query_log + lexical/LLM extraction + get_demand_conn two-DB plumbing [D-01/D-05; GAP-01]
   - [x] 18-03-gap-scoring-cli-PLAN.md — find_demand_gaps (D-02 ranking) + exact seed-format emit + gap_mine_main CLI/MLflow + cold-start no-op [D-02/D-03/D-04; GAP-02/03/04]
-  - [ ] 18-04-tests-make-docs-PLAN.md — smoke/functional/integration tests + make gap-mine + CLAUDE/AGENTS/copilot docs sync [D-03/D-04; GAP-03/04]
+  - [x] 18-04-tests-make-docs-PLAN.md — smoke/functional/integration tests + make gap-mine + CLAUDE/AGENTS/copilot docs sync [D-03/D-04; GAP-03/04]
 - [ ] Phase 19: Productionized Loop + Metric (LOOP-01..03 + METRIC) — full Make-targeted ingest→embed→metric loop + productionized hit@k/recall@k scorer. *Not yet planned.*
 
 **Success gate:** FALSIFY-01 (Phase 16) was the milestone go/no-go — a strictly-positive delta proves the loop can add retrievable places. PASSED, so Phases 17-19 are cleared to proceed.
