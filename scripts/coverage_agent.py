@@ -35,6 +35,7 @@ from langchain_core.messages import HumanMessage
 from app.agent.critique import vibe
 from app.db import get_conn
 from scripts.ingest_places_sf import CUISINES, NEIGHBORHOODS, build_seed_queries
+from scripts.sandbox_guard import assert_sandbox_write_target
 
 _log = logging.getLogger("coverage_agent")
 
@@ -615,6 +616,55 @@ def existing_query_texts(conn: Any) -> set[str]:
     return existing
 
 
+def ingested_query_texts(conn: Any) -> set[str]:
+    """Return the set of already-ingested query texts (DEMAND dedup — HIGH-2).
+
+    Unlike ``existing_query_texts``, this helper does NOT include the static
+    ``build_seed_queries()`` catalog — so catalog-valid proposals that have NOT
+    yet been ingested survive ``filter_already_covered`` (REVIEW HIGH-2 BLOCKER).
+
+    Two sources are unioned:
+
+    1. **COMPLETED checkpoints** (``places_ingest_query_checkpoints WHERE status =
+       'completed'``) — mirroring ingest's ``get_completed_queries`` and its skip
+       logic at ~742 which dedupes ONLY against completed checkpoints.  An
+       ``incomplete``/budget-stopped checkpoint is retried by ingest and must NOT
+       suppress the mined proposal (REVIEW ROUND-3 MEDIUM).
+
+       Ingest's ``checkpoint_key`` stores ``f"{FIELD_MODE}::{raw_query}"`` — so each
+       returned row is prefix-stripped (split on the first ``::``, take the part
+       after) so a completed ``all::<seed>`` checkpoint dedupes the raw ``<seed>``
+       proposal (REVIEW ROUND-2 NEW HIGH).  A row with no ``::`` is included as-is.
+
+    2. **All proposals** (``places_ingest_query_proposals`` — any status).  Proposals
+       are already stored as raw query texts; an existing pending/processed proposal
+       still dedupes.
+
+    Args:
+        conn: An open DB connection to use for the queries.
+
+    Returns:
+        set[str] of raw query texts that are already in the system.
+    """
+    ingested: set[str] = set()
+    with conn.cursor() as cur:
+        # COMPLETED checkpoints only — mirrors get_completed_queries (ingest.py:487-497)
+        # and the skip-check at ~742 which dedupes only against completed checkpoints.
+        cur.execute(
+            "SELECT query_text FROM places_ingest_query_checkpoints WHERE status = 'completed'"
+        )
+        for (query_text,) in cur.fetchall():
+            # Strip FIELD_MODE:: prefix (checkpoint_key adds it; proposals are raw)
+            raw = query_text.split("::", 1)[1] if "::" in query_text else query_text
+            ingested.add(raw)
+
+        # All proposals — already raw, any status dedupes
+        cur.execute("SELECT query_text FROM places_ingest_query_proposals")
+        ingested.update(row[0] for row in cur.fetchall())
+
+    return ingested
+
+
 def filter_already_covered(
     proposals: list[ProposedQuery], existing: set[str]
 ) -> tuple[list[ProposedQuery], list[ProposedQuery]]:
@@ -626,9 +676,18 @@ def filter_already_covered(
     return kept, dropped
 
 
-def insert_pending(proposals: list[ProposedQuery], dry_run: bool) -> int:
+def insert_pending(proposals: list[ProposedQuery], dry_run: bool, conn: Any = None) -> int:
     """Insert proposals as 'pending' rows. Returns the number of rows
-    actually inserted (0 if dry_run, or if every proposal collided)."""
+    actually inserted (0 if dry_run, or if every proposal collided).
+
+    Args:
+        proposals: Proposals to insert.
+        dry_run: If True, print but do not insert.
+        conn: Optional already-open connection to use.  When provided, the INSERT
+            runs on THAT connection (caller manages commit / guard ordering).
+            When None (default), self-opens via ``get_conn()`` as before —
+            backward-compatible for the supply-only ``main()`` path (ROUND-3 LOW).
+    """
     if dry_run:
         for p in proposals:
             print(f"[dry-run] would insert: {p.query_text!r} ({p.rationale})")
@@ -642,11 +701,18 @@ def insert_pending(proposals: list[ProposedQuery], dry_run: bool) -> int:
         ON CONFLICT (query_text) DO NOTHING;
     """
     inserted = 0
-    with get_conn() as conn, conn.cursor() as cur:
-        for p in proposals:
-            cur.execute(sql, [p.query_text, p.rationale])
-            inserted += cur.rowcount
+    if conn is not None:
+        with conn.cursor() as cur:
+            for p in proposals:
+                cur.execute(sql, [p.query_text, p.rationale])
+                inserted += cur.rowcount
         conn.commit()
+    else:
+        with get_conn() as _conn, _conn.cursor() as cur:
+            for p in proposals:
+                cur.execute(sql, [p.query_text, p.rationale])
+                inserted += cur.rowcount
+            _conn.commit()
     return inserted
 
 
@@ -657,19 +723,40 @@ def log_to_mlflow(
     dropped: list[ProposedQuery],
     inserted: int,
     dry_run: bool,
+    demand_rows_scanned: int = 0,
+    unmapped_count: int = 0,
+    demand_gaps: list[DemandGap] | None = None,
 ) -> None:
+    """Log a coverage/demand mining run to MLflow under the 'coverage_agent' experiment.
+
+    Extended with demand-side metrics (ROUND-2 MEDIUM-3 + GAP-04):
+      - demand_rows_scanned: total rows read from user_query_log
+      - unmapped_count: rows that yielded no catalog bucket
+      - proposals_inserted: actual rows inserted (renamed from 'inserted' for demand path)
+      - demand_gaps.json: ranked artifact of DemandGap instances
+
+    Backward-compatible: existing supply-only callers pass no demand kwargs and get
+    zero values / no demand artifact.
+    """
     mlflow.set_experiment("coverage_agent")
     run_name = f"coverage-{datetime.now(UTC).isoformat(timespec='seconds')}"
     with mlflow.start_run(run_name=run_name):
         mlflow.log_param("dry_run", dry_run)
-        mlflow.log_metric("gaps_found", len(gaps))
+        mlflow.log_metric(
+            "gaps_found", len(gaps) if gaps else (len(demand_gaps) if demand_gaps else 0)
+        )
         mlflow.log_metric("proposals_made", len(proposals))
         mlflow.log_metric("dropped_already_covered", len(dropped))
         mlflow.log_metric("inserted", inserted)
+        mlflow.log_metric("proposals_inserted", inserted)
+        mlflow.log_metric("demand_rows_scanned", demand_rows_scanned)
+        mlflow.log_metric("unmapped_count", unmapped_count)
         mlflow.log_dict({"stats": [_stat_to_dict(s) for s in stats]}, "stats.json")
         mlflow.log_dict({"gaps": [_stat_to_dict(g) for g in gaps]}, "gaps.json")
         mlflow.log_dict({"proposals": [asdict(p) for p in proposals]}, "proposals.json")
         mlflow.log_dict({"dropped": [asdict(p) for p in dropped]}, "dropped.json")
+        if demand_gaps:
+            mlflow.log_dict({"demand_gaps": [asdict(g) for g in demand_gaps]}, "demand_gaps.json")
 
 
 def _stat_to_dict(stat: CoverageStat) -> dict[str, Any]:
@@ -677,6 +764,123 @@ def _stat_to_dict(stat: CoverageStat) -> dict[str, Any]:
     if out["last_ingest"] is not None:
         out["last_ingest"] = out["last_ingest"].isoformat()
     return out
+
+
+def gap_mine_main(argv: list[str] | None = None) -> int:
+    """CLI for the demand-driven gap miner (GAP-04).
+
+    Reads user_query_log demand signal, cross-references pair-level supply from
+    place_query_hits, and writes pending proposals for under-served
+    (neighborhood, cuisine) pairs.
+
+    Flags mirror coverage_agent's main() convention (opt-out --dry-run, not opt-in
+    --apply).  Default is to WRITE; pass --dry-run to suppress inserts.
+    """
+    p = argparse.ArgumentParser(description="Demand-driven gap miner (Phase 18)")
+    p.add_argument("--days", type=int, default=14, help="Demand window in days.")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print proposals; don't insert.",
+    )
+    p.add_argument(
+        "--min-places",
+        type=int,
+        default=5,
+        help="Pair with fewer places than this is a gap.",
+    )
+    p.add_argument(
+        "--top-n",
+        type=int,
+        default=None,
+        help="Cap inserted proposals to top-N by demand (applied AFTER dedup).",
+    )
+    args = p.parse_args(argv)
+
+    demand_url = __import__("os").environ.get("DEMAND_DATABASE_URL", None)
+
+    # --- Read demand signal ---
+    demand_counts, rows_scanned, unmapped_count = gather_demand(args.days, demand_url)
+
+    # Cold-start: no mappable demand → honest no-op (D-04)
+    if not demand_counts:
+        _log.info("gap_mine_main: no mappable demand (cold start); inserting nothing")
+        log_to_mlflow(
+            stats=[],
+            gaps=[],
+            proposals=[],
+            dropped=[],
+            inserted=0,
+            dry_run=args.dry_run,
+            demand_rows_scanned=rows_scanned,
+            unmapped_count=unmapped_count,
+            demand_gaps=[],
+        )
+        return 0
+
+    # --- Score pair-level supply (TRUE pair level — HIGH-1) ---
+    demanded_pairs = list(demand_counts.keys())
+    pair_supply = gather_pair_supply(demanded_pairs)
+
+    # --- Apply D-02 gate: demand > 0 AND pair supply < floor ---
+    demand_gaps = find_demand_gaps(demand_counts, pair_supply, args.min_places)
+
+    if not demand_gaps:
+        _log.info("gap_mine_main: demand exists but all pairs meet supply floor; nothing to insert")
+        log_to_mlflow(
+            stats=[],
+            gaps=[],
+            proposals=[],
+            dropped=[],
+            inserted=0,
+            dry_run=args.dry_run,
+            demand_rows_scanned=rows_scanned,
+            unmapped_count=unmapped_count,
+            demand_gaps=[],
+        )
+        return 0
+
+    # --- Build proposals with EXACT seed format (T-18-03-SEED guard) ---
+    proposals: list[ProposedQuery] = []
+    for g in demand_gaps:
+        seed = gap_to_seed_query(g.neighborhood, g.cuisine)
+        rationale = (
+            f"demand={g.demand_count} pair_supply={g.place_count} ({g.neighborhood}/{g.cuisine})"
+        )
+        proposals.append(ProposedQuery(seed, "enriched", rationale))
+
+    # --- Dedup + write in ONE connection (guard on same conn — ROUND-3 LOW) ---
+    with get_conn() as write_conn:
+        # HIGH-2 + ROUND-2 + ROUND-3: dedup against ingested rows ONLY
+        ingested = ingested_query_texts(write_conn)
+        kept, dropped = filter_already_covered(proposals, ingested)
+
+        # Apply --top-n AFTER dedup (RESEARCH Open Question #2)
+        if args.top_n is not None:
+            kept = kept[: args.top_n]
+
+        # HIGH-3 + ROUND-2 H3 / MEDIUM-2 + ROUND-3 LOW:
+        # Guard runs on the SAME connection that insert will use
+        assert_sandbox_write_target(write_conn)
+        inserted = insert_pending(kept, args.dry_run, conn=write_conn)
+
+    log_to_mlflow(
+        stats=[],
+        gaps=[],
+        proposals=proposals,
+        dropped=dropped,
+        inserted=inserted,
+        dry_run=args.dry_run,
+        demand_rows_scanned=rows_scanned,
+        unmapped_count=unmapped_count,
+        demand_gaps=demand_gaps,
+    )
+    print(
+        f"gap_mine_main: demand_rows={rows_scanned} unmapped={unmapped_count} "
+        f"gaps={len(demand_gaps)} proposals={len(proposals)} "
+        f"kept={len(kept)} dropped={len(dropped)} inserted={inserted}"
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
