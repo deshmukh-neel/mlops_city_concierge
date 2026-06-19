@@ -47,6 +47,16 @@ class TestTypesToCuisines:
         result = _types_to_cuisines(["Thai Restaurant"])
         assert result == ["thai"]
 
+    def test_multiword_primary_type_alias(self) -> None:
+        # CDX-M1: app/main.py's slot intake emits the primary_type "Steak House",
+        # which normalizes to "steak house" — the catalog cuisine is "steakhouse".
+        # The alias map must recover it instead of silently dropping the demand.
+        from scripts.coverage_agent import _types_to_cuisines
+
+        assert _types_to_cuisines(["Steak House"]) == ["steakhouse"]
+        # "Fine Dining Restaurant" legitimately has no catalog cuisine (like Bar).
+        assert _types_to_cuisines(["Fine Dining Restaurant"]) == []
+
 
 class TestLexicalCuisines:
     """Test 2: lexical message-cuisine fallback — tier 2a (ROUND-3 HIGH, no LLM)."""
@@ -68,6 +78,13 @@ class TestLexicalCuisines:
 
         result = _lexical_cuisines("italian or thai tonight")
         assert sorted(result) == ["italian", "thai"]
+
+    def test_multiword_alias_in_message(self) -> None:
+        # CDX-M1: "dim sum" in free text should recover catalog "dimsum"
+        # (the single-token catalog scan alone would miss it).
+        from scripts.coverage_agent import _lexical_cuisines
+
+        assert _lexical_cuisines("looking for dim sum in Chinatown") == ["dimsum"]
 
     def test_no_catalog_cuisine_returns_empty(self) -> None:
         from scripts.coverage_agent import _lexical_cuisines
@@ -922,6 +939,46 @@ def _make_multi_conn(
     return conn
 
 
+class _StatusAwareCheckpointCursor:
+    """Cursor stub that returns an `incomplete` checkpoint row ONLY when the
+    SELECT omits the `status = 'completed'` predicate (CDX-L1)."""
+
+    def __init__(self, prefixed_row: str) -> None:
+        self._prefixed_row = prefixed_row
+        self._rows: list[tuple] = []
+
+    def __enter__(self) -> _StatusAwareCheckpointCursor:
+        return self
+
+    def __exit__(self, *a: object) -> None:
+        pass
+
+    def execute(self, sql: str, params: object = None) -> None:
+        if "places_ingest_query_checkpoints" in sql:
+            # The incomplete row leaks only if the completed-status filter is absent.
+            self._rows = [] if "status = 'completed'" in sql else [(self._prefixed_row,)]
+        else:
+            self._rows = []
+
+    def fetchall(self) -> list[tuple]:
+        return self._rows
+
+    def fetchone(self) -> tuple | None:
+        return self._rows[0] if self._rows else None
+
+
+class _StatusAwareCheckpointConn:
+    """Connection stub backing the CDX-L1 status-filter test."""
+
+    _dbname = "city_concierge_sandbox"
+
+    def __init__(self, prefixed_row: str) -> None:
+        self._prefixed_row = prefixed_row
+
+    def cursor(self) -> _StatusAwareCheckpointCursor:
+        return _StatusAwareCheckpointCursor(self._prefixed_row)
+
+
 class TestIngestedQueryTextsHigh2:
     """Test 1 (HIGH-2): a catalog-valid, not-yet-ingested proposal SURVIVES
     filter_already_covered when deduping against ingested_query_texts (not
@@ -1021,18 +1078,17 @@ class TestCheckpointStatusFilter:
         )
 
         raw_seed = "vietnamese restaurants in Outer Sunset San Francisco"
+        prefixed = f"all::{raw_seed}"
 
-        # We need the cursor to return NO rows for checkpoints when filtering
-        # by status='completed' — simulate by returning empty for checkpoints.
-        # The key point: ingested_query_texts must filter to status='completed' only.
-        conn = _make_multi_conn()
-        # Override: checkpoint table returns nothing (status='incomplete' filtered out)
-        conn._rows_by_query["places_ingest_query_checkpoints"] = []
-        conn._rows_by_query["places_ingest_query_proposals"] = []
+        # Status-aware stub: this checkpoint row is `incomplete`, so it is
+        # returned ONLY when the SELECT does NOT constrain `status = 'completed'`.
+        # If ingested_query_texts correctly carries the completed-status filter,
+        # the row is suppressed and the seed is absent. If the filter were ever
+        # dropped, the row would leak and this test would FAIL — proving the
+        # filter exists, not merely that an empty stub returned nothing (CDX-L1).
+        ingested = ingested_query_texts(_StatusAwareCheckpointConn(prefixed))
 
-        ingested = ingested_query_texts(conn)
-
-        # The seed must be ABSENT (incomplete checkpoint not in ingested set)
+        # The seed must be ABSENT (incomplete checkpoint filtered out by status)
         assert raw_seed not in ingested
 
         # Proposal for this seed is NOT deduped — it lands in kept

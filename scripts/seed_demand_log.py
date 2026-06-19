@@ -14,6 +14,7 @@ This script:
 
 from __future__ import annotations
 
+import copy
 import sys
 from contextlib import nullcontext
 
@@ -83,10 +84,12 @@ for _row in _SEED_ROWS:
 def seed_demand_rows() -> list[dict]:
     """Return the deterministic catalog-valid demand fixture rows.
 
-    Returns a new copy of the fixture list on each call so callers can
-    mutate it without affecting the module-level constant.
+    Returns a DEEP copy of the fixture on each call so callers can mutate a
+    returned row dict or its nested ``requested_primary_types`` list without
+    affecting the module-level constant (CDX-L2 — a shallow ``list()`` copy
+    would share the inner dicts/lists).
     """
-    return list(_SEED_ROWS)
+    return copy.deepcopy(_SEED_ROWS)
 
 
 def insert_demand_rows(rows: list[dict], conn=None) -> int:

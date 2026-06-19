@@ -176,6 +176,17 @@ def _parse_proposals(raw: str) -> list[ProposedQuery]:
 _CUISINES_SET: frozenset[str] = frozenset(CUISINES)
 _NEIGHBORHOODS_SET: frozenset[str] = frozenset(NEIGHBORHOODS)
 
+# Catalog aliases: multi-word Google primary_type / colloquial spellings whose
+# normalized form does NOT equal the single-token catalog cuisine. Without these
+# the type→cuisine tier silently drops real demand — e.g. app/main.py's slot
+# intake emits the primary_type "Steak House", which normalizes to "steak house"
+# and misses the catalog "steakhouse" (CDX-M1). Keys are lowercased; values MUST
+# be _CUISINES_SET members.
+_CUISINE_ALIASES: dict[str, str] = {
+    "steak house": "steakhouse",
+    "dim sum": "dimsum",
+}
+
 # ---------------------------------------------------------------------------
 # Demand-extraction helpers (Task 1)
 # ---------------------------------------------------------------------------
@@ -195,6 +206,10 @@ def _types_to_cuisines(primary_types: list[str]) -> list[str]:
     result: list[str] = []
     for pt in primary_types:
         candidate = pt.lower().removesuffix(" restaurant")
+        # Canonicalize multi-word/colloquial forms (e.g. "steak house" → "steakhouse")
+        # before catalog membership so primary_types like "Steak House" are not
+        # silently dropped (CDX-M1).
+        candidate = _CUISINE_ALIASES.get(candidate, candidate)
         if candidate in _CUISINES_SET:
             result.append(candidate)
     return result
@@ -211,7 +226,15 @@ def _lexical_cuisines(message: str) -> list[str]:
     for free-text messages, so the cuisine must be recovered from the message itself.
     """
     lower_msg = message.lower()
-    return [c for c in CUISINES if c in lower_msg]
+    found = [c for c in CUISINES if c in lower_msg]
+    # Also recover colloquial multi-word spellings the single-token catalog scan
+    # misses (e.g. "dim sum" in the message → catalog "dimsum") — CDX-M1.
+    found.extend(
+        canonical
+        for alias, canonical in _CUISINE_ALIASES.items()
+        if alias in lower_msg and canonical not in found
+    )
+    return found
 
 
 def _lexical_neighborhoods(message: str) -> list[str]:
@@ -686,6 +709,14 @@ def insert_pending(proposals: list[ProposedQuery], dry_run: bool, conn: Any = No
             runs on THAT connection (caller manages commit / guard ordering).
             When None (default), self-opens via ``get_conn()`` as before —
             backward-compatible for the supply-only ``main()`` path (ROUND-3 LOW).
+
+    WRITE-TARGET POLICY (CDX-H1): this function is intentionally NOT
+    sandbox-guarded — the supply-only ``main()`` path legitimately writes to
+    whatever ``DATABASE_URL`` targets (pre-Phase-18 behavior). The sandbox-only
+    constraint applies to the DEMAND path only (D-05): ``gap_mine_main`` calls
+    ``assert_sandbox_write_target(conn)`` on the SAME connection it passes here,
+    immediately before this INSERT. Any NEW demand-side caller MUST do the same
+    (guard the exact ``conn`` it passes) — do not rely on an internal guard here.
     """
     if dry_run:
         for p in proposals:
