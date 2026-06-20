@@ -73,7 +73,11 @@
   - [x] 18-02-demand-extraction-PLAN.md — gather_demand() over user_query_log + lexical/LLM extraction + get_demand_conn two-DB plumbing [D-01/D-05; GAP-01]
   - [x] 18-03-gap-scoring-cli-PLAN.md — find_demand_gaps (D-02 ranking) + exact seed-format emit + gap_mine_main CLI/MLflow + cold-start no-op [D-02/D-03/D-04; GAP-02/03/04]
   - [x] 18-04-tests-make-docs-PLAN.md — smoke/functional/integration tests + make gap-mine + CLAUDE/AGENTS/copilot docs sync [D-03/D-04; GAP-03/04]
-- [ ] Phase 19: Productionized Loop + Metric (LOOP-01..03 + METRIC) — full Make-targeted ingest→embed→metric loop + productionized hit@k/recall@k scorer. *Not yet planned.*
+- [ ] Phase 19: Productionized Loop + Metric (LOOP-01..03 + METRIC) — full Make-targeted ingest→embed→metric loop + productionized hit@k/recall@k scorer. **4 plans (3 waves) — planned 2026-06-20.**
+  - [ ] 19-01-PLAN.md — pure compute_recall_at_k + RecallAtKResult + runtime-tunable FLOOR + decide_loop_exit in falsifier_core + zero-cost unit tests [D-03/D-05/D-06]
+  - [ ] 19-02-PLAN.md — populated-baseline provisioning (--populated/--reset DROP+restore, embed-before-snapshot, gap-bucket exclusion) + make sandbox-provision-populated [D-01/D-02]
+  - [ ] 19-03-PLAN.md — scripts/loop_runner.py staged orchestrator (coercion-ordering + embedding-table assert + deterministic one-gap set-diff handoff + frozen paraphrases + v2-diff hit@k/recall@k + floor gate + MLflow) [D-01/D-02/D-03/D-04/D-05/D-06/D-07/D-08]
+  - [ ] 19-04-PLAN.md — make loop (three-key guard) + zero-cost orchestrator decision-logic unit tests + operator floor-calibration checkpoint + docs/loop_runner.md runbook + AI-doc sync [D-01/D-02/D-05/D-06]
 
 **Success gate:** FALSIFY-01 (Phase 16) was the milestone go/no-go — a strictly-positive delta proves the loop can add retrievable places. PASSED, so Phases 17-19 are cleared to proceed.
 
@@ -101,8 +105,8 @@
 | 16. Loop Falsifier + Sandbox Provisioning | v2.3 | 3/3 | Complete | 2026-06-15 |
 | 17. Query Logging (LOG) | v2.3 | 2/2 | Complete    | 2026-06-16 |
 | 18. Gap Mining (GAP) | v2.3 | 4/4 | Complete    | 2026-06-18 |
-| 19. Productionized Loop + Metric | v2.3 | — | Not planned | — |
+| 19. Productionized Loop + Metric | v2.3 | 0/4 | Planned | — |
 
 ---
 
-*Last updated: 2026-06-15 — v2.3 Adaptive Data Loop ACTIVE. Phase 16 (Loop Falsifier) COMPLETE — FALSIFY-01 hard gate PASSED (hit@5 delta +1.000). Phase 17 (LOG) PLANNED 2026-06-16 (2 plans). Phases 18-19 scoped but not yet planned. Next: `/gsd-discuss-phase 17`. v2.2 archived in milestones/v2.2-ROADMAP.md.*
+*Last updated: 2026-06-20 — Phase 19 (Productionized Loop + Metric) PLANNED (4 plans, 3 waves). v2.3 Adaptive Data Loop ACTIVE. Phase 16 (Loop Falsifier) COMPLETE — FALSIFY-01 hard gate PASSED (hit@5 delta +1.000). Phase 17 (LOG) PLANNED 2026-06-16 (2 plans). Phases 18-19 scoped but not yet planned. Next: `/gsd-discuss-phase 17`. v2.2 archived in milestones/v2.2-ROADMAP.md.*
