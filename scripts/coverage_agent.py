@@ -299,7 +299,7 @@ def _extract_demand_batch(
     silently dropped (T-18-02-INJ residual + ROUND-3 catalog-constraint).
     Fence-tolerant JSON parsing mirrors ``_parse_proposals``/``_FENCE_RE``.
     """
-    empty = [([], []) for _ in range(len(messages))]
+    empty: list[tuple[list[str], list[str]]] = [([], []) for _ in range(len(messages))]
     if not messages:
         return []
     if llm is None:
