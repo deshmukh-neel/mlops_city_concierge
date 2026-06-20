@@ -17,20 +17,26 @@ Design notes
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
+import os
 import re
 import sys
+from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import mlflow
+import psycopg2
 from langchain_core.messages import HumanMessage
 
 from app.agent.critique import vibe
 from app.db import get_conn
-from scripts.ingest_places_sf import CUISINES, build_seed_queries
+from scripts.ingest_places_sf import CUISINES, NEIGHBORHOODS, build_seed_queries
+from scripts.sandbox_guard import assert_sandbox_write_target
 
 _log = logging.getLogger("coverage_agent")
 
@@ -163,6 +169,415 @@ def _parse_proposals(raw: str) -> list[ProposedQuery]:
     return proposals
 
 
+# ---------------------------------------------------------------------------
+# Demand-extraction catalog sets (module-level, built once on import)
+# ---------------------------------------------------------------------------
+
+_CUISINES_SET: frozenset[str] = frozenset(CUISINES)
+_NEIGHBORHOODS_SET: frozenset[str] = frozenset(NEIGHBORHOODS)
+
+# Catalog aliases: multi-word Google primary_type / colloquial spellings whose
+# normalized form does NOT equal the single-token catalog cuisine. Without these
+# the type→cuisine tier silently drops real demand — e.g. app/main.py's slot
+# intake emits the primary_type "Steak House", which normalizes to "steak house"
+# and misses the catalog "steakhouse" (CDX-M1). Keys are lowercased; values MUST
+# be _CUISINES_SET members.
+_CUISINE_ALIASES: dict[str, str] = {
+    "steak house": "steakhouse",
+    "dim sum": "dimsum",
+}
+
+# ---------------------------------------------------------------------------
+# Demand-extraction helpers (Task 1)
+# ---------------------------------------------------------------------------
+
+
+def _types_to_cuisines(primary_types: list[str]) -> list[str]:
+    """Tier-1 cuisine extraction: map requested_primary_types to catalog cuisines.
+
+    Strips the " restaurant" suffix (case-insensitive), lowercases, and checks
+    membership in _CUISINES_SET.  No LLM call — pure lexical mapping.
+
+    Examples::
+
+        _types_to_cuisines(["Vietnamese Restaurant"])  # → ["vietnamese"]
+        _types_to_cuisines(["Bar"])                    # → []
+    """
+    result: list[str] = []
+    for pt in primary_types:
+        candidate = pt.lower().removesuffix(" restaurant")
+        # Canonicalize multi-word/colloquial forms (e.g. "steak house" → "steakhouse")
+        # before catalog membership so primary_types like "Steak House" are not
+        # silently dropped (CDX-M1).
+        candidate = _CUISINE_ALIASES.get(candidate, candidate)
+        if candidate in _CUISINES_SET:
+            result.append(candidate)
+    return result
+
+
+def _lexical_cuisines(message: str) -> list[str]:
+    """Tier-2a cuisine extraction: scan message text for catalog cuisine names.
+
+    Case-insensitive substring/word scan of *message* against every CUISINES
+    catalog member.  Returns a list (possibly empty) of all catalog cuisines
+    named in the message.  No LLM call — symmetric to _lexical_neighborhoods.
+
+    This closes the ROUND-3 HIGH: app/main.py returns requested_primary_types=[]
+    for free-text messages, so the cuisine must be recovered from the message itself.
+    """
+    lower_msg = message.lower()
+    found = [c for c in CUISINES if c in lower_msg]
+    # Also recover colloquial multi-word spellings the single-token catalog scan
+    # misses (e.g. "dim sum" in the message → catalog "dimsum") — CDX-M1.
+    found.extend(
+        canonical
+        for alias, canonical in _CUISINE_ALIASES.items()
+        if alias in lower_msg and canonical not in found
+    )
+    return found
+
+
+def _lexical_neighborhoods(message: str) -> list[str]:
+    """Tier-1 neighborhood extraction: scan message text for catalog neighborhood names.
+
+    Case-insensitive substring scan of *message* against every NEIGHBORHOODS
+    catalog member (Title-Case strings).  Returns a list of all catalog
+    neighborhoods named — no LLM call (REVIEW MEDIUM: lexical-before-LLM).
+
+    Examples::
+
+        _lexical_neighborhoods("dinner in Outer Sunset")
+        # → ["Outer Sunset"]
+
+        _lexical_neighborhoods("dinner in the Mission District and drinks in North Beach")
+        # → ["Mission District", "North Beach"]
+    """
+    lower_msg = message.lower()
+    return [n for n in NEIGHBORHOODS if n.lower() in lower_msg]
+
+
+def _build_demand_batch_prompt(messages: list[str]) -> str:
+    """Build a batch extraction prompt that embeds messages as a JSON array.
+
+    Using json.dumps prevents a message containing ``"]}`` or other JSON-special
+    characters from escaping the prompt format boundary (T-18-02-INJ mitigation).
+    Residual risk: the model can still FOLLOW instructions embedded in the text;
+    however, catalog-membership filtering on BOTH axes limits worst-case impact.
+    """
+    encoded_messages = json.dumps(messages)
+    neighborhoods_list = json.dumps(NEIGHBORHOODS)
+    cuisines_list = json.dumps(CUISINES)
+    return (
+        "You are a demand-extraction assistant for a San Francisco city guide.\n\n"
+        "For each user message in the JSON array below, identify:\n"
+        "  - Which San Francisco neighborhoods (from the allowed list) the user mentioned\n"
+        "  - Which cuisines (from the allowed list) the user is interested in\n\n"
+        f"Allowed neighborhoods: {neighborhoods_list}\n"
+        f"Allowed cuisines: {cuisines_list}\n\n"
+        "Messages (JSON array):\n"
+        f"{encoded_messages}\n\n"
+        "Output a JSON array with one object per message, in the same order:\n"
+        '[\n  {"neighborhoods": [...], "cuisines": [...]},\n  ...\n]\n\n'
+        "Rules:\n"
+        "- Include ONLY values from the allowed lists above.\n"
+        "- If a message implies no neighborhood or no cuisine, use an empty list [].\n"
+        "- Output only the JSON array, no prose, no markdown fences.\n"
+    )
+
+
+def _extract_demand_batch(
+    messages: list[str], llm: Any | None
+) -> list[tuple[list[str], list[str]]]:
+    """Call the LLM once to extract (neighborhoods, cuisines) for each message.
+
+    Returns a parallel list of ``(neighborhoods, cuisines)`` pairs — one per
+    input message.  When ``llm is None``, returns all-empty pairs (the caller's
+    lexical pre-passes have already resolved any lexically-mappable rows; rows
+    that reach this function with ``llm=None`` are counted as ``unmapped``).
+
+    Catalog filtering is applied to BOTH axes so off-catalog LLM answers are
+    silently dropped (T-18-02-INJ residual + ROUND-3 catalog-constraint).
+    Fence-tolerant JSON parsing mirrors ``_parse_proposals``/``_FENCE_RE``.
+    """
+    empty: list[tuple[list[str], list[str]]] = [([], []) for _ in range(len(messages))]
+    if not messages:
+        return []
+    if llm is None:
+        return empty
+
+    prompt = _build_demand_batch_prompt(messages)
+    try:
+        raw = llm.invoke([HumanMessage(content=prompt)]).content
+        if not isinstance(raw, str):
+            _log.warning("LLM returned non-string in demand batch; using empty pairs")
+            return empty
+        cleaned = _FENCE_RE.sub("", raw).strip()
+        items = json.loads(cleaned)
+        if not isinstance(items, list):
+            _log.warning("LLM demand batch returned non-list; using empty pairs")
+            return empty
+    except (json.JSONDecodeError, Exception) as exc:
+        _log.warning("LLM demand batch parse error (%s); using empty pairs", exc)
+        return empty
+
+    results: list[tuple[list[str], list[str]]] = []
+    for i, _msg in enumerate(messages):
+        if i >= len(items) or not isinstance(items[i], dict):
+            results.append(([], []))
+            continue
+        item = items[i]
+        raw_neighborhoods = item.get("neighborhoods", [])
+        raw_cuisines = item.get("cuisines", [])
+        catalog_hoods = [n for n in raw_neighborhoods if n in _NEIGHBORHOODS_SET]
+        catalog_cuiss = [c for c in raw_cuisines if c in _CUISINES_SET]
+        results.append((catalog_hoods, catalog_cuiss))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Two-DB connection helper (Task 2, D-05 prod-read / sandbox-write split)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def get_demand_conn(url: str):  # type: ignore[return]
+    """Direct non-pooled read-only connection to DEMAND_DATABASE_URL.
+
+    Opens a psycopg2 connection (not the pool) so it targets the prod DB
+    without touching the shared pool's DATABASE_URL or its lru_cache settings.
+    Set to read-only so it can NEVER be used for writes (T-18-02-PROD).
+
+    Mirrors the ``_snapshot_ids_from_url`` pattern in loop_falsifier.py.
+    """
+    with contextlib.closing(psycopg2.connect(url)) as conn:
+        conn.set_session(readonly=True, autocommit=True)
+        yield conn
+
+
+# ---------------------------------------------------------------------------
+# Demand reader (Task 2)
+# ---------------------------------------------------------------------------
+
+
+def gather_demand(
+    days: int,
+    url: str | None = None,
+) -> tuple[dict[tuple[str, str], int], int, int]:
+    """Read user_query_log and return catalog-constrained demand counts.
+
+    Two-tier extraction on BOTH axes:
+
+    Cuisine axis (ROUND-3 HIGH — symmetric to neighborhood):
+      1. _types_to_cuisines(requested_primary_types)  [no LLM]
+      2. _lexical_cuisines(message)                   [no LLM — tier 2a]
+      3. _extract_demand_batch (combined with neighborhood misses) [LLM — tier 2b]
+
+    Neighborhood axis:
+      1. _lexical_neighborhoods(message)  [no LLM]
+      2. _extract_demand_batch            [LLM — combined single call with cuisine misses]
+
+    Returns:
+        (demand_counts, rows_scanned, unmapped_count)
+
+        demand_counts: dict[(neighborhood, cuisine) → count] — only catalog pairs
+        rows_scanned: total rows fetched from user_query_log
+        unmapped_count: rows that yielded no catalog bucket on either axis
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    sql = """
+        SELECT message, COALESCE(requested_primary_types, '{}')
+        FROM user_query_log
+        WHERE created_at >= %s
+        ORDER BY created_at DESC
+    """
+
+    ctx = get_demand_conn(url) if url is not None else get_conn()
+    with ctx as conn, conn.cursor() as cur:
+        cur.execute(sql, [cutoff])
+        rows = cur.fetchall()
+
+    llm = vibe.make_judge()
+
+    # --- Per-row two-tier pre-pass (no LLM) ---
+    # Each entry: (message, resolved_neighborhoods, resolved_cuisines, needs_llm_hood, needs_llm_cuisine)
+    pre_resolved: list[tuple[str, list[str], list[str], bool, bool]] = []
+
+    for message, primary_types in rows:
+        # Neighborhood tier-1: lexical
+        hoods = _lexical_neighborhoods(message)
+        needs_llm_hood = len(hoods) == 0
+
+        # Cuisine tier-1: types lookup
+        cuiss = _types_to_cuisines(list(primary_types))
+        if not cuiss:
+            # Cuisine tier-2a: lexical message scan
+            cuiss = _lexical_cuisines(message)
+        needs_llm_cuisine = len(cuiss) == 0
+
+        pre_resolved.append((message, hoods, cuiss, needs_llm_hood, needs_llm_cuisine))
+
+    # --- Single combined LLM call for all misses (D-01 + ROUND-3) ---
+    # Collect rows that still need the LLM on at least one axis
+    miss_indices: list[int] = []
+    miss_messages: list[str] = []
+    for idx, (message, _hoods, _cuiss, needs_llm_hood, needs_llm_cuisine) in enumerate(
+        pre_resolved
+    ):
+        if needs_llm_hood or needs_llm_cuisine:
+            miss_indices.append(idx)
+            miss_messages.append(message)
+
+    llm_results: list[tuple[list[str], list[str]]] = []
+    if miss_messages:
+        llm_results = _extract_demand_batch(miss_messages, llm)
+
+    # Merge LLM results back into pre_resolved
+    for batch_pos, orig_idx in enumerate(miss_indices):
+        message, hoods, cuiss, needs_llm_hood, needs_llm_cuisine = pre_resolved[orig_idx]
+        if batch_pos < len(llm_results):
+            llm_hoods, llm_cuiss = llm_results[batch_pos]
+        else:
+            llm_hoods, llm_cuiss = [], []
+
+        if needs_llm_hood:
+            hoods = llm_hoods
+        if needs_llm_cuisine:
+            cuiss = llm_cuiss
+        pre_resolved[orig_idx] = (message, hoods, cuiss, needs_llm_hood, needs_llm_cuisine)
+
+    # --- Accumulate demand counts ---
+    demand_counts: dict[tuple[str, str], int] = defaultdict(int)
+    unmapped_count = 0
+
+    for _message, hoods, cuiss, _nh, _nc in pre_resolved:
+        # Cartesian product within the row (REVIEW MEDIUM + ROUND-3 cuisine cross-product)
+        pairs = [(n, c) for n in hoods for c in cuiss]
+        if pairs:
+            for pair in pairs:
+                demand_counts[pair] += 1
+        else:
+            unmapped_count += 1
+
+    return dict(demand_counts), len(rows), unmapped_count
+
+
+@dataclass
+class DemandGap:
+    neighborhood: str
+    cuisine: str
+    place_count: int  # pair-level supply (TRUE pair count from place_query_hits)
+    demand_count: int
+
+
+def gap_to_seed_query(neighborhood: str, cuisine: str) -> str:
+    """Return the exact loop-consumable seed string for a (neighborhood, cuisine) pair.
+
+    Format matches build_seed_queries():
+        "{cuisine} restaurants in {neighborhood} San Francisco"
+
+    Raises AssertionError when either argument is not a catalog member —
+    off-catalog inputs would produce un-ingestable seeds (D-03, T-18-03-SEED).
+    """
+    assert neighborhood in _NEIGHBORHOODS_SET, (
+        f"gap_to_seed_query: {neighborhood!r} is not a catalog neighborhood"
+    )
+    assert cuisine in _CUISINES_SET, f"gap_to_seed_query: {cuisine!r} is not a catalog cuisine"
+    seed = f"{cuisine} restaurants in {neighborhood} San Francisco"
+    # Catalog-membership assertion so every emitted seed is loop-consumable
+    # (premark_seed_isolation membership — D-03). build_seed_queries is already
+    # imported at module level.
+    assert seed in set(build_seed_queries()), (
+        f"gap_to_seed_query: emitted seed {seed!r} is not in build_seed_queries() — "
+        "this should never happen for valid catalog inputs"
+    )
+    return seed
+
+
+def gather_pair_supply(pairs: list[tuple[str, str]], conn=None) -> dict[tuple[str, str], int]:
+    """Count DISTINCT places for each (neighborhood, cuisine) pair via place_query_hits.
+
+    For each pair we compute the exact seed query_text (via gap_to_seed_query) and
+    issue ONE parameterised SELECT that counts DISTINCT place_id grouped by query_text.
+    This is TRUE pair-level supply (REVIEW HIGH-1) — it counts places that matched
+    the neighborhood-AND-cuisine seed, so a cuisine present city-wide but absent in
+    the demanded neighborhood's seed returns 0 for that pair.
+
+    Seed strings are passed as a %s param list (NEVER interpolated — T-18-03-SQLi).
+    Never-ingested pairs yield 0 (no rows in place_query_hits for that seed).
+
+    Args:
+        pairs: List of (neighborhood, cuisine) tuples to score.
+        conn: Optional already-open connection; if None, opens a pooled connection.
+
+    Returns:
+        Dict mapping each (neighborhood, cuisine) pair to its place count (0 if absent).
+    """
+    if not pairs:
+        return {}
+
+    # Build seed→pair mapping (catalog-validated)
+    seed_to_pair: dict[str, tuple[str, str]] = {}
+    for n, c in pairs:
+        seed = gap_to_seed_query(n, c)
+        seed_to_pair[seed] = (n, c)
+
+    seed_strings = list(seed_to_pair.keys())
+
+    sql = """
+        SELECT query_text, COUNT(DISTINCT place_id) AS cnt
+        FROM place_query_hits
+        WHERE query_text = ANY(%s)
+        GROUP BY query_text
+    """
+
+    ctx = conn if conn is not None else get_conn()
+    # When conn is provided directly (not a context manager), we need different handling
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, [seed_strings])
+            rows = cur.fetchall()
+    else:
+        with ctx as c2, c2.cursor() as cur:
+            cur.execute(sql, [seed_strings])
+            rows = cur.fetchall()
+
+    # Initialise all pairs to 0 (never-ingested → 0)
+    result: dict[tuple[str, str], int] = {pair: 0 for pair in pairs}
+    for query_text, cnt in rows:
+        pair = seed_to_pair.get(query_text)
+        if pair is not None:
+            result[pair] = int(cnt)
+    return result
+
+
+def find_demand_gaps(
+    demand_counts: dict[tuple[str, str], int],
+    pair_supply: dict[tuple[str, str], int],
+    min_place_count: int = 5,
+) -> list[DemandGap]:
+    """Apply the D-02 filter at TRUE pair level: demand > 0 AND pair supply < floor.
+
+    Returns a list of DemandGap instances sorted by demand_count descending.
+    Pairs with demand == 0 are excluded regardless of supply.
+    Pairs with pair supply >= min_place_count are excluded regardless of demand.
+
+    This implements REVIEW HIGH-1: the supply check is against the PAIR-level count
+    from place_query_hits, NOT the city-wide per-cuisine count — so "Vietnamese
+    everywhere in SF but zero in Outer Sunset" correctly flags (Outer Sunset, vietnamese)
+    as a gap.
+    """
+    gaps: list[DemandGap] = []
+    for pair, demand in demand_counts.items():
+        if demand <= 0:
+            continue
+        supply = pair_supply.get(pair, 0)
+        if supply < min_place_count:
+            neighborhood, cuisine = pair
+            gaps.append(DemandGap(neighborhood, cuisine, supply, demand))
+    gaps.sort(key=lambda g: g.demand_count, reverse=True)
+    return gaps
+
+
 def _format_gap_line(g: CoverageStat) -> str:
     axis, _, name = g.bucket.partition(":")
     return f"- type={axis} name='{name}' place_count={g.place_count}"
@@ -223,6 +638,55 @@ def existing_query_texts(conn: Any) -> set[str]:
     return existing
 
 
+def ingested_query_texts(conn: Any) -> set[str]:
+    """Return the set of already-ingested query texts (DEMAND dedup — HIGH-2).
+
+    Unlike ``existing_query_texts``, this helper does NOT include the static
+    ``build_seed_queries()`` catalog — so catalog-valid proposals that have NOT
+    yet been ingested survive ``filter_already_covered`` (REVIEW HIGH-2 BLOCKER).
+
+    Two sources are unioned:
+
+    1. **COMPLETED checkpoints** (``places_ingest_query_checkpoints WHERE status =
+       'completed'``) — mirroring ingest's ``get_completed_queries`` and its skip
+       logic at ~742 which dedupes ONLY against completed checkpoints.  An
+       ``incomplete``/budget-stopped checkpoint is retried by ingest and must NOT
+       suppress the mined proposal (REVIEW ROUND-3 MEDIUM).
+
+       Ingest's ``checkpoint_key`` stores ``f"{FIELD_MODE}::{raw_query}"`` — so each
+       returned row is prefix-stripped (split on the first ``::``, take the part
+       after) so a completed ``all::<seed>`` checkpoint dedupes the raw ``<seed>``
+       proposal (REVIEW ROUND-2 NEW HIGH).  A row with no ``::`` is included as-is.
+
+    2. **All proposals** (``places_ingest_query_proposals`` — any status).  Proposals
+       are already stored as raw query texts; an existing pending/processed proposal
+       still dedupes.
+
+    Args:
+        conn: An open DB connection to use for the queries.
+
+    Returns:
+        set[str] of raw query texts that are already in the system.
+    """
+    ingested: set[str] = set()
+    with conn.cursor() as cur:
+        # COMPLETED checkpoints only — mirrors get_completed_queries (ingest.py:487-497)
+        # and the skip-check at ~742 which dedupes only against completed checkpoints.
+        cur.execute(
+            "SELECT query_text FROM places_ingest_query_checkpoints WHERE status = 'completed'"
+        )
+        for (query_text,) in cur.fetchall():
+            # Strip FIELD_MODE:: prefix (checkpoint_key adds it; proposals are raw)
+            raw = query_text.split("::", 1)[1] if "::" in query_text else query_text
+            ingested.add(raw)
+
+        # All proposals — already raw, any status dedupes
+        cur.execute("SELECT query_text FROM places_ingest_query_proposals")
+        ingested.update(row[0] for row in cur.fetchall())
+
+    return ingested
+
+
 def filter_already_covered(
     proposals: list[ProposedQuery], existing: set[str]
 ) -> tuple[list[ProposedQuery], list[ProposedQuery]]:
@@ -234,9 +698,26 @@ def filter_already_covered(
     return kept, dropped
 
 
-def insert_pending(proposals: list[ProposedQuery], dry_run: bool) -> int:
+def insert_pending(proposals: list[ProposedQuery], dry_run: bool, conn: Any = None) -> int:
     """Insert proposals as 'pending' rows. Returns the number of rows
-    actually inserted (0 if dry_run, or if every proposal collided)."""
+    actually inserted (0 if dry_run, or if every proposal collided).
+
+    Args:
+        proposals: Proposals to insert.
+        dry_run: If True, print but do not insert.
+        conn: Optional already-open connection to use.  When provided, the INSERT
+            runs on THAT connection (caller manages commit / guard ordering).
+            When None (default), self-opens via ``get_conn()`` as before —
+            backward-compatible for the supply-only ``main()`` path (ROUND-3 LOW).
+
+    WRITE-TARGET POLICY (CDX-H1): this function is intentionally NOT
+    sandbox-guarded — the supply-only ``main()`` path legitimately writes to
+    whatever ``DATABASE_URL`` targets (pre-Phase-18 behavior). The sandbox-only
+    constraint applies to the DEMAND path only (D-05): ``gap_mine_main`` calls
+    ``assert_sandbox_write_target(conn)`` on the SAME connection it passes here,
+    immediately before this INSERT. Any NEW demand-side caller MUST do the same
+    (guard the exact ``conn`` it passes) — do not rely on an internal guard here.
+    """
     if dry_run:
         for p in proposals:
             print(f"[dry-run] would insert: {p.query_text!r} ({p.rationale})")
@@ -250,11 +731,18 @@ def insert_pending(proposals: list[ProposedQuery], dry_run: bool) -> int:
         ON CONFLICT (query_text) DO NOTHING;
     """
     inserted = 0
-    with get_conn() as conn, conn.cursor() as cur:
-        for p in proposals:
-            cur.execute(sql, [p.query_text, p.rationale])
-            inserted += cur.rowcount
+    if conn is not None:
+        with conn.cursor() as cur:
+            for p in proposals:
+                cur.execute(sql, [p.query_text, p.rationale])
+                inserted += cur.rowcount
         conn.commit()
+    else:
+        with get_conn() as _conn, _conn.cursor() as cur:
+            for p in proposals:
+                cur.execute(sql, [p.query_text, p.rationale])
+                inserted += cur.rowcount
+            _conn.commit()
     return inserted
 
 
@@ -265,19 +753,40 @@ def log_to_mlflow(
     dropped: list[ProposedQuery],
     inserted: int,
     dry_run: bool,
+    demand_rows_scanned: int = 0,
+    unmapped_count: int = 0,
+    demand_gaps: list[DemandGap] | None = None,
 ) -> None:
+    """Log a coverage/demand mining run to MLflow under the 'coverage_agent' experiment.
+
+    Extended with demand-side metrics (ROUND-2 MEDIUM-3 + GAP-04):
+      - demand_rows_scanned: total rows read from user_query_log
+      - unmapped_count: rows that yielded no catalog bucket
+      - proposals_inserted: actual rows inserted (renamed from 'inserted' for demand path)
+      - demand_gaps.json: ranked artifact of DemandGap instances
+
+    Backward-compatible: existing supply-only callers pass no demand kwargs and get
+    zero values / no demand artifact.
+    """
     mlflow.set_experiment("coverage_agent")
     run_name = f"coverage-{datetime.now(UTC).isoformat(timespec='seconds')}"
     with mlflow.start_run(run_name=run_name):
         mlflow.log_param("dry_run", dry_run)
-        mlflow.log_metric("gaps_found", len(gaps))
+        mlflow.log_metric(
+            "gaps_found", len(gaps) if gaps else (len(demand_gaps) if demand_gaps else 0)
+        )
         mlflow.log_metric("proposals_made", len(proposals))
         mlflow.log_metric("dropped_already_covered", len(dropped))
         mlflow.log_metric("inserted", inserted)
+        mlflow.log_metric("proposals_inserted", inserted)
+        mlflow.log_metric("demand_rows_scanned", demand_rows_scanned)
+        mlflow.log_metric("unmapped_count", unmapped_count)
         mlflow.log_dict({"stats": [_stat_to_dict(s) for s in stats]}, "stats.json")
         mlflow.log_dict({"gaps": [_stat_to_dict(g) for g in gaps]}, "gaps.json")
         mlflow.log_dict({"proposals": [asdict(p) for p in proposals]}, "proposals.json")
         mlflow.log_dict({"dropped": [asdict(p) for p in dropped]}, "dropped.json")
+        if demand_gaps:
+            mlflow.log_dict({"demand_gaps": [asdict(g) for g in demand_gaps]}, "demand_gaps.json")
 
 
 def _stat_to_dict(stat: CoverageStat) -> dict[str, Any]:
@@ -285,6 +794,123 @@ def _stat_to_dict(stat: CoverageStat) -> dict[str, Any]:
     if out["last_ingest"] is not None:
         out["last_ingest"] = out["last_ingest"].isoformat()
     return out
+
+
+def gap_mine_main(argv: list[str] | None = None) -> int:
+    """CLI for the demand-driven gap miner (GAP-04).
+
+    Reads user_query_log demand signal, cross-references pair-level supply from
+    place_query_hits, and writes pending proposals for under-served
+    (neighborhood, cuisine) pairs.
+
+    Flags mirror coverage_agent's main() convention (opt-out --dry-run, not opt-in
+    --apply).  Default is to WRITE; pass --dry-run to suppress inserts.
+    """
+    p = argparse.ArgumentParser(description="Demand-driven gap miner (Phase 18)")
+    p.add_argument("--days", type=int, default=14, help="Demand window in days.")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print proposals; don't insert.",
+    )
+    p.add_argument(
+        "--min-places",
+        type=int,
+        default=5,
+        help="Pair with fewer places than this is a gap.",
+    )
+    p.add_argument(
+        "--top-n",
+        type=int,
+        default=None,
+        help="Cap inserted proposals to top-N by demand (applied AFTER dedup).",
+    )
+    args = p.parse_args(argv)
+
+    demand_url = os.environ.get("DEMAND_DATABASE_URL", None)
+
+    # --- Read demand signal ---
+    demand_counts, rows_scanned, unmapped_count = gather_demand(args.days, demand_url)
+
+    # Cold-start: no mappable demand → honest no-op (D-04)
+    if not demand_counts:
+        _log.info("gap_mine_main: no mappable demand (cold start); inserting nothing")
+        log_to_mlflow(
+            stats=[],
+            gaps=[],
+            proposals=[],
+            dropped=[],
+            inserted=0,
+            dry_run=args.dry_run,
+            demand_rows_scanned=rows_scanned,
+            unmapped_count=unmapped_count,
+            demand_gaps=[],
+        )
+        return 0
+
+    # --- Score pair-level supply (TRUE pair level — HIGH-1) ---
+    demanded_pairs = list(demand_counts.keys())
+    pair_supply = gather_pair_supply(demanded_pairs)
+
+    # --- Apply D-02 gate: demand > 0 AND pair supply < floor ---
+    demand_gaps = find_demand_gaps(demand_counts, pair_supply, args.min_places)
+
+    if not demand_gaps:
+        _log.info("gap_mine_main: demand exists but all pairs meet supply floor; nothing to insert")
+        log_to_mlflow(
+            stats=[],
+            gaps=[],
+            proposals=[],
+            dropped=[],
+            inserted=0,
+            dry_run=args.dry_run,
+            demand_rows_scanned=rows_scanned,
+            unmapped_count=unmapped_count,
+            demand_gaps=[],
+        )
+        return 0
+
+    # --- Build proposals with EXACT seed format (T-18-03-SEED guard) ---
+    proposals: list[ProposedQuery] = []
+    for g in demand_gaps:
+        seed = gap_to_seed_query(g.neighborhood, g.cuisine)
+        rationale = (
+            f"demand={g.demand_count} pair_supply={g.place_count} ({g.neighborhood}/{g.cuisine})"
+        )
+        proposals.append(ProposedQuery(seed, "enriched", rationale))
+
+    # --- Dedup + write in ONE connection (guard on same conn — ROUND-3 LOW) ---
+    with get_conn() as write_conn:
+        # HIGH-2 + ROUND-2 + ROUND-3: dedup against ingested rows ONLY
+        ingested = ingested_query_texts(write_conn)
+        kept, dropped = filter_already_covered(proposals, ingested)
+
+        # Apply --top-n AFTER dedup (RESEARCH Open Question #2)
+        if args.top_n is not None:
+            kept = kept[: args.top_n]
+
+        # HIGH-3 + ROUND-2 H3 / MEDIUM-2 + ROUND-3 LOW:
+        # Guard runs on the SAME connection that insert will use
+        assert_sandbox_write_target(write_conn)
+        inserted = insert_pending(kept, args.dry_run, conn=write_conn)
+
+    log_to_mlflow(
+        stats=[],
+        gaps=[],
+        proposals=proposals,
+        dropped=dropped,
+        inserted=inserted,
+        dry_run=args.dry_run,
+        demand_rows_scanned=rows_scanned,
+        unmapped_count=unmapped_count,
+        demand_gaps=demand_gaps,
+    )
+    print(
+        f"gap_mine_main: demand_rows={rows_scanned} unmapped={unmapped_count} "
+        f"gaps={len(demand_gaps)} proposals={len(proposals)} "
+        f"kept={len(kept)} dropped={len(dropped)} inserted={inserted}"
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

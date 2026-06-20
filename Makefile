@@ -59,6 +59,15 @@ sandbox-provision: ## Provision the isolated falsifier sandbox DB (LOOP-00; neve
 	}
 	bash scripts/provision_sandbox.sh
 
+.PHONY: sandbox-migrate
+sandbox-migrate: ## Apply all migrations to the sandbox DB (SANDBOX_DATABASE_URL)
+	@[ -n "$${SANDBOX_DATABASE_URL:-}" ] || { \
+	  echo "ERROR: SANDBOX_DATABASE_URL is not set."; \
+	  echo "  Export it first: export SANDBOX_DATABASE_URL=postgresql://postgres:cityconcierge@127.0.0.1:5433/city_concierge_sandbox"; \
+	  exit 1; \
+	}
+	DATABASE_URL=$${SANDBOX_DATABASE_URL} $(POETRY_RUN) alembic upgrade head
+
 # ─── Ingestion ────────────────────────────────────────────────────────────────
 .PHONY: ingest
 ingest: ## Run the data ingestion pipeline
@@ -97,6 +106,14 @@ coverage-agent: ## Dry-run the coverage-gap ingestion agent (W5)
 .PHONY: coverage-agent-apply
 coverage-agent-apply: ## Run the coverage-gap agent and insert proposals (W5)
 	$(POETRY_RUN) python scripts/coverage_agent.py
+
+.PHONY: gap-mine
+gap-mine: ## Mine real demand×supply gaps from user_query_log → pending proposals (GAP); reads sandbox by default or DEMAND_DATABASE_URL when set
+	$(POETRY_RUN) python -c "from scripts.coverage_agent import gap_mine_main; import sys; sys.exit(gap_mine_main())"
+
+.PHONY: gap-mine-dry
+gap-mine-dry: ## Dry-run the demand gap miner (no inserts; reads same source as gap-mine)
+	$(POETRY_RUN) python -c "from scripts.coverage_agent import gap_mine_main; import sys; sys.exit(gap_mine_main(['--dry-run']))"
 
 .PHONY: set-production-alias
 set-production-alias: ## Promote a registered model version to production (usage: make set-production-alias VERSION=42)

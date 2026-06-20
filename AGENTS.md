@@ -41,6 +41,10 @@ make typecheck            # mypy app/
 make ingest               # Run ingestion pipeline (python scripts/ingest.py)
 make log-mlflow          # Log a RAG config + sample outputs to MLflow
 python scripts/seed.py    # Generate sample JSONL data
+
+# Adaptive data loop (Phase 18 / v2.3)
+make gap-mine             # Mine demand×supply gaps from user_query_log → pending proposals (writes to sandbox; reads sandbox by default or DEMAND_DATABASE_URL when set; writes guarded by assert_sandbox_write_target / current_database())
+make gap-mine-dry         # Dry-run the gap miner (no inserts; same read source as gap-mine)
 ```
 
 ## Architecture
