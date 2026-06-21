@@ -250,6 +250,18 @@ def _generate_paraphrases(
         )
         raise SystemExit(EXIT_INFRA)
 
+    # WR-03: validate that every element is a non-empty string.
+    # A JSON array of arrays / ints / objects passes the len() check above but
+    # would crash deep inside semantic_search with a confusing TypeError.
+    invalid = [p for p in paraphrases if not isinstance(p, str) or not p.strip()]
+    if invalid:
+        print(
+            f"[INFRA] Paraphrase generation returned {len(invalid)} non-string or empty elements: "
+            f"{invalid[:3]!r} ...",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_INFRA)
+
     return paraphrases, generation_prompt, model_name
 
 
@@ -650,6 +662,10 @@ def main() -> None:  # noqa: C901
     print(f"[floor] hit@k floor = {floor}")
 
     # ── Step 13: Gate ─────────────────────────────────────────────────────────
+    # guard_violation=None: all guards (prod-safety, non-circularity) exit inline
+    # above via raise SystemExit(EXIT_INFRA), so no violation can reach this call.
+    # The parameter exists in decide_loop_exit for callers that thread guards through
+    # rather than exit-on-fail; here the inline exits make it intentionally None.
     exit_code = decide_loop_exit(
         before_rate=before_hit_at_k,
         after_rate=after_hit_at_k,

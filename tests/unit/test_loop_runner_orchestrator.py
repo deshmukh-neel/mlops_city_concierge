@@ -861,3 +861,118 @@ class TestGenerateParaphrasesBlockContent:
             )
 
         assert exc_info.value.code == EXIT_INFRA
+
+
+# ---------------------------------------------------------------------------
+# Section 14: _generate_paraphrases — element-level validation (WR-03)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateParaphrasesElementValidation:
+    """WR-03: _generate_paraphrases must reject list elements that are not non-empty strings.
+
+    A JSON array of arrays / ints / objects passes the isinstance(list) + len() check
+    but would crash deep inside semantic_search. The fix validates each element before
+    returning and raises SystemExit(EXIT_INFRA) for any non-string or empty element.
+    """
+
+    def test_list_of_lists_exits_infra(self) -> None:
+        """JSON array of arrays → EXIT_INFRA (WR-03 element guard)."""
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        # LLM returns [[1,2,3],[4,5,6],[7,8,9],[10,11,12],[13,14,15]] — list of lists
+        bad_json = "[[1,2,3],[4,5,6],[7,8,9],[10,11,12],[13,14,15]]"
+
+        mock_response = MagicMock()
+        mock_response.content = bad_json
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+
+        with (
+            patch("app.llm_factory.build_chat_model", return_value=mock_llm),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            lr._generate_paraphrases(
+                seed_query="vietnamese restaurants in Outer Sunset San Francisco",
+                neighborhood="Outer Sunset",
+                cuisine="vietnamese",
+                n=5,
+            )
+
+        assert exc_info.value.code == EXIT_INFRA
+
+    def test_list_with_integer_exits_infra(self) -> None:
+        """JSON array containing an integer exits EXIT_INFRA (WR-03 element guard)."""
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        # 4 valid strings + 1 integer
+        bad_json = '["spot 1", "spot 2", "spot 3", "spot 4", 42]'
+
+        mock_response = MagicMock()
+        mock_response.content = bad_json
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+
+        with (
+            patch("app.llm_factory.build_chat_model", return_value=mock_llm),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            lr._generate_paraphrases(
+                seed_query="sushi restaurants in Japantown San Francisco",
+                neighborhood="Japantown",
+                cuisine="sushi",
+                n=5,
+            )
+
+        assert exc_info.value.code == EXIT_INFRA
+
+    def test_list_with_empty_string_exits_infra(self) -> None:
+        """JSON array containing an empty string exits EXIT_INFRA (WR-03 element guard)."""
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        # 4 valid strings + 1 empty string
+        bad_json = '["spot 1", "spot 2", "spot 3", "spot 4", ""]'
+
+        mock_response = MagicMock()
+        mock_response.content = bad_json
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+
+        with (
+            patch("app.llm_factory.build_chat_model", return_value=mock_llm),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            lr._generate_paraphrases(
+                seed_query="tacos restaurants in Mission San Francisco",
+                neighborhood="Mission",
+                cuisine="tacos",
+                n=5,
+            )
+
+        assert exc_info.value.code == EXIT_INFRA
+
+    def test_all_valid_strings_pass_element_guard(self) -> None:
+        """5 valid non-empty strings pass the element guard and return correctly."""
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        good_json = '["place 1", "place 2", "place 3", "place 4", "place 5"]'
+
+        mock_response = MagicMock()
+        mock_response.content = good_json
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+
+        with patch("app.llm_factory.build_chat_model", return_value=mock_llm):
+            paraphrases, _, _ = lr._generate_paraphrases(
+                seed_query="ramen restaurants in Richmond San Francisco",
+                neighborhood="Richmond",
+                cuisine="ramen",
+                n=5,
+            )
+
+        assert len(paraphrases) == 5
+        assert all(isinstance(p, str) and p.strip() for p in paraphrases)

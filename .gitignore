@@ -258,3 +258,8 @@ frontend/node_modules/
 
 # Local demo / screen-recording artifacts
 *.mp4
+
+# Loop runner per-run artifact directory (Phase 19 / IN-02).
+# The frozen_paraphrases_runner.json and snapshot files are local-only;
+# committed eval artifacts live in configs/ (re-included above).
+loop_runner_artifacts/
