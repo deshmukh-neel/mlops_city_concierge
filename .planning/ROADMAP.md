@@ -6,7 +6,7 @@
 - ✅ **v2.0 Production Readiness** — Phases 2-6 (shipped 2026-06-03, PR #100 at `14e01dd`) — see [milestones/v2.0-ROADMAP.md](milestones/v2.0-ROADMAP.md)
 - ✅ **v2.1 Reasoning-Model Compat** — Phases 7-11 (shipped 2026-06-11, PRs #103/#105/#106) — see [milestones/v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md)
 - ✅ **v2.2 Reasoning-Model Decisiveness** — Phases 12-15 (closed 2026-06-15; honest null INST-05; gpt-4o-mini anchor ratified; ARCH-FUT-01 deferred) — see [milestones/v2.2-ROADMAP.md](milestones/v2.2-ROADMAP.md)
-- 🚧 **v2.3 Adaptive Data Loop** — Phases 16-19 (active; productionizes the `coverage_agent` loop to learn from real USER queries). Gate: Phase 16 FALSIFY-01 PASSED 2026-06-15 (hit@5 delta +1.000). Phases 17-19 not yet planned.
+- ✅ **v2.3 Adaptive Data Loop** — Phases 16-19 (completed 2026-06-20; productionized `coverage_agent` loop: gap-mine→ingest→embed→score→gate pipeline plumbing-verified; FLOOR=0.0 uncalibrated by corpus constraint — see docs/loop_runner.md).
 
 ## Phases
 
@@ -59,8 +59,8 @@
 
 </details>
 
-<details open>
-<summary>🚧 v2.3 Adaptive Data Loop (Phases 16-19) — ACTIVE</summary>
+<details>
+<summary>✅ v2.3 Adaptive Data Loop (Phases 16-19) — COMPLETE 2026-06-20</summary>
 
 **Goal:** Productionize the `coverage_agent.py` retrieval-gap loop so it learns from real USER queries (not ingestion hits), gated by a falsifier that proves a positive before→after hit@k delta before the full build. Never writes shared prod `places_raw` — all ingest goes to an isolated sandbox DB.
 
@@ -73,11 +73,11 @@
   - [x] 18-02-demand-extraction-PLAN.md — gather_demand() over user_query_log + lexical/LLM extraction + get_demand_conn two-DB plumbing [D-01/D-05; GAP-01]
   - [x] 18-03-gap-scoring-cli-PLAN.md — find_demand_gaps (D-02 ranking) + exact seed-format emit + gap_mine_main CLI/MLflow + cold-start no-op [D-02/D-03/D-04; GAP-02/03/04]
   - [x] 18-04-tests-make-docs-PLAN.md — smoke/functional/integration tests + make gap-mine + CLAUDE/AGENTS/copilot docs sync [D-03/D-04; GAP-03/04]
-- [ ] Phase 19: Productionized Loop + Metric (LOOP-01..03 + METRIC) — full Make-targeted ingest→embed→metric loop + productionized hit@k/recall@k scorer. **4 plans (3 waves) — planned 2026-06-20.**
+- [x] Phase 19: Productionized Loop + Metric (LOOP-01..03 + METRIC) — full Make-targeted ingest→embed→metric loop + productionized hit@k/recall@k scorer. **4 plans (3 waves) — completed 2026-06-20. Loop plumbing-verified; FLOOR=0.0 (calibration deferred — SF corpus geography blocks per-neighborhood calibration; see docs/loop_runner.md).**
   - [x] 19-01-PLAN.md — pure compute_recall_at_k + RecallAtKResult + runtime-tunable FLOOR + decide_loop_exit in falsifier_core + zero-cost unit tests [D-03/D-05/D-06]
   - [x] 19-02-PLAN.md — populated-baseline provisioning (--populated/--reset DROP+restore, embed-before-snapshot, gap-bucket exclusion) + make sandbox-provision-populated [D-01/D-02]
   - [x] 19-03-PLAN.md — scripts/loop_runner.py staged orchestrator (coercion-ordering + embedding-table assert + deterministic one-gap set-diff handoff + frozen paraphrases + v2-diff hit@k/recall@k + floor gate + MLflow) [D-01/D-02/D-03/D-04/D-05/D-06/D-07/D-08]
-  - [ ] 19-04-PLAN.md — make loop (three-key guard) + zero-cost orchestrator decision-logic unit tests + operator floor-calibration checkpoint + docs/loop_runner.md runbook + AI-doc sync [D-01/D-02/D-05/D-06]
+  - [x] 19-04-PLAN.md — make loop (three-key guard) + zero-cost orchestrator decision-logic unit tests + operator floor-calibration checkpoint (DEFERRED — corpus blocker) + docs/loop_runner.md runbook + AI-doc sync [D-01/D-02/D-05/D-06]
 
 **Success gate:** FALSIFY-01 (Phase 16) was the milestone go/no-go — a strictly-positive delta proves the loop can add retrievable places. PASSED, so Phases 17-19 are cleared to proceed.
 
