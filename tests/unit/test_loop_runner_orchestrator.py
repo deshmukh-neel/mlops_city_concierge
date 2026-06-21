@@ -414,7 +414,48 @@ class TestEmbeddingTableAssertion:
 
 
 # ---------------------------------------------------------------------------
-# Section 8: run_subprocess_or_infra — CalledProcessError → EXIT_INFRA
+# Section 8: _snapshot_ids_from_url — allowlist guard (CR-01)
+# ---------------------------------------------------------------------------
+
+
+class TestSnapshotIdsAllowlistGuard:
+    """CR-01: _snapshot_ids_from_url must reject non-allowlisted table names before
+    any DB connection is made.
+    """
+
+    def test_non_allowlisted_table_raises_value_error(self) -> None:
+        """Passing an arbitrary table name raises ValueError — no DB call needed."""
+        with pytest.raises(ValueError, match="not in the allowed set"):
+            lr._snapshot_ids_from_url("postgresql://sandbox", "places_ingest_query_proposals")
+
+    def test_sql_injection_attempt_raises_value_error(self) -> None:
+        """A SQL-injection-style table name raises ValueError immediately."""
+        with pytest.raises(ValueError, match="not in the allowed set"):
+            lr._snapshot_ids_from_url("postgresql://sandbox", "places_raw; DROP TABLE users;")
+
+    def test_allowed_table_places_raw_does_not_raise_on_allowlist_check(self) -> None:
+        """'places_raw' passes the allowlist gate (DB call will fail without a real URL)."""
+        # The allowlist guard must NOT raise for the two canonical table names.
+        # We expect psycopg2.OperationalError (or similar) on the actual connect
+        # — NOT ValueError from our guard.
+        import psycopg2  # noqa: PLC0415
+
+        with pytest.raises((psycopg2.OperationalError, Exception)) as exc_info:
+            lr._snapshot_ids_from_url("postgresql://invalid-host/db", "places_raw")
+        # Must not be our ValueError
+        assert "not in the allowed set" not in str(exc_info.value)
+
+    def test_allowed_table_place_embeddings_v2_does_not_raise_on_allowlist_check(self) -> None:
+        """'place_embeddings_v2' passes the allowlist gate."""
+        import psycopg2  # noqa: PLC0415
+
+        with pytest.raises((psycopg2.OperationalError, Exception)) as exc_info:
+            lr._snapshot_ids_from_url("postgresql://invalid-host/db", "place_embeddings_v2")
+        assert "not in the allowed set" not in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Section 9: run_subprocess_or_infra — CalledProcessError → EXIT_INFRA
 # ---------------------------------------------------------------------------
 
 
@@ -444,7 +485,7 @@ class TestRunSubprocessOrInfra:
 
 
 # ---------------------------------------------------------------------------
-# Section 9: MLflow failure → EXIT_INFRA
+# Section 10: MLflow failure → EXIT_INFRA
 # ---------------------------------------------------------------------------
 
 
@@ -505,7 +546,7 @@ class TestMlflowFailure:
 
 
 # ---------------------------------------------------------------------------
-# Section 10: source-level D-06 checks (no API cost, structural)
+# Section 11: source-level D-06 checks (no API cost, structural)
 # ---------------------------------------------------------------------------
 
 
@@ -556,7 +597,7 @@ class TestD06StructuralChecks:
 
 
 # ---------------------------------------------------------------------------
-# Section 11: Bug-fix — before/after hit@k scored against the SAME v2-diff set
+# Section 12: Bug-fix — before/after hit@k scored against the SAME v2-diff set
 # ---------------------------------------------------------------------------
 
 
@@ -674,7 +715,7 @@ class TestBeforeHitRateTargetSet:
 
 
 # ---------------------------------------------------------------------------
-# Section 12: Bug-fix — list/block-style LLM content unwrapped in _generate_paraphrases
+# Section 13: Bug-fix — list/block-style LLM content unwrapped in _generate_paraphrases
 # ---------------------------------------------------------------------------
 
 

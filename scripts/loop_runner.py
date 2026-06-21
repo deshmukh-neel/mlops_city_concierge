@@ -92,6 +92,12 @@ _NON_CIRCULARITY_NOTE = (
 # Helpers copied verbatim from loop_falsifier.py (D-07: do NOT import from it)
 # ---------------------------------------------------------------------------
 
+# CR-01: allowlist guard — table names for _snapshot_ids_from_url.
+# All four call sites pass hardcoded literals; this guard closes the injection
+# surface for future callers without requiring a prepared-statement refactor
+# (psycopg2 %s parameterization cannot bind table names).
+_ALLOWED_SNAPSHOT_TABLES: frozenset[str] = frozenset({"places_raw", "place_embeddings_v2"})
+
 
 def resolve_prod_url(sandbox_url: str | None) -> str | None:
     """Resolve the prod DATABASE_URL from {**dotenv_values(".env"), **os.environ}.
@@ -144,7 +150,14 @@ def _snapshot_ids_from_url(db_url: str, table: str) -> set[str]:
 
     Uses a direct connection (not the pool) to avoid dependency on the
     pool's cached settings (which may point to a different target).
+
+    Raises ValueError if `table` is not in _ALLOWED_SNAPSHOT_TABLES (CR-01).
     """
+    if table not in _ALLOWED_SNAPSHOT_TABLES:
+        raise ValueError(
+            f"_snapshot_ids_from_url: table {table!r} is not in the allowed set "
+            f"{_ALLOWED_SNAPSHOT_TABLES}. Pass a hardcoded table name."
+        )
     import psycopg2  # noqa: PLC0415
 
     with contextlib.closing(psycopg2.connect(db_url)) as conn, conn.cursor() as cur:
