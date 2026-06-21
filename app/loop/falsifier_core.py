@@ -40,6 +40,13 @@ EXIT_FAIL = 1  # int
 #: malformed state, embed produced nothing, non-circularity violation).
 EXIT_INFRA = 2  # int
 
+#: Default quality floor for the populated-corpus gate (D-05).
+#: Runtime-tunable via env LOOP_HIT_RATE_FLOOR or CLI --floor.
+#: First run uses strict-positive-delta only (floor==0.0 reduces to delta check).
+#: The orchestrator (19-04) overrides this via env/CLI; ratchet committed default
+#: after calibration run.
+FLOOR: float = 0.0  # updated after calibration run
+
 
 # ---------------------------------------------------------------------------
 # Result types (typed returns so the orchestrator gets structured data)
@@ -53,6 +60,15 @@ class HitRateResult:
     hit_count: int
     n: int
     hit_rate: float
+
+
+@dataclass(frozen=True)
+class RecallAtKResult:
+    """Result of compute_recall_at_k."""
+
+    found_count: int  # distinct new IDs retrieved across all paraphrases' top-k
+    total_count: int  # len(newly_ingested_ids)
+    recall: float  # found_count / total_count  (0.0 when total_count == 0)
 
 
 @dataclass(frozen=True)
@@ -106,6 +122,54 @@ def compute_hit_rate(
     return HitRateResult(hit_count=hit_count, n=n, hit_rate=hit_count / n)
 
 
+def compute_recall_at_k(
+    per_paraphrase_topk: list[list[str]],
+    newly_ingested_ids: set[str],
+) -> RecallAtKResult:
+    """Compute recall@K: what fraction of new embedded places are found across paraphrases.
+
+    recall@K = #distinct newly_ingested_ids that appear in ANY paraphrase's top-K
+               / total len(newly_ingested_ids).
+
+    Each element of *per_paraphrase_topk* is an ordered list of place_id strings
+    returned by semantic_search for one paraphrase. Distinct counting: the same new
+    ID found in multiple paraphrases counts ONCE toward found_count (set union, D-03).
+
+    The caller is responsible for passing lists of at most K elements. An
+    AssertionError is raised if any list exceeds K — single source of truth for the
+    retrieval window (IN-02), mirroring compute_hit_rate.
+
+    Args:
+        per_paraphrase_topk: One list of place_id strings per paraphrase.
+            Each inner list must have at most K entries.
+        newly_ingested_ids: Set of place_ids that are newly ingested (DB-diff, D-03).
+
+    Returns:
+        RecallAtKResult with found_count, total_count, recall.
+        Empty newly_ingested_ids returns found_count=0, total_count=0, recall=0.0
+        (no ZeroDivisionError).
+    """
+    total_count = len(newly_ingested_ids)
+    if total_count == 0:
+        return RecallAtKResult(found_count=0, total_count=0, recall=0.0)
+
+    for topk in per_paraphrase_topk:
+        assert len(topk) <= K, (  # noqa: S101
+            f"compute_recall_at_k received a top-k list of length {len(topk)} > K={K}. "
+            "The caller must pass semantic_search(k=K) results — do not exceed K. (IN-02)"
+        )
+
+    found: set[str] = set()
+    for topk in per_paraphrase_topk:
+        found |= set(topk) & newly_ingested_ids
+    found_count = len(found)
+    return RecallAtKResult(
+        found_count=found_count,
+        total_count=total_count,
+        recall=found_count / total_count,
+    )
+
+
 def is_pass(after_hit_rate: float) -> bool:
     """Return True iff after_hit_rate is strictly positive (D-04).
 
@@ -124,6 +188,52 @@ def is_strictly_positive_delta(before_hit_rate: float, after_hit_rate: float) ->
     the gate definition is always strictly-positive delta.
     """
     return (after_hit_rate - before_hit_rate) > 0.0
+
+
+def decide_loop_exit(
+    before_rate: float,
+    after_rate: float,
+    floor: float,
+    guard_violation: GuardResult | None,
+    embed_added_count: int,
+) -> int:
+    """Pure gate function for the Phase 19 populated-baseline loop exit decision (D-05/D-06).
+
+    Priority order (highest first):
+    1. guard_violation present with ok=False → EXIT_INFRA
+    2. embed_added_count == 0 → EXIT_INFRA  (D-02 empty-diff loud-fail)
+    3. strictly-positive delta AND after_rate >= floor → EXIT_PASS
+    4. else → EXIT_FAIL
+
+    When floor == 0.0 (first-run default), condition 3 reduces to strict-positive-delta
+    only — any improvement above zero passes (D-05). The orchestrator overrides floor
+    via env LOOP_HIT_RATE_FLOOR or CLI --floor; plan 19-04 ratchets the committed default
+    after observing a calibration run.
+
+    NOTE: Unlike loop_falsifier.decide_exit, this function does NOT include the
+    `before_rate != 0.0 → EXIT_INFRA` branch. The populated baseline legitimately scores
+    before_hit@k = 0 against the v2-diff target set (D-03), so a non-zero before is
+    caught upstream, not here. This is a NEW sibling function; loop_falsifier.py and its
+    decide_exit are left UNTOUCHED (D-07).
+
+    Args:
+        before_rate: hit@k rate measured BEFORE ingest on the populated baseline.
+        after_rate: hit@k rate measured AFTER ingest.
+        floor: minimum after_rate required for EXIT_PASS (D-05 calibrated bar).
+        guard_violation: GuardResult from check_prod_safety or check_non_circularity,
+            or None if all guards passed.
+        embed_added_count: number of embeddings added by the embed step (D-02).
+
+    Returns:
+        EXIT_PASS (0), EXIT_FAIL (1), or EXIT_INFRA (2).
+    """
+    if guard_violation is not None and not guard_violation.ok:
+        return EXIT_INFRA
+    if embed_added_count == 0:
+        return EXIT_INFRA
+    if is_strictly_positive_delta(before_rate, after_rate) and after_rate >= floor:
+        return EXIT_PASS
+    return EXIT_FAIL
 
 
 # ---------------------------------------------------------------------------
