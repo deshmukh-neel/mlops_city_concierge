@@ -254,6 +254,28 @@ snapshot-baselines: ## Snapshot current canonical baselines to _snapshots/ as pr
 loop-falsifier: ## FALSIFY-01: loop falsifier gate — strictly-positive hit@k delta proves the adaptive-data loop works (requires SANDBOX_DATABASE_URL + GOOGLE_PLACES_API_KEY + OPENAI_API_KEY)
 	$(POETRY_RUN) python scripts/loop_falsifier.py
 
+# Phase 19 / LOOP-01..03 + METRIC: productionized loop runner.
+# Stages: clear-stale → gap-mine → paraphrase → before-snapshot →
+#         ingest → embed-v2 → DB-diff → after-snapshot → hit@k/recall@k → MLflow.
+# Requires: SANDBOX_DATABASE_URL, GOOGLE_PLACES_API_KEY, OPENAI_API_KEY exported.
+# Exit 0 = PASS; 1 = FAIL; 2 = INFRA error.
+# See docs/loop_runner.md for the full runbook.
+.PHONY: loop
+loop: ## LOOP-01..03+METRIC: productionized loop runner — full gap-mine→ingest→embed→score cycle (requires SANDBOX_DATABASE_URL + GOOGLE_PLACES_API_KEY + OPENAI_API_KEY); see docs/loop_runner.md
+	@[ -n "$${SANDBOX_DATABASE_URL:-}" ] || { \
+	  echo "ERROR: SANDBOX_DATABASE_URL is not set."; \
+	  exit 1; \
+	}
+	@[ -n "$${GOOGLE_PLACES_API_KEY:-}" ] || { \
+	  echo "ERROR: GOOGLE_PLACES_API_KEY is not set."; \
+	  exit 1; \
+	}
+	@[ -n "$${OPENAI_API_KEY:-}" ] || { \
+	  echo "ERROR: OPENAI_API_KEY is not set."; \
+	  exit 1; \
+	}
+	$(POETRY_RUN) python scripts/loop_runner.py
+
 # Phase 12 / INST-05 / D-12-06..08: falsifier report — reads eval artifacts
 # and answers whether gpt-5-mini hit the pooled >= 0.6 committed_itinerary_rate
 # bar and gpt-4o-mini held its anchor baseline. Never fans out live API calls.
