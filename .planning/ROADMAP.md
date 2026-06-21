@@ -76,7 +76,7 @@
 - [ ] Phase 19: Productionized Loop + Metric (LOOP-01..03 + METRIC) — full Make-targeted ingest→embed→metric loop + productionized hit@k/recall@k scorer. **4 plans (3 waves) — planned 2026-06-20.**
   - [x] 19-01-PLAN.md — pure compute_recall_at_k + RecallAtKResult + runtime-tunable FLOOR + decide_loop_exit in falsifier_core + zero-cost unit tests [D-03/D-05/D-06]
   - [x] 19-02-PLAN.md — populated-baseline provisioning (--populated/--reset DROP+restore, embed-before-snapshot, gap-bucket exclusion) + make sandbox-provision-populated [D-01/D-02]
-  - [ ] 19-03-PLAN.md — scripts/loop_runner.py staged orchestrator (coercion-ordering + embedding-table assert + deterministic one-gap set-diff handoff + frozen paraphrases + v2-diff hit@k/recall@k + floor gate + MLflow) [D-01/D-02/D-03/D-04/D-05/D-06/D-07/D-08]
+  - [x] 19-03-PLAN.md — scripts/loop_runner.py staged orchestrator (coercion-ordering + embedding-table assert + deterministic one-gap set-diff handoff + frozen paraphrases + v2-diff hit@k/recall@k + floor gate + MLflow) [D-01/D-02/D-03/D-04/D-05/D-06/D-07/D-08]
   - [ ] 19-04-PLAN.md — make loop (three-key guard) + zero-cost orchestrator decision-logic unit tests + operator floor-calibration checkpoint + docs/loop_runner.md runbook + AI-doc sync [D-01/D-02/D-05/D-06]
 
 **Success gate:** FALSIFY-01 (Phase 16) was the milestone go/no-go — a strictly-positive delta proves the loop can add retrievable places. PASSED, so Phases 17-19 are cleared to proceed.
@@ -105,7 +105,7 @@
 | 16. Loop Falsifier + Sandbox Provisioning | v2.3 | 3/3 | Complete | 2026-06-15 |
 | 17. Query Logging (LOG) | v2.3 | 2/2 | Complete    | 2026-06-16 |
 | 18. Gap Mining (GAP) | v2.3 | 4/4 | Complete    | 2026-06-18 |
-| 19. Productionized Loop + Metric | v2.3 | 2/4 | In Progress|  |
+| 19. Productionized Loop + Metric | v2.3 | 3/4 | In Progress|  |
 
 ---
 
