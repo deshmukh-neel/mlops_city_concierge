@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Adaptive Data Loop
 status: executing
-last_updated: "2026-06-21T00:30:37.544Z"
+last_updated: "2026-06-21T00:37:15.937Z"
 last_activity: 2026-06-21
 progress:
   total_phases: 4
@@ -63,10 +63,10 @@ Last activity: 2026-06-21
 
 ## Session Continuity
 
-Last session: 2026-06-21T00:30:37.539Z
-Stopped at: Completed 19-02-PLAN.md
-Resume file: None
-Next step: Execute 18-04-tests-make-docs-PLAN.md (smoke/functional/integration tests + make gap-mine + docs sync).
+Last session: 2026-06-21T00:37:15.928Z
+Stopped at: 19-04-PLAN.md Task 2 (checkpoint:human-action gate=blocking — operator floor-calibration run)
+Resume file: 19-04-PLAN.md Task 2 (checkpoint:human-action gate=blocking)
+Next step: Operator runs `make loop` with live keys + sandbox; provides before/after hit@k, recall@k, delta, exit code, chosen FLOOR, MLflow run id, then types "approved". Then /gsd-execute-phase 19 resumes at Task 3.
 
 ## Performance Metrics
 
