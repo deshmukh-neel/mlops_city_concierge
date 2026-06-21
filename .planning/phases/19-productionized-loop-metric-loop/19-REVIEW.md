@@ -16,7 +16,8 @@ findings:
   warning: 4
   info: 3
   total: 9
-status: issues_found
+status: issues_resolved
+resolved: 2026-06-21T05:30:00Z
 ---
 
 # Phase 19: Code Review Report
@@ -293,3 +294,34 @@ assert "Cold start or no demand gaps found" in captured.out
 _Reviewed: 2026-06-21T04:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+
+---
+
+## Resolution
+
+**Resolved: 2026-06-21T05:30:00Z**
+
+Six of nine findings were fixed across four commits. Three findings were intentionally deferred.
+
+### Fixed
+
+| Finding | Commit | Description |
+|---------|--------|-------------|
+| CR-01 | 00d7500 | Added `_ALLOWED_SNAPSHOT_TABLES` frozenset and pre-execute allowlist guard in `_snapshot_ids_from_url`; unit test asserts ValueError for non-allowlisted tables |
+| CR-02 | 63afab5 | Changed `2>&1` → `2>/dev/null` in the URL-parser subshell so Poetry's own stderr cannot corrupt `_PARSED_FIELDS`; source-assertion test confirms both blocks use `2>/dev/null` |
+| WR-02 | 4341b82 | Updated `make loop` comments and added `GEMINI_API_KEY` guard: embed always needs `OPENAI_API_KEY`; paraphrase generation (default provider=gemini) additionally needs `GEMINI_API_KEY`; guard is provider-aware and explains the distinction |
+| WR-03 | 6986378 | After the `isinstance(list)+len==n` check, added element-level validation that every item is a non-empty `str`; exits `EXIT_INFRA` with `[INFRA]` message; unit tests cover list-of-lists, integer element, and empty-string element |
+| WR-04 | 4341b82 | Added `LOOP_GAP_NEIGHBORHOOD` and `LOOP_GAP_CUISINE` guards to `sandbox-provision-populated` Makefile target; also added source-assertion tests for both guards |
+| IN-02 | 6986378 | Added `loop_runner_artifacts/` to `.gitignore` |
+
+### Also applied (WR-01 comment only)
+
+Commit 6986378 also added a one-line comment at the `decide_loop_exit(guard_violation=None)` call explaining that all guards exit inline above so `guard_violation=None` is intentionally correct (no signature change).
+
+### Intentionally deferred
+
+| Finding | Rationale |
+|---------|-----------|
+| WR-01 | Comment added but no signature change; the dead-parameter path is low risk since guards exit inline. A future refactor may remove the parameter when/if guards are restructured. |
+| IN-01 | `datetime.datetime.utcnow()` deprecation is a repo-wide pattern (many files); deferring to avoid a scope-creep change in this focused review pass. |
+| IN-03 | `capsys` assertion for cold-start log message is low-priority polish; the existing `exit_code == EXIT_PASS` assertion is correct. |
