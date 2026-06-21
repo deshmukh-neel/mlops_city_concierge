@@ -98,7 +98,7 @@ try:
 except Exception as e:
     print(f'ERROR: could not parse SANDBOX_DATABASE_URL via _normalize_url: {e}', file=sys.stderr)
     sys.exit(1)
-" 2>&1
+" 2>/dev/null
 ) || {
   echo "ERROR: Python URL parser failed for SANDBOX_DATABASE_URL." >&2
   echo "  Ensure poetry and app.loop.falsifier_core are available." >&2

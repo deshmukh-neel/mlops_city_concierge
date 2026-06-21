@@ -219,6 +219,54 @@ class TestInversionGapBucketExclusionKeys:
         )
 
 
+class TestUrlParserStderrSuppression:
+    """Assertion (CR-02): The Python URL-parser subshell must redirect 2>/dev/null,
+    not 2>&1, so Poetry's own stderr output cannot corrupt _PARSED_FIELDS.
+
+    The guard-result block lower in the file already uses 2>/dev/null correctly;
+    the URL-parser block must match it.
+    """
+
+    def test_url_parser_uses_devnull_not_merge(self) -> None:
+        """The URL-parser subshell must suppress Poetry stderr with 2>/dev/null."""
+        script = _load_script()
+
+        # Locate the URL-parser block (WR-06 comment anchors it)
+        parser_block_start = script.find("WR-06: URL parsing is delegated")
+        assert parser_block_start != -1, (
+            "WR-06 comment block not found — cannot locate URL-parser subshell"
+        )
+
+        # Find the first 2>/dev/null or 2>&1 AFTER the parser block start
+        parser_region = script[parser_block_start : parser_block_start + 600]
+
+        devnull_idx = parser_region.find("2>/dev/null")
+        merge_idx = parser_region.find("2>&1")
+
+        assert devnull_idx != -1, (
+            "URL-parser subshell (WR-06 block) must use '2>/dev/null' to suppress "
+            "Poetry's own stderr from bleeding into _PARSED_FIELDS (CR-02). "
+            "Currently missing; the _GUARD_RESULT block further down already uses "
+            "2>/dev/null — match that pattern here."
+        )
+        # If both appear, 2>/dev/null must come first (i.e. the merge redirect is gone)
+        if merge_idx != -1:
+            assert devnull_idx < merge_idx, (
+                "URL-parser block has both '2>/dev/null' and '2>&1'; "
+                "the '2>&1' must have been removed (CR-02 fix)."
+            )
+
+    def test_guard_result_block_uses_devnull(self) -> None:
+        """Regression: _GUARD_RESULT block must still use 2>/dev/null (unchanged)."""
+        script = _load_script()
+        guard_block_start = script.find("_GUARD_RESULT=")
+        assert guard_block_start != -1, "_GUARD_RESULT block not found"
+        guard_region = script[guard_block_start : guard_block_start + 400]
+        assert "2>/dev/null" in guard_region, (
+            "_GUARD_RESULT block must still use 2>/dev/null (should be unchanged by CR-02)"
+        )
+
+
 class TestMakefileTarget:
     """Assertion 5 (Makefile): sandbox-provision-populated target exists with the
     standard SANDBOX_DATABASE_URL env-guard and calls provision_sandbox.sh --populated.
