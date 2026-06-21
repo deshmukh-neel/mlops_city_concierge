@@ -237,8 +237,9 @@ class TestUrlParserStderrSuppression:
             "WR-06 comment block not found — cannot locate URL-parser subshell"
         )
 
-        # Find the first 2>/dev/null or 2>&1 AFTER the parser block start
-        parser_region = script[parser_block_start : parser_block_start + 600]
+        # The parser block ends at the || { exit 1; } close — use a generous window
+        # (the Python heredoc inside poetry run is ~600 chars; total block ~1100 chars).
+        parser_region = script[parser_block_start : parser_block_start + 1200]
 
         devnull_idx = parser_region.find("2>/dev/null")
         merge_idx = parser_region.find("2>&1")
@@ -249,19 +250,20 @@ class TestUrlParserStderrSuppression:
             "Currently missing; the _GUARD_RESULT block further down already uses "
             "2>/dev/null — match that pattern here."
         )
-        # If both appear, 2>/dev/null must come first (i.e. the merge redirect is gone)
-        if merge_idx != -1:
-            assert devnull_idx < merge_idx, (
-                "URL-parser block has both '2>/dev/null' and '2>&1'; "
-                "the '2>&1' must have been removed (CR-02 fix)."
-            )
+        # 2>&1 must NOT appear inside this parser block (it was the bug)
+        assert merge_idx == -1, (
+            "URL-parser block still contains '2>&1' — the CR-02 fix was not applied. "
+            "Replace '2>&1' with '2>/dev/null' to prevent Poetry stderr from "
+            "corrupting _PARSED_FIELDS."
+        )
 
     def test_guard_result_block_uses_devnull(self) -> None:
         """Regression: _GUARD_RESULT block must still use 2>/dev/null (unchanged)."""
         script = _load_script()
         guard_block_start = script.find("_GUARD_RESULT=")
         assert guard_block_start != -1, "_GUARD_RESULT block not found"
-        guard_region = script[guard_block_start : guard_block_start + 400]
+        # The guard result block spans ~800 chars including the closing '|| _GUARD_RESULT="WARN"'
+        guard_region = script[guard_block_start : guard_block_start + 900]
         assert "2>/dev/null" in guard_region, (
             "_GUARD_RESULT block must still use 2>/dev/null (should be unchanged by CR-02)"
         )
