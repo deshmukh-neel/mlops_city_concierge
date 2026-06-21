@@ -553,3 +553,121 @@ class TestD06StructuralChecks:
             "scripts/loop_runner.py must write a frozen_paraphrases_runner.json artifact "
             "to disk before the ingest subprocess (D-04 LOCKED CONSTRAINT)."
         )
+
+
+# ---------------------------------------------------------------------------
+# Section 11: Bug-fix — before/after hit@k scored against the SAME v2-diff set
+# ---------------------------------------------------------------------------
+
+
+class TestBeforeHitRateTargetSet:
+    """Bug fix (19-03): before_hit_result must score against new_v2_ids, not before_v2_ids.
+
+    Contract (falsifier_core decide_loop_exit docstring):
+      before_hit@k MUST be scored against the v2-diff target set (new_v2_ids).
+      before_hit@k = 0 by construction (D-03): the new IDs did not exist before ingest,
+      so a pre-ingest semantic_search cannot return them.
+
+    Previously, before-scoring used before_v2_ids (all pre-existing embeddings), which
+    inflated before to 1.0 → delta = -1.000 (impossible on a loop that adds data).
+    """
+
+    def test_source_before_hit_result_uses_new_v2_ids(self) -> None:
+        """Structural: before_hit_result must reference new_v2_ids, not before_v2_ids."""
+        import inspect  # noqa: PLC0415
+
+        source = inspect.getsource(lr)
+
+        # Verify the bug is fixed: before_hit_result must NOT score against before_v2_ids
+        assert "compute_hit_rate(before_topk, before_v2_ids)" not in source, (
+            "Bug 1 regression: before_hit_result must NOT score against before_v2_ids "
+            "(all pre-existing embeddings). It must use new_v2_ids (the v2-diff target). "
+            "Fix: move before_hit_result = compute_hit_rate(before_topk, new_v2_ids) "
+            "to AFTER new_v2_ids is computed in Step 10."
+        )
+
+        # Verify the fix: before_hit_result must score against new_v2_ids
+        assert "compute_hit_rate(before_topk, new_v2_ids)" in source, (
+            "before_hit_result must be scored against new_v2_ids (the v2-diff target set, D-03). "
+            "Both before and after must score against the SAME target set."
+        )
+
+    def test_source_before_hit_result_positioned_after_new_v2_ids_assignment(self) -> None:
+        """new_v2_ids must be assigned BEFORE before_hit_result is computed."""
+        import inspect  # noqa: PLC0415
+
+        source = inspect.getsource(lr)
+
+        new_v2_ids_assign_idx = source.find("new_v2_ids = db_diff(")
+        before_hit_result_idx = source.find(
+            "before_hit_result = compute_hit_rate(before_topk, new_v2_ids)"
+        )
+
+        assert new_v2_ids_assign_idx != -1, (
+            "loop_runner.py must compute new_v2_ids = db_diff(before_v2_ids, after_v2_ids)."
+        )
+        assert before_hit_result_idx != -1, (
+            "loop_runner.py must have: before_hit_result = compute_hit_rate(before_topk, new_v2_ids)."
+        )
+        assert before_hit_result_idx > new_v2_ids_assign_idx, (
+            "before_hit_result must be assigned AFTER new_v2_ids is computed. "
+            "The before_topk SEARCHES happen pre-ingest (correct); only the SCORING "
+            "is deferred until new_v2_ids is available (the fix)."
+        )
+
+    def test_before_topk_assigned_before_ingest_subprocess_call(self) -> None:
+        """before_topk must be captured PRE-INGEST (D-04 probe ordering)."""
+        import inspect  # noqa: PLC0415
+
+        source = inspect.getsource(lr)
+
+        before_topk_idx = source.find("before_topk: list[list[str]]")
+        ingest_subprocess_idx = source.find("ingest_places_sf.py")
+
+        assert before_topk_idx != -1, "before_topk must be captured pre-ingest."
+        assert ingest_subprocess_idx != -1, "ingest_places_sf.py subprocess must be invoked."
+        assert before_topk_idx < ingest_subprocess_idx, (
+            "before_topk searches must be captured BEFORE the ingest subprocess. "
+            "Post-ingest probe would allow new places to appear in before_topk, "
+            "violating D-04 paraphrase-freeze + pre-ingest probe ordering."
+        )
+
+    def test_behavioral_before_zero_after_positive_with_mock(self) -> None:
+        """Behavioral: with mock search, before=0 and after>0 when new_v2_ids differ.
+
+        Simulates the D-03 contract:
+          - before_topk returns only old IDs (pre-ingest — new IDs don't exist yet).
+          - after_topk returns new IDs (post-ingest — new embeddings now retrievable).
+          - Both score against new_v2_ids (the v2-diff target set).
+          - before_hit = 0.0 by construction; after_hit > 0.0; delta > 0.
+        """
+        from app.loop.falsifier_core import K, N, compute_hit_rate  # noqa: PLC0415
+
+        new_v2_ids = {"new-place-1", "new-place-2", "new-place-3"}
+        old_ids = ["old-a", "old-b", "old-c", "old-d", "old-e"]
+
+        # Pre-ingest: semantic_search returns only old IDs (new places don't exist yet)
+        before_topk = [old_ids[:K] for _ in range(N)]
+
+        # Post-ingest: semantic_search now returns new IDs for each paraphrase
+        after_topk = [["new-place-1", "new-place-2", "old-a", "old-b", "old-c"] for _ in range(N)]
+
+        before_hit_result = compute_hit_rate(before_topk, new_v2_ids)
+        after_hit_result = compute_hit_rate(after_topk, new_v2_ids)
+
+        # Core D-03 invariant: before = 0 by construction
+        assert before_hit_result.hit_rate == 0.0, (
+            f"before_hit@k must be 0.0 by construction (D-03): "
+            f"pre-ingest search cannot return IDs that don't exist yet. "
+            f"Got {before_hit_result.hit_rate}."
+        )
+
+        # After ingest: new places are retrievable → positive hit@k
+        assert after_hit_result.hit_rate > 0.0, (
+            f"after_hit@k must be > 0 when new places are retrieved. "
+            f"Got {after_hit_result.hit_rate}."
+        )
+
+        # The delta must be strictly positive
+        delta = after_hit_result.hit_rate - before_hit_result.hit_rate
+        assert delta > 0.0, f"delta must be strictly positive; got {delta}."

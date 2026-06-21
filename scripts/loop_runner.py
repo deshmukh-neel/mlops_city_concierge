@@ -524,11 +524,13 @@ def main() -> None:  # noqa: C901
     before_raw_ids = _snapshot_ids_from_url(sandbox_url, "places_raw")
     before_v2_ids = _snapshot_ids_from_url(sandbox_url, "place_embeddings_v2")
 
+    # Capture before_topk PRE-INGEST so new places cannot game the paraphrase
+    # probe (D-04 paraphrase-freeze + pre-ingest probe ordering).
+    # IMPORTANT: before_hit_result is scored AFTER new_v2_ids is computed (Step 10)
+    # so both before and after are scored against the SAME v2-diff target set (D-03).
     before_topk: list[list[str]] = [
         [h.place_id for h in semantic_search(p, k=K)] for p in paraphrases
     ]
-    # before_hit@k = 0 by construction (new IDs didn't exist before — D-03)
-    before_hit_result = compute_hit_rate(before_topk, before_v2_ids)
 
     # ── Step 9: Ingest + embed subprocesses ──────────────────────────────────
     child_env = {**os.environ, "DATABASE_URL": sandbox_url}
@@ -590,6 +592,11 @@ def main() -> None:  # noqa: C901
         [h.place_id for h in semantic_search(p, k=K)] for p in paraphrases
     ]
 
+    # Both before and after are scored against the SAME v2-diff target set (D-03).
+    # before_hit@k = 0 by construction (new IDs did not exist before ingest).
+    # Scoring before against before_v2_ids (all pre-existing IDs) was the bug:
+    # that inflated before to 1.0, making the delta -1.0 (impossible but meaningless).
+    before_hit_result = compute_hit_rate(before_topk, new_v2_ids)  # = 0 by construction (D-03)
     # Target set = v2 DB-diff (new embedded IDs) — NOT new_raw_ids (D-03)
     after_hit_result = compute_hit_rate(after_topk, new_v2_ids)
     after_hit_at_k = after_hit_result.hit_rate
