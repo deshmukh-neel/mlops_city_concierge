@@ -671,3 +671,152 @@ class TestBeforeHitRateTargetSet:
         # The delta must be strictly positive
         delta = after_hit_result.hit_rate - before_hit_result.hit_rate
         assert delta > 0.0, f"delta must be strictly positive; got {delta}."
+
+
+# ---------------------------------------------------------------------------
+# Section 12: Bug-fix — list/block-style LLM content unwrapped in _generate_paraphrases
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateParaphrasesBlockContent:
+    """Bug fix (19-03): Gemini returns .content as a list of typed blocks.
+
+    Default provider (gemini / gemini-3.1-flash-lite-preview) may return:
+      [{'type': 'text', 'text': '["para1","para2","para3","para4","para5"]',
+        'extras': {'signature': ...}}]
+
+    The fix normalizes list-style content to a string before the isinstance(str) check.
+    build_chat_model is a deferred import inside _generate_paraphrases, so it must be
+    patched at its source module (app.llm_factory), not at scripts.loop_runner.
+    """
+
+    def test_block_list_content_is_normalized_to_string(self) -> None:
+        """Mock llm.invoke returning a block-list; assert 5 paraphrases returned."""
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        paraphrase_json = (
+            '["where to eat pho in outer sunset", "banh mi spots near ocean beach", '
+            '"vietnamese noodle soup outer sunset sf", "best pho places outer richmond", '
+            '"cheap vietnamese food sunset district"]'
+        )
+
+        # Simulate Gemini's block-list response shape
+        mock_response = MagicMock()
+        mock_response.content = [
+            {"type": "text", "text": paraphrase_json, "extras": {"signature": "abc123"}}
+        ]
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+
+        # build_chat_model is a deferred import inside _generate_paraphrases —
+        # patch at its source module, not at scripts.loop_runner (it's not bound there)
+        with patch("app.llm_factory.build_chat_model", return_value=mock_llm):
+            paraphrases, prompt, model = lr._generate_paraphrases(
+                seed_query="vietnamese restaurants in Outer Sunset San Francisco",
+                neighborhood="Outer Sunset",
+                cuisine="vietnamese",
+                n=5,
+            )
+
+        assert len(paraphrases) == 5
+        assert "where to eat pho in outer sunset" in paraphrases
+        assert all(isinstance(p, str) for p in paraphrases)
+
+    def test_plain_string_content_still_works(self) -> None:
+        """Plain string .content path continues to work after the normalization fix."""
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        paraphrase_json = '["spot 1", "spot 2", "spot 3", "spot 4", "spot 5"]'
+
+        mock_response = MagicMock()
+        mock_response.content = paraphrase_json  # plain string, not a list
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+
+        with patch("app.llm_factory.build_chat_model", return_value=mock_llm):
+            paraphrases, prompt, model = lr._generate_paraphrases(
+                seed_query="sushi restaurants in Japantown San Francisco",
+                neighborhood="Japantown",
+                cuisine="sushi",
+                n=5,
+            )
+
+        assert len(paraphrases) == 5
+        assert "spot 1" in paraphrases
+
+    def test_block_list_with_multiple_text_blocks_concatenated(self) -> None:
+        """Multiple text blocks in the list are concatenated before JSON parsing."""
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        # Split JSON across two text blocks (edge case)
+        part1 = '["item 1", "item 2", '
+        part2 = '"item 3", "item 4", "item 5"]'
+
+        mock_response = MagicMock()
+        mock_response.content = [
+            {"type": "text", "text": part1},
+            {"type": "text", "text": part2},
+        ]
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+
+        with patch("app.llm_factory.build_chat_model", return_value=mock_llm):
+            paraphrases, prompt, model = lr._generate_paraphrases(
+                seed_query="dim sum restaurants in Chinatown San Francisco",
+                neighborhood="Chinatown",
+                cuisine="dim sum",
+                n=5,
+            )
+
+        assert len(paraphrases) == 5
+
+    def test_non_text_block_type_is_skipped(self) -> None:
+        """Blocks without a 'text' key (e.g. image blocks) are silently skipped."""
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        paraphrase_json = '["a", "b", "c", "d", "e"]'
+
+        mock_response = MagicMock()
+        mock_response.content = [
+            {"type": "image", "url": "http://example.com/img.png"},  # no 'text' key
+            {"type": "text", "text": paraphrase_json},
+        ]
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+
+        with patch("app.llm_factory.build_chat_model", return_value=mock_llm):
+            paraphrases, prompt, model = lr._generate_paraphrases(
+                seed_query="tacos restaurants in Mission San Francisco",
+                neighborhood="Mission",
+                cuisine="tacos",
+                n=5,
+            )
+
+        assert len(paraphrases) == 5
+
+    def test_empty_block_list_exits_infra(self) -> None:
+        """An empty block list (no text parts) normalizes to '' → EXIT_INFRA."""
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        mock_response = MagicMock()
+        mock_response.content = []  # empty list, normalizes to ""
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+
+        with (
+            patch("app.llm_factory.build_chat_model", return_value=mock_llm),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            lr._generate_paraphrases(
+                seed_query="thai restaurants in Tenderloin San Francisco",
+                neighborhood="Tenderloin",
+                cuisine="thai",
+                n=5,
+            )
+
+        assert exc_info.value.code == EXIT_INFRA

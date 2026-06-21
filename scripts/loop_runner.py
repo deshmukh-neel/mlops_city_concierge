@@ -187,7 +187,25 @@ def _generate_paraphrases(
 
     llm = build_chat_model(provider, model_name, temperature=1.0)
     raw = llm.invoke([HumanMessage(content=generation_prompt)]).content
-    if not isinstance(raw, str):
+
+    # Normalize list/block-style content (e.g. Gemini returns a list of typed
+    # blocks: [{'type': 'text', 'text': '<json>', 'extras': {'signature': ...}}]).
+    # Extract and concatenate 'text' fields from any dict with a 'text' key.
+    if isinstance(raw, list):
+        parts: list[str] = []
+        for block in raw:
+            text_val: str | None = None
+            if isinstance(block, dict):
+                text_val = block.get("text")
+            else:
+                # LangChain block objects may expose .get
+                with contextlib.suppress(Exception):
+                    text_val = block.get("text")  # type: ignore[union-attr]
+            if isinstance(text_val, str):
+                parts.append(text_val)
+        raw = "".join(parts)
+
+    if not isinstance(raw, str) or not raw:
         print(
             f"[INFRA] Paraphrase generation returned non-string content: {raw!r}",
             file=sys.stderr,
