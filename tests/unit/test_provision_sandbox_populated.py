@@ -296,3 +296,27 @@ class TestMakefileTarget:
         assert ".PHONY: sandbox-provision-populated" in makefile, (
             "sandbox-provision-populated must be declared .PHONY in Makefile"
         )
+
+    def test_loop_gap_neighborhood_guard_present(self) -> None:
+        """WR-04: sandbox-provision-populated must guard LOOP_GAP_NEIGHBORHOOD (fail-fast)."""
+        makefile = _load_makefile()
+        # Find the sandbox-provision-populated target block and assert the guard
+        target_idx = makefile.find("sandbox-provision-populated:")
+        assert target_idx != -1, "sandbox-provision-populated target not found in Makefile"
+        # The guard must appear AFTER the target declaration (not just anywhere in the file)
+        target_region = makefile[target_idx : target_idx + 1000]
+        assert "LOOP_GAP_NEIGHBORHOOD" in target_region, (
+            "Makefile sandbox-provision-populated target must guard LOOP_GAP_NEIGHBORHOOD "
+            "to prevent silent provisioning of the wrong gap bucket (WR-04)"
+        )
+
+    def test_loop_gap_cuisine_guard_present(self) -> None:
+        """WR-04: sandbox-provision-populated must guard LOOP_GAP_CUISINE (fail-fast)."""
+        makefile = _load_makefile()
+        target_idx = makefile.find("sandbox-provision-populated:")
+        assert target_idx != -1, "sandbox-provision-populated target not found in Makefile"
+        target_region = makefile[target_idx : target_idx + 1000]
+        assert "LOOP_GAP_CUISINE" in target_region, (
+            "Makefile sandbox-provision-populated target must guard LOOP_GAP_CUISINE "
+            "to prevent silent provisioning of the wrong gap bucket (WR-04)"
+        )

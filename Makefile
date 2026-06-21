@@ -75,6 +75,18 @@ sandbox-provision-populated: ## Provision populated-baseline sandbox (D-02; drop
 	  echo "  Export it first: export SANDBOX_DATABASE_URL=postgresql://postgres:cityconcierge@127.0.0.1:5433/city_concierge_sandbox"; \
 	  exit 1; \
 	}
+	@[ -n "$${LOOP_GAP_NEIGHBORHOOD:-}" ] || { \
+	  echo "ERROR: LOOP_GAP_NEIGHBORHOOD is not set."; \
+	  echo "  Export it first: export LOOP_GAP_NEIGHBORHOOD='Outer Sunset'"; \
+	  echo "  This must match the gap bucket you intend to exclude from the baseline."; \
+	  exit 1; \
+	}
+	@[ -n "$${LOOP_GAP_CUISINE:-}" ] || { \
+	  echo "ERROR: LOOP_GAP_CUISINE is not set."; \
+	  echo "  Export it first: export LOOP_GAP_CUISINE='vietnamese'"; \
+	  echo "  This must match the gap bucket you intend to exclude from the baseline."; \
+	  exit 1; \
+	}
 	bash scripts/provision_sandbox.sh --populated
 
 # ─── Ingestion ────────────────────────────────────────────────────────────────
@@ -257,11 +269,19 @@ loop-falsifier: ## FALSIFY-01: loop falsifier gate — strictly-positive hit@k d
 # Phase 19 / LOOP-01..03 + METRIC: productionized loop runner.
 # Stages: clear-stale → gap-mine → paraphrase → before-snapshot →
 #         ingest → embed-v2 → DB-diff → after-snapshot → hit@k/recall@k → MLflow.
-# Requires: SANDBOX_DATABASE_URL, GOOGLE_PLACES_API_KEY, OPENAI_API_KEY exported.
+#
+# Required keys (WR-02):
+#   OPENAI_API_KEY   — always required; embed_places_pgvector_v2 uses OpenAI
+#                      text-embedding-3-small regardless of paraphrase provider.
+#   GEMINI_API_KEY   — required when PARAPHRASE_PROVIDER is unset (default) or "gemini".
+#                      The default paraphrase provider is gemini (DEFAULT_JUDGE_PROVIDER
+#                      in app/agent/critique/vibe.py). Set PARAPHRASE_PROVIDER=openai
+#                      to use OpenAI for paraphrases instead (then GEMINI_API_KEY is not needed).
+#
 # Exit 0 = PASS; 1 = FAIL; 2 = INFRA error.
 # See docs/loop_runner.md for the full runbook.
 .PHONY: loop
-loop: ## LOOP-01..03+METRIC: productionized loop runner — full gap-mine→ingest→embed→score cycle (requires SANDBOX_DATABASE_URL + GOOGLE_PLACES_API_KEY + OPENAI_API_KEY); see docs/loop_runner.md
+loop: ## LOOP-01..03+METRIC: productionized loop runner — full gap-mine→ingest→embed→score cycle (requires SANDBOX_DATABASE_URL + GOOGLE_PLACES_API_KEY + OPENAI_API_KEY + GEMINI_API_KEY); see docs/loop_runner.md
 	@[ -n "$${SANDBOX_DATABASE_URL:-}" ] || { \
 	  echo "ERROR: SANDBOX_DATABASE_URL is not set."; \
 	  exit 1; \
@@ -272,8 +292,17 @@ loop: ## LOOP-01..03+METRIC: productionized loop runner — full gap-mine→inge
 	}
 	@[ -n "$${OPENAI_API_KEY:-}" ] || { \
 	  echo "ERROR: OPENAI_API_KEY is not set."; \
+	  echo "  OPENAI_API_KEY is always required — embed_places_pgvector_v2 uses OpenAI embeddings."; \
 	  exit 1; \
 	}
+	@if [ -z "$${PARAPHRASE_PROVIDER:-}" ] || [ "$${PARAPHRASE_PROVIDER:-}" = "gemini" ]; then \
+	  [ -n "$${GEMINI_API_KEY:-}" ] || { \
+	    echo "ERROR: GEMINI_API_KEY is not set."; \
+	    echo "  The default paraphrase provider is gemini — GEMINI_API_KEY is required."; \
+	    echo "  To use OpenAI for paraphrases instead: export PARAPHRASE_PROVIDER=openai"; \
+	    exit 1; \
+	  }; \
+	fi
 	$(POETRY_RUN) python scripts/loop_runner.py
 
 # Phase 12 / INST-05 / D-12-06..08: falsifier report — reads eval artifacts
