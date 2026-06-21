@@ -3,7 +3,7 @@
 #
 # Provision the isolated sandbox Postgres DB for the loop falsifier (LOOP-00).
 #
-# Idempotent recipe:
+# Idempotent recipe (no flags — empty-sandbox baseline):
 #   1. Assert SANDBOX_DATABASE_URL is set and safe (prod-safety guard).
 #   2. Start the pgvector Docker container (db-up).
 #   3. CREATE DATABASE idempotently (pg_database pre-check).
@@ -15,11 +15,46 @@
 #   export SANDBOX_DATABASE_URL=postgresql://postgres:cityconcierge@127.0.0.1:5433/city_concierge_sandbox
 #   bash scripts/provision_sandbox.sh
 #
-# To reset and reprovision:
-#   docker exec city_concierge_db psql -U postgres -d postgres -c 'DROP DATABASE city_concierge_sandbox;'
-#   bash scripts/provision_sandbox.sh
+# To reset (schema-only, no data):
+#   bash scripts/provision_sandbox.sh --reset
+#   (DROP+recreate the DB, rebuild schema — no ingest or embed)
+#
+# To provision or idempotently reset to the populated baseline (D-01, D-02):
+#   export LOOP_GAP_NEIGHBORHOOD="Outer Sunset"
+#   export LOOP_GAP_CUISINE="vietnamese"
+#   bash scripts/provision_sandbox.sh --populated
+#   (DROP+recreate, init.sql, alembic, mark ONLY the gap-bucket queries 'completed',
+#    ingest the broad non-gap catalog, fully embed BEFORE returning — D-02 no-backlog)
+#   NOTE: --populated IS the idempotent populated reset — it restores the EXACT baseline
+#   data AND embeddings every run (DROP+re-provision). It does NOT merely clear proposals.
 
 set -euo pipefail
+
+# ─── Argument parsing ─────────────────────────────────────────────────────────
+# --reset:     SCHEMA-ONLY alias (DROP+recreate+schema, no ingest/embed)
+# --populated: Idempotent populated reset: DROP+recreate+schema → mark ONLY the
+#              gap-bucket exclusion set 'completed' → ingest non-gap catalog → embed.
+#              INVERSION from Phase 16: we mark ONLY the gap-bucket queries completed
+#              (so ingest skips the gap), NOT the non-gap catalog (which is the baseline).
+
+RESET_MODE=""
+POPULATE_BASELINE=""
+
+for _arg in "$@"; do
+  case "${_arg}" in
+    --reset)
+      RESET_MODE="1"
+      ;;
+    --populated)
+      RESET_MODE="1"
+      POPULATE_BASELINE="1"
+      ;;
+    *)
+      echo "ERROR: Unknown argument '${_arg}'. Use --reset or --populated." >&2
+      exit 1
+      ;;
+  esac
+done
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -151,6 +186,21 @@ fi
 
 echo "Prod-safety guard PASSED: dbname='${DB_NAME}', host='${_parsed_host}'."
 
+# ─── DROP+recreate (idempotent reset for --reset and --populated) ─────────────
+# Both --reset (schema-only) and --populated (schema+data) start with a clean DB.
+# This block runs AFTER the prod-safety guard — guard-before-destroy ordering is
+# asserted by the unit test (Prod-safety guard PASSED appears before DROP DATABASE).
+
+if [[ "${RESET_MODE:-}" == "1" ]]; then
+  echo ""
+  echo "RESET: Dropping and recreating '${DB_NAME}' for a clean baseline..."
+  docker exec "${CONTAINER_NAME}" psql -U postgres -d postgres \
+    -c "DROP DATABASE IF EXISTS \"${DB_NAME}\";"
+  docker exec "${CONTAINER_NAME}" psql -U postgres -d postgres \
+    -c "CREATE DATABASE \"${DB_NAME}\";"
+  echo "Database '${DB_NAME}' dropped and recreated."
+fi
+
 # ─── Step 1: Start the pgvector Docker container ──────────────────────────────
 
 echo ""
@@ -223,14 +273,141 @@ DATABASE_URL="${SANDBOX_DATABASE_URL}" poetry run alembic upgrade head
 
 echo "Alembic migrations applied."
 
+# ─── Step 5 & 6: Populate baseline (for --populated; LOOP-01 D-01/D-02) ──────
+# INVERSION: Phase 16 marked the non-gap catalog 'completed' so ingest ran ONLY
+# the gap. Phase 19 is the OPPOSITE: mark ONLY the gap-bucket exclusion set
+# 'completed' (ingest SKIPS those), then ingest everything else (the broad non-gap
+# catalog). The gap bucket stays un-ingested so the loop can add it later.
+#
+# The gap bucket is identified by LOOP_GAP_NEIGHBORHOOD + LOOP_GAP_CUISINE env vars.
+# Exclusion set = every build_seed_queries() entry that surfaces that bucket:
+#   - per-neighborhood: '{cuisine} restaurants in {neighborhood} San Francisco'
+#   - citywide: '{cuisine} restaurants in San Francisco'
+#   - per-neighborhood eatery overlaps for that neighborhood (generic food queries)
+# (D-02: naive "minus one query" leaves gaps already-covered via other queries)
+
+if [[ "${POPULATE_BASELINE:-}" == "1" ]]; then
+  _gap_neighborhood="${LOOP_GAP_NEIGHBORHOOD:-Outer Sunset}"
+  _gap_cuisine="${LOOP_GAP_CUISINE:-vietnamese}"
+
+  echo ""
+  echo "Step 5: Marking gap-bucket exclusion set 'completed' (ingest will skip these)..."
+  echo "  Gap bucket: '${_gap_cuisine}' in '${_gap_neighborhood}'"
+  echo "  (INVERSION: marking ONLY the gap queries completed — non-gap catalog will be ingested)"
+
+  DATABASE_URL="${SANDBOX_DATABASE_URL}" poetry run python - <<PYEOF
+import os, sys
+# SANDBOX_DATABASE_URL is already set as DATABASE_URL by the inline export above,
+# so ingest_places_sf resolves to the sandbox at import time.
+import psycopg2
+from scripts.ingest_places_sf import build_seed_queries, checkpoint_key
+
+gap_neighborhood = os.environ.get('LOOP_GAP_NEIGHBORHOOD', 'Outer Sunset')
+gap_cuisine = os.environ.get('LOOP_GAP_CUISINE', 'vietnamese')
+sandbox_url = os.environ['DATABASE_URL']
+
+# Build the gap-bucket exclusion set: all catalog queries that surface the gap bucket.
+# Per D-02: include per-neighborhood cuisine query, citywide cuisine query, AND the
+# per-neighborhood generic eatery/food queries for that neighborhood (overlap coverage).
+catalog = build_seed_queries()
+
+exclusion_set = []
+for q in catalog:
+    q_lower = q.lower()
+    neighborhood_lower = gap_neighborhood.lower()
+    cuisine_lower = gap_cuisine.lower()
+    # Rule 1: per-neighborhood cuisine query: '{cuisine} restaurants in {neighborhood} San Francisco'
+    if cuisine_lower in q_lower and neighborhood_lower in q_lower:
+        exclusion_set.append(q)
+    # Rule 2: citywide cuisine query: '{cuisine} restaurants in San Francisco'
+    #   (but NOT neighborhood-scoped — already covered by Rule 1)
+    elif cuisine_lower in q_lower and 'san francisco' in q_lower and neighborhood_lower not in q_lower:
+        exclusion_set.append(q)
+    # Rule 3: per-neighborhood generic eatery/food overlaps (any eatery type in the gap neighborhood)
+    # These are queries like 'restaurants in Outer Sunset San Francisco', 'cafes in Outer Sunset SF'
+    elif neighborhood_lower in q_lower and 'san francisco' in q_lower:
+        exclusion_set.append(q)
+
+if not exclusion_set:
+    print(f"ERROR: No gap-bucket exclusion queries found for '{gap_cuisine}' / '{gap_neighborhood}'.", file=sys.stderr)
+    print("       Check that LOOP_GAP_NEIGHBORHOOD and LOOP_GAP_CUISINE match catalog entries.", file=sys.stderr)
+    sys.exit(1)
+
+# Upsert ONLY the gap-bucket exclusion set as 'completed' in checkpoints.
+# This makes ingest SKIP the gap (skips 'completed' queries) and ingest everything else.
+# DO NOT mark the non-gap catalog completed — that would be the Phase-16 direction
+# (which would skip the entire baseline and ingest only the gap — the exact opposite).
+upsert_sql = """
+    INSERT INTO places_ingest_query_checkpoints (query_text, status)
+    VALUES (%s, 'completed')
+    ON CONFLICT (query_text) DO UPDATE SET status = 'completed'
+"""
+conn = psycopg2.connect(sandbox_url)
+try:
+    with conn.cursor() as cur:
+        for q in exclusion_set:
+            cur.execute(upsert_sql, [checkpoint_key(q)])
+    conn.commit()
+finally:
+    conn.close()
+
+print(f"Marked {len(exclusion_set)} gap-bucket queries 'completed' (ingest will skip these).")
+print(f"Non-gap catalog queries (~{len(catalog) - len(exclusion_set)}) remain pending — will be ingested.")
+PYEOF
+
+  echo ""
+  echo "Step 6: Ingesting the broad non-gap catalog (gap bucket is skipped via completed checkpoints)..."
+  DATABASE_URL="${SANDBOX_DATABASE_URL}" poetry run python scripts/ingest_places_sf.py
+
+  echo ""
+  echo "Step 7: Embedding baseline rows (embed-v2; fully embed BEFORE returning — D-02 no-backlog)..."
+  DATABASE_URL="${SANDBOX_DATABASE_URL}" poetry run python -m scripts.embed_places_pgvector_v2
+
+  echo ""
+  echo "Populated baseline complete."
+  echo "  Gap bucket '${_gap_cuisine}' in '${_gap_neighborhood}' is un-ingested (under-served at baseline)."
+  echo "  Non-gap catalog is fully ingested and embedded — ready for before-snapshot."
+fi
+
 # ─── Done ─────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "SUCCESS: Sandbox database '${DB_NAME}' provisioned at ${SANDBOX_DATABASE_URL}"
-echo "  Schema: places_raw, place_embeddings, place_embeddings_v2, place_documents_v2"
-echo "          places_ingest_query_proposals, places_ingest_query_checkpoints, place_relations"
-echo "  Rows:   0 (empty — the intended loop-falsifier baseline)"
-echo "  Prod:   NEVER touched (all DDL ran against '${DB_NAME}' only)"
-echo ""
-echo "To reset: docker exec ${CONTAINER_NAME} psql -U postgres -d postgres -c 'DROP DATABASE ${DB_NAME};'"
-echo "          bash scripts/provision_sandbox.sh"
+if [[ "${POPULATE_BASELINE:-}" == "1" ]]; then
+  echo "SUCCESS: Populated sandbox '${DB_NAME}' provisioned at ${SANDBOX_DATABASE_URL}"
+  echo "  Schema: places_raw, place_embeddings, place_embeddings_v2, place_documents_v2"
+  echo "          places_ingest_query_proposals, places_ingest_query_checkpoints, place_relations"
+  echo "  Rows:   Populated baseline (non-gap catalog ingested + embedded)"
+  echo "  Gap:    '${_gap_cuisine:-}' in '${_gap_neighborhood:-}' is EXCLUDED (under-served)"
+  echo "  Prod:   NEVER touched (all DDL ran against '${DB_NAME}' only)"
+  echo ""
+  echo "To idempotently reset to this populated baseline:"
+  echo "  export LOOP_GAP_NEIGHBORHOOD='${_gap_neighborhood:-Outer Sunset}'"
+  echo "  export LOOP_GAP_CUISINE='${_gap_cuisine:-vietnamese}'"
+  echo "  bash scripts/provision_sandbox.sh --populated"
+  echo ""
+  echo "To reset schema only (no data):"
+  echo "  bash scripts/provision_sandbox.sh --reset"
+elif [[ "${RESET_MODE:-}" == "1" ]]; then
+  echo "SUCCESS: Sandbox database '${DB_NAME}' reset (schema-only) at ${SANDBOX_DATABASE_URL}"
+  echo "  Schema: places_raw, place_embeddings, place_embeddings_v2, place_documents_v2"
+  echo "          places_ingest_query_proposals, places_ingest_query_checkpoints, place_relations"
+  echo "  Rows:   0 (schema-only reset — no ingest or embed)"
+  echo "  Prod:   NEVER touched (all DDL ran against '${DB_NAME}' only)"
+  echo ""
+  echo "To provision a populated baseline:"
+  echo "  bash scripts/provision_sandbox.sh --populated"
+else
+  echo "SUCCESS: Sandbox database '${DB_NAME}' provisioned at ${SANDBOX_DATABASE_URL}"
+  echo "  Schema: places_raw, place_embeddings, place_embeddings_v2, place_documents_v2"
+  echo "          places_ingest_query_proposals, places_ingest_query_checkpoints, place_relations"
+  echo "  Rows:   0 (empty — the intended loop-falsifier baseline)"
+  echo "  Prod:   NEVER touched (all DDL ran against '${DB_NAME}' only)"
+  echo ""
+  echo "To reset and reprovision (schema-only):"
+  echo "  bash scripts/provision_sandbox.sh --reset"
+  echo ""
+  echo "To provision a populated baseline (D-01, D-02):"
+  echo "  export LOOP_GAP_NEIGHBORHOOD='Outer Sunset'"
+  echo "  export LOOP_GAP_CUISINE='vietnamese'"
+  echo "  bash scripts/provision_sandbox.sh --populated"
+fi
