@@ -34,14 +34,14 @@ def conn():
     connection.close()
 
 
-def _fetch_one(conn, sql: str) -> object:
+def fetch_one(conn, sql: str) -> object:
     with conn.cursor() as cur:
         cur.execute(sql)
         return cur.fetchone()[0]
 
 
 def test_v2_table_populated(conn) -> None:
-    count = _fetch_one(conn, "SELECT COUNT(*) FROM place_embeddings_v2")
+    count = fetch_one(conn, "SELECT COUNT(*) FROM place_embeddings_v2")
     assert count > 0, "place_embeddings_v2 is empty — run `make embed-v2` first."
 
 
@@ -66,7 +66,7 @@ def test_v2_chunks_are_meaningfully_smaller_than_v1(conn) -> None:
 
 
 def test_v2_chunks_contain_no_urls(conn) -> None:
-    forbidden_count = _fetch_one(
+    forbidden_count = fetch_one(
         conn,
         """
         SELECT COUNT(*) FROM place_embeddings_v2
@@ -79,7 +79,7 @@ def test_v2_chunks_contain_no_urls(conn) -> None:
 
 
 def test_v2_chunks_contain_no_disclosure_boilerplate(conn) -> None:
-    boilerplate_count = _fetch_one(
+    boilerplate_count = fetch_one(
         conn,
         """
         SELECT COUNT(*) FROM place_embeddings_v2

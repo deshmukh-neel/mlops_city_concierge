@@ -18,10 +18,10 @@ from scripts.eval_agent import (
     EvalRunReport,
     ExpectedEvalResult,
     QueryEvalResult,
-    _constraints_for_case,
     aggregate_results,
     answer_place_names_from_state,
     answer_retrieved_place_coverage,
+    constraints_for_case,
     contexts_from_state,
     count_tool_calls,
     evaluate_multi_turn_case,
@@ -88,11 +88,11 @@ def test_expected_constraints_keeps_single_shared_list_validator() -> None:
     """ADVISORY 6: do not duplicate the ExpectedConstraints list validator."""
     source = inspect.getsource(ExpectedConstraints)
 
-    assert source.count("def _strip_non_empty_list") == 1
+    assert source.count("def strip_non_empty_list") == 1
 
 
 class TestConstraintsForCaseNumStops:
-    """Phase-6 root-cause regression: ``_constraints_for_case`` MUST pass
+    """Phase-6 root-cause regression: ``constraints_for_case`` MUST pass
     ``num_stops`` so the eval prod-threading branch mirrors ``/chat``'s
     constraint extraction. Without this, queries that say "3 stops" in
     prose cause the model to ask "how many stops?" instead of committing
@@ -103,7 +103,7 @@ class TestConstraintsForCaseNumStops:
     def test_extracts_num_stops_from_query_text(self) -> None:
         # The refinement_cheaper query body says "3 stops" in prose.
         case = eval_case(query="Plan a date night dinner-then-drinks in Hayes Valley, 3 stops")
-        constraints = _constraints_for_case(case)
+        constraints = constraints_for_case(case)
         assert constraints.num_stops == 3
 
     def test_falls_back_to_yaml_min_max_when_text_silent(self) -> None:
@@ -111,7 +111,7 @@ class TestConstraintsForCaseNumStops:
             query="show me cool spots in soma",  # no count in prose
             expected_results={"min_stops": 4, "max_stops": 4},
         )
-        constraints = _constraints_for_case(case)
+        constraints = constraints_for_case(case)
         assert constraints.num_stops == 4
 
     def test_does_not_invent_count_when_range_ambiguous(self) -> None:
@@ -121,7 +121,7 @@ class TestConstraintsForCaseNumStops:
             query="show me cool spots in soma",
             expected_results={"min_stops": 1, "max_stops": 5},
         )
-        constraints = _constraints_for_case(case)
+        constraints = constraints_for_case(case)
         assert constraints.num_stops is None
 
     def test_text_extraction_wins_over_yaml(self) -> None:
@@ -131,7 +131,7 @@ class TestConstraintsForCaseNumStops:
             query="something something 3 stops",
             expected_results={"min_stops": 5, "max_stops": 5},
         )
-        constraints = _constraints_for_case(case)
+        constraints = constraints_for_case(case)
         assert constraints.num_stops == 3
 
     def test_requested_primary_types_still_set(self) -> None:
@@ -143,7 +143,7 @@ class TestConstraintsForCaseNumStops:
                 "requested_primary_types": ["Restaurant", "Cocktail Bar", "Dessert Shop"],
             },
         )
-        constraints = _constraints_for_case(case)
+        constraints = constraints_for_case(case)
         assert constraints.requested_primary_types == [
             "Restaurant",
             "Cocktail Bar",
@@ -740,7 +740,7 @@ class RaisingChatModel(BaseChatModel):
         return self
 
 
-def _finalize_msg(content: str) -> AIMessage:
+def finalize_msg(content: str) -> AIMessage:
     """Trajectory shorthand: a no-tool-calls AIMessage that finalizes a turn.
 
     With stops=[] + constraints.num_stops=None, this routes
@@ -770,7 +770,7 @@ async def test_evaluate_case_single_turn_unchanged(mocker) -> None:
     AIMessage's content — rather than byte-comparing JSON, which is the
     same guarantee surfaced differently."""
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    llm = RecordingScriptedLLM(scripted=[_finalize_msg("turn1 reply")])
+    llm = RecordingScriptedLLM(scripted=[finalize_msg("turn1 reply")])
     graph = build_agent_graph(llm, max_steps=4)
 
     case = eval_case(turns=None)
@@ -832,7 +832,7 @@ async def test_evaluate_multi_turn_threads_messages(mocker) -> None:
     nukes the prior turn's messages."""
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
     llm = RecordingScriptedLLM(
-        scripted=[_finalize_msg("turn1 reply"), _finalize_msg("turn2 reply")],
+        scripted=[finalize_msg("turn1 reply"), finalize_msg("turn2 reply")],
     )
     graph = build_agent_graph(llm, max_steps=4)
 
@@ -879,7 +879,7 @@ async def test_multi_turn_latency_sums(mocker) -> None:
     fake_time = types.SimpleNamespace(monotonic=lambda: next(ticks))
     mocker.patch("scripts.eval_agent.time", fake_time)
     llm = RecordingScriptedLLM(
-        scripted=[_finalize_msg("turn1"), _finalize_msg("turn2")],
+        scripted=[finalize_msg("turn1"), finalize_msg("turn2")],
     )
     graph = build_agent_graph(llm, max_steps=4)
 
@@ -901,7 +901,7 @@ async def test_multi_turn_intermediate_failure_captured(mocker) -> None:
     an error record (replacing the old partial-state fail-open path).
     """
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    llm = RecordingScriptedLLM(scripted=[_finalize_msg("turn1 reply")])
+    llm = RecordingScriptedLLM(scripted=[finalize_msg("turn1 reply")])
     graph = build_agent_graph(llm, max_steps=4)
 
     case = eval_case(turns=["this turn will explode"])
@@ -938,7 +938,7 @@ async def test_multi_turn_tool_calls_are_json_safe(mocker) -> None:
     json.dumps OR at the per-tool-call args walk."""
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
     llm = RecordingScriptedLLM(
-        scripted=[_finalize_msg("turn1 reply"), _finalize_msg("turn2 reply")],
+        scripted=[finalize_msg("turn1 reply"), finalize_msg("turn2 reply")],
     )
     graph = build_agent_graph(llm, max_steps=4)
 
@@ -1096,7 +1096,7 @@ def test_no_partial_state_scoring_in_eval_agent() -> None:
 
 
 def test_make_error_record_called_in_prod_threading_except() -> None:
-    """D-10-02: _run_prod_threading except clause must call make_error_record,
+    """D-10-02: run_prod_threading except clause must call make_error_record,
     not query_result_from_state on partial state.
     """
     import ast
@@ -1105,20 +1105,20 @@ def test_make_error_record_called_in_prod_threading_except() -> None:
     source = Path("scripts/eval_agent.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    # Find _run_prod_threading function and check its except handlers.
+    # Find run_prod_threading function and check its except handlers.
     for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_prod_threading":
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "run_prod_threading":
             source_segment = ast.get_source_segment(source, node) or ""
             assert "make_error_record" in source_segment, (
-                "_run_prod_threading except clause must call make_error_record"
+                "run_prod_threading except clause must call make_error_record"
             )
             break
     else:
-        pytest.fail("_run_prod_threading not found in eval_agent.py")
+        pytest.fail("run_prod_threading not found in eval_agent.py")
 
 
 def test_make_error_record_called_in_legacy_threading_except() -> None:
-    """D-10-02: _run_legacy_threading except clause must call make_error_record."""
+    """D-10-02: run_legacy_threading except clause must call make_error_record."""
     import ast
     from pathlib import Path
 
@@ -1126,19 +1126,19 @@ def test_make_error_record_called_in_legacy_threading_except() -> None:
     tree = ast.parse(source)
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_legacy_threading":
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "run_legacy_threading":
             source_segment = ast.get_source_segment(source, node) or ""
             assert "make_error_record" in source_segment, (
-                "_run_legacy_threading except clause must call make_error_record"
+                "run_legacy_threading except clause must call make_error_record"
             )
             break
     else:
-        pytest.fail("_run_legacy_threading not found in eval_agent.py")
+        pytest.fail("run_legacy_threading not found in eval_agent.py")
 
 
 @pytest.mark.asyncio
 async def test_legacy_threading_turn0_exception_produces_error_record(mocker) -> None:
-    """D-10-02 / EVAL-01: A turn-0 exception in _run_legacy_threading returns
+    """D-10-02 / EVAL-01: A turn-0 exception in run_legacy_threading returns
     a QueryEvalResult with status='error' and error.stage='turn0'.
     Scorers are NOT invoked on the failed run.
     """
@@ -1403,7 +1403,7 @@ async def test_21_14_30z_replay_turn_n_exception_produces_error_record(mocker) -
     from tests._helpers.scripted_llm import ScriptedLLM
 
     # Turn 0: scripted to produce a final reply; turn 1 will raise via exhaustion.
-    llm_turn0 = ScriptedLLM(scripted=[_finalize_msg("turn0 reply")])
+    llm_turn0 = ScriptedLLM(scripted=[finalize_msg("turn0 reply")])
     graph = build_agent_graph(llm_turn0, max_steps=4)
 
     case = eval_case(turns=["this turn should error"])
@@ -1488,7 +1488,7 @@ class TestDeterministicChecksRegistration:
 #   - HIGH-3 + Caveat #5: shared `build_refinement_prompt_message` helper
 #     produces byte-identical messages between /chat and the prod branch.
 #   - NEW HIGH-B: prod branch reads REFINEMENT_STRUCTURED_PLAN_ENABLED INSIDE
-#     `_run_prod_threading` per OVR-05; injection is gated on the flag.
+#     `run_prod_threading` per OVR-05; injection is gated on the flag.
 #   - NEW HIGH-C: helper call is gated on `if prior_committed_stops:` so
 #     empty-prior never raises ValueError; scratch keys still written.
 #
@@ -1507,12 +1507,12 @@ class TestEvaluateMultiTurnProdThreading:
     per plan 06-01 Task 3 validator (`^[A-Za-z0-9_-]{20,255}$`).
     """
 
-    _PID_1 = "ChIJ_test_id_aaaaaaaa_a"
-    _PID_2 = "ChIJ_test_id_bbbbbbbb_b"
-    _PID_3 = "ChIJ_test_id_cccccccc_c"
+    PID_1 = "ChIJ_test_id_aaaaaaaa_a"
+    PID_2 = "ChIJ_test_id_bbbbbbbb_b"
+    PID_3 = "ChIJ_test_id_cccccccc_c"
 
     @classmethod
-    def _prod_case(
+    def prod_case(
         cls,
         *,
         target_slot: int = 2,
@@ -1529,7 +1529,7 @@ class TestEvaluateMultiTurnProdThreading:
         )
 
     @classmethod
-    def _commit_turn_message(cls, place_ids: list[str], reply: str = "committed") -> AIMessage:
+    def commit_turn_message(cls, place_ids: list[str], reply: str = "committed") -> AIMessage:
         """Build a scripted AIMessage that emits a commit_itinerary tool call
         AND finalizes — but for these tests we use a simpler shape: a
         finalize-only AIMessage paired with an explicit state override at
@@ -1539,7 +1539,7 @@ class TestEvaluateMultiTurnProdThreading:
         return AIMessage(content=reply, tool_calls=[])
 
     @classmethod
-    def _stops_for_pids(cls, pids: list[str]) -> list:
+    def stops_for_pids(cls, pids: list[str]) -> list:
         """Build fixture Stops for the prod-threading scratch contract tests.
 
         Phase 7 / D-07-06 / D-07-07: every Stop gets ``primary_type="Cafe"`` so
@@ -1556,7 +1556,7 @@ class TestEvaluateMultiTurnProdThreading:
             for i, pid in enumerate(pids)
         ]
 
-    class _ProdCapturingGraph:
+    class ProdCapturingGraph:
         """Graph double for the prod-branch tests that captures every
         invocation's input state AND lets the test script per-turn stops
         and final_reply on the returned state.
@@ -1585,7 +1585,7 @@ class TestEvaluateMultiTurnProdThreading:
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         llm = RecordingScriptedLLM(
-            scripted=[_finalize_msg("turn1 reply"), _finalize_msg("turn2 reply")],
+            scripted=[finalize_msg("turn1 reply"), finalize_msg("turn2 reply")],
         )
         graph = build_agent_graph(llm, max_steps=4)
         case = eval_case(
@@ -1613,10 +1613,10 @@ class TestEvaluateMultiTurnProdThreading:
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
         llm = RecordingScriptedLLM(
-            scripted=[_finalize_msg("turn0 reply"), _finalize_msg("turn1 reply")],
+            scripted=[finalize_msg("turn0 reply"), finalize_msg("turn1 reply")],
         )
         graph = build_agent_graph(llm, max_steps=4)
-        case = self._prod_case()
+        case = self.prod_case()
         await evaluate_multi_turn_case(graph, case)
 
         # On turn 0 graph.plan() prepended SYSTEM_PROMPT — but NO SystemMessage
@@ -1645,16 +1645,16 @@ class TestEvaluateMultiTurnProdThreading:
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        # We use the prod-branch's helper _run_prod_threading directly so we can
+        # We use the prod-branch's helper run_prod_threading directly so we can
         # script turn-0 commits via a _ProdCapturingGraph; the real graph cannot
         # script committed stops without a full retrieval/commit trajectory.
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
-        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
-        graph = self._ProdCapturingGraph(script=[(stops, "turn0 reply"), ([], "turn1 reply")])
-        case = self._prod_case()
+        stops = self.stops_for_pids([self.PID_1, self.PID_2, self.PID_3])
+        graph = self.ProdCapturingGraph(script=[(stops, "turn0 reply"), ([], "turn1 reply")])
+        case = self.prod_case()
 
-        result, final_state = await _run_prod_threading(graph, case)
+        result, final_state = await run_prod_threading(graph, case)
 
         # Turn 1's messages contain a HumanMessage with structured-plan content.
         turn_one_humans = [m for m in graph.seen_messages[1] if isinstance(m, HumanMessage)]
@@ -1679,7 +1679,7 @@ class TestEvaluateMultiTurnProdThreading:
 
         # Phase 7 / D-07-06 scratch-payload extension (plan 07-02): turn-0
         # prior_committed_stops entries carry primary_type per entry. The
-        # _stops_for_pids helper sets primary_type='Cafe' on every Stop, so
+        # stops_for_pids helper sets primary_type='Cafe' on every Stop, so
         # the scratch echoes that value into each entry.
         prior = final_state.scratch["prior_committed_stops"]
         assert all("primary_type" in entry for entry in prior), (
@@ -1700,13 +1700,13 @@ class TestEvaluateMultiTurnProdThreading:
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
         from app.agent.io import build_refinement_prompt_message
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
-        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
-        graph = self._ProdCapturingGraph(script=[(stops, "turn0 reply"), ([], "turn1 reply")])
-        case = self._prod_case()
+        stops = self.stops_for_pids([self.PID_1, self.PID_2, self.PID_3])
+        graph = self.ProdCapturingGraph(script=[(stops, "turn0 reply"), ([], "turn1 reply")])
+        case = self.prod_case()
 
-        await _run_prod_threading(graph, case)
+        await run_prod_threading(graph, case)
 
         # Direct call to the helper with the same committed_stops.
         expected_msg = build_refinement_prompt_message(stops)
@@ -1733,14 +1733,14 @@ class TestEvaluateMultiTurnProdThreading:
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
 
         from app.agent.io import build_refinement_prompt_message
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
-        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
-        graph = self._ProdCapturingGraph(
+        stops = self.stops_for_pids([self.PID_1, self.PID_2, self.PID_3])
+        graph = self.ProdCapturingGraph(
             script=[(stops, "turn0 assistant reply"), ([], "turn1 reply")]
         )
-        case = self._prod_case(query="Plan a date night", turns=["make stop 2 cheaper"])
-        await _run_prod_threading(graph, case)
+        case = self.prod_case(query="Plan a date night", turns=["make stop 2 cheaper"])
+        await run_prod_threading(graph, case)
 
         # On turn 1 the prod branch builds [*history(user+assistant turn 0),
         # structured-plan HumanMessage, user-turn-1 HumanMessage].
@@ -1772,17 +1772,17 @@ class TestEvaluateMultiTurnProdThreading:
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
         # Non-empty commit.
-        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
-        graph_a = self._ProdCapturingGraph(script=[(stops, "ok"), ([], "ok2")])
-        _, state_a = await _run_prod_threading(graph_a, self._prod_case())
+        stops = self.stops_for_pids([self.PID_1, self.PID_2, self.PID_3])
+        graph_a = self.ProdCapturingGraph(script=[(stops, "ok"), ([], "ok2")])
+        _, state_a = await run_prod_threading(graph_a, self.prod_case())
         assert state_a.scratch["refinement_context"] is True
 
         # Empty commit.
-        graph_b = self._ProdCapturingGraph(script=[([], "empty turn 0"), ([], "ok")])
-        _, state_b = await _run_prod_threading(graph_b, self._prod_case())
+        graph_b = self.ProdCapturingGraph(script=[([], "empty turn 0"), ([], "ok")])
+        _, state_b = await run_prod_threading(graph_b, self.prod_case())
         assert state_b.scratch["refinement_context"] is True
 
     @pytest.mark.asyncio
@@ -1794,11 +1794,11 @@ class TestEvaluateMultiTurnProdThreading:
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
-        graph = self._ProdCapturingGraph(script=[([], "empty"), ([], "ok")])
-        case = self._prod_case(target_slot=2)
-        _, final_state = await _run_prod_threading(graph, case)
+        graph = self.ProdCapturingGraph(script=[([], "empty"), ([], "ok")])
+        case = self.prod_case(target_slot=2)
+        _, final_state = await run_prod_threading(graph, case)
         assert final_state.scratch["prior_committed_stops"] == []
         assert final_state.scratch["refinement_target_slot"] == 2
         assert final_state.scratch["refinement_context"] is True
@@ -1813,11 +1813,11 @@ class TestEvaluateMultiTurnProdThreading:
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
-        graph = self._ProdCapturingGraph(script=[([], "empty"), ([], "ok")])
-        case = self._prod_case()
-        result, _ = await _run_prod_threading(graph, case)
+        graph = self.ProdCapturingGraph(script=[([], "empty"), ([], "ok")])
+        case = self.prod_case()
+        result, _ = await run_prod_threading(graph, case)
 
         # No structured-plan content was emitted on turn 1 (helper not called).
         turn_one_msgs = graph.seen_messages[1]
@@ -1837,12 +1837,12 @@ class TestEvaluateMultiTurnProdThreading:
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
-        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
-        graph = self._ProdCapturingGraph(script=[(stops, "ok"), ([], "ok2")])
-        case = self._prod_case()
-        _, final_state = await _run_prod_threading(graph, case)
+        stops = self.stops_for_pids([self.PID_1, self.PID_2, self.PID_3])
+        graph = self.ProdCapturingGraph(script=[(stops, "ok"), ([], "ok2")])
+        case = self.prod_case()
+        _, final_state = await run_prod_threading(graph, case)
 
         # No structured-plan content on turn 1 (flag was off).
         turn_one_msgs = graph.seen_messages[1]
@@ -1865,8 +1865,8 @@ class TestEvaluateMultiTurnProdThreading:
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
 
-        graph = self._ProdCapturingGraph(script=[([], "empty"), ([], "ok")])
-        case = self._prod_case()
+        graph = self.ProdCapturingGraph(script=[([], "empty"), ([], "ok")])
+        case = self.prod_case()
         result = await evaluate_multi_turn_case(graph, case)
         assert result.deterministic.checks["refinement_minimal_edit"].score == 0.0
 
@@ -1878,18 +1878,18 @@ class TestEvaluateMultiTurnProdThreading:
 
         Phase 7 / D-07-06 extension (plan 07-02 / PROMPT-03): each
         ``prior_committed_stops`` entry now also carries a ``primary_type``
-        field sourced from ``Stop.primary_type``. The ``_stops_for_pids``
+        field sourced from ``Stop.primary_type``. The ``stops_for_pids``
         helper sets ``primary_type='Cafe'`` on every fixture stop so the
         assertion below is deterministic.
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
-        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
-        graph = self._ProdCapturingGraph(script=[(stops, "ok"), (stops, "ok2")])
-        case = self._prod_case(target_slot=2)
-        _, final_state = await _run_prod_threading(graph, case)
+        stops = self.stops_for_pids([self.PID_1, self.PID_2, self.PID_3])
+        graph = self.ProdCapturingGraph(script=[(stops, "ok"), (stops, "ok2")])
+        case = self.prod_case(target_slot=2)
+        _, final_state = await run_prod_threading(graph, case)
 
         assert final_state.scratch["refinement_context"] is True
         assert final_state.scratch["refinement_target_slot"] == 2
@@ -1897,9 +1897,9 @@ class TestEvaluateMultiTurnProdThreading:
         assert isinstance(prior, list)
         assert len(prior) == 3
         assert prior[0]["slot"] == 1
-        assert prior[0]["place_id"] == self._PID_1
+        assert prior[0]["place_id"] == self.PID_1
         assert prior[1]["slot"] == 2
-        assert prior[1]["place_id"] == self._PID_2
+        assert prior[1]["place_id"] == self.PID_2
         # Phase 7 / D-07-06: primary_type lives on every scratch entry now.
         assert "primary_type" in prior[0], (
             "Phase 7 / D-07-06: primary_type missing from scratch entry 0"
@@ -1916,9 +1916,9 @@ class TestEvaluateMultiTurnProdThreading:
     ) -> None:
         """Defensive: prod-mode case without `expected_refinement` raises."""
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
-        graph = self._ProdCapturingGraph(script=[([], "ok")])
+        graph = self.ProdCapturingGraph(script=[([], "ok")])
         case = eval_case(
             id="bad_prod_case",
             query="x",
@@ -1927,7 +1927,7 @@ class TestEvaluateMultiTurnProdThreading:
             # no expected_refinement
         )
         with pytest.raises(ValueError, match="requires expected_refinement"):
-            await _run_prod_threading(graph, case)
+            await run_prod_threading(graph, case)
 
     @pytest.mark.asyncio
     async def test_prod_mode_preserves_fail_open_on_exception(self, mocker, monkeypatch) -> None:
@@ -1939,9 +1939,9 @@ class TestEvaluateMultiTurnProdThreading:
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
 
         # Script only ONE turn — second invocation pops from empty list.
-        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
-        graph = self._ProdCapturingGraph(script=[(stops, "turn0 reply")])
-        case = self._prod_case()
+        stops = self.stops_for_pids([self.PID_1, self.PID_2, self.PID_3])
+        graph = self.ProdCapturingGraph(script=[(stops, "turn0 reply")])
+        case = self.prod_case()
         result = await evaluate_multi_turn_case(graph, case)
 
         # D-10-02: exception on turn 1 produces an ERROR record.
@@ -1962,12 +1962,12 @@ class TestEvaluateMultiTurnProdThreading:
         """
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        from scripts.eval_agent import _run_prod_threading
+        from scripts.eval_agent import run_prod_threading
 
-        stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
-        graph = self._ProdCapturingGraph(script=[(stops, "turn0 assistant prose"), ([], "ok")])
-        case = self._prod_case(query="initial query")
-        await _run_prod_threading(graph, case)
+        stops = self.stops_for_pids([self.PID_1, self.PID_2, self.PID_3])
+        graph = self.ProdCapturingGraph(script=[(stops, "turn0 assistant prose"), ([], "ok")])
+        case = self.prod_case(query="initial query")
+        await run_prod_threading(graph, case)
 
         turn_one_msgs = graph.seen_messages[1]
         human_contents = [m.content for m in turn_one_msgs if isinstance(m, HumanMessage)]
@@ -1988,24 +1988,24 @@ class TestEvaluateMultiTurnProdThreading:
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
 
         # Turn 0: commit stops 1, 2, 3 with pids A, B, C.
-        # Turn 1: commit stops 1, 2', 3 with pids A, NEW_B, C (slot 2 swapped).
-        turn_0_stops = self._stops_for_pids([self._PID_1, self._PID_2, self._PID_3])
+        # Turn 1: commit stops 1, 2', 3 with pids A, NEWB, C (slot 2 swapped).
+        turn_0_stops = self.stops_for_pids([self.PID_1, self.PID_2, self.PID_3])
         new_b = "ChIJ_test_id_zzzzzzzz_z"
-        turn_1_stops = self._stops_for_pids([self._PID_1, new_b, self._PID_3])
-        graph = self._ProdCapturingGraph(
+        turn_1_stops = self.stops_for_pids([self.PID_1, new_b, self.PID_3])
+        graph = self.ProdCapturingGraph(
             script=[(turn_0_stops, "turn0 reply"), (turn_1_stops, "turn1 reply")]
         )
-        case = self._prod_case(target_slot=2)
+        case = self.prod_case(target_slot=2)
         result = await evaluate_multi_turn_case(graph, case)
 
         assert result.deterministic.checks["refinement_minimal_edit"].score == 1.0
 
 
-# ─── CR-02: _constraints_for_case must not crash on clarification cases ──────
+# ─── CR-02: constraints_for_case must not crash on clarification cases ──────
 
 
 class TestConstraintsForCaseClarificationGuard:
-    """CR-02 (EVAL-01 harness trustworthiness): _constraints_for_case must
+    """CR-02 (EVAL-01 harness trustworthiness): constraints_for_case must
     not raise AttributeError when case.expected_results is None.
 
     Five hand_written cases have expected_results=None by design
@@ -2018,7 +2018,7 @@ class TestConstraintsForCaseClarificationGuard:
     """
 
     def test_no_crash_on_known_clarification_case(self) -> None:
-        """Focused regression: _constraints_for_case must return UserConstraints
+        """Focused regression: constraints_for_case must return UserConstraints
         (not raise) for impossible_four_am_five_star (expected_results=None)."""
         from app.agent.state import UserConstraints
 
@@ -2027,14 +2027,14 @@ class TestConstraintsForCaseClarificationGuard:
         assert case.expected_results is None, (
             "test pre-condition: impossible_four_am_five_star must have expected_results=None"
         )
-        result = _constraints_for_case(case)
+        result = constraints_for_case(case)
         assert isinstance(result, UserConstraints)
         assert result.num_stops is None, (
             "clarification case with no text-extracted stops must yield num_stops=None"
         )
 
     def test_no_crash_over_all_hand_written_cases(self) -> None:
-        """Regression: _constraints_for_case must not raise for ANY case in
+        """Regression: constraints_for_case must not raise for ANY case in
         configs/eval_queries.yaml — including all 5 clarification cases that
         have expected_results=None.
         """
@@ -2043,9 +2043,9 @@ class TestConstraintsForCaseClarificationGuard:
         cases = load_eval_queries("configs/eval_queries.yaml").hand_written
         assert len(cases) > 0, "hand_written cases must be non-empty"
         for case in cases:
-            result = _constraints_for_case(case)
+            result = constraints_for_case(case)
             assert isinstance(result, UserConstraints), (
-                f"_constraints_for_case({case.id!r}) must return UserConstraints, got {type(result)}"
+                f"constraints_for_case({case.id!r}) must return UserConstraints, got {type(result)}"
             )
 
 
@@ -2122,11 +2122,11 @@ class TestPhantomKeyExclusion:
         assert "nearby" in names
 
     def test_non_tool_scratch_keys_constant_exists(self) -> None:
-        """WR-08: _NON_TOOL_SCRATCH_KEYS constant must be defined in eval_agent."""
-        from scripts.eval_agent import _NON_TOOL_SCRATCH_KEYS
+        """WR-08: NON_TOOL_SCRATCH_KEYS constant must be defined in eval_agent."""
+        from scripts.eval_agent import NON_TOOL_SCRATCH_KEYS
 
-        assert "prior_committed_stops" in _NON_TOOL_SCRATCH_KEYS
-        assert "prior_stops_obj" in _NON_TOOL_SCRATCH_KEYS
+        assert "prior_committed_stops" in NON_TOOL_SCRATCH_KEYS
+        assert "prior_stops_obj" in NON_TOOL_SCRATCH_KEYS
 
 
 class TestSingleTurnErrorCapture:
@@ -2174,7 +2174,7 @@ class TestSingleTurnErrorCapture:
     async def test_single_turn_success_still_returns_scored_result(self, mocker) -> None:
         """WR-06: normal single-turn (no exception) still returns a scored result."""
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-        llm = RecordingScriptedLLM(scripted=[_finalize_msg("cafe reply")])
+        llm = RecordingScriptedLLM(scripted=[finalize_msg("cafe reply")])
         graph = build_agent_graph(llm, max_steps=4)
 
         case = eval_case(turns=None)
@@ -2303,7 +2303,7 @@ class TestZeroStopAbstainPipeline:
     is a pure model-behavior outcome. Every zero-stop run tripped it.
     """
 
-    def _zero_stop_state(self) -> ItineraryState:
+    def zero_stop_state(self) -> ItineraryState:
         return ItineraryState(
             constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
             stops=[],
@@ -2311,7 +2311,7 @@ class TestZeroStopAbstainPipeline:
 
     def test_score_checks_abstain_is_not_error_and_not_violation(self) -> None:
         """The None abstain must not surface as a scorer error or a violation."""
-        checks = score_checks(self._zero_stop_state())
+        checks = score_checks(self.zero_stop_state())
 
         result = checks["category_compliance"]
         assert result.score is None, "zero-stop abstain must keep score=None"
@@ -2321,7 +2321,7 @@ class TestZeroStopAbstainPipeline:
 
     def test_zero_stop_aggregate_reports_no_check_error_and_none_mean(self) -> None:
         """Real pipeline: zero-stop state → score_checks → aggregate_results."""
-        result = query_result_from_state(eval_case(), self._zero_stop_state())
+        result = query_result_from_state(eval_case(), self.zero_stop_state())
         agg = aggregate_results([result])
 
         assert agg["check_error_count"] == 0, (
@@ -2334,7 +2334,7 @@ class TestZeroStopAbstainPipeline:
 
     def test_mixed_cell_mean_excludes_abstained_run(self) -> None:
         """One abstained run + one populated run → mean over the populated run only."""
-        zero_stop = query_result_from_state(eval_case(), self._zero_stop_state())
+        zero_stop = query_result_from_state(eval_case(), self.zero_stop_state())
         populated = query_result()  # category_compliance score 1.0
 
         agg = aggregate_results([zero_stop, populated])
@@ -2349,7 +2349,7 @@ class TestZeroStopAbstainPipeline:
         failure (exit 2) — the D-11-16 contract."""
         from scripts.eval_agent import main
 
-        result = query_result_from_state(eval_case(), self._zero_stop_state())
+        result = query_result_from_state(eval_case(), self.zero_stop_state())
         report = EvalRunReport(
             eval_queries_path="configs/eval_queries.yaml",
             llm_provider="openai",
@@ -2378,7 +2378,7 @@ class TestExitCodeContract:
         2 = infra failure (build_report raised; rerun needed)
     """
 
-    def _make_report(self, *, n_errored: int = 0, violations: int = 0) -> EvalRunReport:
+    def make_report(self, *, n_errored: int = 0, violations: int = 0) -> EvalRunReport:
         """Build a synthetic EvalRunReport for exit-code testing."""
         return EvalRunReport(
             eval_queries_path="configs/eval_queries.yaml",
@@ -2397,7 +2397,7 @@ class TestExitCodeContract:
         """D-11-16: main() returns 2 when report_has_errors is True (n_errored > 0)."""
         from scripts.eval_agent import main
 
-        report = self._make_report(n_errored=1, violations=0)
+        report = self.make_report(n_errored=1, violations=0)
         mocker.patch("scripts.eval_agent.build_report", return_value=report)
         mocker.patch("scripts.eval_agent.asyncio.run", side_effect=lambda coro: report)
 
@@ -2408,7 +2408,7 @@ class TestExitCodeContract:
         """D-11-16: main() returns 1 when only model-behavior violations present."""
         from scripts.eval_agent import main
 
-        report = self._make_report(n_errored=0, violations=1)
+        report = self.make_report(n_errored=0, violations=1)
         mocker.patch("scripts.eval_agent.asyncio.run", side_effect=lambda coro: report)
 
         rc = main(["--llm-provider", "openai"])
@@ -2418,7 +2418,7 @@ class TestExitCodeContract:
         """D-11-16: main() returns 0 when no infra errors and no violations."""
         from scripts.eval_agent import main
 
-        report = self._make_report(n_errored=0, violations=0)
+        report = self.make_report(n_errored=0, violations=0)
         mocker.patch("scripts.eval_agent.asyncio.run", side_effect=lambda coro: report)
 
         rc = main(["--llm-provider", "openai"])
@@ -2446,14 +2446,14 @@ class TestExitCodeContract:
 from app.agent.revision import LOW_SIMILARITY_THRESHOLD  # noqa: E402 — test import
 
 
-def _state_with_commit_at_step(step: int) -> ItineraryState:
+def state_with_commit_at_step(step: int) -> ItineraryState:
     """Minimal ItineraryState that has a commit_itinerary scratch entry at ``step``."""
     return ItineraryState(
         scratch={"commit_itinerary": [{"step": step, "args": {}, "result": {}, "id": "tc1"}]}
     )
 
 
-def _state_with_search_hits(
+def state_with_search_hits(
     hits: list[dict],
     step: int = 0,
     tool: str = "semantic_search",
@@ -2466,7 +2466,7 @@ class TestFirstCommitCallStepFromState:
     """Tests for first_commit_call_step_from_state (INST-01 / D-12-03)."""
 
     def test_returns_step_index_for_single_commit(self) -> None:
-        state = _state_with_commit_at_step(3)
+        state = state_with_commit_at_step(3)
         assert first_commit_call_step_from_state(state) == 3
 
     def test_returns_min_when_multiple_commit_entries(self) -> None:
@@ -2514,7 +2514,7 @@ class TestFirstCommitCallStepFromState:
         assert first_commit_call_step_from_state(state) is None
 
     def test_output_is_json_safe(self) -> None:
-        state = _state_with_commit_at_step(1)
+        state = state_with_commit_at_step(1)
         result = first_commit_call_step_from_state(state)
         assert json.dumps(result) is not None  # type: ignore[arg-type]
 
@@ -2522,15 +2522,15 @@ class TestFirstCommitCallStepFromState:
 class TestViableCandidatesPerStepFromState:
     """Tests for viable_candidates_per_step_from_state (INST-02 / D-12-04)."""
 
-    def _high_sim_hit(self, primary_type: str) -> dict:
+    def high_sim_hit(self, primary_type: str) -> dict:
         return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "primary_type": primary_type}
 
-    def _low_sim_hit(self, primary_type: str) -> dict:
+    def low_sim_hit(self, primary_type: str) -> dict:
         return {"similarity": 0.0, "primary_type": primary_type}
 
     def test_counts_hits_above_threshold_matching_type(self) -> None:
-        hits = [self._high_sim_hit("cafe"), self._high_sim_hit("cafe")]
-        state = _state_with_search_hits(hits, step=0)
+        hits = [self.high_sim_hit("cafe"), self.high_sim_hit("cafe")]
+        state = state_with_search_hits(hits, step=0)
         result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
         assert result == [2]
 
@@ -2540,14 +2540,14 @@ class TestViableCandidatesPerStepFromState:
         could ever clear the threshold — the helper does not read the source it
         can never count. Even a high-similarity hit under the 'nearby' key is
         ignored (documented limitation: nearby-driven flows undercount)."""
-        hits = [self._high_sim_hit("cafe")]
-        state = _state_with_search_hits(hits, step=0, tool="nearby")
+        hits = [self.high_sim_hit("cafe")]
+        state = state_with_search_hits(hits, step=0, tool="nearby")
         result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
         assert result == [], "nearby scratch entries must not be scanned for viability"
 
     def test_wrong_type_excluded(self) -> None:
-        hits = [self._high_sim_hit("restaurant")]
-        state = _state_with_search_hits(hits, step=0)
+        hits = [self.high_sim_hit("restaurant")]
+        state = state_with_search_hits(hits, step=0)
         result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
         assert result == [0]
 
@@ -2556,8 +2556,8 @@ class TestViableCandidatesPerStepFromState:
         state = ItineraryState(
             scratch={
                 "semantic_search": [
-                    {"step": 0, "result": [self._high_sim_hit("cafe")]},
-                    {"step": 1, "result": [self._high_sim_hit("cafe"), self._high_sim_hit("cafe")]},
+                    {"step": 0, "result": [self.high_sim_hit("cafe")]},
+                    {"step": 1, "result": [self.high_sim_hit("cafe"), self.high_sim_hit("cafe")]},
                 ]
             }
         )
@@ -2566,8 +2566,8 @@ class TestViableCandidatesPerStepFromState:
         assert result == [1, 2]
 
     def test_empty_requested_types_counts_on_cosine_only(self) -> None:
-        hits = [self._high_sim_hit("cafe"), self._low_sim_hit("bar")]
-        state = _state_with_search_hits(hits, step=0)
+        hits = [self.high_sim_hit("cafe"), self.low_sim_hit("bar")]
+        state = state_with_search_hits(hits, step=0)
         # No type constraint: only cosine matters
         result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, [])
         assert result == [1]  # only the high-similarity hit counts
@@ -2579,8 +2579,8 @@ class TestViableCandidatesPerStepFromState:
         assert result == []
 
     def test_output_is_json_safe(self) -> None:
-        hits = [self._high_sim_hit("cafe")]
-        state = _state_with_search_hits(hits, step=0)
+        hits = [self.high_sim_hit("cafe")]
+        state = state_with_search_hits(hits, step=0)
         result = viable_candidates_per_step_from_state(state, LOW_SIMILARITY_THRESHOLD, ["cafe"])
         assert json.dumps(result) is not None
 
@@ -2588,7 +2588,7 @@ class TestViableCandidatesPerStepFromState:
 class TestRule8MetPerStepFromState:
     """Tests for rule8_met_per_step_from_state (INST-03 / D-12-05)."""
 
-    def _high_sim_hit(self, primary_type: str) -> dict:
+    def high_sim_hit(self, primary_type: str) -> dict:
         return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "primary_type": primary_type}
 
     def test_flips_true_only_once_both_types_covered_cumulatively(self) -> None:
@@ -2597,9 +2597,9 @@ class TestRule8MetPerStepFromState:
             scratch={
                 "semantic_search": [
                     # Step 0: only covers 'cafe'
-                    {"step": 0, "result": [self._high_sim_hit("cafe")]},
+                    {"step": 0, "result": [self.high_sim_hit("cafe")]},
                     # Step 1: covers 'bar' — now both covered cumulatively
-                    {"step": 1, "result": [self._high_sim_hit("bar")]},
+                    {"step": 1, "result": [self.high_sim_hit("bar")]},
                 ]
             }
         )
@@ -2612,8 +2612,8 @@ class TestRule8MetPerStepFromState:
         state = ItineraryState(
             scratch={
                 "semantic_search": [
-                    {"step": 0, "result": [self._high_sim_hit("cafe")]},
-                    {"step": 1, "result": [self._high_sim_hit("cafe")]},
+                    {"step": 0, "result": [self.high_sim_hit("cafe")]},
+                    {"step": 1, "result": [self.high_sim_hit("cafe")]},
                 ]
             }
         )
@@ -2628,7 +2628,7 @@ class TestRule8MetPerStepFromState:
             scratch={
                 "semantic_search": [
                     {"step": 0, "result": []},  # no viable hits at step 0
-                    {"step": 1, "result": [self._high_sim_hit("cafe")]},
+                    {"step": 1, "result": [self.high_sim_hit("cafe")]},
                 ]
             }
         )
@@ -2647,7 +2647,7 @@ class TestRule8MetPerStepFromState:
         """WR-02: ['restaurant', 'restaurant', 'bar'] means two DISTINCT
         restaurant stops — one viable restaurant must not mark both covered."""
 
-        def _hit(ptype: str, pid: str) -> dict:
+        def hit(ptype: str, pid: str) -> dict:
             return {
                 "similarity": LOW_SIMILARITY_THRESHOLD + 0.1,
                 "primary_type": ptype,
@@ -2658,7 +2658,7 @@ class TestRule8MetPerStepFromState:
         one_restaurant = ItineraryState(
             scratch={
                 "semantic_search": [
-                    {"step": 0, "result": [_hit("restaurant", "r1"), _hit("bar", "b1")]},
+                    {"step": 0, "result": [hit("restaurant", "r1"), hit("bar", "b1")]},
                 ]
             }
         )
@@ -2678,9 +2678,9 @@ class TestRule8MetPerStepFromState:
                     {
                         "step": 0,
                         "result": [
-                            _hit("restaurant", "r1"),
-                            _hit("restaurant", "r2"),
-                            _hit("bar", "b1"),
+                            hit("restaurant", "r1"),
+                            hit("restaurant", "r2"),
+                            hit("bar", "b1"),
                         ],
                     },
                 ]
@@ -2697,7 +2697,7 @@ class TestRule8MetPerStepFromState:
     def test_same_place_id_at_one_step_counts_once_for_typed_coverage(self) -> None:
         """WR-02: the same venue returned twice is still ONE distinct candidate."""
 
-        def _hit(pid: str) -> dict:
+        def hit(pid: str) -> dict:
             return {
                 "similarity": LOW_SIMILARITY_THRESHOLD + 0.1,
                 "primary_type": "restaurant",
@@ -2708,7 +2708,7 @@ class TestRule8MetPerStepFromState:
         state = ItineraryState(
             scratch={
                 "semantic_search": [
-                    {"step": 0, "result": [_hit("r1"), _hit("r1")]},
+                    {"step": 0, "result": [hit("r1"), hit("r1")]},
                 ]
             }
         )
@@ -2720,16 +2720,16 @@ class TestRule8MetPerStepFromState:
         """WR-02: with num_stops=3, the SAME place_id returned at steps 0, 1, 2
         must count as ONE viable candidate, not three."""
 
-        def _hit(pid: str) -> dict:
+        def hit(pid: str) -> dict:
             return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "place_id": pid}
 
         same_venue = ItineraryState(
             constraints=UserConstraints(num_stops=3),
             scratch={
                 "semantic_search": [
-                    {"step": 0, "result": [_hit("p1")]},
-                    {"step": 1, "result": [_hit("p1")]},
-                    {"step": 2, "result": [_hit("p1")]},
+                    {"step": 0, "result": [hit("p1")]},
+                    {"step": 1, "result": [hit("p1")]},
+                    {"step": 2, "result": [hit("p1")]},
                 ]
             },
         )
@@ -2743,9 +2743,9 @@ class TestRule8MetPerStepFromState:
             constraints=UserConstraints(num_stops=3),
             scratch={
                 "semantic_search": [
-                    {"step": 0, "result": [_hit("p1")]},
-                    {"step": 1, "result": [_hit("p2")]},
-                    {"step": 2, "result": [_hit("p3")]},
+                    {"step": 0, "result": [hit("p1")]},
+                    {"step": 1, "result": [hit("p2")]},
+                    {"step": 2, "result": [hit("p3")]},
                 ]
             },
         )
@@ -2761,7 +2761,7 @@ class TestRule8MetPerStepFromState:
         state = ItineraryState(
             scratch={
                 "semantic_search": [
-                    {"step": 0, "result": [self._high_sim_hit("cafe")]},
+                    {"step": 0, "result": [self.high_sim_hit("cafe")]},
                 ]
             }
         )
@@ -2789,7 +2789,7 @@ class TestKeptSearchingDerivation:
     steps where rule 8 was met but the model did NOT commit (commit step
     excluded)."""
 
-    def _hit(self, pid: str) -> dict:
+    def hit(self, pid: str) -> dict:
         return {"similarity": LOW_SIMILARITY_THRESHOLD + 0.1, "place_id": pid}
 
     def test_commit_step_excluded_from_kept_searching(self) -> None:
@@ -2799,8 +2799,8 @@ class TestKeptSearchingDerivation:
             constraints=UserConstraints(num_stops=1),
             scratch={
                 "semantic_search": [
-                    {"step": 0, "result": [self._hit("p1")]},
-                    {"step": 1, "result": [self._hit("p2")]},
+                    {"step": 0, "result": [self.hit("p1")]},
+                    {"step": 1, "result": [self.hit("p2")]},
                 ],
                 "commit_itinerary": [{"step": 1, "args": {}, "result": {}, "id": "tc1"}],
             },
@@ -2817,8 +2817,8 @@ class TestKeptSearchingDerivation:
             constraints=UserConstraints(num_stops=1),
             scratch={
                 "semantic_search": [
-                    {"step": 0, "result": [self._hit("p1")]},
-                    {"step": 1, "result": [self._hit("p2")]},
+                    {"step": 0, "result": [self.hit("p1")]},
+                    {"step": 1, "result": [self.hit("p2")]},
                 ],
             },
         )
@@ -2865,7 +2865,7 @@ class TestArmFlagsAndForcedCommitTelemetry:
         monkeypatch.delenv("LOW_SIMILARITY_THRESHOLD_OVERRIDE", raising=False)
         # Phase-14 replay keys (also off by default)
         monkeypatch.delenv("REPLAY_MULTI_MESSAGE_ENABLED", raising=False)
-        monkeypatch.delenv("REPLAY_CONTENT_BLOCKS_ENABLED", raising=False)
+        monkeypatch.delenv("REPLAY_CONTENTBLOCKS_ENABLED", raising=False)
 
         result = query_result_from_state(eval_case(), ItineraryState())
 
@@ -2888,7 +2888,7 @@ class TestArmFlagsAndForcedCommitTelemetry:
         monkeypatch.setenv("LOW_SIMILARITY_THRESHOLD_OVERRIDE", "0.50")
         # Phase-14 replay keys left unset (verifies Phase-13 keys still present alongside new ones)
         monkeypatch.delenv("REPLAY_MULTI_MESSAGE_ENABLED", raising=False)
-        monkeypatch.delenv("REPLAY_CONTENT_BLOCKS_ENABLED", raising=False)
+        monkeypatch.delenv("REPLAY_CONTENTBLOCKS_ENABLED", raising=False)
 
         result = query_result_from_state(eval_case(), ItineraryState())
 

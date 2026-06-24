@@ -17,16 +17,16 @@ from app.tools.filters import SearchFilters, compile_filters
 # Maps each entry in ALLOWED_EMBEDDING_TABLES (app/config.py) to the view that
 # joins that embedding table. The contract test in tests/unit/test_tools_retrieval.py
 # enforces that this dict's keys match the allowlist exactly.
-_VIEW_FOR_TABLE: dict[str, str] = {
+VIEW_FOR_TABLE: dict[str, str] = {
     "place_embeddings": "place_documents",
     "place_embeddings_v2": "place_documents_v2",
 }
 
 
 # When W6 evals show recall regressing on tightly-filtered queries, bump this
-# so semantic_search retrieves k * _OVERFETCH_FACTOR rows from HNSW and lets the
+# so semantic_search retrieves k * OVERFETCH_FACTOR rows from HNSW and lets the
 # WHERE clauses filter inside the over-fetched set. Default 1 = no over-fetch.
-_OVERFETCH_FACTOR: int = 1
+OVERFETCH_FACTOR: int = 1
 
 
 class PlaceHit(BaseModel):
@@ -56,14 +56,14 @@ class PlaceDetails(PlaceHit):
     regular_opening_hours: dict = {}
 
 
-def _view_name() -> str:
+def view_name() -> str:
     settings = get_settings()
     # The embedding_table validator (app/config.py) guarantees membership in
     # ALLOWED_EMBEDDING_TABLES, so this lookup cannot raise in normal use.
-    return _VIEW_FOR_TABLE[settings.embedding_table]
+    return VIEW_FOR_TABLE[settings.embedding_table]
 
 
-def _execute(sql: str, params: list) -> list[dict]:
+def execute_query(sql: str, params: list) -> list[dict]:
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(sql, params)
         return [dict(row) for row in cur.fetchall()]
@@ -80,7 +80,7 @@ def semantic_search(
     where_fragment, filter_params = compile_filters(filters)
     embedding = build_embedding(query, settings.openai_embedding_model)
     vector_literal = vector_to_pg(embedding)
-    view = _view_name()  # validated by ALLOWED_EMBEDDING_TABLES — safe to f-string
+    view = view_name()  # validated by ALLOWED_EMBEDDING_TABLES — safe to f-string
 
     sql = f"""
         SELECT
@@ -101,9 +101,9 @@ def semantic_search(
         settings.openai_embedding_model,
         *filter_params,
         vector_literal,
-        k * _OVERFETCH_FACTOR,
+        k * OVERFETCH_FACTOR,
     ]
-    rows = _execute(sql, params)
+    rows = execute_query(sql, params)
     return [PlaceHit(**row) for row in rows[:k]]
 
 
@@ -121,7 +121,7 @@ def nearby(
     """
     filters = filters or SearchFilters()
     where_fragment, filter_params = compile_filters(filters)
-    view = _view_name()  # validated allowlist member — safe to f-string
+    view = view_name()  # validated allowlist member — safe to f-string
 
     sql = f"""
         WITH anchor AS (
@@ -159,12 +159,12 @@ def nearby(
     """  # noqa: S608
 
     params = [place_id, place_id, *filter_params, radius_m, k]
-    rows = _execute(sql, params)
+    rows = execute_query(sql, params)
     return [PlaceHit(**row) for row in rows]
 
 
 def get_details(place_id: str) -> PlaceDetails | None:
-    view = _view_name()  # validated allowlist member — safe to f-string
+    view = view_name()  # validated allowlist member — safe to f-string
     sql = f"""
         SELECT
             place_id, name, primary_type, types, formatted_address,
@@ -177,7 +177,7 @@ def get_details(place_id: str) -> PlaceDetails | None:
         WHERE place_id = %s
         LIMIT 1
     """  # noqa: S608
-    rows = _execute(sql, [place_id])
+    rows = execute_query(sql, [place_id])
     if not rows:
         return None
     return PlaceDetails(**rows[0])
@@ -190,7 +190,7 @@ def get_details_many(place_ids: list[str]) -> dict[str, PlaceDetails]:
     on commit_itinerary to avoid an N+1 over the committed stops."""
     if not place_ids:
         return {}
-    view = _view_name()  # validated allowlist member — safe to f-string
+    view = view_name()  # validated allowlist member — safe to f-string
     sql = f"""
         SELECT
             place_id, name, primary_type, types, formatted_address,
@@ -202,7 +202,7 @@ def get_details_many(place_ids: list[str]) -> dict[str, PlaceDetails]:
         FROM {view}
         WHERE place_id = ANY(%s)
     """  # noqa: S608
-    rows = _execute(sql, [place_ids])
+    rows = execute_query(sql, [place_ids])
     return {row["place_id"]: PlaceDetails(**row) for row in rows}
 
 
@@ -214,6 +214,6 @@ __all__ = [
     "nearby",
     "get_details",
     "get_details_many",
-    "_VIEW_FOR_TABLE",
+    "VIEW_FOR_TABLE",
     "ALLOWED_EMBEDDING_TABLES",
 ]

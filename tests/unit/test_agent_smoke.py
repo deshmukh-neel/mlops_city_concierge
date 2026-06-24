@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 
-class _NoopLLM(BaseChatModel):
+class NoopLLM(BaseChatModel):
     """Minimal LLM stand-in: returns a single empty AIMessage with no tool calls."""
 
     @property
@@ -71,16 +71,16 @@ def test_retrieval_tools_ignore_slot_index_for_underlying_calls(monkeypatch) -> 
 
     captured: dict[str, dict] = {}
 
-    def _fake_semantic_search(**kwargs):
+    def fake_semantic_search(**kwargs):
         captured["semantic_search"] = kwargs
         return []
 
-    def _fake_nearby(**kwargs):
+    def fake_nearby(**kwargs):
         captured["nearby"] = kwargs
         return []
 
-    monkeypatch.setattr("app.agent.tools._semantic_search", _fake_semantic_search)
-    monkeypatch.setattr("app.agent.tools._nearby", _fake_nearby)
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", fake_semantic_search)
+    monkeypatch.setattr("app.agent.tools.nearby_impl", fake_nearby)
 
     tools = {tool.name: tool for tool in all_tools()}
     assert tools["semantic_search"].invoke({"query": "omakase", "slot_index": 0}) == []
@@ -99,7 +99,7 @@ async def test_build_agent_graph_compiles_and_runs_happy_path() -> None:
     from app.agent.graph import build_agent_graph
     from app.agent.state import ItineraryState
 
-    graph = build_agent_graph(_NoopLLM(), max_steps=2)
+    graph = build_agent_graph(NoopLLM(), max_steps=2)
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
     assert out["done"] is True
     assert out["final_reply"] == "ok"

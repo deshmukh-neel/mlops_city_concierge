@@ -70,7 +70,7 @@ MISSION_QUERY = (
 )
 
 
-async def _run_once(graph: object) -> tuple[bool, int, int]:
+async def run_once(graph: object) -> tuple[bool, int, int]:
     """Run the agent once. Returns (converged, n_stops, n_steps)."""
     raw = await graph.ainvoke(  # type: ignore[attr-defined]
         ItineraryState(messages=[HumanMessage(content=MISSION_QUERY)])
@@ -105,7 +105,7 @@ async def main() -> int:
     for i in range(1, args.runs + 1):
         start = time.monotonic()
         try:
-            converged, n_stops, n_steps = await _run_once(graph)
+            converged, n_stops, n_steps = await run_once(graph)
         except Exception as exc:  # noqa: BLE001
             print(f"  run {i}: ERROR {type(exc).__name__}: {exc}")
             continue

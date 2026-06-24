@@ -73,9 +73,9 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
       milestone anchor gate (Part A hard committed_itinerary_rate ≥ 0.6,
       Part B advisory refinement_minimal_edit median ≥ 0.5)
     - deepseek/deepseek-reasoner — PROV-02 GATED lower-bar median ≥ 0.6
-      (D-09-04 thinking-enabled carve-out via _DEEPSEEK_REASONER_THINKING_ENABLED)
+      (D-09-04 thinking-enabled carve-out via DEEPSEEK_REASONER_THINKING_ENABLED)
     - anthropic/claude-sonnet-4-6 — PROV-03 GATED strict median ≥ 1.0
-      (D-09-06 thinking-enabled carve-out via _ANTHROPIC_THINKING_BUDGET;
+      (D-09-06 thinking-enabled carve-out via ANTHROPIC_THINKING_BUDGET;
       Plan 09-03 first-time Anthropic wiring)
     - gemini/gemini-3.1-pro-preview — PROV-04 EXPERIMENTAL — no merge gate
       per D-09-08 (Plan 09-04 first-time bytes thought_signature wiring;
@@ -118,7 +118,7 @@ def test_repo_eval_matrix_refinement_yaml_loads_via_load_eval_matrix() -> None:
 #     Anthropic credits are restored. See docs/eval_gates.md § Anthropic deferral.
 # Shrink each set when the deferred cell lands; never grow it without a matching
 # comment in the matrix YAML.
-_DEFERRED_BASELINE_CELLS: dict[str, set[str]] = {
+DEFERRED_BASELINE_CELLS: dict[str, set[str]] = {
     "eval_matrix_refinement.yaml": {
         # D-11-11: gemini deferred — errored during regen; retry when GEMINI_API_KEY quota permits.
         # D-12-09: gemini n=5 baseline deferred at user decision (2026-06-11) — no quota/billing
@@ -134,7 +134,7 @@ _DEFERRED_BASELINE_CELLS: dict[str, set[str]] = {
     },
 }
 
-_MATRIX_TO_BASELINES: dict[str, list[str]] = {
+MATRIX_TO_BASELINES: dict[str, list[str]] = {
     "eval_matrix_refinement.yaml": ["refinement_cheaper.json"],
     "eval_matrix.yaml": [
         # D-11-13: late_night_closure_cascade.json removed from parity check —
@@ -145,7 +145,7 @@ _MATRIX_TO_BASELINES: dict[str, list[str]] = {
 }
 
 
-@pytest.mark.parametrize("matrix_name", sorted(_MATRIX_TO_BASELINES))
+@pytest.mark.parametrize("matrix_name", sorted(MATRIX_TO_BASELINES))
 def test_baseline_provider_cells_match_matrix_entries(matrix_name: str) -> None:
     """Every baseline provider cell maps to a matrix entry and vice versa.
 
@@ -154,16 +154,16 @@ def test_baseline_provider_cells_match_matrix_entries(matrix_name: str) -> None:
     single data(09-0x) baseline commit leaves baseline keys ≠ matrix entries
     with no test detection. This locks the parity in both directions:
     no orphan baseline cells, and no matrix entry without a baseline cell
-    unless listed in _DEFERRED_BASELINE_CELLS.
+    unless listed in DEFERRED_BASELINE_CELLS.
     """
     matrix = load_eval_matrix(REPO_ROOT / "configs" / matrix_name)
     matrix_keys = {f"{e.provider}/{e.model}" for e in matrix.entries}
-    deferred = _DEFERRED_BASELINE_CELLS[matrix_name]
+    deferred = DEFERRED_BASELINE_CELLS[matrix_name]
     assert deferred <= matrix_keys, (
         f"{matrix_name}: deferred cells {deferred - matrix_keys} are not matrix"
-        " entries — stale deferral, remove them from _DEFERRED_BASELINE_CELLS"
+        " entries — stale deferral, remove them from DEFERRED_BASELINE_CELLS"
     )
-    for baseline_name in _MATRIX_TO_BASELINES[matrix_name]:
+    for baseline_name in MATRIX_TO_BASELINES[matrix_name]:
         baseline_path = REPO_ROOT / "configs" / "eval_baselines" / baseline_name
         payload = json.loads(baseline_path.read_text(encoding="utf-8"))
         baseline_keys = set(payload["providers"])
@@ -178,7 +178,7 @@ def test_baseline_provider_cells_match_matrix_entries(matrix_name: str) -> None:
             f"{matrix_name} entries missing a baseline cell in {baseline_name}:"
             f" {sorted(missing - deferred)} — regenerate the baseline for the"
             " new cell in the same commit, or document the deferral in the"
-            " matrix YAML and _DEFERRED_BASELINE_CELLS"
+            " matrix YAML and DEFERRED_BASELINE_CELLS"
         )
 
 
@@ -344,7 +344,7 @@ def test_gate_allows_real_provider_with_app_env_eval(monkeypatch) -> None:
 # ─── summary.json aggregator: cross-provider median/min/max/stdev ────────────
 
 
-def _write_cell(
+def write_cell(
     directory: Path,
     provider: str,
     model: str,
@@ -376,9 +376,9 @@ def test_aggregate_cell_jsons_computes_median_min_max_stdev(tmp_path: Path) -> N
     scenario), the aggregator emits the cross-run median/min/max/stdev/n."""
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.4)
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 1, 0.5)
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 2, 0.6)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.4)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 1, 0.5)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 2, 0.6)
 
     summary = aggregate_cell_jsons(tmp_path)
     assert "scenarios" in summary
@@ -398,10 +398,10 @@ def test_aggregate_handles_multiple_providers_per_scenario(tmp_path: Path) -> No
     of summary.json (plan 03-07 commits the per-scenario baseline JSON)."""
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.4)
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 1, 0.5)
-    _write_cell(tmp_path, "deepseek", "deepseek-chat", "scenario_a", 0, 0.8)
-    _write_cell(tmp_path, "deepseek", "deepseek-chat", "scenario_a", 1, 0.9)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.4)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 1, 0.5)
+    write_cell(tmp_path, "deepseek", "deepseek-chat", "scenario_a", 0, 0.8)
+    write_cell(tmp_path, "deepseek", "deepseek-chat", "scenario_a", 1, 0.9)
 
     summary = aggregate_cell_jsons(tmp_path)
     providers = summary["scenarios"]["scenario_a"]["providers"]
@@ -418,7 +418,7 @@ def test_aggregate_skips_summary_json_itself(tmp_path: Path) -> None:
     double-count it."""
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
     # Pre-existing summary.json with the same shape; must be skipped.
     (tmp_path / "summary.json").write_text(
         json.dumps({"scenarios": {"old": {"providers": {}}}}), encoding="utf-8"
@@ -432,7 +432,7 @@ def test_aggregate_records_generated_at_timestamp(tmp_path: Path) -> None:
     plan 03-07 baseline diffing."""
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
     summary = aggregate_cell_jsons(tmp_path)
     assert "generated_at" in summary
     # Bare-minimum shape: ISO-like string (precise format tested by
@@ -443,7 +443,7 @@ def test_aggregate_records_generated_at_timestamp(tmp_path: Path) -> None:
 # ─── CR-01 + IN-04: scorer-whitelist + bool exclusion (plan 03-08) ──────────
 
 
-def _write_cell_with_aggregate(
+def write_cell_with_aggregate(
     directory: Path,
     provider: str,
     model: str,
@@ -451,10 +451,10 @@ def _write_cell_with_aggregate(
     run_n: int,
     aggregate: dict,
 ) -> Path:
-    """Variant of `_write_cell` that injects an arbitrary `aggregate` dict.
+    """Variant of `write_cell` that injects an arbitrary `aggregate` dict.
 
     The CR-01 / IN-04 tests need to plant non-scorer `_mean` keys and bool
-    values that the standard 2-scorer `_write_cell` payload can't express.
+    values that the standard 2-scorer `write_cell` payload can't express.
     """
     fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
     path = directory / fname
@@ -470,7 +470,7 @@ def _write_cell_with_aggregate(
 
 
 def test_scorer_means_excludes_non_scorer_keys(tmp_path: Path) -> None:
-    """CR-01 (BLOCKER): `_scorer_means_from_cell` must only emit scorer names
+    """CR-01 (BLOCKER): `scorer_means_from_cell` must only emit scorer names
     registered in `app.agent.critique.checks.CRITIQUE_THRESHOLDS`. The six
     non-scorer `_mean` aggregate keys observed empirically in VERIFICATION.md
     (results_mean, tool_calls_mean, contexts_mean, revision_hints_mean,
@@ -479,7 +479,7 @@ def test_scorer_means_excludes_non_scorer_keys(tmp_path: Path) -> None:
     nothing else."""
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell_with_aggregate(
+    write_cell_with_aggregate(
         tmp_path,
         "openai",
         "gpt-4o-mini",
@@ -524,7 +524,7 @@ def test_scorer_means_rejects_bool_values_disguised_as_numeric(tmp_path: Path) -
     score of 1.0 or 0.0."""
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell_with_aggregate(
+    write_cell_with_aggregate(
         tmp_path,
         "openai",
         "gpt-4o-mini",
@@ -548,7 +548,7 @@ def test_scorer_means_rejects_bool_values_disguised_as_numeric(tmp_path: Path) -
 def test_aggregate_warns_on_unparseable_cell_filename(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """WR-01: when `_parse_cell_filename` returns None inside the aggregator
+    """WR-01: when `parse_cell_filename` returns None inside the aggregator
     loop, the silent `continue` makes the dropped cell invisible. Emit a
     WARNING log so operators can see when a stray file slipped past the
     glob (typically a `--` collision in a model name). The well-formed cell
@@ -556,7 +556,7 @@ def test_aggregate_warns_on_unparseable_cell_filename(
     from scripts.eval_matrix import aggregate_cell_jsons
 
     # One well-formed cell so we can assert the loop still produces output.
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
     # An unparseable filename — 2 split-parts, not 4 — must trigger the warning.
     (tmp_path / "nope--stray.json").write_text("{}", encoding="utf-8")
 
@@ -579,7 +579,7 @@ def test_aggregate_warns_on_unparseable_cell_filename(
 
 def test_aggregate_records_overridden_to_when_override_set(tmp_path: Path) -> None:
     """IN-02: when run_matrix has rewritten provider keys via
-    `_apply_override`, the resulting summary.json must carry a top-level
+    `apply_override`, the resulting summary.json must carry a top-level
     `overridden_to` field naming the override target. Without this, PRs
     that diff summary.json across providers cannot detect the rebind
     (the per-provider scorer keys reflect the rewritten name, not the
@@ -587,16 +587,16 @@ def test_aggregate_records_overridden_to_when_override_set(tmp_path: Path) -> No
     so the summary records the override explicitly."""
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    # Simulate the post-_apply_override layout: cells already named with
+    # Simulate the post-apply_override layout: cells already named with
     # the override provider (`scripted` in this case).
-    _write_cell(tmp_path, "scripted", "gpt-4o-mini", "scenario_a", 0, 0.5)
-    _write_cell(tmp_path, "scripted", "gpt-4o-mini", "scenario_a", 1, 0.6)
+    write_cell(tmp_path, "scripted", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    write_cell(tmp_path, "scripted", "gpt-4o-mini", "scenario_a", 1, 0.6)
 
     summary = aggregate_cell_jsons(tmp_path, llm_provider_override="scripted")
 
     assert summary.get("overridden_to") == "scripted"
     # The per-provider keys themselves are NOT rebound by this field —
-    # they keep whatever _apply_override wrote (scripted/gpt-4o-mini).
+    # they keep whatever apply_override wrote (scripted/gpt-4o-mini).
     assert "scripted/gpt-4o-mini" in summary["scenarios"]["scenario_a"]["providers"]
 
 
@@ -607,7 +607,7 @@ def test_aggregate_omits_overridden_to_when_no_override(tmp_path: Path) -> None:
     summary.jsons are comparable."""
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
 
     # Default call shape — no override kwarg.
     summary_default = aggregate_cell_jsons(tmp_path)
@@ -895,9 +895,9 @@ class TestPerCellEnvOverride:
         )
         # Snapshot the parent env BEFORE run_matrix so we compare against
         # what run_matrix saw at call time.
-        import os as _os
+        import os as os_mod
 
-        parent_env_snapshot = dict(_os.environ)
+        parent_env_snapshot = dict(os_mod.environ)
 
         run_matrix(
             matrix=matrix,
@@ -912,11 +912,11 @@ class TestPerCellEnvOverride:
             assert captured == parent_env_snapshot
 
     def test_apply_override_preserves_env(self) -> None:
-        """MEDIUM-1 fix: `_apply_override` preserves `entry.env` when
+        """MEDIUM-1 fix: `apply_override` preserves `entry.env` when
         rewriting `provider` so the per-cell flag still propagates after
         `--llm-provider-override scripted` rebinds entries."""
         from app.eval.config import MatrixEntry
-        from scripts.eval_matrix import _apply_override
+        from scripts.eval_matrix import apply_override
 
         entries = [
             MatrixEntry(
@@ -926,7 +926,7 @@ class TestPerCellEnvOverride:
             ),
             MatrixEntry(provider="deepseek", model="deepseek-chat"),
         ]
-        result = list(_apply_override(entries, llm_provider_override="scripted"))
+        result = list(apply_override(entries, llm_provider_override="scripted"))
         assert all(e.provider == "scripted" for e in result)
         assert result[0].env == {"REFINEMENT_STRUCTURED_PLAN_ENABLED": "true"}
         assert result[1].env is None
@@ -936,12 +936,12 @@ class TestPerCellEnvOverride:
     ) -> None:
         """NEW HIGH-B: per-cell `env` is applied to `os.environ` DURING the
         cell's run and restored AFTER. Critical because in-process consumers
-        (e.g., unit-test invocations of `_run_prod_threading`) read
+        (e.g., unit-test invocations of `run_prod_threading`) read
         `os.environ` directly — without the apply/cleanup the per-cell
         override would be invisible to them."""
         monkeypatch.setenv("APP_ENV", "eval")
         monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
-        import os as _os
+        import os as os_mod
 
         from app.eval.config import EvalMatrixConfig, MatrixEntry
         from scripts.eval_matrix import run_matrix
@@ -952,7 +952,7 @@ class TestPerCellEnvOverride:
             # Read os.environ at the moment subprocess.run is called — this
             # is INSIDE the per-cell block, so the apply must already have
             # happened.
-            captured_inside.append(_os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED"))
+            captured_inside.append(os_mod.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED"))
             return mocker.Mock(returncode=0, stdout="{}", stderr="")
 
         mocker.patch("scripts.eval_matrix.subprocess.run", side_effect=fake_subprocess_run)
@@ -967,7 +967,7 @@ class TestPerCellEnvOverride:
             ],
             scenarios=["scenario_a"],
         )
-        assert _os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") is None
+        assert os_mod.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") is None
 
         run_matrix(
             matrix=matrix,
@@ -980,7 +980,7 @@ class TestPerCellEnvOverride:
         # DURING the cell: os.environ was set to "true".
         assert captured_inside == ["true"]
         # AFTER the cell: cleanup restored the prior unset state.
-        assert _os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") is None
+        assert os_mod.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") is None
 
     def test_per_cell_env_restores_prior_value_after_cell(
         self, monkeypatch, mocker, tmp_path
@@ -990,7 +990,7 @@ class TestPerCellEnvOverride:
         (not just pops the key)."""
         monkeypatch.setenv("APP_ENV", "eval")
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "false")
-        import os as _os
+        import os as os_mod
 
         from app.eval.config import EvalMatrixConfig, MatrixEntry
         from scripts.eval_matrix import run_matrix
@@ -1019,7 +1019,7 @@ class TestPerCellEnvOverride:
         )
 
         # Prior parent value restored, not popped.
-        assert _os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") == "false"
+        assert os_mod.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED") == "false"
 
 
 # ─── CI-workflow drift guards (Plan 03-06 / EVAL-09) ─────────────────────────
@@ -1079,7 +1079,7 @@ def test_ci_workflow_does_not_set_app_env_eval(ci_workflow: dict) -> None:
     job = ci_workflow["jobs"].get("eval-matrix")
     assert job is not None, "eval-matrix job missing from .github/workflows/ci.yml"
 
-    def _walk_for_app_env_eval(node: object) -> bool:
+    def walk_for_app_env_eval(node: object) -> bool:
         """Recursive walk: trip on (a) any `env:` mapping with APP_ENV: eval,
         or (b) any string value containing `APP_ENV=eval` (shell-style env
         assignment in a `run:` block)."""
@@ -1087,14 +1087,14 @@ def test_ci_workflow_does_not_set_app_env_eval(ci_workflow: dict) -> None:
             env_block = node.get("env")
             if isinstance(env_block, dict) and env_block.get("APP_ENV") == "eval":
                 return True
-            return any(_walk_for_app_env_eval(v) for v in node.values())
+            return any(walk_for_app_env_eval(v) for v in node.values())
         if isinstance(node, list):
-            return any(_walk_for_app_env_eval(x) for x in node)
+            return any(walk_for_app_env_eval(x) for x in node)
         if isinstance(node, str):
             return "APP_ENV=eval" in node or "APP_ENV: eval" in node
         return False
 
-    assert not _walk_for_app_env_eval(job), (
+    assert not walk_for_app_env_eval(job), (
         "eval-matrix job sets APP_ENV=eval somewhere — this defeats the P4 / "
         "EVAL-09 gate. Use --llm-provider-override scripted instead "
         "(LLM_OVERRIDE=scripted in the make target)."
@@ -1164,7 +1164,7 @@ class TestStructuralCheck:
     """NEW HIGH-A fix (plan 06-07): --structural-check validates the matrix
     end-to-end WITHOUT invoking subprocess.run. Pins the no-subprocess
     contract + all five structural checks (matrix loads, iter_cells
-    non-empty, _apply_override preserves env, DETERMINISTIC_CHECKS contains
+    non-empty, apply_override preserves env, DETERMINISTIC_CHECKS contains
     'refinement_minimal_edit', build_refinement_prompt_message functional).
 
     Sidesteps the SCRIPTED_SCENARIOS-empty problem (app/llm_factory.py:170 —
@@ -1175,7 +1175,7 @@ class TestStructuralCheck:
     """
 
     @staticmethod
-    def _write_valid_refinement_matrix(tmp_path: Path) -> Path:
+    def write_valid_refinement_matrix(tmp_path: Path) -> Path:
         """Write a minimal valid refinement matrix YAML."""
         yaml_path = tmp_path / "matrix.yaml"
         yaml_path.write_text(
@@ -1201,11 +1201,11 @@ class TestStructuralCheck:
         """
         from scripts import eval_matrix as eval_matrix_mod
 
-        def _fail_subprocess(*_args, **_kwargs):  # pragma: no cover
+        def fail_subprocess(*args_obj, **unused_kwargs):  # pragma: no cover
             raise AssertionError("subprocess.run must NOT be called in structural-check mode")
 
-        monkeypatch.setattr(eval_matrix_mod.subprocess, "run", _fail_subprocess)
-        yaml_path = self._write_valid_refinement_matrix(tmp_path)
+        monkeypatch.setattr(eval_matrix_mod.subprocess, "run", fail_subprocess)
+        yaml_path = self.write_valid_refinement_matrix(tmp_path)
         rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
         assert rc == 0
         captured = capsys.readouterr()
@@ -1224,7 +1224,7 @@ class TestStructuralCheck:
         from scripts import eval_matrix as eval_matrix_mod
 
         monkeypatch.setattr(eval_matrix_mod, "iter_cells", lambda matrix, runs: iter([]))
-        yaml_path = self._write_valid_refinement_matrix(tmp_path)
+        yaml_path = self.write_valid_refinement_matrix(tmp_path)
         rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
         assert rc == 1
         captured = capsys.readouterr()
@@ -1241,12 +1241,12 @@ class TestStructuralCheck:
 
         call_log: list[tuple] = []
 
-        def _record_subprocess(*args, **kwargs):
+        def record_subprocess(*args, **kwargs):
             call_log.append((args, kwargs))
             raise AssertionError("subprocess.run must NOT be called in structural-check mode")
 
-        monkeypatch.setattr(eval_matrix_mod.subprocess, "run", _record_subprocess)
-        yaml_path = self._write_valid_refinement_matrix(tmp_path)
+        monkeypatch.setattr(eval_matrix_mod.subprocess, "run", record_subprocess)
+        yaml_path = self.write_valid_refinement_matrix(tmp_path)
         rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
         assert rc == 0
         assert call_log == [], (
@@ -1256,7 +1256,7 @@ class TestStructuralCheck:
 
     def test_structural_check_passes_when_env_override_preserved(self, tmp_path: Path) -> None:
         """A matrix with per-cell env={REFINEMENT_STRUCTURED_PLAN_ENABLED: 'true'}
-        exercises the MEDIUM-1 env-preservation path through _apply_override.
+        exercises the MEDIUM-1 env-preservation path through apply_override.
         Exit 0 == env survived the scripted-override rebind in CI smoke.
         """
         from scripts import eval_matrix as eval_matrix_mod
@@ -1294,7 +1294,7 @@ class TestStructuralCheck:
 # ─── 10-02: n_scored/n_errored/cell_valid error-threading in aggregation ─────
 
 
-def _write_cell_with_error_fields(
+def write_cell_with_error_fields(
     directory: Path,
     provider: str,
     model: str,
@@ -1344,7 +1344,7 @@ def test_aggregate_cell_jsons_threads_error_counts(tmp_path: Path) -> None:
     from scripts.eval_matrix import aggregate_cell_jsons
 
     # OK cell — n_errored=0, contributes scores.
-    _write_cell_with_error_fields(
+    write_cell_with_error_fields(
         tmp_path,
         "openai",
         "gpt-4o-mini",
@@ -1355,7 +1355,7 @@ def test_aggregate_cell_jsons_threads_error_counts(tmp_path: Path) -> None:
         errors=[],
     )
     # Errored cell — n_errored=1, stage/type populated.
-    _write_cell_with_error_fields(
+    write_cell_with_error_fields(
         tmp_path,
         "openai",
         "gpt-4o-mini",
@@ -1390,7 +1390,7 @@ def test_aggregate_cell_jsons_cell_valid_true_when_no_errors(tmp_path: Path) -> 
     """10-02 backward-compat: cells without any errored runs have cell_valid=True."""
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell_with_error_fields(
+    write_cell_with_error_fields(
         tmp_path,
         "openai",
         "gpt-4o-mini",
@@ -1400,7 +1400,7 @@ def test_aggregate_cell_jsons_cell_valid_true_when_no_errors(tmp_path: Path) -> 
         n_errored=0,
         errors=[],
     )
-    _write_cell_with_error_fields(
+    write_cell_with_error_fields(
         tmp_path,
         "openai",
         "gpt-4o-mini",
@@ -1426,7 +1426,7 @@ def test_aggregate_cell_jsons_legacy_cell_json_defaults_to_zero_errored(tmp_path
     from scripts.eval_matrix import aggregate_cell_jsons
 
     # Legacy cell with NO n_scored/n_errored/cell_valid fields.
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "scenario_a", 0, 0.5)
 
     summary = aggregate_cell_jsons(tmp_path)
     provider_block = summary["scenarios"]["scenario_a"]["providers"]["openai/gpt-4o-mini"]
@@ -1448,7 +1448,7 @@ def test_aggregate_cell_jsons_error_count_in_exit_code(tmp_path: Path) -> None:
     """
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell_with_error_fields(
+    write_cell_with_error_fields(
         tmp_path,
         "openai",
         "gpt-4o-mini",
@@ -1472,7 +1472,7 @@ class TestStructuralCheckErrorSchema:
     """
 
     @staticmethod
-    def _write_valid_refinement_matrix(tmp_path: Path) -> Path:
+    def write_valid_refinement_matrix(tmp_path: Path) -> Path:
         """Write a minimal valid refinement matrix YAML (mirrors TestStructuralCheck)."""
         yaml_path = tmp_path / "matrix.yaml"
         yaml_path.write_text(
@@ -1496,7 +1496,7 @@ class TestStructuralCheckErrorSchema:
         """
         from scripts import eval_matrix as eval_matrix_mod
 
-        yaml_path = self._write_valid_refinement_matrix(tmp_path)
+        yaml_path = self.write_valid_refinement_matrix(tmp_path)
         rc = eval_matrix_mod.main(["--matrix-config", str(yaml_path), "--structural-check"])
         assert rc == 0
 
@@ -1592,7 +1592,7 @@ def test_aggregate_cell_jsons_surfaces_baseline_ineligible_in_scenario_block(
     from scripts.eval_matrix import aggregate_cell_jsons
 
     # Write a cell for late_night_closure_cascade (the quarantined scenario).
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5)
 
     eval_queries = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
     summary = aggregate_cell_jsons(
@@ -1615,7 +1615,7 @@ def test_aggregate_cell_jsons_omakase_scenario_is_baseline_eligible(
     from app.eval.config import REPO_ROOT, load_eval_queries
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8)
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8)
 
     eval_queries = load_eval_queries(REPO_ROOT / "configs/eval_queries.yaml")
     summary = aggregate_cell_jsons(
@@ -1637,7 +1637,7 @@ def test_aggregate_cell_jsons_omakase_scenario_is_baseline_eligible(
 # ─── CR-03: main() must wire eval_queries_config into aggregate_cell_jsons ───
 
 
-def _write_cell_scored(
+def write_cell_scored(
     directory: Path,
     provider: str,
     model: str,
@@ -1675,8 +1675,8 @@ def test_main_aggregation_surfaces_baseline_eligible(monkeypatch, mocker, tmp_pa
     from scripts.eval_matrix import main
 
     # Seed per-cell JSONs for two scenarios in the output dir.
-    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5)
-    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+    write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "late_night_closure_cascade", 0, 0.5)
+    write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
 
     # Mock run_matrix to return immediately (no subprocesses) and leave the
     # pre-seeded cell JSONs in place.
@@ -1731,7 +1731,7 @@ def test_main_aggregation_survives_missing_eval_queries_file(monkeypatch, mocker
     monkeypatch.setenv("APP_ENV", "eval")
     from scripts.eval_matrix import main
 
-    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+    write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
 
     mocker.patch(
         "scripts.eval_matrix.run_matrix",
@@ -1774,7 +1774,7 @@ def test_main_aggregation_survives_malformed_eval_queries_yaml(
     monkeypatch.setenv("APP_ENV", "eval")
     from scripts.eval_matrix import main
 
-    _write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
+    write_cell_scored(tmp_path, "openai", "gpt-4o-mini", "refinement_cheaper", 0, 0.7)
 
     malformed = tmp_path / "malformed_eval_queries.yaml"
     malformed.write_text("hand_written: [unclosed", encoding="utf-8")
@@ -1852,7 +1852,7 @@ def test_late_night_scenario_is_baseline_ineligible() -> None:
 # ─── 11-03 Task 1: committed_itinerary_rate threading (D-11-02) ───────────────
 
 
-def _write_cell_with_commit_rate(
+def write_cell_with_commit_rate(
     directory: Path,
     provider: str,
     model: str,
@@ -1863,7 +1863,7 @@ def _write_cell_with_commit_rate(
 ) -> Path:
     """Write a cell JSON whose aggregate block includes committed_itinerary_rate.
 
-    Mirrors _write_cell but adds committed_itinerary_rate to the aggregate dict.
+    Mirrors write_cell but adds committed_itinerary_rate to the aggregate dict.
     When commit_rate is None the key is omitted entirely (back-compat test).
     """
     fname = f"{provider}--{model}--{scenario_id}--run-{run_n}.json"
@@ -1897,7 +1897,7 @@ def test_committed_itinerary_rate_single_run_lands_in_scorers(tmp_path: Path) ->
     """
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell_with_commit_rate(
+    write_cell_with_commit_rate(
         tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8, 1.0
     )
     summary = aggregate_cell_jsons(tmp_path)
@@ -1919,13 +1919,13 @@ def test_committed_itinerary_rate_multiple_runs_correct_median(tmp_path: Path) -
     """
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    _write_cell_with_commit_rate(
+    write_cell_with_commit_rate(
         tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8, 1.0
     )
-    _write_cell_with_commit_rate(
+    write_cell_with_commit_rate(
         tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 1, 0.8, 0.0
     )
-    _write_cell_with_commit_rate(
+    write_cell_with_commit_rate(
         tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 2, 0.8, 1.0
     )
     summary = aggregate_cell_jsons(tmp_path)
@@ -1948,8 +1948,8 @@ def test_committed_itinerary_rate_missing_key_no_scorer_no_crash(tmp_path: Path)
     """
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    # Use _write_cell (no commit_rate) to simulate a legacy cell.
-    _write_cell(tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8)
+    # Use write_cell (no commit_rate) to simulate a legacy cell.
+    write_cell(tmp_path, "openai", "gpt-4o-mini", "omakase_mission_open_ended", 0, 0.8)
     summary = aggregate_cell_jsons(tmp_path)
     scorers = summary["scenarios"]["omakase_mission_open_ended"]["providers"]["openai/gpt-4o-mini"][
         "scorers"

@@ -49,7 +49,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 
-def _load_json_file(path_str: str, label: str) -> dict:
+def load_json_file(path_str: str, label: str) -> dict:
     """Load and return a JSON file as a Python dict.
 
     Raises OSError on missing file, ValueError on parse/shape failure.
@@ -71,7 +71,7 @@ def _load_json_file(path_str: str, label: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
+def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     """Parse argv."""
     parser = argparse.ArgumentParser(
         prog="write_baselines",
@@ -105,7 +105,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 
-def _utc_now_stamp() -> str:
+def utc_now_stamp() -> str:
     """Return a compact UTC timestamp in ``YYYY-MM-DDTHH-MM-SSZ`` format."""
     return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")  # noqa: DTZ003
 
@@ -118,10 +118,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         1 = one or more cells REFUSED (partial or quarantined)
         2 = infrastructure failure (missing summary.json, malformed JSON)
     """
-    args = _parse_args(argv if argv is not None else sys.argv[1:])
+    args = parse_args(argv if argv is not None else sys.argv[1:])
 
     try:
-        summary = _load_json_file(args.summary, "summary.json")
+        summary = load_json_file(args.summary, "summary.json")
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"write_baselines: {exc}\n")
         return 2
@@ -177,7 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Build the new provider cell.
             baseline_cell: dict = {
                 "scorers": cell["scorers"],
-                "generated_at": _utc_now_stamp(),
+                "generated_at": utc_now_stamp(),
                 "generated_by": "scripts/write_baselines.py",
             }
 
@@ -198,7 +198,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # (e.g. closure_check_confirmed, scenario_id if already present).
         payload: dict = {k: v for k, v in prior_payload.items() if k not in ("providers",)}
         payload["scenario_id"] = scenario_id
-        payload["generated_at"] = _utc_now_stamp()
+        payload["generated_at"] = utc_now_stamp()
         payload["generated_by"] = "scripts/write_baselines.py"
         payload["providers"] = updated_providers
 

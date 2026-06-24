@@ -29,7 +29,7 @@ class FakeCursor:
 
 class FakeConnection:
     def __init__(self, cursor: FakeCursor) -> None:
-        self._cursor = cursor
+        self.cursor_obj = cursor
 
     def __enter__(self) -> FakeConnection:
         return self
@@ -38,7 +38,7 @@ class FakeConnection:
         return False
 
     def cursor(self) -> FakeCursor:
-        return self._cursor
+        return self.cursor_obj
 
 
 def test_get_relevant_documents_formats_vector_and_maps_metadata(mocker) -> None:
@@ -100,9 +100,9 @@ def test_get_relevant_documents_formats_vector_and_maps_metadata(mocker) -> None
 def test_build_embedding_caches_identical_queries(mocker) -> None:
     """Identical (query, model) pairs should hit the LRU cache and avoid a
     second OpenAI round-trip."""
-    from app.retriever import _embed_cached, build_embedding
+    from app.retriever import build_embedding, embed_cached
 
-    _embed_cached.cache_clear()
+    embed_cached.cache_clear()
 
     fake_client = MagicMock()
     fake_client.embed_query.return_value = [0.1, 0.2, 0.3]
@@ -118,9 +118,9 @@ def test_build_embedding_caches_identical_queries(mocker) -> None:
 
 
 def test_build_embedding_different_queries_miss_cache(mocker) -> None:
-    from app.retriever import _embed_cached, build_embedding
+    from app.retriever import build_embedding, embed_cached
 
-    _embed_cached.cache_clear()
+    embed_cached.cache_clear()
 
     fake_client = MagicMock()
     fake_client.embed_query.side_effect = [[0.1], [0.2]]

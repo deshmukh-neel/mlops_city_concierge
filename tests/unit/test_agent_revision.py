@@ -4,7 +4,7 @@ Plan 13-03:
   - LOW_SIMILARITY_THRESHOLD is env-overridable via LOW_SIMILARITY_THRESHOLD_OVERRIDE
     (code default stays 0.55; D-13-07).
   - With VIABILITY_CONTRACT_ENABLED=1 AND all_slots_viable(state)==True,
-    _diagnose_last_tool_result returns None (low_similarity suppressed).
+    diagnose_last_tool_result returns None (low_similarity suppressed).
   - With VIABILITY_CONTRACT_ENABLED=1 AND all_slots_viable(state)==False,
     low_similarity still fires.
   - With VIABILITY_CONTRACT_ENABLED unset (flag off), behavior is byte-identical
@@ -22,10 +22,10 @@ from app.tools.retrieval import PlaceHit
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-_THRESHOLD_DEFAULT = 0.55
+THRESHOLD_DEFAULT = 0.55
 
 
-def _hit(
+def hit(
     similarity: float,
     primary_type: str = "Sushi Restaurant",
     place_id: str = "pid1",
@@ -41,7 +41,7 @@ def _hit(
     )
 
 
-def _state_with_search_hits(
+def state_with_search_hits(
     hits: list[PlaceHit],
     requested_types: list[str] | None = None,
     query: str = "sushi",
@@ -126,8 +126,8 @@ def test_flag_off_low_similarity_fires_as_before(monkeypatch: pytest.MonkeyPatch
     importlib.reload(via)
 
     # below-threshold hit
-    state = _state_with_search_hits(
-        [_hit(similarity=0.30, primary_type="Sushi Restaurant", place_id="pid1")],
+    state = state_with_search_hits(
+        [hit(similarity=0.30, primary_type="Sushi Restaurant", place_id="pid1")],
         requested_types=["Sushi Restaurant"],
     )
     # Need at least one issuing AIMessage + ToolMessage to trigger diagnosis
@@ -141,7 +141,7 @@ def test_flag_off_low_similarity_fires_as_before(monkeypatch: pytest.MonkeyPatch
         ToolMessage(content="[]", tool_call_id="tc0"),
     ]
 
-    hint = rev._diagnose_last_tool_result(state)
+    hint = rev.diagnose_last_tool_result(state)
     assert hint is not None
     assert hint.reason == "low_similarity"
 
@@ -153,7 +153,7 @@ def test_flag_on_all_viable_low_similarity_suppressed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With VIABILITY_CONTRACT_ENABLED=1 and all_slots_viable==True,
-    _diagnose_last_tool_result returns None (low_similarity suppressed).
+    diagnose_last_tool_result returns None (low_similarity suppressed).
 
     This is the core DEC-03 scoping behavior: once every requested stop has a
     viable candidate, low_similarity stops firing so the model can commit.
@@ -184,7 +184,7 @@ def test_flag_on_all_viable_low_similarity_suppressed(
                     "step": 0,
                     "args": {"query": "sushi"},
                     "result": [
-                        _hit(
+                        hit(
                             similarity=threshold + 0.1,
                             primary_type="Sushi Restaurant",
                             place_id="pid1",
@@ -197,7 +197,7 @@ def test_flag_on_all_viable_low_similarity_suppressed(
                     "step": 1,
                     "args": {"query": "sushi restaurant"},
                     "result": [
-                        _hit(
+                        hit(
                             similarity=0.30,
                             primary_type="Sushi Restaurant",
                             place_id="pid2",
@@ -226,7 +226,7 @@ def test_flag_on_all_viable_low_similarity_suppressed(
         ),
     )
 
-    hint = rev._diagnose_last_tool_result(state)
+    hint = rev.diagnose_last_tool_result(state)
     assert hint is None, f"Expected None (suppressed) but got hint with reason={hint.reason!r}"
 
 
@@ -250,8 +250,8 @@ def test_flag_on_not_all_viable_low_similarity_fires(
     # No viable candidates at all — all_slots_viable is False
     from langchain_core.messages import AIMessage, ToolMessage
 
-    state = _state_with_search_hits(
-        [_hit(similarity=0.30, primary_type="Sushi Restaurant", place_id="pid1")],
+    state = state_with_search_hits(
+        [hit(similarity=0.30, primary_type="Sushi Restaurant", place_id="pid1")],
         requested_types=["Sushi Restaurant"],
     )
     state.messages = [
@@ -262,6 +262,6 @@ def test_flag_on_not_all_viable_low_similarity_fires(
         ToolMessage(content="[]", tool_call_id="tc0"),
     ]
 
-    hint = rev._diagnose_last_tool_result(state)
+    hint = rev.diagnose_last_tool_result(state)
     assert hint is not None
     assert hint.reason == "low_similarity"

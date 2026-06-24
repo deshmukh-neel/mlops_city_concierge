@@ -23,6 +23,11 @@ def env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def csv_list(value: str) -> list[str]:
+    """Parse a comma-separated env setting into a compact list."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def build_database_url(
     *,
     user: str,
@@ -116,18 +121,20 @@ class Settings(BaseSettings):
     mlflow_model_name: str = "city-concierge-rag"
     # When set (e.g. "version:7" or "alias:my-test-alias"), load_registered_rag_chain
     # bypasses the shared "production" alias and loads the named version/alias instead.
-    # Unset (None) preserves all existing behavior. See app.main._parse_model_override.
+    # Unset (None) preserves all existing behavior. See app.main.parse_model_override.
     rag_model_override: str | None = None
     retriever_k: int = 5
     embedding_table: str = "place_embeddings_v2"
     db_pool_min_connections: int = 0
     db_pool_max_connections: int = 10
+    cors_allow_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_allow_origin_regex: str = r"https://.*\.vercel\.app$"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("embedding_table")
     @classmethod
-    def _validate_embedding_table(cls, value: str) -> str:
+    def validate_embedding_table(cls, value: str) -> str:
         if value not in ALLOWED_EMBEDDING_TABLES:
             raise ValueError(
                 f"EMBEDDING_TABLE must be one of {sorted(ALLOWED_EMBEDDING_TABLES)}; got {value!r}."
@@ -150,6 +157,10 @@ class Settings(BaseSettings):
                 "POSTGRES_SSLROOTCERT": self.postgres_sslrootcert,
             }
         )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return csv_list(self.cors_allow_origins)
 
 
 @lru_cache

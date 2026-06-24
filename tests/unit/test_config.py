@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.config import env_flag, get_settings, resolve_database_url
+from app.config import csv_list, env_flag, get_settings, resolve_database_url
 
 
 def test_resolve_database_url_prefers_explicit_database_url() -> None:
@@ -69,6 +69,32 @@ def test_google_directions_api_key_defaults_empty() -> None:
     tests must get '' by default so the no-key branch is exercised for free."""
     get_settings.cache_clear()
     assert get_settings().google_directions_api_key == ""
+
+
+def test_cors_defaults_allow_localhost_and_vercel_preview() -> None:
+    get_settings.cache_clear()
+    settings = get_settings()
+    assert settings.cors_origins == ["http://localhost:5173", "http://localhost:3000"]
+    assert settings.cors_allow_origin_regex == r"https://.*\.vercel\.app$"
+
+
+def test_cors_origins_read_comma_separated_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "CORS_ALLOW_ORIGINS",
+        "https://city-concierge.vercel.app, https://preview.example.com ",
+    )
+    get_settings.cache_clear()
+    assert get_settings().cors_origins == [
+        "https://city-concierge.vercel.app",
+        "https://preview.example.com",
+    ]
+
+
+def test_csv_list_discards_blank_items() -> None:
+    assert csv_list(" https://a.example, ,https://b.example,, ") == [
+        "https://a.example",
+        "https://b.example",
+    ]
 
 
 def test_embedding_table_defaults_to_v2() -> None:

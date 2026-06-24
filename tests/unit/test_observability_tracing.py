@@ -75,14 +75,14 @@ def test_trace_request_no_op_without_env(monkeypatch: pytest.MonkeyPatch) -> Non
 # ---------------------------------------------------------------------------
 
 
-def _set_langfuse_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def set_langfuse_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_HOST", "http://localhost:9999")
 
 
 def test_get_client_constructs_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_langfuse_env(monkeypatch)
+    set_langfuse_env(monkeypatch)
     fake_client = MagicMock(name="LangfuseClient")
     fake_ctor = MagicMock(return_value=fake_client)
 
@@ -115,7 +115,7 @@ def test_get_client_default_host(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_langgraph_callbacks_returns_handler_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_langfuse_env(monkeypatch)
+    set_langfuse_env(monkeypatch)
     sentinel = object()
 
     with (
@@ -135,7 +135,7 @@ def test_langgraph_callbacks_returns_handler_with_env(monkeypatch: pytest.Monkey
 
 
 def test_trace_request_yields_trace_id_and_flushes(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_langfuse_env(monkeypatch)
+    set_langfuse_env(monkeypatch)
     fake_trace = MagicMock(id="trace-abc-123")
     fake_client = MagicMock()
     fake_client.trace.return_value = fake_trace
@@ -151,7 +151,7 @@ def test_trace_request_yields_trace_id_and_flushes(monkeypatch: pytest.MonkeyPat
 
 
 def test_trace_request_flushes_even_on_exception(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_langfuse_env(monkeypatch)
+    set_langfuse_env(monkeypatch)
     fake_client = MagicMock()
     fake_client.trace.return_value = MagicMock(id="trace-exc")
 
@@ -179,7 +179,7 @@ def test_warns_once_when_env_set_but_package_missing(
 
     monkeypatch.setattr(obs, "Langfuse", None)
     monkeypatch.setattr(obs, "CallbackHandler", None)
-    monkeypatch.setattr(obs, "_warned_missing_package", False)
+    monkeypatch.setattr(obs, "warned_missing_package", False)
 
     caplog.set_level(logging.WARNING, logger="city_concierge.observability")
 
@@ -201,7 +201,7 @@ def test_no_warning_when_package_missing_and_env_unset(
     import app.observability as obs
 
     monkeypatch.setattr(obs, "Langfuse", None)
-    monkeypatch.setattr(obs, "_warned_missing_package", False)
+    monkeypatch.setattr(obs, "warned_missing_package", False)
 
     caplog.set_level(logging.WARNING, logger="city_concierge.observability")
 
@@ -217,7 +217,7 @@ def test_no_warning_when_package_missing_and_env_unset(
 def test_get_client_returns_none_when_constructor_raises(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    _set_langfuse_env(monkeypatch)
+    set_langfuse_env(monkeypatch)
     caplog.set_level(logging.WARNING, logger="city_concierge.observability")
 
     def boom(*_: object, **__: object) -> None:
@@ -234,7 +234,7 @@ def test_get_client_returns_none_when_constructor_raises(
 def test_trace_request_swallows_trace_call_failure(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    _set_langfuse_env(monkeypatch)
+    set_langfuse_env(monkeypatch)
     caplog.set_level(logging.WARNING, logger="city_concierge.observability")
 
     fake_client = MagicMock()
@@ -253,7 +253,7 @@ def test_trace_request_swallows_trace_call_failure(
 
 
 def test_trace_request_swallows_flush_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_langfuse_env(monkeypatch)
+    set_langfuse_env(monkeypatch)
     fake_client = MagicMock()
     fake_client.trace.return_value = MagicMock(id="t-1")
     fake_client.flush.side_effect = RuntimeError("network gone")
@@ -267,7 +267,7 @@ def test_trace_request_swallows_flush_failure(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_trace_request_metadata_threaded_through(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_langfuse_env(monkeypatch)
+    set_langfuse_env(monkeypatch)
     fake_client = MagicMock()
     fake_client.trace.return_value = MagicMock(id="trace-meta")
 

@@ -14,14 +14,14 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-class _StubCursor:
+class StubCursor:
     """Cursor that returns a controllable current_database() value."""
 
     def __init__(self, dbname: str) -> None:
-        self._dbname = dbname
+        self.dbname_value = dbname
         self.executes: list[tuple] = []
 
-    def __enter__(self) -> _StubCursor:
+    def __enter__(self) -> StubCursor:
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -31,25 +31,25 @@ class _StubCursor:
         self.executes.append((sql, params))
 
     def fetchone(self) -> tuple:
-        return (self._dbname,)
+        return (self.dbname_value,)
 
 
-class _StubConn:
+class StubConn:
     """Capturing connection that reports a fixed current_database()."""
 
     def __init__(self, dbname: str) -> None:
-        self._dbname = dbname
-        self._cursor = _StubCursor(dbname)
+        self.dbname_value = dbname
+        self.cursor_obj = StubCursor(dbname)
         self.committed = False
 
-    def __enter__(self) -> _StubConn:
+    def __enter__(self) -> StubConn:
         return self
 
     def __exit__(self, *args: object) -> None:
         return None
 
-    def cursor(self) -> _StubCursor:
-        return self._cursor
+    def cursor(self) -> StubCursor:
+        return self.cursor_obj
 
     def commit(self) -> None:
         self.committed = True
@@ -60,7 +60,7 @@ class _StubConn:
 # ---------------------------------------------------------------------------
 
 
-def _make_sandbox_url(dbname: str = "city_concierge_sandbox") -> str:
+def make_sandbox_url(dbname: str = "city_concierge_sandbox") -> str:
     return f"postgresql://user:pw@localhost:5433/{dbname}"
 
 
@@ -76,8 +76,8 @@ class TestAssertSandboxWriteTarget:
         """Test 1: current_database() == 'city_concierge_sandbox' → no raise."""
         import os
 
-        monkeypatch.setitem(os.environ, "SANDBOX_DATABASE_URL", _make_sandbox_url())
-        conn = _StubConn("city_concierge_sandbox")
+        monkeypatch.setitem(os.environ, "SANDBOX_DATABASE_URL", make_sandbox_url())
+        conn = StubConn("city_concierge_sandbox")
         from scripts.sandbox_guard import assert_sandbox_write_target
 
         assert_sandbox_write_target(conn=conn)  # must not raise
@@ -86,8 +86,8 @@ class TestAssertSandboxWriteTarget:
         """Test 2: current_database() == 'city_concierge' → raises with offending name."""
         import os
 
-        monkeypatch.setitem(os.environ, "SANDBOX_DATABASE_URL", _make_sandbox_url("city_concierge"))
-        conn = _StubConn("city_concierge")
+        monkeypatch.setitem(os.environ, "SANDBOX_DATABASE_URL", make_sandbox_url("city_concierge"))
+        conn = StubConn("city_concierge")
         from scripts.sandbox_guard import assert_sandbox_write_target
 
         with pytest.raises((SystemExit, RuntimeError)) as exc_info:
@@ -108,7 +108,7 @@ class TestAssertSandboxWriteTarget:
             "SANDBOX_DATABASE_URL",
             "postgresql://user:pw@localhost:5432/city_concierge",
         )
-        conn = _StubConn("city_concierge")  # live DB is prod
+        conn = StubConn("city_concierge")  # live DB is prod
         from scripts.sandbox_guard import assert_sandbox_write_target
 
         with pytest.raises((SystemExit, RuntimeError)):
@@ -123,7 +123,7 @@ class TestAssertSandboxWriteTarget:
             "SANDBOX_DATABASE_URL",
             "postgresql://user:pw@localhost:5433/my_sandbox_db",
         )
-        conn = _StubConn("my_sandbox_db")
+        conn = StubConn("my_sandbox_db")
         from scripts.sandbox_guard import assert_sandbox_write_target
 
         assert_sandbox_write_target(conn=conn)  # must not raise
@@ -137,7 +137,7 @@ class TestAssertSandboxWriteTarget:
             "SANDBOX_DATABASE_URL",
             "postgresql://user:pw@localhost:5433/some_other_db",
         )
-        conn = _StubConn("some_other_db")
+        conn = StubConn("some_other_db")
         from scripts.sandbox_guard import assert_sandbox_write_target
 
         with pytest.raises((SystemExit, RuntimeError)):
@@ -151,7 +151,7 @@ class TestAssertSandboxWriteTarget:
 
         import scripts.sandbox_guard as guard_mod
 
-        monkeypatch.setitem(os.environ, "SANDBOX_DATABASE_URL", _make_sandbox_url())
+        monkeypatch.setitem(os.environ, "SANDBOX_DATABASE_URL", make_sandbox_url())
 
         pool_opened = []
 
@@ -160,16 +160,16 @@ class TestAssertSandboxWriteTarget:
             from contextlib import contextmanager
 
             @contextmanager
-            def _ctx():
-                yield _StubConn("city_concierge_sandbox")
+            def ctx():
+                yield StubConn("city_concierge_sandbox")
 
-            return _ctx()
+            return ctx()
 
         monkeypatch.setattr(guard_mod, "get_conn", fake_get_conn)
 
-        conn = _StubConn("city_concierge_sandbox")
+        conn = StubConn("city_concierge_sandbox")
         guard_mod.assert_sandbox_write_target(conn=conn)
 
         assert not pool_opened, "No pool should be opened when conn is passed"
         # The passed conn's cursor must have received the SELECT
-        assert any("current_database" in sql for sql, _ in conn._cursor.executes)
+        assert any("current_database" in sql for sql, _ in conn.cursor_obj.executes)

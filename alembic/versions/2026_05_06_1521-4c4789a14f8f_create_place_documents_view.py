@@ -32,7 +32,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-_NEIGHBORHOOD_OF_FN = """
+NEIGHBORHOOD_OF_FN = """
 CREATE OR REPLACE FUNCTION neighborhood_of(source_json JSONB)
 RETURNS TEXT AS $$
 DECLARE component JSONB;
@@ -51,7 +51,7 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 """
 
 
-_PLACE_IS_OPEN_FN = """
+PLACE_IS_OPEN_FN = """
 CREATE OR REPLACE FUNCTION place_is_open(hours JSONB, at_ts TIMESTAMPTZ)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -105,7 +105,7 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 # Single template; substituted twice — once per embedding table. Both
 # substitutions are hardcoded literals from this file (the W1 migration),
 # so there is no SQL injection surface.
-_VIEW_SQL_TEMPLATE = """
+VIEW_SQL_TEMPLATE = """
 CREATE OR REPLACE VIEW {view_name} AS
 SELECT
     p.place_id,
@@ -152,28 +152,28 @@ JOIN {embedding_table} e ON e.place_id = p.place_id
 """
 
 
-_VIEW_COMMENT = """
+VIEW_COMMENT = """
 COMMENT ON VIEW place_documents IS
   'Unified retrieval surface. When editorial places table lands, redefine as UNION ALL with source = ''editorial''.';
 """
 
 
 def upgrade() -> None:
-    op.execute(_NEIGHBORHOOD_OF_FN)
-    op.execute(_PLACE_IS_OPEN_FN)
+    op.execute(NEIGHBORHOOD_OF_FN)
+    op.execute(PLACE_IS_OPEN_FN)
     op.execute(
-        _VIEW_SQL_TEMPLATE.format(
+        VIEW_SQL_TEMPLATE.format(
             view_name="place_documents",
             embedding_table="place_embeddings",
         )
     )
     op.execute(
-        _VIEW_SQL_TEMPLATE.format(
+        VIEW_SQL_TEMPLATE.format(
             view_name="place_documents_v2",
             embedding_table="place_embeddings_v2",
         )
     )
-    op.execute(_VIEW_COMMENT)
+    op.execute(VIEW_COMMENT)
 
 
 def downgrade() -> None:

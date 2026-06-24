@@ -20,13 +20,13 @@ from app.tools.retrieval import (
     PlaceHit,
 )
 from app.tools.retrieval import (
-    get_details as _get_details,
+    get_details as get_details_impl,
 )
 from app.tools.retrieval import (
-    nearby as _nearby,
+    nearby as nearby_impl,
 )
 from app.tools.retrieval import (
-    semantic_search as _semantic_search,
+    semantic_search as semantic_search_impl,
 )
 
 COMMIT_ITINERARY_TOOL_NAME = "commit_itinerary"
@@ -51,7 +51,7 @@ def semantic_search(
     that named per-slot categories (e.g., 'omakase, then drinks, then dessert').
     Leave None for free-text queries.
     """
-    return _semantic_search(query=query, filters=filters, k=k)
+    return semantic_search_impl(query=query, filters=filters, k=k)
 
 
 def nearby(
@@ -67,12 +67,12 @@ def nearby(
     that named per-slot categories (e.g., 'omakase, then drinks, then dessert').
     Leave None for free-text queries.
     """
-    return _nearby(place_id=place_id, radius_m=radius_m, filters=filters, k=k)
+    return nearby_impl(place_id=place_id, radius_m=radius_m, filters=filters, k=k)
 
 
 def get_details(place_id: str) -> PlaceDetails | None:
     """Fetch the full record for a place: hours, website, ratings count, types."""
-    return _get_details(place_id=place_id)
+    return get_details_impl(place_id=place_id)
 
 
 def commit_itinerary(stops: list[Stop]) -> dict:
@@ -105,9 +105,9 @@ def kg_traverse(
     Single-hop: for multi-hop reasoning call again with the new anchor. If it
     returns empty, fall back to `semantic_search` or `nearby`.
     """
-    from app.tools.graph import kg_traverse as _kg_traverse
+    from app.tools.graph import kg_traverse as kg_traverse_impl
 
-    return _kg_traverse(
+    return kg_traverse_impl(
         place_id=place_id,
         relation_type=relation_type,
         k=k,
@@ -115,7 +115,7 @@ def kg_traverse(
     )
 
 
-def _args_schema_for(fn: Any):
+def args_schema_for(fn: Any):
     """Build a Pydantic args schema from the function's annotations.
 
     Resolved via typing.get_type_hints so PEP 563 / `from __future__ import
@@ -135,8 +135,8 @@ def _args_schema_for(fn: Any):
     return create_model(f"{fn.__name__}_args", **fields)
 
 
-def _to_lc_tool(name: str, description: str, fn: Any) -> StructuredTool:
-    args_schema = _args_schema_for(fn)
+def to_lc_tool(name: str, description: str, fn: Any) -> StructuredTool:
+    args_schema = args_schema_for(fn)
     fn.args_schema = args_schema
     return StructuredTool.from_function(
         name=name,
@@ -146,14 +146,14 @@ def _to_lc_tool(name: str, description: str, fn: Any) -> StructuredTool:
     )
 
 
-_TOOLS: list[StructuredTool] = [
-    _to_lc_tool("semantic_search", semantic_search.__doc__ or "", semantic_search),
-    _to_lc_tool("nearby", nearby.__doc__ or "", nearby),
-    _to_lc_tool("get_details", get_details.__doc__ or "", get_details),
-    _to_lc_tool(COMMIT_ITINERARY_TOOL_NAME, commit_itinerary.__doc__ or "", commit_itinerary),
-    _to_lc_tool("kg_traverse", kg_traverse.__doc__ or "", kg_traverse),
+TOOLS: list[StructuredTool] = [
+    to_lc_tool("semantic_search", semantic_search.__doc__ or "", semantic_search),
+    to_lc_tool("nearby", nearby.__doc__ or "", nearby),
+    to_lc_tool("get_details", get_details.__doc__ or "", get_details),
+    to_lc_tool(COMMIT_ITINERARY_TOOL_NAME, commit_itinerary.__doc__ or "", commit_itinerary),
+    to_lc_tool("kg_traverse", kg_traverse.__doc__ or "", kg_traverse),
 ]
 
 
 def all_tools() -> list[StructuredTool]:
-    return list(_TOOLS)
+    return list(TOOLS)

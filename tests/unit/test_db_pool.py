@@ -9,7 +9,7 @@ TEST_DATABASE_URL = "postgresql://postgres:test@localhost:5432/city_concierge_te
 
 
 @pytest.fixture(autouse=True)
-def _reset_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+def reset_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
     get_settings.cache_clear()
     close_db_pool()

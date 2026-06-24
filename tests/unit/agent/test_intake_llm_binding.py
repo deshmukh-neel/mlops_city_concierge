@@ -27,7 +27,7 @@ from app.agent.input_parsing import SlotExtractionResult
 from app.main import ActiveModelConfig, LoadedConfig, app
 
 
-def _make_recording_llm(
+def make_recording_llm(
     extraction_result: SlotExtractionResult | Exception,
 ) -> tuple[Any, dict[str, Any]]:
     """Build a MagicMock-style fake LLM that records `.bind(**kwargs)` calls
@@ -47,7 +47,7 @@ def _make_recording_llm(
         "last_prompt": None,
     }
 
-    class _Structured:
+    class Structured:
         async def ainvoke(self, prompt: str, *args: Any, **kwargs: Any) -> Any:
             observed["ainvoke_call_count"] += 1
             observed["last_prompt"] = prompt
@@ -55,25 +55,25 @@ def _make_recording_llm(
                 raise extraction_result
             return extraction_result
 
-    class _Bound:
-        def with_structured_output(self, *args: Any, **kwargs: Any) -> _Structured:
+    class Bound:
+        def with_structured_output(self, *args: Any, **kwargs: Any) -> Structured:
             observed["wso_call_count"] += 1
-            return _Structured()
+            return Structured()
 
-    class _LLM:
-        # Mimic openai-class branch of `_intake_bind_kwargs` by class name.
+    class LLM:
+        # Mimic openai-class branch of `intake_bind_kwargs` by class name.
         __class__name = "ChatOpenAI"
 
-        def bind(self, **kwargs: Any) -> _Bound:
+        def bind(self, **kwargs: Any) -> Bound:
             observed["bind_calls"].append(dict(kwargs))
-            return _Bound()
+            return Bound()
 
     # Replace ChatOpenAI-like detection: set the spoofed class name via type()
-    llm = type("ChatOpenAI", (_LLM,), {})()
+    llm = type("ChatOpenAI", (LLM,), {})()
     return llm, observed
 
 
-def _stub_loaded_config(llm: Any) -> LoadedConfig:
+def stub_loaded_config(llm: Any) -> LoadedConfig:
     return LoadedConfig(
         chain=object(),
         llm=llm,
@@ -88,7 +88,7 @@ def _stub_loaded_config(llm: Any) -> LoadedConfig:
     )
 
 
-def _final_state_dict() -> dict:
+def final_state_dict() -> dict:
     return {
         "messages": [],
         "constraints": {},
@@ -107,19 +107,19 @@ def test_intake_bind_carries_temperature_one_and_reasoning_off_for_openai_like(
 ) -> None:
     """Slot-structured input → loaded.llm.bind called with temperature=1.0
     (the cross-provider reasoning-off invariant)."""
-    fake_llm, observed = _make_recording_llm(
+    fake_llm, observed = make_recording_llm(
         SlotExtractionResult(requested_primary_types=["Sushi Restaurant", "Cocktail Bar"])
     )
 
     fake_graph = mocker.Mock()
 
-    async def _ainvoke(state, config=None):
-        return _final_state_dict()
+    async def ainvoke(state, config=None):
+        return final_state_dict()
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
         "app.main.load_registered_rag_chain",
-        return_value=_stub_loaded_config(fake_llm),
+        return_value=stub_loaded_config(fake_llm),
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -142,19 +142,19 @@ def test_intake_bind_not_invoked_on_free_text(mocker) -> None:
     """Free-text /chat → ZERO bind/with_structured_output/ainvoke calls.
     Locks the zero-latency-tax invariant: the existing code path is unchanged
     when has_slot_structure returns False."""
-    fake_llm, observed = _make_recording_llm(
+    fake_llm, observed = make_recording_llm(
         SlotExtractionResult(requested_primary_types=["should never be used"])
     )
 
     fake_graph = mocker.Mock()
 
-    async def _ainvoke(state, config=None):
-        return _final_state_dict()
+    async def ainvoke(state, config=None):
+        return final_state_dict()
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
         "app.main.load_registered_rag_chain",
-        return_value=_stub_loaded_config(fake_llm),
+        return_value=stub_loaded_config(fake_llm),
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -178,14 +178,14 @@ def test_intake_bind_not_invoked_when_agent_llm_is_none(mocker) -> None:
     fake_graph = mocker.Mock()
     captured: dict[str, Any] = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict()
+        return final_state_dict()
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
         "app.main.load_registered_rag_chain",
-        return_value=_stub_loaded_config(object()),
+        return_value=stub_loaded_config(object()),
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 

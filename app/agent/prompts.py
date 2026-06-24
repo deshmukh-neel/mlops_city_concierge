@@ -6,13 +6,13 @@ from app.agent.revision import LOW_SIMILARITY_THRESHOLD
 
 # The app is SF-only today (places_raw.source_city = 'San Francisco'), matching
 # the timezone assumption baked into the place_is_open SQL helper.
-_SF_TZ = ZoneInfo("America/Los_Angeles")
+SF_TZ = ZoneInfo("America/Los_Angeles")
 
 
 def current_datetime_str(now: datetime | None = None) -> str:
     """SF-local 'now' string injected into SYSTEM_PROMPT so the model anchors
     arrival_time to the real date instead of hallucinating a training-era one."""
-    dt = (now or datetime.now(_SF_TZ)).astimezone(_SF_TZ)
+    dt = (now or datetime.now(SF_TZ)).astimezone(SF_TZ)
     return dt.strftime("%Y-%m-%d %H:%M %Z (%A)")
 
 

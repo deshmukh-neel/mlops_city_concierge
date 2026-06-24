@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _view_exists(view_name: str) -> bool:
+def view_exists(view_name: str) -> bool:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM information_schema.views WHERE table_name = %s",
@@ -28,11 +28,11 @@ def _view_exists(view_name: str) -> bool:
 
 
 def test_place_documents_view_exists() -> None:
-    assert _view_exists("place_documents")
+    assert view_exists("place_documents")
 
 
 def test_place_documents_v2_view_exists() -> None:
-    assert _view_exists("place_documents_v2")
+    assert view_exists("place_documents_v2")
 
 
 def test_neighborhood_of_function_exists() -> None:

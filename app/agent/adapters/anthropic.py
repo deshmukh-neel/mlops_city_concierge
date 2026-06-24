@@ -48,7 +48,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 
 from app.agent.adapters import ProviderAdapter, StatePayload
 
-_log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class AnthropicAdapter(ProviderAdapter):
@@ -175,7 +175,7 @@ class AnthropicAdapter(ProviderAdapter):
                             if isinstance(sig, str)
                         )
                         if existing_sigs != captured_sigs:
-                            _log.debug(
+                            logger.debug(
                                 "AnthropicAdapter.replay: target AIMessage already has "
                                 "thinking blocks with signatures %r but captured payload "
                                 "carried %r — skipping replay (target wins; captured "
@@ -199,7 +199,7 @@ class AnthropicAdapter(ProviderAdapter):
                     # Promote str content to a list-of-blocks shape so the
                     # outbound payload matches Anthropic's expected wire
                     # format when thinking_blocks are present. Common after
-                    # _prune_for_llm converts an older AIMessage's list
+                    # prune_for_llm converts an older AIMessage's list
                     # content to str via str(m.content).
                     msg.content = list(blocks) + [{"type": "text", "text": existing}]
                 else:

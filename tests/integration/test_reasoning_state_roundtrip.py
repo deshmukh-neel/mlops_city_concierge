@@ -143,7 +143,7 @@ async def test_reason_02_four_shape_roundtrip(
     monkeypatch.setitem(ADAPTERS, "scripted", MockReasoningAdapter(payload=payload))
 
     # Patch the underlying retrieval helper so act() succeeds without a real DB.
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     scripted = [
         AIMessage(
@@ -219,7 +219,7 @@ async def test_reason_05_graph_invoke_preserves_reasoning_state(
     monkeypatch.setitem(ADAPTERS, "scripted", MockReasoningAdapter(payload=marker))
 
     # Patch the underlying retrieval helper so act() succeeds without a real DB.
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     # D-08-12: the verbatim turn-1 AIMessage shape — content + semantic_search
     # tool_call + raw provider reasoning kwarg. This is what RecordingLLM emits
@@ -315,7 +315,7 @@ async def test_reason_02_openai_real_adapter(
     monkeypatch.setitem(ADAPTERS, "scripted", OpenAIReasoningAdapter())
 
     # Patch the underlying retrieval helper so act() succeeds without a real DB.
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     turn1_ai = AIMessage(
         content="searching for bars",
@@ -392,7 +392,7 @@ async def test_reason_02_deepseek_real_adapter(
     monkeypatch.setitem(ADAPTERS, "scripted", DeepSeekReasonerAdapter())
 
     # Patch the underlying retrieval helper so act() succeeds without a real DB.
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     turn1_ai = AIMessage(
         content="searching for bars",
@@ -467,7 +467,7 @@ async def test_reason_02_anthropic_real_adapter(
     monkeypatch.setitem(ADAPTERS, "scripted", AnthropicAdapter())
 
     # Patch the underlying retrieval helper so act() succeeds without a real DB.
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     turn1_ai = AIMessage(
         content=[
@@ -567,7 +567,7 @@ async def test_reason_02_gemini_real_adapter(
     monkeypatch.setitem(ADAPTERS, "scripted", GeminiAdapter())
 
     # Patch the underlying retrieval helper so act() succeeds without a real DB.
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     turn1_ai = AIMessage(
         content="searching for bars",

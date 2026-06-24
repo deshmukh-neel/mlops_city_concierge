@@ -39,7 +39,7 @@ from app.agent.io import build_refinement_prompt_message, messages_from_history
 from app.agent.revision import LOW_SIMILARITY_THRESHOLD  # D-12-04: import, never hardcode 0.55
 from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.agent.viability import (  # D-13-03: shared family-aware slot matcher (2026-06-15)
-    _canonical_slot_key,
+    canonical_slot_key,
     requested_type_for_hit,
 )
 from app.config import env_flag, get_settings
@@ -50,7 +50,7 @@ from app.eval.config import (
     load_eval_queries,
 )
 
-_log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Keep this Literal in sync with `app.llm_factory.SUPPORTED_PROVIDERS`. Drift
 # between the two has bitten this script twice (argparse `choices` in 09-03 /
@@ -310,7 +310,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--scenario-ids",
-        type=_parse_scenario_ids,
+        type=parse_scenario_ids,
         default=None,
         help=(
             "Comma-separated EvalQuery.id list to filter cases (default: run "
@@ -326,7 +326,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _parse_scenario_ids(value: str) -> list[str]:
+def parse_scenario_ids(value: str) -> list[str]:
     """Parse the --scenario-ids comma-separated flag into a list of IDs.
 
     Empty entries and whitespace-only entries are dropped so callers can
@@ -436,7 +436,7 @@ def state_from_graph_output(raw: Any) -> ItineraryState:
 # serialization helpers — they are NOT tool invocations. Exclude them from all
 # tool-call counting and tool-name listing so they don't inflate tool_calls_mean
 # in committed baselines.
-_NON_TOOL_SCRATCH_KEYS = frozenset({"prior_committed_stops", "prior_stops_obj"})
+NON_TOOL_SCRATCH_KEYS = frozenset({"prior_committed_stops", "prior_stops_obj"})
 
 
 def count_tool_calls(state: ItineraryState) -> int:
@@ -444,7 +444,7 @@ def count_tool_calls(state: ItineraryState) -> int:
     return sum(
         len(entries)
         for key, entries in state.scratch.items()
-        if isinstance(entries, list) and key not in _NON_TOOL_SCRATCH_KEYS
+        if isinstance(entries, list) and key not in NON_TOOL_SCRATCH_KEYS
     )
 
 
@@ -452,7 +452,7 @@ def tool_names_from_state(state: ItineraryState) -> list[str]:
     """Return tool names that appear in scratchpad insertion order."""
     names: list[str] = []
     for tool_name, entries in state.scratch.items():
-        if isinstance(entries, list) and entries and tool_name not in _NON_TOOL_SCRATCH_KEYS:
+        if isinstance(entries, list) and entries and tool_name not in NON_TOOL_SCRATCH_KEYS:
             names.append(tool_name)
     return names
 
@@ -701,13 +701,13 @@ def rule8_met_per_step_from_state(
 
     max_step = max(step_hits.keys())
 
-    def _viable_sim(hit: Any) -> bool:
+    def viable_sim(hit: Any) -> bool:
         sim = value_from_hit(hit, "similarity")
         if not isinstance(sim, (int, float)) or isinstance(sim, bool):
             return False
         return sim >= viability_threshold
 
-    def _place_id(hit: Any) -> str | None:
+    def place_id_from_hit(hit: Any) -> str | None:
         pid = value_from_hit(hit, "place_id")
         return pid if isinstance(pid, str) and pid else None
 
@@ -720,9 +720,9 @@ def rule8_met_per_step_from_state(
         anon_count = 0  # hits without a usable place_id — counted per occurrence
         for i in range(max_step + 1):
             for hit in step_hits.get(i, []):
-                if not _viable_sim(hit):
+                if not viable_sim(hit):
                     continue
-                pid = _place_id(hit)
+                pid = place_id_from_hit(hit)
                 if pid is not None:
                     seen_ids.add(pid)
                 else:
@@ -733,12 +733,12 @@ def rule8_met_per_step_from_state(
     # Typed path (WR-02): multiset coverage keyed on CANONICAL slot buckets so
     # same-family slots share a distinct-place pool (Codex PR#110 finding 2).
     # Mirrors app.agent.viability.all_slots_viable exactly (D-13-03 single source).
-    required = Counter(_canonical_slot_key(t) for t in requested_types)
+    required = Counter(canonical_slot_key(t) for t in requested_types)
     per_key_ids: dict[str, set[str]] = {k: set() for k in required}
     per_key_anon: dict[str, int] = dict.fromkeys(required, 0)
     for i in range(max_step + 1):
         for hit in step_hits.get(i, []):
-            if not _viable_sim(hit):
+            if not viable_sim(hit):
                 continue
             ptype = value_from_hit(hit, "primary_type")
             if not isinstance(ptype, str):
@@ -748,8 +748,8 @@ def rule8_met_per_step_from_state(
             matched = requested_type_for_hit(ptype, requested_types)
             if matched is None:
                 continue
-            key = _canonical_slot_key(matched)
-            pid = _place_id(hit)
+            key = canonical_slot_key(matched)
+            pid = place_id_from_hit(hit)
             if pid is not None:
                 per_key_ids[key].add(pid)
             else:
@@ -950,7 +950,7 @@ def query_result_from_state(
                 or None,
                 # Phase-14 REPLAY arm keys (new)
                 "replay_multi_message": env_flag("REPLAY_MULTI_MESSAGE_ENABLED"),
-                "replay_content_blocks": env_flag("REPLAY_CONTENT_BLOCKS_ENABLED"),
+                "replay_content_blocks": env_flag("REPLAY_CONTENTBLOCKS_ENABLED"),
             },
         ),
         final_reply=state.final_reply or "",
@@ -958,7 +958,7 @@ def query_result_from_state(
     )
 
 
-def _eval_context_for(case: EvalQuery) -> str:
+def eval_context_for(case: EvalQuery) -> str:
     """Render the offline-eval SystemMessage body for one case."""
     open_at = case.expected_constraints.open_at_iso
     return EVAL_CONTEXT_TEMPLATE.format(
@@ -967,7 +967,7 @@ def _eval_context_for(case: EvalQuery) -> str:
     )
 
 
-def _constraints_for_case(case: EvalQuery) -> UserConstraints:
+def constraints_for_case(case: EvalQuery) -> UserConstraints:
     """Build deterministic eval constraints from checked-in YAML metadata.
 
     Phase 6 root-cause fix for D-06-09 turn-0 failure: mirror ``/chat``'s
@@ -1010,7 +1010,7 @@ async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
     """
     if case.turns:
         return await evaluate_multi_turn_case(graph, case)
-    eval_context = _eval_context_for(case)
+    eval_context = eval_context_for(case)
     start_time = time.monotonic()
     try:
         try:
@@ -1020,7 +1020,7 @@ async def evaluate_case(graph: Any, case: EvalQuery) -> QueryEvalResult:
                         SystemMessage(content=eval_context),
                         HumanMessage(content=case.query),
                     ],
-                    constraints=_constraints_for_case(case),
+                    constraints=constraints_for_case(case),
                 )
             )
         except Exception as exc:  # noqa: BLE001 — D-11-06: mirror multi-turn error capture
@@ -1058,13 +1058,13 @@ async def evaluate_multi_turn_case(graph: Any, case: EvalQuery) -> QueryEvalResu
     returns the partial QueryEvalResult instead of crashing the whole run.
     """
     if case.threading_mode == "prod":
-        result, _state = await _run_prod_threading(graph, case)
+        result, state_obj = await run_prod_threading(graph, case)
         return result
-    eval_context = _eval_context_for(case)
-    return await _run_legacy_threading(graph, case, eval_context)
+    eval_context = eval_context_for(case)
+    return await run_legacy_threading(graph, case, eval_context)
 
 
-async def _run_legacy_threading(
+async def run_legacy_threading(
     graph: Any,
     case: EvalQuery,
     eval_context: str,
@@ -1105,7 +1105,7 @@ async def _run_legacy_threading(
             raw = await graph.ainvoke(
                 ItineraryState(
                     messages=messages_in,
-                    constraints=_constraints_for_case(case),
+                    constraints=constraints_for_case(case),
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -1122,7 +1122,7 @@ async def _run_legacy_threading(
 
 
 # fmt: off
-async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalResult, ItineraryState]:  # noqa: E501
+async def run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalResult, ItineraryState]:  # noqa: E501
     # fmt: on
     """Phase 6 plan 06-06 — prod-threading branch.
 
@@ -1223,7 +1223,7 @@ async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalRes
             raw = await graph.ainvoke(
                 ItineraryState(
                     messages=messages_in,
-                    constraints=_constraints_for_case(case),
+                    constraints=constraints_for_case(case),
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -1233,7 +1233,7 @@ async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalRes
             total_latency += time.monotonic() - start_time
             stage = "turn0" if index == 0 else "turnN"
             error_record = make_error_record(case, stage, exc)
-            # Return the tuple shape _run_prod_threading always returns; the
+            # Return the tuple shape run_prod_threading always returns; the
             # state sentinel is a fresh ItineraryState (not scored).
             return (error_record, ItineraryState())
         total_latency += time.monotonic() - start_time
@@ -1260,7 +1260,7 @@ async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalRes
                     # Carry the full Stop objects in a separate key so the
                     # helper (which needs full Stop instances) can be called
                     # without reconstructing them from the dict shape. This
-                    # key is internal to _run_prod_threading and is never
+                    # key is internal to run_prod_threading and is never
                     # surfaced to the scorer (which only reads the three
                     # documented keys).
                     "prior_stops_obj": list(state.stops),
@@ -1269,7 +1269,7 @@ async def _run_prod_threading(graph: Any, case: EvalQuery) -> tuple[QueryEvalRes
                 # N-2 fix empty-commit branch: still set refinement_context=True
                 # so 06-03's Branch 2 returns 0.0 (fail-loud) rather than 1.0
                 # (silent abstain).
-                _log.warning(
+                logger.warning(
                     "threading_mode=prod turn 0 produced no committed_stops; "
                     "refinement_minimal_edit will score 0.0 via Branch 2 "
                     "fail-loud (refinement_context=True + empty prior). "
@@ -1356,7 +1356,7 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
 
     D-10-03: scorer means are computed ONLY over results with status=="ok".
     Errored runs (status="error") are excluded from means and counted separately
-    in n_errored. A cell with any errored run is INVALID_FOR_BASELINE.
+    in n_errored. A cell with any errored run is INVALID_FORBASELINE.
 
     Distinct accounting:
       - n_scored: completed runs contributing to scorer means (status=="ok").
@@ -1478,7 +1478,7 @@ def aggregate_results(results: Sequence[QueryEvalResult]) -> dict[str, float | i
     # D-10-03: scorer means over scored_results only — errored runs excluded.
     # D-11-03 / CR-01: a check with zero non-None scores in the cell publishes
     # None, never mean([]) == 0.0 — "no signal" must not read as "zero score".
-    # eval_matrix._scorer_means_from_cell skips non-numeric values, so a None
+    # eval_matrix.scorer_means_from_cell skips non-numeric values, so a None
     # mean simply drops out of summary.json scorer stats (not-evaluable).
     for name in DETERMINISTIC_CHECKS:
         scores: list[float] = []
@@ -1499,7 +1499,7 @@ def report_has_errors(report: EvalRunReport) -> bool:
     """Return True when any deterministic check raised an exception OR when
     any whole run failed with an infra/config error (status='error').
 
-    D-10-03: n_errored > 0 means a cell is INVALID_FOR_BASELINE; the matrix
+    D-10-03: n_errored > 0 means a cell is INVALID_FORBASELINE; the matrix
     exit code must be non-zero so operators know a re-run is needed before
     using results as a baseline. check_error_count covers individual scorer
     exceptions on completed runs; n_errored covers whole-run failures.

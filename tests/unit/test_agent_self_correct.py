@@ -27,7 +27,7 @@ from app.agent.state import ItineraryState, UserConstraints
 from tests.conftest import make_hit, make_stop
 
 
-class _ScriptedLLM(BaseChatModel):
+class ScriptedLLM(BaseChatModel):
     scripted: list[AIMessage]
 
     @property
@@ -46,15 +46,15 @@ class _ScriptedLLM(BaseChatModel):
         msg = self.scripted.pop(0)
         return ChatResult(generations=[ChatGeneration(message=msg)])
 
-    def bind_tools(self, tools: Any, **kwargs: Any) -> _ScriptedLLM:
+    def bind_tools(self, tools: Any, **kwargs: Any) -> ScriptedLLM:
         return self
 
 
-def _make_fake(scripted: list[AIMessage]) -> _ScriptedLLM:
-    return _ScriptedLLM(scripted=list(scripted))
+def make_fake(scripted: list[AIMessage]) -> ScriptedLLM:
+    return ScriptedLLM(scripted=list(scripted))
 
 
-_hit = make_hit  # backwards-compat alias for the existing tests in this file
+hit = make_hit  # backwards-compat alias for the existing tests in this file
 
 
 # -------- Per-step deterministic critique -------------------------------------
@@ -63,8 +63,8 @@ _hit = make_hit  # backwards-compat alias for the existing tests in this file
 async def test_empty_results_emits_drop_filter_hint(monkeypatch) -> None:
     """An empty tool result triggers a drop_filter hint, and the next plan
     cycle gets a chance to retry."""
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
-    fake = _make_fake(
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -88,7 +88,7 @@ async def test_empty_results_emits_drop_filter_hint(monkeypatch) -> None:
     hints = out["revision_hints"]
     assert any(h.reason == "empty_results" for h in hints)
     drop = next(h for h in hints if h.reason == "empty_results")
-    # Priority order in _most_restrictive_filter — open_at would win if set.
+    # Priority order in most_restrictive_filter — open_at would win if set.
     assert drop.suggested_action == "drop_filter"
     assert drop.target == {"filter": "price_level_max"}
     assert out["revision_counts"]["empty_results"] == 1
@@ -97,10 +97,10 @@ async def test_empty_results_emits_drop_filter_hint(monkeypatch) -> None:
 
 async def test_all_closed_emits_broaden_query_hint(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [_hit(business_status="CLOSED_PERMANENTLY")],
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [hit(business_status="CLOSED_PERMANENTLY")],
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -122,10 +122,10 @@ async def test_all_closed_emits_broaden_query_hint(monkeypatch) -> None:
 
 async def test_low_similarity_emits_broaden_query_hint(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [_hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)],
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)],
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -154,11 +154,11 @@ async def test_low_similarity_in_neighborhood_escalates_to_clarify(monkeypatch) 
     The gate (low_similarity_count >= MAX_REVISIONS_PER_REASON) is what
     distinguishes "dataset is thin in this neighborhood" from "model wrote
     a bad query" — the latter usually gets fixed within the rephrase budget."""
-    from app.agent.revision import MAX_REVISIONS_PER_REASON, _diagnose_one
+    from app.agent.revision import MAX_REVISIONS_PER_REASON, diagnose_one
 
-    # Direct unit test of _diagnose_one: the gate is on the caller-passed
+    # Direct unit test of diagnose_one: the gate is on the caller-passed
     # low_similarity_count, which the graph wires from state.revision_counts.
-    weak_hit = _hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)
+    weak_hit = hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)
     entry = {
         "args": {
             "query": "omakase sushi tasting",
@@ -169,12 +169,12 @@ async def test_low_similarity_in_neighborhood_escalates_to_clarify(monkeypatch) 
 
     # Below budget: still emits low_similarity (give the model a chance to
     # fix a bad query first).
-    hint_pre = _diagnose_one("semantic_search", entry, low_similarity_count=0)
+    hint_pre = diagnose_one("semantic_search", entry, low_similarity_count=0)
     assert hint_pre is not None
     assert hint_pre.reason == "low_similarity"
 
     # At/above budget: escalates to neighborhood_no_match.
-    hint_post = _diagnose_one(
+    hint_post = diagnose_one(
         "semantic_search", entry, low_similarity_count=MAX_REVISIONS_PER_REASON
     )
     assert hint_post is not None
@@ -193,12 +193,12 @@ async def test_neighborhood_no_match_fires_in_graph_after_budget_exhausted(monke
     dataset has 3 Sushi Restaurants with max sim 0.51 — no rephrase ever
     crosses the 0.55 threshold."""
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [_hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)],
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)],
     )
     # Three semantic_search rounds: first two consume the low_similarity
     # rephrase budget; the third should escalate.
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -261,10 +261,10 @@ async def test_low_similarity_no_neighborhood_still_emits_broaden_query(monkeypa
     `neighborhood_no_match` branch is gated on filters.neighborhood being
     set. Otherwise we'd silently lose the existing rephrase-the-query nudge."""
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [_hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)],
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [hit(similarity=LOW_SIMILARITY_THRESHOLD - 0.1)],
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -288,11 +288,11 @@ async def test_low_similarity_no_neighborhood_still_emits_broaden_query(monkeypa
 
 
 async def test_tool_error_emits_try_different_tool_hint(monkeypatch) -> None:
-    def _boom(**_kw):
+    def boom(**unused_kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr("app.agent.tools._semantic_search", _boom)
-    fake = _make_fake(
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", boom)
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -315,8 +315,8 @@ async def test_tool_error_emits_try_different_tool_hint(monkeypatch) -> None:
 async def test_healthy_result_emits_no_hint(monkeypatch) -> None:
     """A normal high-similarity OPERATIONAL result must not emit a hint —
     we don't want to thrash on good data."""
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [_hit()])
-    fake = _make_fake(
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [hit()])
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -335,9 +335,9 @@ async def test_healthy_result_emits_no_hint(monkeypatch) -> None:
 async def test_retry_budget_caps_hints_per_reason(monkeypatch) -> None:
     """After MAX_REVISIONS_PER_REASON empty_results hints, no further hint is
     emitted for the same reason — the agent ships rather than loops."""
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
-    def _empty_call(i: int) -> AIMessage:
+    def empty_call(i: int) -> AIMessage:
         return AIMessage(
             content="",
             tool_calls=[
@@ -345,11 +345,11 @@ async def test_retry_budget_caps_hints_per_reason(monkeypatch) -> None:
             ],
         )
 
-    fake = _make_fake(
+    fake = make_fake(
         [
-            _empty_call(1),
-            _empty_call(2),
-            _empty_call(3),
+            empty_call(1),
+            empty_call(2),
+            empty_call(3),
             AIMessage(content="giving up cleanly", tool_calls=[]),
         ]
     )
@@ -373,7 +373,7 @@ async def test_itinerary_violation_triggers_revision(monkeypatch) -> None:
     # Stand in for the DB-backed check.
     monkeypatch.setattr(
         "app.agent.revision.itinerary_violations",
-        lambda _state: ["geographic_coherence"],
+        lambda state_obj: ["geographic_coherence"],
     )
     # Pre-seed state with stops to trigger the per-itinerary path.
     state = ItineraryState(
@@ -383,7 +383,7 @@ async def test_itinerary_violation_triggers_revision(monkeypatch) -> None:
             make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             # First turn: LLM tries to finalize without a tool call.
             AIMessage(content="here's the plan", tool_calls=[]),
@@ -399,11 +399,11 @@ async def test_itinerary_violation_triggers_revision(monkeypatch) -> None:
     # actually clears the gate.
     calls = {"n": 0}
 
-    def _violations(_state):
+    def violations(state_obj):
         calls["n"] += 1
         return ["geographic_coherence"] if calls["n"] == 1 else []
 
-    monkeypatch.setattr("app.agent.revision.itinerary_violations", _violations)
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", violations)
 
     out = await graph.ainvoke(state)
 
@@ -420,7 +420,7 @@ async def test_itinerary_violation_ships_with_caveats_after_exhaustion(monkeypat
     caveat suffix instead of looping forever."""
     monkeypatch.setattr(
         "app.agent.revision.itinerary_violations",
-        lambda _state: ["geographic_coherence"],
+        lambda state_obj: ["geographic_coherence"],
     )
 
     state = ItineraryState(
@@ -431,7 +431,7 @@ async def test_itinerary_violation_ships_with_caveats_after_exhaustion(monkeypat
         ],
         revision_counts={"geographic_coherence": MAX_REVISIONS_PER_REASON},
     )
-    fake = _make_fake([AIMessage(content="my best plan", tool_calls=[])])
+    fake = make_fake([AIMessage(content="my best plan", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(state)
 
@@ -480,31 +480,31 @@ def test_vibe_check_returns_none_when_disabled(monkeypatch) -> None:
     )
     # Even with a non-None judge, disabled env var short-circuits to None.
 
-    class _Judge:
-        def invoke(self, _msgs):  # pragma: no cover - never called
+    class Judge:
+        def invoke(self, messages_obj):  # pragma: no cover - never called
             raise AssertionError("judge_llm should not be invoked when disabled")
 
-    assert vibe.vibe_check(state, _Judge()) is None
+    assert vibe.vibe_check(state, Judge()) is None
 
 
 def test_vibe_check_returns_none_for_single_stop(monkeypatch) -> None:
     monkeypatch.setenv(vibe.VIBE_ENV_VAR, "true")
 
-    class _Judge:
-        def invoke(self, _msgs):  # pragma: no cover
+    class Judge:
+        def invoke(self, messages_obj):  # pragma: no cover
             raise AssertionError("judge_llm should not be invoked for 1 stop")
 
     state = ItineraryState(
         stops=[make_stop("ChIJtest_p1_aaaaaaaa", name="A")],
     )
-    assert vibe.vibe_check(state, _Judge()) is None
+    assert vibe.vibe_check(state, Judge()) is None
 
 
 def test_vibe_check_parses_judge_score(monkeypatch) -> None:
     monkeypatch.setenv(vibe.VIBE_ENV_VAR, "true")
 
-    class _Judge:
-        def invoke(self, _msgs):
+    class Judge:
+        def invoke(self, messages_obj):
             return AIMessage(content='{"score": 4.2, "rationale": "great match"}')
 
     state = ItineraryState(
@@ -514,7 +514,7 @@ def test_vibe_check_parses_judge_score(monkeypatch) -> None:
             make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
-    assert vibe.vibe_check(state, _Judge()) == 4.2
+    assert vibe.vibe_check(state, Judge()) == 4.2
 
 
 def test_vibe_check_returns_none_on_unparseable_json(monkeypatch) -> None:
@@ -522,8 +522,8 @@ def test_vibe_check_returns_none_on_unparseable_json(monkeypatch) -> None:
     a real user request."""
     monkeypatch.setenv(vibe.VIBE_ENV_VAR, "true")
 
-    class _Judge:
-        def invoke(self, _msgs):
+    class Judge:
+        def invoke(self, messages_obj):
             return AIMessage(content="not json at all")
 
     state = ItineraryState(
@@ -532,7 +532,7 @@ def test_vibe_check_returns_none_on_unparseable_json(monkeypatch) -> None:
             make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
-    assert vibe.vibe_check(state, _Judge()) is None
+    assert vibe.vibe_check(state, Judge()) is None
 
 
 # -------- Edge cases ----------------------------------------------------------
@@ -543,12 +543,12 @@ async def test_finalizing_with_no_stops_just_finalizes(monkeypatch) -> None:
     stops) must not run itinerary violations — there's nothing to check."""
     called = {"violations": False}
 
-    def _violations(_state):
+    def violations(state_obj):
         called["violations"] = True
         return []
 
-    monkeypatch.setattr("app.agent.revision.itinerary_violations", _violations)
-    fake = _make_fake([AIMessage(content="how many stops?", tool_calls=[])])
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", violations)
+    fake = make_fake([AIMessage(content="how many stops?", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="plan it")]))
 
@@ -562,7 +562,7 @@ async def test_multiple_violations_picks_first_actionable(monkeypatch) -> None:
     left — not all of them at once."""
     monkeypatch.setattr(
         "app.agent.revision.itinerary_violations",
-        lambda _state: ["temporal_coherence", "geographic_coherence"],
+        lambda state_obj: ["temporal_coherence", "geographic_coherence"],
     )
     state = ItineraryState(
         messages=[HumanMessage(content="plan")],
@@ -573,7 +573,7 @@ async def test_multiple_violations_picks_first_actionable(monkeypatch) -> None:
         # Temporal exhausted; geographic has budget left.
         revision_counts={"temporal_coherence": MAX_REVISIONS_PER_REASON},
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(content="initial plan", tool_calls=[]),
             AIMessage(content="revised plan", tool_calls=[]),
@@ -582,11 +582,11 @@ async def test_multiple_violations_picks_first_actionable(monkeypatch) -> None:
     # Toggle the second pass to clean.
     n = {"i": 0}
 
-    def _violations(_state):
+    def violations(state_obj):
         n["i"] += 1
         return ["temporal_coherence", "geographic_coherence"] if n["i"] == 1 else []
 
-    monkeypatch.setattr("app.agent.revision.itinerary_violations", _violations)
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", violations)
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(state)
 
@@ -599,7 +599,7 @@ async def test_multiple_violations_picks_first_actionable(monkeypatch) -> None:
 async def test_max_steps_short_circuits_critique(monkeypatch) -> None:
     """Even mid-revision, max_steps preempts further work — the user gets
     the best plan so far, with the truncation message if no final exists."""
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
     looping = [
         AIMessage(
             content="",
@@ -609,7 +609,7 @@ async def test_max_steps_short_circuits_critique(monkeypatch) -> None:
         )
         for i in range(20)
     ]
-    fake = _make_fake(looping)
+    fake = make_fake(looping)
     graph = build_agent_graph(fake, max_steps=2)
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
 
@@ -621,8 +621,8 @@ async def test_max_steps_short_circuits_critique(monkeypatch) -> None:
 async def test_revision_counts_persist_across_turns(monkeypatch) -> None:
     """Two empty searches in a row both bump the same counter — we don't
     reset it between turns."""
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
-    fake = _make_fake(
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -645,8 +645,8 @@ async def test_critique_message_is_visible_to_plan(monkeypatch) -> None:
     """The HumanMessage that critique injects ends up in state.messages so
     it shows up in tracing and so the next plan call sees it. Sanity check
     that the [critique:step] prefix is present."""
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
-    fake = _make_fake(
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -675,22 +675,22 @@ def test_nearby_zero_similarity_does_not_emit_low_similarity() -> None:
     anchored-nearby pattern (Kimi looped 0/8; DeepSeek only converged because
     it happened to avoid `nearby`). low_similarity applies to semantic_search
     only."""
-    from app.agent.revision import _diagnose_one
+    from app.agent.revision import diagnose_one
 
     zero_sim_result = [make_hit(place_id="ChIJtest_n1_aaaaaaaa", similarity=0.0)]
 
     # nearby with all-zero similarity (its normal output) → NO low_similarity
-    hint = _diagnose_one(
+    hint = diagnose_one(
         "nearby", {"args": {"place_id": "ChIJtest_p1_aaaaaaaa"}, "result": zero_sim_result}
     )
     assert hint is None, f"nearby must not emit low_similarity, got {hint!r}"
 
     # get_details / kg_traverse likewise exempt
-    assert _diagnose_one("kg_traverse", {"args": {}, "result": zero_sim_result}) is None
+    assert diagnose_one("kg_traverse", {"args": {}, "result": zero_sim_result}) is None
 
     # semantic_search with genuinely low similarity STILL flags (regression
     # guard the opposite direction — we didn't disable the real check).
-    ss_hint = _diagnose_one(
+    ss_hint = diagnose_one(
         "semantic_search",
         {"args": {"query": "obscure"}, "result": [make_hit(similarity=0.10)]},
     )
@@ -700,10 +700,10 @@ def test_nearby_zero_similarity_does_not_emit_low_similarity() -> None:
 async def test_diagnose_handles_no_scratch_entry() -> None:
     """If somehow critique fires without any scratch entry (defensive),
     don't crash and don't emit a hint."""
-    from app.agent.revision import _diagnose_last_tool_result
+    from app.agent.revision import diagnose_last_tool_result
 
     state = ItineraryState(messages=[HumanMessage(content="hi")])
-    assert _diagnose_last_tool_result(state) is None
+    assert diagnose_last_tool_result(state) is None
 
 
 async def test_diagnose_walks_every_tool_call_in_round() -> None:
@@ -712,7 +712,7 @@ async def test_diagnose_walks_every_tool_call_in_round() -> None:
     order — not just the last one."""
     from langchain_core.messages import ToolMessage
 
-    from app.agent.revision import _diagnose_last_tool_result
+    from app.agent.revision import diagnose_last_tool_result
 
     state = ItineraryState(
         messages=[
@@ -743,14 +743,14 @@ async def test_diagnose_walks_every_tool_call_in_round() -> None:
             "nearby": [
                 {
                     "args": {"place_id": "ChIJtest_p1_aaaaaaaa"},
-                    "result": [_hit()],
+                    "result": [hit()],
                     "step": 0,
                     "id": "ChIJtest_b_aaaaaaaaa",
                 },
             ],
         },
     )
-    hint = _diagnose_last_tool_result(state)
+    hint = diagnose_last_tool_result(state)
     assert hint is not None
     # Tool-call order: semantic_search came first; its empty result wins.
     assert hint.reason == "empty_results"
@@ -759,9 +759,9 @@ async def test_diagnose_walks_every_tool_call_in_round() -> None:
 def test_final_with_caveats_includes_each_violation_name() -> None:
     """Caveats reply must lead with the agent's own body and list every
     violation name verbatim — that's what the user-facing UI relies on."""
-    from app.agent.revision import _final_with_caveats
+    from app.agent.revision import final_with_caveats
 
-    out = _final_with_caveats("my plan", ["v1", "v2"])
+    out = final_with_caveats("my plan", ["v1", "v2"])
     assert out.startswith("my plan")
     assert "v1" in out
     assert "v2" in out
@@ -771,9 +771,9 @@ def test_final_with_caveats_includes_each_violation_name() -> None:
 def test_final_with_caveats_handles_empty_body() -> None:
     """If the LLM somehow ended up with no content, the caveat must still
     render coherently rather than NoneType-error."""
-    from app.agent.revision import _final_with_caveats
+    from app.agent.revision import final_with_caveats
 
-    out = _final_with_caveats("", ["v1"])
+    out = final_with_caveats("", ["v1"])
     assert "Caveats:" in out
     assert "v1" in out
 
@@ -808,7 +808,7 @@ def test_hint_for_violation_maps_each_check(
     """Every check name supported by itinerary_violations() must map to a
     structured RevisionHint. The catch-all (anything unmapped) must produce
     a `constraint_unmet_in_final` hint rather than crash."""
-    from app.agent.revision import _hint_for_violation
+    from app.agent.revision import hint_for_violation
 
     # The rationale_stop_alignment branch reads stop.rationale + stop.name to
     # locate the offending stop. The fixture stops need rationales that fail
@@ -832,7 +832,7 @@ def test_hint_for_violation_maps_each_check(
         ],
         constraints=UserConstraints(num_stops=3),
     )
-    hint = _hint_for_violation(check, state)
+    hint = hint_for_violation(check, state)
     assert hint.reason == expected_reason
     assert hint.suggested_action == expected_action
 
@@ -841,13 +841,13 @@ def test_stop_count_mismatch_action_is_directional() -> None:
     """When the LLM commits MORE stops than the user requested, the suggested
     action must tell it to remove — not add — so the hint isn't actively
     misleading. The deficit case is covered above; this is the surplus case."""
-    from app.agent.revision import _hint_for_violation
+    from app.agent.revision import hint_for_violation
 
     state = ItineraryState(
         stops=[make_stop(f"p{i}", name=f"P{i}") for i in range(4)],
         constraints=UserConstraints(num_stops=3),
     )
-    hint = _hint_for_violation("stop_count_satisfied", state)
+    hint = hint_for_violation("stop_count_satisfied", state)
     assert hint.reason == "stop_count_mismatch"
     assert hint.suggested_action == "remove_extra_stops"
 
@@ -859,7 +859,7 @@ def test_first_misaligned_stop_index_returns_first_offender() -> None:
     """Walk state.stops, return the index of the first stop that fails
     is_rationale_aligned. With stop[0] aligned by name and stop[1] carrying
     the closure-swap placeholder, the helper returns 1."""
-    from app.agent.revision import _first_misaligned_stop_index
+    from app.agent.revision import first_misaligned_stop_index
 
     state = ItineraryState(
         stops=[
@@ -877,13 +877,13 @@ def test_first_misaligned_stop_index_returns_first_offender() -> None:
             ),
         ],
     )
-    assert _first_misaligned_stop_index(state) == 1
+    assert first_misaligned_stop_index(state) == 1
 
 
 def test_first_misaligned_stop_index_handles_none_primary_type() -> None:
     """A stop with primary_type=None and no name substring is misaligned —
     helper must not crash on None and must return that index."""
-    from app.agent.revision import _first_misaligned_stop_index
+    from app.agent.revision import first_misaligned_stop_index
 
     state = ItineraryState(
         stops=[
@@ -895,23 +895,23 @@ def test_first_misaligned_stop_index_handles_none_primary_type() -> None:
             ),
         ],
     )
-    assert _first_misaligned_stop_index(state) == 0
+    assert first_misaligned_stop_index(state) == 0
 
 
 def test_first_misaligned_stop_index_empty_stops_returns_zero() -> None:
     """Defensive fallback: the dispatcher should never reach this branch with
     empty stops (itinerary_violations doesn't fire on empty), but the helper
     MUST return a sensible value rather than raise IndexError."""
-    from app.agent.revision import _first_misaligned_stop_index
+    from app.agent.revision import first_misaligned_stop_index
 
-    assert _first_misaligned_stop_index(ItineraryState(stops=[])) == 0
+    assert first_misaligned_stop_index(ItineraryState(stops=[])) == 0
 
 
 def test_hint_for_violation_rationale_misaligned_targets_stop_index() -> None:
     """RevisionHint.target carries the 0-based stop_index so downstream
     observers (and the model itself, via the HumanMessage) can locate the
     offending stop."""
-    from app.agent.revision import _hint_for_violation
+    from app.agent.revision import hint_for_violation
 
     state = ItineraryState(
         stops=[
@@ -929,7 +929,7 @@ def test_hint_for_violation_rationale_misaligned_targets_stop_index() -> None:
             ),
         ],
     )
-    hint = _hint_for_violation("rationale_stop_alignment", state)
+    hint = hint_for_violation("rationale_stop_alignment", state)
     assert hint.reason == "rationale_misaligned"
     assert hint.target == {"stop_index": 1}
     # 1-indexed in the user-facing detail string (matches existing hint style).
@@ -951,7 +951,7 @@ async def test_revision_emits_rationale_misaligned_on_closure_placeholder_bleed(
     # Force itinerary_violations to report exactly the rationale check failing.
     monkeypatch.setattr(
         "app.agent.revision.itinerary_violations",
-        lambda _state: ["rationale_stop_alignment"],
+        lambda state_obj: ["rationale_stop_alignment"],
     )
 
     state = ItineraryState(
@@ -992,7 +992,7 @@ async def test_revision_rationale_misaligned_respects_retry_budget(
 
     monkeypatch.setattr(
         "app.agent.revision.itinerary_violations",
-        lambda _state: ["rationale_stop_alignment"],
+        lambda state_obj: ["rationale_stop_alignment"],
     )
 
     state = ItineraryState(
@@ -1010,7 +1010,7 @@ async def test_revision_rationale_misaligned_respects_retry_budget(
     out = critique_final_with_stops(state, last=AIMessage(content="best plan"), judge_llm=None)
 
     assert out["done"] is True
-    # Falls through to caveats path — the existing _final_with_caveats contract.
+    # Falls through to caveats path — the existing final_with_caveats contract.
     assert "Caveats:" in out["final_reply"]
 
 
@@ -1019,7 +1019,7 @@ async def test_diagnose_pairs_by_tool_call_id() -> None:
     scratch entry by id, not blur into max(step)."""
     from langchain_core.messages import ToolMessage
 
-    from app.agent.revision import _diagnose_last_tool_result
+    from app.agent.revision import diagnose_last_tool_result
 
     state = ItineraryState(
         messages=[
@@ -1050,14 +1050,14 @@ async def test_diagnose_pairs_by_tool_call_id() -> None:
                 # Second (id="second") was healthy.
                 {
                     "args": {"place_id": "ChIJtest_p2_aaaaaaaa"},
-                    "result": [_hit()],
+                    "result": [hit()],
                     "step": 0,
                     "id": "second",
                 },
             ],
         },
     )
-    hint = _diagnose_last_tool_result(state)
+    hint = diagnose_last_tool_result(state)
     assert hint is not None
     assert hint.reason == "empty_results"
 
@@ -1065,25 +1065,25 @@ async def test_diagnose_pairs_by_tool_call_id() -> None:
 # -------- Vibe pass wired into the graph --------------------------------------
 
 
-class _StubJudge:
+class StubJudge:
     """Minimal judge LLM: returns a scripted JSON score string."""
 
     def __init__(self, score: float) -> None:
-        self._score = score
+        self.score_value = score
         self.calls = 0
 
-    def invoke(self, _msgs):  # pragma: no cover - exact wire format unused
+    def invoke(self, messages_obj):  # pragma: no cover - exact wire format unused
         self.calls += 1
-        return AIMessage(content=f'{{"score": {self._score}, "rationale": "stub"}}')
+        return AIMessage(content=f'{{"score": {self.score_value}, "rationale": "stub"}}')
 
 
 async def test_vibe_pass_injects_revision_when_below_threshold(monkeypatch) -> None:
     """Deterministic checks pass, vibe scores below threshold -> hint and
     re-plan, not finalize."""
-    monkeypatch.setattr("app.agent.revision.itinerary_violations", lambda _state: [])
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", lambda state_obj: [])
     monkeypatch.setenv(vibe.VIBE_ENV_VAR, "true")
 
-    judge = _StubJudge(score=2.0)  # below VIBE_THRESHOLD=3.0
+    judge = StubJudge(score=2.0)  # below VIBE_THRESHOLD=3.0
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
         stops=[
@@ -1091,20 +1091,20 @@ async def test_vibe_pass_injects_revision_when_below_threshold(monkeypatch) -> N
             make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(content="initial plan", tool_calls=[]),
             AIMessage(content="revised plan", tool_calls=[]),
         ]
     )
     # After the first vibe call, raise the score so the second pass clears.
-    second_judge = _StubJudge(score=4.5)
+    second_judge = StubJudge(score=4.5)
     judges = [judge, second_judge]
 
-    def _fake_vibe_check(_state, _judge):
-        return judges.pop(0)._score if judges else 4.5
+    def fake_vibe_check(state_obj, judge_obj):
+        return judges.pop(0).score_value if judges else 4.5
 
-    monkeypatch.setattr("app.agent.revision.vibe.vibe_check", _fake_vibe_check)
+    monkeypatch.setattr("app.agent.revision.vibe.vibe_check", fake_vibe_check)
 
     graph = build_agent_graph(fake, max_steps=4, judge_llm=judge)
     out = await graph.ainvoke(state)
@@ -1118,7 +1118,7 @@ async def test_vibe_pass_injects_revision_when_below_threshold(monkeypatch) -> N
 async def test_vibe_pass_skips_when_judge_none(monkeypatch) -> None:
     """No judge wired (env disabled, or make_judge returned None) -> finalize
     without a vibe pass even if vibe_check would normally fire."""
-    monkeypatch.setattr("app.agent.revision.itinerary_violations", lambda _state: [])
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", lambda state_obj: [])
 
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
@@ -1127,7 +1127,7 @@ async def test_vibe_pass_skips_when_judge_none(monkeypatch) -> None:
             make_stop("ChIJtest_p2_aaaaaaaa", name="B"),
         ],
     )
-    fake = _make_fake([AIMessage(content="my plan", tool_calls=[])])
+    fake = make_fake([AIMessage(content="my plan", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4, judge_llm=None)
     # Ensure no env-var path constructs a judge.
     monkeypatch.delenv(vibe.VIBE_ENV_VAR, raising=False)
@@ -1141,8 +1141,8 @@ async def test_vibe_pass_skips_when_judge_none(monkeypatch) -> None:
 async def test_vibe_pass_respects_retry_budget(monkeypatch) -> None:
     """Once vibe_mismatch hits MAX_REVISIONS_PER_REASON, finalize with the
     current plan rather than loop forever."""
-    monkeypatch.setattr("app.agent.revision.itinerary_violations", lambda _state: [])
-    monkeypatch.setattr("app.agent.revision.vibe.vibe_check", lambda *_a, **_k: 1.0)
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", lambda state_obj: [])
+    monkeypatch.setattr("app.agent.revision.vibe.vibe_check", lambda *value_a, **key: 1.0)
 
     state = ItineraryState(
         messages=[HumanMessage(content="date night")],
@@ -1152,8 +1152,8 @@ async def test_vibe_pass_respects_retry_budget(monkeypatch) -> None:
         ],
         revision_counts={"vibe_mismatch": MAX_REVISIONS_PER_REASON},
     )
-    fake = _make_fake([AIMessage(content="ship it", tool_calls=[])])
-    graph = build_agent_graph(fake, max_steps=4, judge_llm=_StubJudge(1.0))
+    fake = make_fake([AIMessage(content="ship it", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4, judge_llm=StubJudge(1.0))
     out = await graph.ainvoke(state)
 
     assert out["done"] is True
@@ -1165,15 +1165,15 @@ async def test_vibe_pass_skipped_when_violations_present(monkeypatch) -> None:
     deterministic revision takes precedence."""
     monkeypatch.setattr(
         "app.agent.revision.itinerary_violations",
-        lambda _state: ["geographic_coherence"],
+        lambda state_obj: ["geographic_coherence"],
     )
     judge_calls = {"n": 0}
 
-    def _vibe(*_a, **_k):
+    def vibe(*value_a, **key):
         judge_calls["n"] += 1
         return 1.0
 
-    monkeypatch.setattr("app.agent.revision.vibe.vibe_check", _vibe)
+    monkeypatch.setattr("app.agent.revision.vibe.vibe_check", vibe)
 
     state = ItineraryState(
         messages=[HumanMessage(content="hi")],
@@ -1183,8 +1183,8 @@ async def test_vibe_pass_skipped_when_violations_present(monkeypatch) -> None:
         ],
         revision_counts={"geographic_coherence": MAX_REVISIONS_PER_REASON},  # exhausted
     )
-    fake = _make_fake([AIMessage(content="best effort", tool_calls=[])])
-    graph = build_agent_graph(fake, max_steps=4, judge_llm=_StubJudge(1.0))
+    fake = make_fake([AIMessage(content="best effort", tool_calls=[])])
+    graph = build_agent_graph(fake, max_steps=4, judge_llm=StubJudge(1.0))
     out = await graph.ainvoke(state)
 
     assert judge_calls["n"] == 0
@@ -1194,13 +1194,13 @@ async def test_vibe_pass_skipped_when_violations_present(monkeypatch) -> None:
 def test_make_judge_returns_none_without_creds(monkeypatch) -> None:
     """If neither OPENAI nor GEMINI key is set, make_judge logs and returns
     None rather than raising."""
-    monkeypatch.setattr("app.agent.critique.vibe.get_settings", lambda: _NoCreds())
+    monkeypatch.setattr("app.agent.critique.vibe.get_settings", lambda: NoCreds())
     monkeypatch.delenv(vibe.JUDGE_PROVIDER_ENV_VAR, raising=False)
     monkeypatch.delenv(vibe.JUDGE_MODEL_ENV_VAR, raising=False)
     assert vibe.make_judge() is None
 
 
-class _NoCreds:
+class NoCreds:
     openai_api_key = ""
     gemini_api_key = ""
 
@@ -1211,13 +1211,13 @@ def test_make_judge_uses_factory_for_configured_provider(monkeypatch, mocker) ->
     monkeypatch.setenv(vibe.JUDGE_PROVIDER_ENV_VAR, "deepseek")
     monkeypatch.setenv(vibe.JUDGE_MODEL_ENV_VAR, "deepseek-chat")
 
-    class _HasDeepseek:
+    class HasDeepseek:
         openai_api_key = ""
         gemini_api_key = ""
         deepseek_api_key = "ds-key"
         moonshot_api_key = ""
 
-    monkeypatch.setattr("app.agent.critique.vibe.get_settings", lambda: _HasDeepseek())
+    monkeypatch.setattr("app.agent.critique.vibe.get_settings", lambda: HasDeepseek())
     factory = mocker.patch("app.agent.critique.vibe.build_chat_model", return_value="judge-llm")
 
     out = vibe.make_judge()

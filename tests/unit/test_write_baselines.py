@@ -22,17 +22,17 @@ import pytest
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-_SCRIPT_PATH = REPO_ROOT / "scripts" / "write_baselines.py"
+SCRIPT_PATH = REPO_ROOT / "scripts" / "write_baselines.py"
 
 
-def _load_script():
+def load_script():
     """Import scripts.write_baselines and return the module."""
     import scripts.write_baselines as wb  # noqa: PLC0415
 
     return wb
 
 
-def _make_summary(
+def make_summary(
     scenario_id: str,
     provider_key: str,
     n_scored: int,
@@ -75,9 +75,9 @@ def _make_summary(
 class TestWriteBaselines:
     def test_eligible_cell_writes_baseline_and_exits_zero(self, tmp_path: Path) -> None:
         """Eligible cell with n_scored == n_requested writes a baseline JSON; exit 0."""
-        wb = _load_script()
+        wb = load_script()
 
-        summary_data = _make_summary(
+        summary_data = make_summary(
             scenario_id="test_scenario",
             provider_key="openai/gpt-4o-mini",
             n_scored=5,
@@ -111,10 +111,10 @@ class TestWriteBaselines:
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         """Cell with n_scored < n_requested: REFUSED, D-10-03 message on stderr, exit 1."""
-        wb = _load_script()
+        wb = load_script()
 
         # n_scored=3 < n_requested=5 → refusal
-        summary_data = _make_summary(
+        summary_data = make_summary(
             scenario_id="omakase_test",
             provider_key="openai/gpt-4o-mini",
             n_scored=3,
@@ -152,7 +152,7 @@ class TestWriteBaselines:
         provenance stamp that also satisfied the check_baselines_fresh.py
         staleness gate without any actual data refresh.
         """
-        wb = _load_script()
+        wb = load_script()
 
         scenario_id = "omakase_test"
         provider_key = "openai/gpt-4o-mini"
@@ -183,7 +183,7 @@ class TestWriteBaselines:
         prior_bytes = baseline_path.read_bytes()
 
         # New summary: n_scored=3 < n_requested=5 → ALL cells refused.
-        summary_data = _make_summary(
+        summary_data = make_summary(
             scenario_id=scenario_id,
             provider_key=provider_key,
             n_scored=3,
@@ -207,9 +207,9 @@ class TestWriteBaselines:
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         """Scenario with baseline_eligible=False: all cells refused with D-10-09; exit 1."""
-        wb = _load_script()
+        wb = load_script()
 
-        summary_data = _make_summary(
+        summary_data = make_summary(
             scenario_id="late_night_closure_cascade",
             provider_key="openai/gpt-4o-mini",
             n_scored=5,
@@ -237,7 +237,7 @@ class TestWriteBaselines:
 
     def test_observations_carried_forward_on_rewrite(self, tmp_path: Path) -> None:
         """Prior _observations in existing baseline cell are carried forward on rewrite."""
-        wb = _load_script()
+        wb = load_script()
 
         scenario_id = "refinement_cheaper"
         provider_key = "anthropic/claude-sonnet-4-6"
@@ -278,7 +278,7 @@ class TestWriteBaselines:
                 "n": 5,
             }
         }
-        summary_data = _make_summary(
+        summary_data = make_summary(
             scenario_id=scenario_id,
             provider_key=provider_key,
             n_scored=5,
@@ -299,7 +299,7 @@ class TestWriteBaselines:
 
     def test_missing_summary_exits_two(self, tmp_path: Path) -> None:
         """Missing summary.json → exit 2 (infra failure), distinct from refusal (1)."""
-        wb = _load_script()
+        wb = load_script()
 
         missing_path = tmp_path / "nonexistent_summary.json"
         baselines_dir = tmp_path / "baselines"
@@ -313,7 +313,7 @@ class TestWriteBaselines:
 
     def test_malformed_summary_exits_two(self, tmp_path: Path) -> None:
         """Malformed (non-JSON) summary.json → exit 2 (infra failure)."""
-        wb = _load_script()
+        wb = load_script()
 
         bad_path = tmp_path / "bad_summary.json"
         bad_path.write_text("not valid json {{{", encoding="utf-8")
@@ -331,7 +331,7 @@ class TestWriteBaselines:
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "DEEPSEEK_API_KEY",
-            "GOOGLE_API_KEY",
+            "GOOGLEAPI_KEY",
         ):
             monkeypatch.delenv(key, raising=False)
 

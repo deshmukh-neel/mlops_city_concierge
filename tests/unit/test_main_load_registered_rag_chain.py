@@ -1,6 +1,6 @@
 """Unit tests for the RAG_MODEL_OVERRIDE plumbing in app.main.
 
-Parser cases live alongside the helper module (app.main._parse_model_override);
+Parser cases live alongside the helper module (app.main.parse_model_override);
 integration cases exercise load_registered_rag_chain's override branch end-to-end
 with mocked MLflow and downstream chain construction.
 """
@@ -12,10 +12,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.config import get_settings
-from app.main import _parse_model_override, load_registered_rag_chain
+from app.main import load_registered_rag_chain, parse_model_override
 
 
-def _stub_mlflow_for_load(mocker, *, version: str = "7", run_id: str = "run-xyz"):
+def stub_mlflow_for_load(mocker, *, version: str = "7", run_id: str = "run-xyz"):
     """Patch mlflow + downstream dependencies so load_registered_rag_chain runs
     purely against fakes. Returns the MlflowClient instance so callers can assert
     on get_model_version / get_model_version_by_alias calls.
@@ -47,16 +47,16 @@ def _stub_mlflow_for_load(mocker, *, version: str = "7", run_id: str = "run-xyz"
 
 
 def test_parse_model_override_version_returns_version_kind() -> None:
-    assert _parse_model_override("version:7") == ("version", "7")
+    assert parse_model_override("version:7") == ("version", "7")
 
 
 def test_parse_model_override_alias_returns_alias_kind() -> None:
-    assert _parse_model_override("alias:my-test-alias") == ("alias", "my-test-alias")
+    assert parse_model_override("alias:my-test-alias") == ("alias", "my-test-alias")
 
 
 def test_parse_model_override_strips_whitespace_from_value() -> None:
     # Shell env exports often have stray spaces; treat them as harmless.
-    assert _parse_model_override("version: 7 ") == ("version", "7")
+    assert parse_model_override("version: 7 ") == ("version", "7")
 
 
 @pytest.mark.parametrize(
@@ -65,12 +65,12 @@ def test_parse_model_override_strips_whitespace_from_value() -> None:
 )
 def test_parse_model_override_rejects_malformed_value(raw: str) -> None:
     with pytest.raises(ValueError, match=r"version:N.*alias:NAME"):
-        _parse_model_override(raw)
+        parse_model_override(raw)
 
 
 def test_parse_model_override_error_message_contains_offending_value() -> None:
     with pytest.raises(ValueError) as exc_info:
-        _parse_model_override("garbage")
+        parse_model_override("garbage")
     # repr("garbage") -> "'garbage'" — the developer sees exactly what they typed.
     assert repr("garbage") in str(exc_info.value)
 
@@ -91,7 +91,7 @@ def test_load_registered_rag_chain_uses_production_alias_when_override_unset(
     """
     monkeypatch.delenv("RAG_MODEL_OVERRIDE", raising=False)
     get_settings.cache_clear()
-    client = _stub_mlflow_for_load(mocker)
+    client = stub_mlflow_for_load(mocker)
 
     loaded = load_registered_rag_chain()
 
@@ -108,7 +108,7 @@ def test_load_registered_rag_chain_uses_version_when_override_is_version(
     """OVR-02: 'version:N' routes to client.get_model_version(name, N)."""
     monkeypatch.setenv("RAG_MODEL_OVERRIDE", "version:7")
     get_settings.cache_clear()
-    client = _stub_mlflow_for_load(mocker)
+    client = stub_mlflow_for_load(mocker)
 
     load_registered_rag_chain()
 
@@ -122,7 +122,7 @@ def test_load_registered_rag_chain_uses_alias_when_override_is_named_alias(
     """OVR-02: 'alias:NAME' routes to client.get_model_version_by_alias(name, NAME)."""
     monkeypatch.setenv("RAG_MODEL_OVERRIDE", "alias:my-test-alias")
     get_settings.cache_clear()
-    client = _stub_mlflow_for_load(mocker)
+    client = stub_mlflow_for_load(mocker)
 
     load_registered_rag_chain()
 
@@ -138,7 +138,7 @@ def test_load_registered_rag_chain_treats_empty_override_as_unset(mocker, monkey
     """
     monkeypatch.setenv("RAG_MODEL_OVERRIDE", "")
     get_settings.cache_clear()
-    client = _stub_mlflow_for_load(mocker)
+    client = stub_mlflow_for_load(mocker)
 
     load_registered_rag_chain()
 
@@ -152,7 +152,7 @@ def test_load_registered_rag_chain_raises_on_malformed_override(mocker, monkeypa
     """
     monkeypatch.setenv("RAG_MODEL_OVERRIDE", "garbage")
     get_settings.cache_clear()
-    _stub_mlflow_for_load(mocker)
+    stub_mlflow_for_load(mocker)
 
     with pytest.raises(ValueError, match=r"version:N.*alias:NAME"):
         load_registered_rag_chain()

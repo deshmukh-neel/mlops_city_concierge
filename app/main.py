@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,18 +29,18 @@ from .agent.io import build_refinement_prompt_message, messages_from_history, st
 from .agent.revision import summarize_stops
 from .agent.state import ClosureContext, ItineraryState, Stop, UserConstraints
 from .agent.swap import (
-    _bounded_retime_after_swap,
-    _build_closure_context_entry,
-    _formulate_closure_question,
-    _per_stop_closure_status,
-    _promote_pending,
-    _resolve_anchor,
-    _resolve_family_for_stop,
-    _resolve_insert_position,
-    _try_walking_distance_swap,
+    bounded_retime_after_swap,
+    build_closure_context_entry,
+    formulate_closure_question,
+    per_stop_closure_status,
+    promote_pending,
+    resolve_anchor,
+    resolve_family_for_stop,
+    resolve_insert_position,
+    try_walking_distance_swap,
 )
 from .chain import build_rag_chain
-from .config import get_settings, resolve_llm_api_key
+from .config import env_flag, get_settings, resolve_llm_api_key
 from .db import get_conn, get_db
 from .db_pool import close_db_pool, init_db_pool
 from .observability import langgraph_callbacks, trace_request
@@ -61,14 +60,7 @@ AGENT_UNAVAILABLE_DETAIL = (
 )
 
 
-# Phase 4 / D-04-01..D-04-03 — slot-extraction intake prompt template.
-# The user's message is interpolated via .format(user_message=...).
-# The vocabulary uses Title-Case Google primary_type values so the
-# structured-output payload can be validated by family_of() (which is
-# case-preserving against `_PRIMARY_TYPE_FAMILIES`). The schema enforced
-# by Pydantic + the family_of validation layer means even an obeyed
-# prompt injection produces an empty extracted list (T-04-06-01).
-_SLOT_INTAKE_PROMPT_TEMPLATE: str = (
+SLOT_INTAKE_PROMPT_TEMPLATE: str = (
     "Extract the user's per-slot category structure. The user's message is:\n"
     '"{user_message}"\n\n'
     'If the user named distinct slots (e.g., "dinner, drinks, dessert" or '
@@ -88,49 +80,18 @@ _SLOT_INTAKE_PROMPT_TEMPLATE: str = (
 )
 
 
-def _intake_bind_kwargs(llm: BaseChatModel) -> dict[str, Any]:
-    """Return provider-appropriate `.bind(**kwargs)` arguments for the intake
-    LLM call.
-
-    Always sets `temperature=1.0` (per memory
-    `feedback_temp1_reasoning_off_all_models.md` — always temp=1.0;
-    disable thinking for ALL providers including Gemini). Reasoning-off
-    kwargs are picked per provider class so the bind step mirrors what
-    `app.llm_factory.build_chat_model` set at construction time.
-
-    Branches:
-      ChatOpenAI                  → {"temperature": 1.0}
-      ChatGoogleGenerativeAI      → {"temperature": 1.0, "thinking_budget": 0}
-                                    (or thinking_level="low" for the
-                                    `_GEMINI_THINKING_ONLY` set)
-      ChatDeepSeek                → {"temperature": 1.0,
-                                     "extra_body": {"thinking":
-                                     {"type": "disabled"}}}
-      ChatMoonshot / _ToolLoopChatMoonshot
-                                  → {"temperature": <llm.temperature>,
-                                     "thinking": False}
-                                    Kimi forces temp=0.6 for kimi-k2.6 in
-                                    the factory (per
-                                    `_KIMI_FORCED_TEMPERATURE`), so we do
-                                    NOT override the temperature here.
-      ScriptedChatModel           → {} (no-op; the scripted model ignores
-                                    bind kwargs and the test harness asserts
-                                    on no-bind separately)
-      anything else               → {"temperature": 1.0}
-                                    (safe minimal default — better to set
-                                    temp than silently leave it at the
-                                    construction-time value)
-    """
+def intake_bind_kwargs(llm: BaseChatModel) -> dict[str, Any]:
+    """Return provider-specific kwargs for the lightweight intake call."""
     class_name = type(llm).__name__
     if class_name == "ChatOpenAI":
         return {"temperature": 1.0}
     if class_name == "ChatGoogleGenerativeAI":
         # Avoid an import-cycle / hard dep on llm_factory by inlining the
         # thinking-only set — same source of truth as the factory.
-        from .llm_factory import _GEMINI_THINKING_ONLY
+        from .llm_factory import GEMINI_THINKING_ONLY
 
         model_name = getattr(llm, "model", "") or ""
-        if model_name in _GEMINI_THINKING_ONLY:
+        if model_name in GEMINI_THINKING_ONLY:
             return {"temperature": 1.0, "thinking_level": "low"}
         return {"temperature": 1.0, "thinking_budget": 0}
     if class_name == "ChatDeepSeek":
@@ -138,15 +99,13 @@ def _intake_bind_kwargs(llm: BaseChatModel) -> dict[str, Any]:
             "temperature": 1.0,
             "extra_body": {"thinking": {"type": "disabled"}},
         }
-    if class_name in {"ChatMoonshot", "_ToolLoopChatMoonshot"}:
+    if class_name in {"ChatMoonshot", "ToolLoopChatMoonshot"}:
         # Kimi forces a hard temperature for some models — keep whatever
         # the factory chose.
         existing_temp = getattr(llm, "temperature", 1.0)
         return {"temperature": existing_temp, "thinking": False}
     if class_name == "ScriptedChatModel":
         return {}
-    # Fallback for unknown / test-stand-in classes — set temp=1.0 so the
-    # cross-provider invariant still holds.
     return {"temperature": 1.0}
 
 
@@ -195,17 +154,7 @@ class ChatMessage(BaseModel):
 
 
 class ConversationState(BaseModel):
-    """Opaque-to-frontend state round-tripped via /chat.
-
-    The frontend stores this verbatim from each response and sends it back
-    on the next request; the backend is the source of truth for the schema.
-    `prior_stops` carries the stops the user just saw so an accept/decline
-    early-return path can act on them without /chat round-tripping the full
-    places list. `committed_stops` carries the post-graph stops list so the
-    Phase 6 refinement injection block (in `chat()`, see plan 06-05) has
-    structured ground truth for the prior turn's committed plan; legacy
-    payloads without the key decode to [] via `default_factory=list`.
-    """
+    """Opaque state the frontend round-trips between /chat requests."""
 
     schema_version: int = 1
     closure_context: list[ClosureContext] = Field(default_factory=list)
@@ -216,12 +165,7 @@ class ConversationState(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = Field(default_factory=list)
-    # Opaque dict so a malformed nested object doesn't 422 before the
-    # handler runs — `/chat` does manual ConversationState.model_validate
-    # and degrades to empty state on ValidationError. `dict | None` still
-    # 422s on non-object payloads (string/list/number), which is the right
-    # answer for those (developer/curl mistakes; the real frontend can't
-    # produce them).
+    # Keep this loose so malformed nested state can degrade inside the handler.
     conversation_state: dict[str, Any] | None = None
 
 
@@ -270,7 +214,7 @@ def parse_active_model_config(
     )
 
 
-def _parse_model_override(raw: str) -> tuple[Literal["version", "alias"], str]:
+def parse_model_override(raw: str) -> tuple[Literal["version", "alias"], str]:
     """Parse RAG_MODEL_OVERRIDE into (kind, value); accepts 'version:N' or 'alias:NAME'.
 
     Whitespace around the value is stripped (shell exports leak stray spaces).
@@ -300,7 +244,7 @@ def load_registered_rag_chain() -> LoadedConfig:
     # re-resolves on every load and can race if someone moves the alias mid-eval.
     raw_override = (settings.rag_model_override or "").strip()
     if raw_override:
-        kind, value = _parse_model_override(raw_override)
+        kind, value = parse_model_override(raw_override)
         try:
             model_version = (
                 client.get_model_version(settings.mlflow_model_name, value)
@@ -366,7 +310,7 @@ def serialize_sources(source_documents: list[Any], limit: int) -> list[Recommend
     return sources
 
 
-def _rag_label_for(config: ActiveModelConfig | None) -> str:
+def rag_label_for(config: ActiveModelConfig | None) -> str:
     if config is None:
         return "unknown"
     return f"{config.llm_provider}:{config.chat_model}"
@@ -399,23 +343,16 @@ async def lifespan(app: FastAPI):
             app.state.rag_chain = None
             app.state.active_model_config = None
             app.state.agent_graph = None
-            # Phase 4: intake pipeline reuses the planning LLM (D-04-02);
-            # no LLM is available in this degraded branch.
             app.state.agent_llm = None
-            app.state.rag_label = _rag_label_for(None)
+            app.state.rag_label = rag_label_for(None)
         else:
             app.state.rag_chain = loaded.chain
             app.state.active_model_config = loaded.params
             try:
-                # D-08-16: thread provider for ProviderAdapter dispatch; NoOpAdapter for all providers in Phase 8.
-                # loaded.params is an ActiveModelConfig pydantic model — read via attribute, not .get().
                 app.state.agent_graph = build_agent_graph(
                     loaded.llm,
                     provider=getattr(loaded.params, "llm_provider", "openai"),
                 )
-                # Phase 4: expose the same BaseChatModel the graph was
-                # built on so the /chat intake call can reuse it (D-04-02
-                # — same RAG_MODEL_OVERRIDE resolution, single source).
                 app.state.agent_llm = loaded.llm
             except Exception:
                 logger.warning(
@@ -425,7 +362,7 @@ async def lifespan(app: FastAPI):
                 )
                 app.state.agent_graph = None
                 app.state.agent_llm = None
-            app.state.rag_label = _rag_label_for(loaded.params)
+            app.state.rag_label = rag_label_for(loaded.params)
         yield
     finally:
         close_db_pool()
@@ -440,8 +377,8 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:3000"],
-        allow_origin_regex=r"https://.*\.vercel\.app$",
+        allow_origins=settings.cors_origins,
+        allow_origin_regex=settings.cors_allow_origin_regex or None,
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
@@ -478,7 +415,7 @@ def health_db(conn: connection = db_connection_dependency) -> dict[str, str]:
     return {"status": "ok"}
 
 
-def _place_is_open_now(hours: dict | None, when: datetime) -> bool:
+def place_is_open_now(hours: dict | None, when: datetime) -> bool:
     """One-shot SQL call mirroring closure_swap's check, used on the accept
     path to re-validate a proposed alternative right before applying it.
 
@@ -496,11 +433,11 @@ def _place_is_open_now(hours: dict | None, when: datetime) -> bool:
             row = cur.fetchone()
             return bool(row[0]) if row else True
     except psycopg2.Error:
-        logger.warning("_place_is_open_now DB error; treating as open", exc_info=True)
+        logger.warning("place_is_open_now DB error; treating as open", exc_info=True)
         return True
 
 
-def _build_outbound_state(
+def build_outbound_state(
     closure_context: list[ClosureContext],
     stops: list[Stop],
 ) -> ConversationState:
@@ -512,20 +449,103 @@ def _build_outbound_state(
     )
 
 
-async def _try_accept_path(
+def decode_conversation_state(raw: dict[str, Any] | None) -> ConversationState:
+    if raw is None:
+        return ConversationState()
+    try:
+        return ConversationState.model_validate(raw)
+    except ValidationError:
+        logger.warning("conversation_state.decode_failed", exc_info=True)
+        return ConversationState()
+
+
+async def extract_requested_primary_types(
+    message: str,
+    llm: BaseChatModel | None,
+) -> list[str]:
+    if llm is None or not has_slot_structure(message):
+        return []
+
+    try:
+        intake_llm = llm.bind(**intake_bind_kwargs(llm))
+        structured = intake_llm.with_structured_output(SlotExtractionResult)
+        result = await structured.ainvoke(
+            SLOT_INTAKE_PROMPT_TEMPLATE.format(user_message=message)
+        )
+    except Exception:
+        logger.warning("Slot intake LLM call failed; falling back to free-text", exc_info=True)
+        return []
+
+    return [t for t in list(result.requested_primary_types or []) if family_of(t) is not None]
+
+
+def refinement_messages_for(message: str, incoming: ConversationState) -> list[HumanMessage]:
+    matched, target_slot = is_refinement_request(message)
+    if (
+        matched
+        and target_slot is not None
+        and incoming.committed_stops
+        and 1 <= target_slot <= len(incoming.committed_stops)
+        and env_flag("REFINEMENT_STRUCTURED_PLAN_ENABLED")
+    ):
+        logger.info(
+            "chat.refinement.structured_plan.prepended target_slot=%s committed_stops=%d",
+            target_slot,
+            len(incoming.committed_stops),
+        )
+        return [build_refinement_prompt_message(incoming.committed_stops)]
+    return []
+
+
+def closure_hint_messages(
+    pending: ClosureContext | None,
+    decision: str | None,
+    user_message: str,
+) -> list[HumanMessage]:
+    if pending is None or decision != "alternative":
+        return []
+    return [
+        HumanMessage(
+            content=(
+                f"User declined the drive option for {pending.place_name}. "
+                f"They want: '{user_message}'. Plan again with this guidance."
+            )
+        )
+    ]
+
+
+def initial_chat_state(
+    req: ChatRequest,
+    incoming: ConversationState,
+    *,
+    hint_messages: list[HumanMessage],
+    refinement_messages: list[HumanMessage],
+    requested_primary_types: list[str],
+    num_stops: int | None,
+) -> ItineraryState:
+    return ItineraryState(
+        messages=[
+            *messages_from_history(req.history),
+            *hint_messages,
+            *refinement_messages,
+            HumanMessage(content=req.message),
+        ],
+        constraints=UserConstraints(
+            num_stops=num_stops,
+            requested_primary_types=requested_primary_types,
+        ),
+        closure_context=incoming.closure_context,
+    )
+
+
+async def try_accept_path(
     pending: ClosureContext,
     incoming: ConversationState,
     rag_label: str,
 ) -> ChatResponse | None:
-    """User accepted the proposed drive alternative.
-
-    Returns a built ChatResponse for the early-return path, or None if
-    re-validation fails (caller falls through to the graph).
-    """
+    """Return a response for an accepted drive option, or None if it needs replanning."""
     if pending.proposed_alternative is None:
         return None
-    # Defense in depth: re-fetch the proposal in case the index changed
-    # between the question and the answer.
     details = get_details(pending.proposed_alternative.place_id)
     if details is None:
         logger.warning(
@@ -533,21 +553,18 @@ async def _try_accept_path(
             pending.proposed_alternative.place_id,
         )
         return None
-    if not _place_is_open_now(details.regular_opening_hours, pending.attempted_arrival):
+    if not place_is_open_now(details.regular_opening_hours, pending.attempted_arrival):
         logger.warning("closure_swap.proposed_alternative_invalidated: now closed")
         return None
 
-    # Insert at the resolved position and re-chain arrivals on the new plan.
-    insert_at = _resolve_insert_position(pending, incoming.prior_stops)
+    insert_at = resolve_insert_position(pending, incoming.prior_stops)
     replacement = pending.proposed_alternative.model_copy()
     new_stops = list(incoming.prior_stops)
     new_stops.insert(insert_at, replacement)
 
-    retimed = await _bounded_retime_after_swap(new_stops)
-    re_closed = _per_stop_closure_status(retimed)
+    retimed = await bounded_retime_after_swap(new_stops)
+    re_closed = per_stop_closure_status(retimed)
 
-    # Mark the pending entry as accepted up front so subsequent escalations
-    # see the right outcome shape.
     updated_context: list[ClosureContext] = [
         c.model_copy(update={"outcome": "user_accepted_drive"})
         if c.place_id == pending.place_id and c.outcome == "pending_user_decision"
@@ -557,15 +574,13 @@ async def _try_accept_path(
 
     probe_state = ItineraryState(stops=retimed, closure_context=updated_context)
 
-    # If the retime exposed a NEW closure on a different stop, try a single
-    # walking-distance swap; escalate anything still closed.
     new_pending_entries: list[ClosureContext] = []
     if any(re_closed):
         still_closed_indices = [i for i, flag in enumerate(re_closed) if flag]
         for idx in still_closed_indices:
             closed_stop = retimed[idx]
-            family = _resolve_family_for_stop(closed_stop)
-            anchor = _resolve_anchor(probe_state, closed_stop)
+            family = resolve_family_for_stop(closed_stop)
+            anchor = resolve_anchor(probe_state, closed_stop)
             match = None
             if family and anchor:
                 probe_ctx = ClosureContext(
@@ -578,34 +593,32 @@ async def _try_accept_path(
                     insert_before_place_id=None,
                     stop_index_hint=idx,
                 )
-                match = _try_walking_distance_swap(probe_state, probe_ctx, anchor_place_id=anchor)
+                match = try_walking_distance_swap(probe_state, probe_ctx, anchor_place_id=anchor)
             if match is not None:
                 retimed[idx] = match.stop
                 updated_context.append(
-                    _build_closure_context_entry(retimed, idx, match, "auto_swapped")
+                    build_closure_context_entry(retimed, idx, match, "auto_swapped")
                 )
             else:
                 outcome = (
                     "pending_user_decision" if not new_pending_entries else "queued_user_decision"
                 )
                 new_pending_entries.append(
-                    _build_closure_context_entry(retimed, idx, None, outcome)
+                    build_closure_context_entry(retimed, idx, None, outcome)
                 )
 
     if new_pending_entries:
         updated_context.extend(new_pending_entries)
 
-    # Promote a queued entry if pending was cleared.
-    updated_context = _promote_pending(updated_context)
+    updated_context = promote_pending(updated_context)
 
-    # Surface either the next question or the summary.
     next_pending = next(
         (c for c in updated_context if c.outcome == "pending_user_decision"),
         None,
     )
     surfaced_stops = list(retimed)
     if next_pending is not None:
-        final_reply = _formulate_closure_question(next_pending)
+        final_reply = formulate_closure_question(next_pending)
         surfaced_stops = [s for s in surfaced_stops if s.place_id != next_pending.place_id]
     else:
         enrich_stops_with_booking(surfaced_stops, probe_state)
@@ -616,26 +629,23 @@ async def _try_accept_path(
         reply=final_reply,
         places=state_to_cards(final_state),
         ragLabel=rag_label,
-        conversation_state=_build_outbound_state(updated_context, surfaced_stops),
+        conversation_state=build_outbound_state(updated_context, surfaced_stops),
     )
 
 
-def _decline_path(
+def decline_path(
     pending: ClosureContext,
     incoming: ConversationState,
     rag_label: str,
 ) -> ChatResponse:
-    """User declined the drive option. The closed stop wasn't on prior_stops
-    (it was demoted to pending before the user saw the plan), so we just flip
-    the outcome and promote any queued entry.
-    """
+    """Return a response after the user declines a proposed drive option."""
     updated_context: list[ClosureContext] = [
         c.model_copy(update={"outcome": "user_declined_dropped"})
         if c.place_id == pending.place_id and c.outcome == "pending_user_decision"
         else c
         for c in incoming.closure_context
     ]
-    updated_context = _promote_pending(updated_context)
+    updated_context = promote_pending(updated_context)
     next_pending = next(
         (c for c in updated_context if c.outcome == "pending_user_decision"),
         None,
@@ -645,7 +655,7 @@ def _decline_path(
         closure_context=updated_context,
     )
     if next_pending is not None:
-        final_reply = _formulate_closure_question(next_pending)
+        final_reply = formulate_closure_question(next_pending)
         surfaced_stops = [s for s in incoming.prior_stops if s.place_id != next_pending.place_id]
     else:
         final_reply = summarize_stops(probe_state)
@@ -656,7 +666,7 @@ def _decline_path(
         reply=final_reply,
         places=state_to_cards(final_state),
         ragLabel=rag_label,
-        conversation_state=_build_outbound_state(updated_context, surfaced_stops),
+        conversation_state=build_outbound_state(updated_context, surfaced_stops),
     )
 
 
@@ -668,18 +678,9 @@ async def chat(
     if graph is None:
         raise HTTPException(status_code=503, detail=AGENT_UNAVAILABLE_DETAIL)
 
-    rag_label = getattr(request.app.state, "rag_label", _rag_label_for(None))
+    rag_label = getattr(request.app.state, "rag_label", rag_label_for(None))
 
-    incoming: ConversationState
-    if req.conversation_state is None:
-        incoming = ConversationState()
-    else:
-        try:
-            incoming = ConversationState.model_validate(req.conversation_state)
-        except ValidationError:
-            logger.warning("conversation_state.decode_failed", exc_info=True)
-            incoming = ConversationState()
-
+    incoming = decode_conversation_state(req.conversation_state)
     pending = next(
         (c for c in incoming.closure_context if c.outcome == "pending_user_decision"),
         None,
@@ -689,110 +690,27 @@ async def chat(
     if pending is not None and req.message.strip():
         decision = parse_closure_decision(req.message)
         if decision == "accept":
-            early = await _try_accept_path(pending, incoming, rag_label)
+            early = await try_accept_path(pending, incoming, rag_label)
             if early is not None:
                 return early
-            # Re-validation failed — fall through to the graph with the bad
-            # pending entry preserved; the model will plan around it.
         elif decision == "decline":
-            return _decline_path(pending, incoming, rag_label)
-        # "alternative" falls through to the graph (handled below).
+            return decline_path(pending, incoming, rag_label)
 
     with trace_request("chat", message=req.message[:200]) as trace_id:
-        # If we just routed "alternative", give the model a HumanMessage hint
-        # so it knows the user declined the drive option and what they asked
-        # for instead.
-        hint_messages: list[HumanMessage] = []
-        if pending is not None and decision == "alternative":
-            hint_messages.append(
-                HumanMessage(
-                    content=(
-                        f"User declined the drive option for {pending.place_name}. "
-                        f"They want: '{req.message}'. Plan again with this guidance."
-                    )
-                )
-            )
-
-        # Phase 4 hybrid intake pipeline (D-04-01..D-04-03 / T-04-06-01..09).
-        # Deterministic pre-check FIRST so free-text /chat requests pay zero
-        # added latency. When the pre-check fires AND an LLM is available,
-        # explicitly bind temp=1.0 + provider-specific reasoning-off kwargs,
-        # then drive a structured-output extraction. Validate every entry
-        # against family_of() — unmappable strings (including obeyed prompt
-        # injections like 'admin_access') are silently dropped. Any
-        # exception in the intake block is logged and degraded to an empty
-        # list (fail-open per D-04-03). The intake call lives INSIDE
-        # trace_request so MLflow tracking captures intake latency in the
-        # same /chat trace (T-04-06-06).
-        extracted_types: list[str] = []
-        if has_slot_structure(req.message):
-            loaded_llm = getattr(request.app.state, "agent_llm", None)
-            if loaded_llm is not None:
-                try:
-                    bind_kwargs = _intake_bind_kwargs(loaded_llm)
-                    intake_llm = loaded_llm.bind(**bind_kwargs)
-                    structured = intake_llm.with_structured_output(SlotExtractionResult)
-                    intake_prompt = _SLOT_INTAKE_PROMPT_TEMPLATE.format(user_message=req.message)
-                    result = await structured.ainvoke(intake_prompt)
-                    raw_types = list(result.requested_primary_types or [])
-                    extracted_types = [t for t in raw_types if family_of(t) is not None]
-                except Exception:
-                    logger.warning(
-                        "Slot intake LLM call failed; falling back to free-text",
-                        exc_info=True,
-                    )
-                    extracted_types = []
-
-        # Phase 6 / plan 06-05 — refinement structured-plan injection.
-        # Three-way guard (D-06-01 + D-06-10 + MEDIUM target_slot-bounds):
-        #   (a) deterministic regex pre-check matches (hybrid pattern S2),
-        #   (b) target_slot is in 1..len(committed_stops) — defense-in-depth
-        #       against a regex false-positive ("make stop 99 cheaper") when
-        #       the prior plan only has 3 stops; injecting a structured plan
-        #       whose target slot does not exist would produce unpredictable
-        #       behavior,
-        #   (c) `incoming.committed_stops` non-empty (turn 1 has nothing to
-        #       preserve),
-        #   (d) `REFINEMENT_STRUCTURED_PLAN_ENABLED` env var is truthy.
-        # Env var is read INSIDE chat() per OVR-05 so tests can flip behavior
-        # via monkeypatch.setenv without restarting the app.
-        refinement_messages: list[HumanMessage] = []
-        matched, target_slot = is_refinement_request(req.message)
-        flag_enabled = os.environ.get("REFINEMENT_STRUCTURED_PLAN_ENABLED", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        if (
-            matched
-            and target_slot is not None
-            and 1 <= target_slot <= len(incoming.committed_stops)
-            and incoming.committed_stops
-            and flag_enabled
-        ):
-            refinement_messages.append(build_refinement_prompt_message(incoming.committed_stops))
-            logger.info(
-                "phase6.refinement.structured_plan.prepended target_slot=%s committed_stops=%d",
-                target_slot,
-                len(incoming.committed_stops),
-            )
-
-        # Hoist num_stops to a local so it can be passed to log_user_query below
-        # (D-02: pass captured slots as args, never re-derive in the background task).
+        hint_messages = closure_hint_messages(pending, decision, req.message)
+        extracted_types = await extract_requested_primary_types(
+            req.message,
+            getattr(request.app.state, "agent_llm", None),
+        )
+        refinement_messages = refinement_messages_for(req.message, incoming)
         num_stops = explicit_num_stops_from_conversation(req.history, req.message)
-        state = ItineraryState(
-            messages=[
-                *messages_from_history(req.history),
-                *hint_messages,
-                *refinement_messages,
-                HumanMessage(content=req.message),
-            ],
-            constraints=UserConstraints(
-                num_stops=num_stops,
-                requested_primary_types=extracted_types,
-            ),
-            closure_context=incoming.closure_context,
+        state = initial_chat_state(
+            req,
+            incoming,
+            hint_messages=hint_messages,
+            refinement_messages=refinement_messages,
+            requested_primary_types=extracted_types,
+            num_stops=num_stops,
         )
         raw = await graph.ainvoke(
             state,
@@ -807,26 +725,15 @@ async def chat(
         reply=final_state.final_reply or "",
         places=state_to_cards(final_state),
         ragLabel=rag_label,
-        conversation_state=_build_outbound_state(final_state.closure_context, final_state.stops),
+        conversation_state=build_outbound_state(final_state.closure_context, final_state.stops),
     )
-    # Log the demand query as a fire-and-forget side-channel write (D-01).
-    # Scheduled AFTER the response is built, off the synchronous response path —
-    # runs in BackgroundTasks threadpool and never delays the reply.
-    # Only the main graph path is logged; the _try_accept_path / _decline_path
-    # early-returns are NOT logged because (a) they are short closure replies
-    # with low demand-signal, and (b) extracted_types / num_stops are not yet
-    # derived at those exit points (D-02 constraint: pass captured args, not re-derived).
-    # Likewise, requests where graph.ainvoke(...) RAISES are intentionally not
-    # logged: the exception propagates out of the `with trace_request(...)` block
-    # before this add_task is reached, so failed-planner turns are dropped — the
-    # demand signal favors successfully-planned queries (WR-02; D-01/D-02 intent).
     background_tasks.add_task(
         log_user_query,
         message=req.message,
         requested_primary_types=extracted_types,
         num_stops=num_stops,
         rag_label=rag_label,
-        session_id=trace_id,  # cheap per-turn correlation marker (17-CONTEXT D-02)
+        session_id=trace_id,
     )
     return response
 

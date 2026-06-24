@@ -22,29 +22,29 @@ except ImportError:  # pragma: no cover - exercised only when extras are absent
     Langfuse = None  # type: ignore[assignment,misc]
     CallbackHandler = None  # type: ignore[assignment,misc]
 
-_warned_missing_package = False
+warned_missing_package = False
 
 
-def _tracing_enabled() -> bool:
+def tracing_enabled() -> bool:
     """Single source of truth for 'is per-request tracing turned on?'."""
     return Langfuse is not None and bool(os.getenv("LANGFUSE_SECRET_KEY"))
 
 
-def _warn_if_package_missing_but_env_set() -> None:
+def warn_if_package_missing_but_env_set() -> None:
     """Warn once if env says tracing is on but the langfuse package failed to import.
 
     Distinguishes a real misconfig (deps drift, broken image) from an intentional
     no-op (local dev with no env). Fires at most once per process.
     """
-    global _warned_missing_package
-    if _warned_missing_package:
+    global warned_missing_package
+    if warned_missing_package:
         return
     if Langfuse is None and os.getenv("LANGFUSE_SECRET_KEY"):
         logger.warning(
             "LANGFUSE_SECRET_KEY is set but the 'langfuse' package is not installed; "
             "tracing is silently disabled. Check that the deployed image includes it."
         )
-        _warned_missing_package = True
+        warned_missing_package = True
 
 
 def get_client() -> Any | None:
@@ -53,8 +53,8 @@ def get_client() -> Any | None:
     Returns None on any SDK construction failure (bad host, version skew, etc.) —
     tracing must never break the request path.
     """
-    _warn_if_package_missing_but_env_set()
-    if not _tracing_enabled():
+    warn_if_package_missing_but_env_set()
+    if not tracing_enabled():
         return None
     try:
         return Langfuse(
@@ -72,8 +72,8 @@ def langgraph_callbacks() -> list[Any]:
 
     Empty list when tracing is disabled — LangChain treats that as a no-op.
     """
-    _warn_if_package_missing_but_env_set()
-    if not _tracing_enabled() or CallbackHandler is None:
+    warn_if_package_missing_but_env_set()
+    if not tracing_enabled() or CallbackHandler is None:
         return []
     return [CallbackHandler()]
 

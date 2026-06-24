@@ -166,7 +166,7 @@ class MockReasoningAdapter(ProviderAdapter):
 #     `additional_kwargs["reasoning_content"]` for the `deepseek-reasoner`
 #     model; non-reasoning DeepSeek (`deepseek-chat`, `deepseek-v4-pro`)
 #     paths stay byte-identical to NoOpAdapter behavior on capture (the
-#     factory's `_DEEPSEEK_REASONER_THINKING_ENABLED` carve-out is what
+#     factory's `DEEPSEEK_REASONER_THINKING_ENABLED` carve-out is what
 #     flips thinking ON only for the reasoner family).
 #   - kimi (PROV-FUT-02, library-blocked): stays on NoOpAdapter per memory
 #     `project_agent_loses_reasoning_state_all_providers` — `langchain-moonshot`

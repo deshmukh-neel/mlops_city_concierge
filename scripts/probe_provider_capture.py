@@ -7,10 +7,10 @@ tool-call-shaped request per provider and writes a redacted JSON fixture to
 
 Redaction is genuinely fail-closed (CR-05 / T-10-09-01..03):
   - All value-bearing fixture fields — response_metadata, usage_metadata, and
-    tool_calls — are routed through `_redact` (env-var substitution + regex).
-  - The post-write secret-scan guard (_scan_fixture_for_secrets) re-reads the
-    written fixture and checks BOTH _SECRET_PATTERNS regexes AND the actual
-    runtime values of _SECRET_ENV_VARS, so a rotated key that doesn't match any
+    tool_calls — are routed through `redact` (env-var substitution + regex).
+  - The post-write secret-scan guard (scan_fixture_for_secrets) re-reads the
+    written fixture and checks BOTH SECRET_PATTERNS regexes AND the actual
+    runtime values of SECRET_ENV_VARS, so a rotated key that doesn't match any
     regex is still caught and the fixture is deleted (return 2).
 
 Per `project_app_editable_install`: `from app.llm_factory import build_chat_model`
@@ -49,7 +49,7 @@ from app.llm_factory import build_chat_model  # noqa: E402
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "provider_payloads"
 
 
-def _fixture_path(provider: str) -> Path:
+def fixture_path(provider: str) -> Path:
     """Return the path for the provider's JSON fixture."""
     return FIXTURE_DIR / f"{provider}.json"
 
@@ -61,7 +61,7 @@ PROBE_QUERY = "search for a bar in mission"
 
 # D-10-13: extend beyond sk- prefix to cover all common API-key shapes
 # AND env-var-sourced secret values (T-10-05-01 / T-10-05-02).
-_SECRET_PATTERNS = [
+SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),  # OpenAI
     re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"),  # Anthropic
     re.compile(r"AIzaSy[A-Za-z0-9_-]{10,}"),  # Google/Gemini
@@ -70,16 +70,16 @@ _SECRET_PATTERNS = [
 
 # Known secret env-var names whose values are redacted regardless of where
 # they appear in the message (T-10-05-02).
-_SECRET_ENV_VARS = [
+SECRET_ENV_VARS = [
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "GEMINI_API_KEY",
     "DEEPSEEK_API_KEY",
-    "GOOGLE_API_KEY",
+    "GOOGLEAPI_KEY",
 ]
 
 
-def _redact(value: object) -> str:
+def redact(value: object) -> str:
     """Stringify `value` and redact anything that matches a secret pattern.
 
     D-10-13: covers OpenAI sk-, Anthropic sk-ant-, Google AIzaSy..., and any
@@ -90,40 +90,40 @@ def _redact(value: object) -> str:
     s = str(value)
     # Redact env-var-sourced secret values first (before regex patterns, in case
     # the actual key value doesn't match a regex but is still a secret).
-    for env_var in _SECRET_ENV_VARS:
+    for env_var in SECRET_ENV_VARS:
         secret_val = os.environ.get(env_var, "")
         # Only redact non-trivially short values to avoid false positives.
         if secret_val and len(secret_val) >= 10:
             s = s.replace(secret_val, "<REDACTED>")
     # Apply all regex patterns.
-    for pat in _SECRET_PATTERNS:
+    for pat in SECRET_PATTERNS:
         s = pat.sub("<REDACTED>", s)
     return s
 
 
-def _scan_fixture_for_secrets(text: str) -> bool:
+def scan_fixture_for_secrets(text: str) -> bool:
     """Return True if `text` contains any detectable secret.
 
-    Checks two independent channels (mirroring `_redact`):
-      1. _SECRET_PATTERNS regexes (sk-, sk-ant-, AIzaSy..., generic long token).
-      2. Runtime values of _SECRET_ENV_VARS (catches rotated/non-regex-shaped keys).
+    Checks two independent channels (mirroring `redact`):
+      1. SECRET_PATTERNS regexes (sk-, sk-ant-, AIzaSy..., generic long token).
+      2. Runtime values of SECRET_ENV_VARS (catches rotated/non-regex-shaped keys).
 
     Called by main() as the post-write guard. Extracted as a standalone helper so
     tests can exercise the production guard logic directly without re-implementing it.
     """
     # Channel 1: regex-shaped secrets.
-    for pat in _SECRET_PATTERNS:
+    for pat in SECRET_PATTERNS:
         if pat.search(text):
             return True
-    # Channel 2: env-var-sourced secret values (mirrors _redact lines 90-94).
-    for env_var in _SECRET_ENV_VARS:
+    # Channel 2: env-var-sourced secret values (mirrors redact lines 90-94).
+    for env_var in SECRET_ENV_VARS:
         secret_val = os.environ.get(env_var, "")
         if secret_val and len(secret_val) >= 10 and secret_val in text:
             return True
     return False
 
 
-def _content_shape(content: object) -> str:
+def content_shape(content: object) -> str:
     """Return a short human description of an AIMessage.content shape."""
     if isinstance(content, str):
         return f"str (len={len(content)})"
@@ -133,7 +133,7 @@ def _content_shape(content: object) -> str:
     return f"{type(content).__name__}"
 
 
-def _sanitize_response_metadata(metadata: dict[str, object]) -> dict[str, object]:
+def sanitize_response_metadata(metadata: dict[str, object]) -> dict[str, object]:
     """Strip well-known token-bearing fields from `response_metadata` before dump.
 
     We keep the keys and structural shape — that's what the probe is for — but
@@ -151,7 +151,7 @@ def _sanitize_response_metadata(metadata: dict[str, object]) -> dict[str, object
 
 
 # Per-provider default models (overridable via --model).
-_DEFAULT_MODELS: dict[str, str] = {
+DEFAULT_MODELS: dict[str, str] = {
     "openai": "gpt-5-mini",
     "deepseek": "deepseek-reasoner",
     "anthropic": "claude-sonnet-4-6",
@@ -159,7 +159,7 @@ _DEFAULT_MODELS: dict[str, str] = {
 }
 
 # Per-provider library package name for importlib.metadata.version().
-_LIBRARY_PACKAGES: dict[str, str] = {
+LIBRARY_PACKAGES: dict[str, str] = {
     "openai": "langchain-openai",
     "deepseek": "langchain-deepseek",
     "anthropic": "langchain-anthropic",
@@ -167,7 +167,7 @@ _LIBRARY_PACKAGES: dict[str, str] = {
 }
 
 
-def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
+def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="probe_provider_capture",
         description=(
@@ -196,11 +196,11 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the probe for a single provider. Returns 0 on success, non-zero on failure."""
-    args = _parse_args(argv if argv is not None else sys.argv[1:])
+    args = parse_args(argv if argv is not None else sys.argv[1:])
 
     provider = args.provider
-    model_name = args.model or _DEFAULT_MODELS[provider]
-    library_pkg = _LIBRARY_PACKAGES[provider]
+    model_name = args.model or DEFAULT_MODELS[provider]
+    library_pkg = LIBRARY_PACKAGES[provider]
 
     try:
         library_version = importlib.metadata.version(library_pkg)
@@ -219,31 +219,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     add_kwargs_keys = sorted(message.additional_kwargs.keys())
     # WR-10: route additional_kwargs values through the same type-faithful redaction
     # pattern used for response_metadata/usage_metadata/tool_calls.  The prior
-    # `_redact(message.additional_kwargs[k])` called str() on the value, collapsing
+    # `redact(message.additional_kwargs[k])` called str() on the value, collapsing
     # dict/list/number to a Python repr string like "{'k': 'v'}".  Instead, serialize
     # then redact then re-parse so dict/list/number values round-trip as real JSON
     # types and only genuinely non-JSON-serializable leaves fall back to str() via
-    # `default=str`.  Redaction still routes through _redact — type fidelity never
+    # `default=str`.  Redaction still routes through redact — type fidelity never
     # bypasses the secret-scan path (T-11-18).
     add_kwargs_values = {
-        k: json.loads(_redact(json.dumps(message.additional_kwargs[k], default=str)))
+        k: json.loads(redact(json.dumps(message.additional_kwargs[k], default=str)))
         for k in add_kwargs_keys
     }
 
-    # CR-05: all value-bearing fixture fields must pass through _redact.
+    # CR-05: all value-bearing fixture fields must pass through redact.
     # response_metadata: first sanitize known token-bearing keys (defense in depth),
     # then redact the serialized form so env-var secrets and regex patterns are removed.
-    _sanitized_meta = _sanitize_response_metadata(dict(message.response_metadata or {}))
-    response_metadata = json.loads(_redact(json.dumps(_sanitized_meta, default=str)))
-    content_shape = _content_shape(message.content)
+    sanitized_meta = sanitize_response_metadata(dict(message.response_metadata or {}))
+    response_metadata = json.loads(redact(json.dumps(sanitized_meta, default=str)))
+    message_content_shape = content_shape(message.content)
     raw_usage_metadata = getattr(message, "usage_metadata", None)
     usage_metadata = (
-        json.loads(_redact(json.dumps(raw_usage_metadata, default=str)))
+        json.loads(redact(json.dumps(raw_usage_metadata, default=str)))
         if raw_usage_metadata is not None
         else None
     )
     raw_tool_calls = getattr(message, "tool_calls", None) or []
-    tool_calls = json.loads(_redact(json.dumps(raw_tool_calls, default=str)))
+    tool_calls = json.loads(redact(json.dumps(raw_tool_calls, default=str)))
 
     # D-10-11 fixture shape: provider, model, library_version, probe_query,
     # additional_kwargs_keys, type-faithful redacted additional_kwargs_values (WR-10),
@@ -257,19 +257,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         "additional_kwargs_keys": add_kwargs_keys,
         "additional_kwargs_values": add_kwargs_values,
         "response_metadata": response_metadata,
-        "content_shape": content_shape,
+        "content_shape": message_content_shape,
         "usage_metadata": usage_metadata,
         "tool_calls": tool_calls,
     }
 
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
-    fixture_file = _fixture_path(provider)
+    fixture_file = fixture_path(provider)
     fixture_file.write_text(json.dumps(fixture, indent=2, default=str), encoding="utf-8")
 
     # T-10-05-01 / T-10-09-02: post-write secret-scan guard — re-read and refuse if
     # any secret survived (regex OR env-var value). Fail-closed: delete + return 2.
     text = fixture_file.read_text(encoding="utf-8")
-    if _scan_fixture_for_secrets(text):
+    if scan_fixture_for_secrets(text):
         fixture_file.unlink(missing_ok=True)
         print(
             f"FATAL: fixture at {fixture_file} contains a secret "
@@ -282,7 +282,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print(f"probe_provider_capture: wrote fixture to {fixture_file}")
     print(f"probe_provider_capture: additional_kwargs_keys = {add_kwargs_keys}")
-    print(f"probe_provider_capture: content_shape = {content_shape!r}")
+    print(f"probe_provider_capture: content_shape = {message_content_shape!r}")
     return 0
 
 

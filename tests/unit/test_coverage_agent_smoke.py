@@ -26,7 +26,7 @@ def test_smoke_module_imports() -> None:
     assert hasattr(mod, "insert_pending")
 
 
-class _StubCursor:
+class StubCursor:
     """Returns gather_stats rows for the WITH-CTE SELECT, [] for everything else.
 
     Without this branching, every fetchall() returns the same gather_stats rows,
@@ -36,11 +36,11 @@ class _StubCursor:
     """
 
     def __init__(self, rows: list[tuple]) -> None:
-        self._rows = rows
+        self.rows_data = rows
         self.executed: list[tuple[str, Any]] = []
-        self._last_sql = ""
+        self.last_sql = ""
 
-    def __enter__(self) -> _StubCursor:
+    def __enter__(self) -> StubCursor:
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -48,11 +48,11 @@ class _StubCursor:
 
     def execute(self, sql: str, params: Any = None) -> None:
         self.executed.append((sql, params))
-        self._last_sql = sql
+        self.last_sql = sql
 
     def fetchall(self) -> list[tuple]:
-        if "WITH neighborhoods" in self._last_sql:
-            return self._rows
+        if "WITH neighborhoods" in self.last_sql:
+            return self.rows_data
         return []
 
     @property
@@ -60,14 +60,14 @@ class _StubCursor:
         return 1
 
 
-class _StubConn:
+class StubConn:
     def __init__(self, rows: list[tuple]) -> None:
-        self._rows = rows
+        self.rows_data = rows
         self.commits = 0
-        self.cursors: list[_StubCursor] = []
+        self.cursors: list[StubCursor] = []
 
-    def cursor(self) -> _StubCursor:
-        cur = _StubCursor(self._rows)
+    def cursor(self) -> StubCursor:
+        cur = StubCursor(self.rows_data)
         self.cursors.append(cur)
         return cur
 
@@ -75,19 +75,19 @@ class _StubConn:
         self.commits += 1
 
 
-def _make_get_conn(rows: list[tuple]):
+def make_get_conn(rows: list[tuple]):
     @contextmanager
-    def _ctx():
-        yield _StubConn(rows)
+    def ctx():
+        yield StubConn(rows)
 
-    return _ctx
+    return ctx
 
 
 def test_smoke_main_dry_run_empty_db(monkeypatch: pytest.MonkeyPatch) -> None:
     """main(['--dry-run']) on a DB with no places returns 0 cleanly."""
     from scripts import coverage_agent
 
-    monkeypatch.setattr(coverage_agent, "get_conn", _make_get_conn([]))
+    monkeypatch.setattr(coverage_agent, "get_conn", make_get_conn([]))
     monkeypatch.setattr(coverage_agent.vibe, "make_judge", lambda: None)
 
     set_exp = MagicMock()
@@ -118,7 +118,7 @@ def test_functional_dry_run_emits_artifacts(monkeypatch: pytest.MonkeyPatch) -> 
         ("cuisine:burmese", 1, 0, None),
         ("recent_query", 50, 30, None),
     ]
-    monkeypatch.setattr(coverage_agent, "get_conn", _make_get_conn(rows))
+    monkeypatch.setattr(coverage_agent, "get_conn", make_get_conn(rows))
 
     fake_llm = MagicMock()
     fake_llm.invoke.return_value.content = json.dumps(

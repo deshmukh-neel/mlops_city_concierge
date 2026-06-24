@@ -26,12 +26,12 @@ export const emptyPlacesState = Object.freeze({
  * agent asking a clarifying question) leaves the existing set intact and
  * un-finalizes — we don't wipe a good plan because of a follow-up question.
  *
- * @param {typeof emptyPlacesState} _prev
+ * @param {typeof emptyPlacesState} prev
  * @param {object[]} places  adapter-shaped places (must have id + order)
  */
-export function replacePlaces(_prev, places) {
+export function replacePlaces(prev, places) {
   if (!Array.isArray(places) || places.length === 0) {
-    return { ..._prev, planFinalized: false }
+    return { ...prev, planFinalized: false }
   }
   const sorted = places
     .filter((p) => p != null && p.id != null)

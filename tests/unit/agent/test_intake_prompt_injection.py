@@ -6,7 +6,7 @@ has three layers:
   1. Pydantic structured-output schema forces the LLM into list[str]
      shape regardless of injection attempt
   2. family_of() validation drops any string that isn't a known Google
-     primary_type (the Title-Case values in `_PRIMARY_TYPE_FAMILIES`)
+     primary_type (the Title-Case values in `PRIMARY_TYPE_FAMILIES`)
   3. fail-open on any exception → empty list
 
 This test exercises the worst plausible case: a scripted LLM that
@@ -26,7 +26,7 @@ from app.agent.input_parsing import SlotExtractionResult
 from app.main import ActiveModelConfig, LoadedConfig, app
 
 
-def _stub_loaded_config(llm: Any) -> LoadedConfig:
+def stub_loaded_config(llm: Any) -> LoadedConfig:
     return LoadedConfig(
         chain=object(),
         llm=llm,
@@ -41,7 +41,7 @@ def _stub_loaded_config(llm: Any) -> LoadedConfig:
     )
 
 
-def _final_state_dict() -> dict:
+def final_state_dict() -> dict:
     return {
         "messages": [],
         "constraints": {},
@@ -55,24 +55,24 @@ def _final_state_dict() -> dict:
     }
 
 
-def _make_injection_obeying_llm() -> Any:
+def make_injection_obeying_llm() -> Any:
     """Build a fake LLM whose structured-output call returns the injected
     primary_type values, simulating a worst-case prompt-injection success."""
 
-    class _Structured:
+    class Structured:
         async def ainvoke(self, prompt: str, *args: Any, **kwargs: Any) -> Any:
             # Pretend the LLM obeyed the injection.
             return SlotExtractionResult(requested_primary_types=["admin_access", "system_override"])
 
-    class _Bound:
-        def with_structured_output(self, *args: Any, **kwargs: Any) -> _Structured:
-            return _Structured()
+    class Bound:
+        def with_structured_output(self, *args: Any, **kwargs: Any) -> Structured:
+            return Structured()
 
-    class _LLM:
-        def bind(self, **kwargs: Any) -> _Bound:
-            return _Bound()
+    class LLM:
+        def bind(self, **kwargs: Any) -> Bound:
+            return Bound()
 
-    return type("ChatOpenAI", (_LLM,), {})()
+    return type("ChatOpenAI", (LLM,), {})()
 
 
 def test_intake_with_injection_fails_open(mocker) -> None:
@@ -83,18 +83,18 @@ def test_intake_with_injection_fails_open(mocker) -> None:
 
     The agent then runs on free-text behavior, which is the safe default.
     """
-    fake_llm = _make_injection_obeying_llm()
+    fake_llm = make_injection_obeying_llm()
     fake_graph = mocker.Mock()
     captured: dict[str, Any] = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict()
+        return final_state_dict()
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
         "app.main.load_registered_rag_chain",
-        return_value=_stub_loaded_config(fake_llm),
+        return_value=stub_loaded_config(fake_llm),
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 

@@ -18,7 +18,7 @@ from app.tools.retrieval import PlaceHit
 SF = ZoneInfo("America/Los_Angeles")
 
 
-def _stop(
+def stop(
     place_id: str,
     *,
     name: str = "X",
@@ -40,10 +40,10 @@ def _stop(
     )
 
 
-def _fake_route_factory():
+def fake_route_factory():
     """Returns an async fake for route_legs that returns one leg per pair."""
 
-    async def _r(stops, mode="walk"):
+    async def r(stops, mode="walk"):
         legs = [DirectionsLeg(duration_s=600, distance_m=400.0)] * max(len(stops) - 1, 1)
         return DirectionsResult(
             legs=legs,
@@ -52,17 +52,17 @@ def _fake_route_factory():
             source="haversine_fallback",
         )
 
-    return _r
+    return r
 
 
 def test_swap_node_noop_when_nothing_closed(mocker) -> None:
     from app.agent.swap import swap_closed_stops
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         return_value={"ChIJtest_a_aaaaaaaaa": True, "ChIJtest_b_aaaaaaaaa": True},
     )
-    state = ItineraryState(stops=[_stop("ChIJtest_a_aaaaaaaaa"), _stop("ChIJtest_b_aaaaaaaaa")])
+    state = ItineraryState(stops=[stop("ChIJtest_a_aaaaaaaaa"), stop("ChIJtest_b_aaaaaaaaa")])
     update = asyncio.run(swap_closed_stops(state))
     # No-op -> empty update (the graph state stays as-is)
     assert update == {}
@@ -76,7 +76,7 @@ def test_swap_node_auto_swap_silent_when_candidate_found(mocker) -> None:
 
     # Stop b is closed initially; after the swap, all are open
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         side_effect=[
             {
                 "ChIJtest_a_aaaaaaaaa": True,
@@ -100,15 +100,15 @@ def test_swap_node_auto_swap_silent_when_candidate_found(mocker) -> None:
         similarity=0.0,
         dist_m=200.0,
     )
-    mocker.patch("app.agent.swap._nearby_search", return_value=[candidate])
-    mocker.patch("app.agent.swap.route_legs", side_effect=_fake_route_factory())
+    mocker.patch("app.agent.swap.nearby_search", return_value=[candidate])
+    mocker.patch("app.agent.swap.route_legs", side_effect=fake_route_factory())
     mocker.patch("app.agent.swap.enrich_stops_with_booking", return_value=None)
 
     state = ItineraryState(
         stops=[
-            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
-            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
-            _stop("ChIJtest_c_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_c_aaaaaaaaa", primary_type="Bar"),
         ],
     )
     update = asyncio.run(swap_closed_stops(state))
@@ -133,12 +133,12 @@ def test_swap_node_escalates_to_pending_when_no_walking_match(mocker) -> None:
     from app.agent.swap import swap_closed_stops
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         return_value={"ChIJtest_a_aaaaaaaaa": True, "ChIJtest_b_aaaaaaaaa": False},
     )
     # Walking search returns empty; citywide search returns one far candidate.
     mocker.patch(
-        "app.agent.swap._nearby_search",
+        "app.agent.swap.nearby_search",
         side_effect=[
             [],  # walking-distance result
             [
@@ -157,8 +157,8 @@ def test_swap_node_escalates_to_pending_when_no_walking_match(mocker) -> None:
     )
     state = ItineraryState(
         stops=[
-            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
-            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
         ],
     )
     update = asyncio.run(swap_closed_stops(state))
@@ -179,14 +179,14 @@ def test_swap_node_queues_additional_pending_closures(mocker) -> None:
     from app.agent.swap import swap_closed_stops
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         return_value={"ChIJtest_a_aaaaaaaaa": False, "ChIJtest_b_aaaaaaaaa": False},
     )
-    mocker.patch("app.agent.swap._nearby_search", return_value=[])
+    mocker.patch("app.agent.swap.nearby_search", return_value=[])
     state = ItineraryState(
         stops=[
-            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
-            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
         ],
     )
     update = asyncio.run(swap_closed_stops(state))
@@ -201,14 +201,14 @@ def test_swap_node_skips_when_family_unresolved(mocker) -> None:
     from app.agent.swap import swap_closed_stops
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         return_value={"ChIJtest_a_aaaaaaaaa": True, "ChIJtest_b_aaaaaaaaa": False},
     )
-    mocker.patch("app.agent.swap._nearby_search", return_value=[])
+    mocker.patch("app.agent.swap.nearby_search", return_value=[])
     state = ItineraryState(
         stops=[
-            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
-            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Spaceship"),  # unknown family
+            stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_b_aaaaaaaaa", primary_type="Spaceship"),  # unknown family
         ],
     )
     update = asyncio.run(swap_closed_stops(state))
@@ -226,7 +226,7 @@ def test_swap_node_caps_closure_context_at_max(mocker) -> None:
     from app.agent.swap import swap_closed_stops
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         side_effect=[{"ChIJtest_x_aaaaaaaaa": False}, {"ChIJtest_y_alt_aaaaa": True}],
     )
     candidate = PlaceHit(
@@ -239,8 +239,8 @@ def test_swap_node_caps_closure_context_at_max(mocker) -> None:
         similarity=0.0,
         dist_m=200.0,
     )
-    mocker.patch("app.agent.swap._nearby_search", return_value=[candidate])
-    mocker.patch("app.agent.swap.route_legs", side_effect=_fake_route_factory())
+    mocker.patch("app.agent.swap.nearby_search", return_value=[candidate])
+    mocker.patch("app.agent.swap.route_legs", side_effect=fake_route_factory())
     mocker.patch("app.agent.swap.enrich_stops_with_booking", return_value=None)
 
     # Padded place_ids satisfy the 06-01 Task 3 Google-Place-ID-format validator.
@@ -259,7 +259,7 @@ def test_swap_node_caps_closure_context_at_max(mocker) -> None:
         for i in range(MAX_CLOSURE_CONTEXT_ENTRIES)
     ]
     state = ItineraryState(
-        stops=[_stop("ChIJtest_x_aaaaaaaaa", primary_type="Bar")],
+        stops=[stop("ChIJtest_x_aaaaaaaaa", primary_type="Bar")],
         closure_context=existing,
     )
     update = asyncio.run(swap_closed_stops(state))
@@ -277,13 +277,13 @@ def test_swap_node_fail_open_on_initial_db_error(mocker) -> None:
     from app.agent.swap import swap_closed_stops
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         side_effect=Exception("db down"),
     )
     state = ItineraryState(
         stops=[
-            _stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
-            _stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_a_aaaaaaaaa", primary_type="Bar"),
+            stop("ChIJtest_b_aaaaaaaaa", primary_type="Bar"),
         ],
     )
     update = asyncio.run(swap_closed_stops(state))
@@ -295,7 +295,7 @@ def test_swap_node_post_swap_rationale_satisfies_alignment_scorer(mocker) -> Non
     """Functional regression for RAT-02 / D-05-03 (Phase 5 plan 02).
 
     Drives the full `swap_closed_stops` graph node end-to-end (not just the
-    inner `_candidates_to_matches` helper that plan 01 unit-tested) on a
+    inner `candidates_to_matches` helper that plan 01 unit-tested) on a
     state with one closed stop + one walking-distance candidate, then asserts
     BOTH halves of D-05-03:
 
@@ -324,7 +324,7 @@ def test_swap_node_post_swap_rationale_satisfies_alignment_scorer(mocker) -> Non
 
     # Stop b is closed initially; after the swap, all are open.
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         side_effect=[
             {
                 "ChIJtest_a_aaaaaaaaa": True,
@@ -348,8 +348,8 @@ def test_swap_node_post_swap_rationale_satisfies_alignment_scorer(mocker) -> Non
         similarity=0.0,
         dist_m=200.0,
     )
-    mocker.patch("app.agent.swap._nearby_search", return_value=[candidate])
-    mocker.patch("app.agent.swap.route_legs", side_effect=_fake_route_factory())
+    mocker.patch("app.agent.swap.nearby_search", return_value=[candidate])
+    mocker.patch("app.agent.swap.route_legs", side_effect=fake_route_factory())
     # Structurally-real no-op for enrich_stops_with_booking: the function runs
     # but each per-stop branch hits the `details is None` guard at commit.py:114.
     mocker.patch("app.agent.commit.get_details_many", return_value={})
@@ -359,15 +359,15 @@ def test_swap_node_post_swap_rationale_satisfies_alignment_scorer(mocker) -> Non
     # Stops a and c carry rationales that already satisfy `is_rationale_aligned`
     # (each contains its own stop's name) so the scorer's assertion below
     # measures the post-swap stop b_alt's rationale in isolation. The default
-    # `_stop` factory rationale "r" would dilute the scorer to ~0.33 even with
+    # `stop` factory rationale "r" would dilute the scorer to ~0.33 even with
     # a perfect swap and obscure what this test is actually pinning.
     state = ItineraryState(
         stops=[
-            _stop("ChIJtest_a_aaaaaaaaa", name="Alpha", primary_type="Bar").model_copy(
+            stop("ChIJtest_a_aaaaaaaaa", name="Alpha", primary_type="Bar").model_copy(
                 update={"rationale": "Alpha is a lively cocktail bar."}
             ),
-            _stop("ChIJtest_b_aaaaaaaaa", name="Beta", primary_type="Bar"),
-            _stop("ChIJtest_c_aaaaaaaaa", name="Gamma", primary_type="Bar").model_copy(
+            stop("ChIJtest_b_aaaaaaaaa", name="Beta", primary_type="Bar"),
+            stop("ChIJtest_c_aaaaaaaaa", name="Gamma", primary_type="Bar").model_copy(
                 update={"rationale": "Gamma rounds out the night with craft beer."}
             ),
         ],

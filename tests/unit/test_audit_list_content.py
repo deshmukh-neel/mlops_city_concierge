@@ -158,9 +158,9 @@ def run_dir_with_fixture_json(tmp_path: pathlib.Path) -> pathlib.Path:
 class TestRunDirScan:
     def test_detects_no_message_trace_shape(self, run_dir_with_fixture_json: pathlib.Path) -> None:
         """Half (a): scan correctly identifies that run JSONs have no message .content."""
-        from scripts.audit_list_content_aimessages import _scan_run_dir  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import scan_run_dir  # noqa: PLC0415
 
-        findings = _scan_run_dir(run_dir_with_fixture_json)
+        findings = scan_run_dir(run_dir_with_fixture_json)
 
         assert findings["files_found"] == 2
         assert findings["files_parsed"] == 2
@@ -180,21 +180,21 @@ class TestRunDirScan:
         self, run_dir_with_fixture_json: pathlib.Path
     ) -> None:
         """Half (a): scan exits cleanly without raising exceptions."""
-        from scripts.audit_list_content_aimessages import _scan_run_dir  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import scan_run_dir  # noqa: PLC0415
 
-        findings = _scan_run_dir(run_dir_with_fixture_json)
+        findings = scan_run_dir(run_dir_with_fixture_json)
 
         assert findings["errors"] == [], f"Unexpected errors: {findings['errors']}"
 
     def test_handles_missing_run_dir(self, tmp_path: pathlib.Path) -> None:
         """Half (a): missing run dir is reported, not raised."""
-        from scripts.audit_list_content_aimessages import _scan_run_dir  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import scan_run_dir  # noqa: PLC0415
 
-        # _scan_run_dir expects the dir to exist; caller handles missing case.
+        # scan_run_dir expects the dir to exist; caller handles missing case.
         # Pass an empty dir to simulate "no JSON files".
         empty_dir = tmp_path / "empty_run_dir"
         empty_dir.mkdir()
-        findings = _scan_run_dir(empty_dir)
+        findings = scan_run_dir(empty_dir)
 
         assert findings["files_found"] == 0
         assert "No JSON files found" in findings["shape_finding"]
@@ -202,13 +202,13 @@ class TestRunDirScan:
 
     def test_handles_malformed_json_gracefully(self, tmp_path: pathlib.Path) -> None:
         """Half (a): malformed JSON is recorded as an error, not a crash."""
-        from scripts.audit_list_content_aimessages import _scan_run_dir  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import scan_run_dir  # noqa: PLC0415
 
         run_dir = tmp_path / "bad_json_dir"
         run_dir.mkdir()
         (run_dir / "bad.json").write_text("{not valid json}")
 
-        findings = _scan_run_dir(run_dir)
+        findings = scan_run_dir(run_dir)
 
         assert findings["files_found"] == 1
         assert len(findings["errors"]) >= 1
@@ -216,7 +216,7 @@ class TestRunDirScan:
 
     def test_detects_unexpected_message_content_if_present(self, tmp_path: pathlib.Path) -> None:
         """Half (a): if a run JSON unexpectedly carries message_content, it is flagged."""
-        from scripts.audit_list_content_aimessages import _scan_run_dir  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import scan_run_dir  # noqa: PLC0415
 
         run_dir = tmp_path / "surprise_dir"
         run_dir.mkdir()
@@ -234,7 +234,7 @@ class TestRunDirScan:
         ]
         (run_dir / "surprise--run-0.json").write_text(json.dumps(surprise_fixture))
 
-        findings = _scan_run_dir(run_dir)
+        findings = scan_run_dir(run_dir)
 
         assert findings["has_message_content"] is True
         assert "UNEXPECTED" in findings["shape_finding"]
@@ -248,9 +248,9 @@ class TestRunDirScan:
 class TestStructuralAdapterAnalysis:
     def test_all_run_models_have_str_content(self) -> None:
         """Half (b): all three RUN models are classified as str-content (no list content)."""
-        from scripts.audit_list_content_aimessages import _structural_analysis  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import structural_analysis  # noqa: PLC0415
 
-        result = _structural_analysis()
+        result = structural_analysis()
 
         assert result["all_run_models_str_content"] is True, (
             "Expected all RUN-model adapters to have str-content AIMessages; "
@@ -259,9 +259,9 @@ class TestStructuralAdapterAnalysis:
 
     def test_expected_null_verdict_for_run_models(self) -> None:
         """Half (b): overall verdict states R2 is EXPECTED-NULL on tested cells."""
-        from scripts.audit_list_content_aimessages import _structural_analysis  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import structural_analysis  # noqa: PLC0415
 
-        result = _structural_analysis()
+        result = structural_analysis()
 
         assert "EXPECTED-NULL" in result["verdict"], (
             f"Expected 'EXPECTED-NULL' in verdict, got: {result['verdict'][:200]}"
@@ -273,9 +273,9 @@ class TestStructuralAdapterAnalysis:
 
     def test_anthropic_is_only_list_content_adapter(self) -> None:
         """Half (b): only Anthropic is classified as a list-content adapter."""
-        from scripts.audit_list_content_aimessages import _structural_analysis  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import structural_analysis  # noqa: PLC0415
 
-        result = _structural_analysis()
+        result = structural_analysis()
 
         assert result["list_content_adapter_count"] == 1, (
             f"Expected exactly 1 list-content adapter, got {result['list_content_adapter_count']}: "
@@ -288,9 +288,9 @@ class TestStructuralAdapterAnalysis:
 
     def test_anthropic_is_deferred_not_in_run_matrix(self) -> None:
         """Half (b): Anthropic (list-content) is deferred and NOT in the run matrix."""
-        from scripts.audit_list_content_aimessages import _structural_analysis  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import structural_analysis  # noqa: PLC0415
 
-        result = _structural_analysis()
+        result = structural_analysis()
 
         assert "anthropic" in result["deferred_list_content_adapters"], (
             "Expected anthropic to be in deferred_list_content_adapters; "
@@ -299,9 +299,9 @@ class TestStructuralAdapterAnalysis:
 
     def test_run_model_count_is_three(self) -> None:
         """Half (b): exactly three RUN models are classified (gpt-5-mini, gpt-4o-mini, deepseek)."""
-        from scripts.audit_list_content_aimessages import _structural_analysis  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import structural_analysis  # noqa: PLC0415
 
-        result = _structural_analysis()
+        result = structural_analysis()
 
         assert result["run_model_count"] == 2, (  # Two entries: openai (both models), deepseek
             # NOTE: the classification table has one openai entry (covers both gpt-5 + gpt-4o)
@@ -312,9 +312,9 @@ class TestStructuralAdapterAnalysis:
 
     def test_str_collapse_no_op_mentioned_in_verdict(self) -> None:
         """Half (b): verdict explicitly states str() collapse is a NO-OP for RUN models."""
-        from scripts.audit_list_content_aimessages import _structural_analysis  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import structural_analysis  # noqa: PLC0415
 
-        result = _structural_analysis()
+        result = structural_analysis()
 
         # Either 'NO-OP' or some equivalent phrasing must be in the verdict.
         assert "NO-OP" in result["verdict"] or "no-op" in result["verdict"].lower(), (
@@ -324,9 +324,9 @@ class TestStructuralAdapterAnalysis:
 
     def test_verdict_mentions_criterion_2_still_runs(self) -> None:
         """Half (b): verdict notes R2 still runs even though expected-null (criterion 2)."""
-        from scripts.audit_list_content_aimessages import _structural_analysis  # noqa: PLC0415
+        from scripts.audit_list_content_aimessages import structural_analysis  # noqa: PLC0415
 
-        result = _structural_analysis()
+        result = structural_analysis()
 
         # Must acknowledge R2 still runs despite expected-null.
         lower = result["verdict"].lower()

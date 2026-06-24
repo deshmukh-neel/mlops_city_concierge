@@ -99,14 +99,14 @@ from app.agent.adapters import ProviderAdapter, StatePayload
 # is acceptable because the key is part of lcgg's stable public-ish wire
 # format — changing it would be a breaking change for any consumer that
 # already rounds-trips signatures (which is what this adapter does).
-_FUNCTION_CALL_THOUGHT_SIGNATURES_KEY = "__gemini_function_call_thought_signatures__"
+FUNCTION_CALL_THOUGHT_SIGNATURES_KEY = "__gemini_function_call_thought_signatures__"
 
 # Phase 8 fixture key (D-09-09) — the synthetic-shape path that gates
 # REASON-02 conformance. The fixture-payload bytes never appear in real
 # lcgg 4.x output, but the harness drives the adapter through this key
 # end-to-end to assert shape-agnostic survival through the LangGraph
 # reducer.
-_SYNTHETIC_FIXTURE_KEY = "thought_signature"
+SYNTHETIC_FIXTURE_KEY = "thought_signature"
 
 
 class GeminiAdapter(ProviderAdapter):
@@ -154,7 +154,7 @@ class GeminiAdapter(ProviderAdapter):
         # The live `gemini-3.1-pro-preview` probe (2026-06-05) surfaced
         # this as the real wire shape — the Phase 8 fixture bytes-shape
         # never appears in production traffic.
-        fc_signatures = message.additional_kwargs.get(_FUNCTION_CALL_THOUGHT_SIGNATURES_KEY)
+        fc_signatures = message.additional_kwargs.get(FUNCTION_CALL_THOUGHT_SIGNATURES_KEY)
         if isinstance(fc_signatures, dict) and fc_signatures:
             # Shallow-copy the dict and its values (values are str, already
             # immutable) so downstream mutation of the captured payload
@@ -172,7 +172,7 @@ class GeminiAdapter(ProviderAdapter):
         # content-block `extras` — not at the AIMessage kwarg root). This
         # path keeps REASON-02 conformance asserting byte-for-byte
         # survival through the reducer while Path 1 handles real traffic.
-        signature = message.additional_kwargs.get(_SYNTHETIC_FIXTURE_KEY)
+        signature = message.additional_kwargs.get(SYNTHETIC_FIXTURE_KEY)
         if isinstance(signature, bytes):
             # Defensive copy: bytes is immutable so identity == equality, but
             # the explicit bytes(signature) makes T-09-04-T3 mutation safety
@@ -187,7 +187,7 @@ class GeminiAdapter(ProviderAdapter):
         # bytes value and captured it under the synthetic-shape key. The Wave 4
         # live probe against the pinned `langchain-google-genai>=4.0.0,<5.0.0`
         # confirmed lcgg surfaces per-call signatures EXCLUSIVELY at
-        # `additional_kwargs[_FUNCTION_CALL_THOUGHT_SIGNATURES_KEY]` (Path 1),
+        # `additional_kwargs[FUNCTION_CALL_THOUGHT_SIGNATURES_KEY]` (Path 1),
         # never on individual tool_call dicts. Capture-from-tool_calls + replay-
         # to-additional_kwargs was an asymmetric round-trip that would silently
         # drop the signature on the wire — dead code in a security-adjacent
@@ -221,14 +221,14 @@ class GeminiAdapter(ProviderAdapter):
                     # Real-wire path: write back to lcgg's internal map key
                     # so its outbound serializer re-attaches each signature
                     # to its corresponding FunctionCall.
-                    msg.additional_kwargs[_FUNCTION_CALL_THOUGHT_SIGNATURES_KEY] = dict(
+                    msg.additional_kwargs[FUNCTION_CALL_THOUGHT_SIGNATURES_KEY] = dict(
                         fc_signatures
                     )
                 if isinstance(signature, bytes):
                     # Synthetic-shape path: write back to the Phase 8 fixture
                     # key. Bytes stay bytes — no base64 encoding (historical
                     # foot-gun per memory project_gemini3_thought_signatures).
-                    msg.additional_kwargs[_SYNTHETIC_FIXTURE_KEY] = signature
+                    msg.additional_kwargs[SYNTHETIC_FIXTURE_KEY] = signature
                 break
         return outbound
 

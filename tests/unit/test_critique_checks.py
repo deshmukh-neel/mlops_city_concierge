@@ -34,55 +34,55 @@ from app.agent.state import ItineraryState, Stop, UserConstraints
 # --- DB fakes ---------------------------------------------------------------
 
 
-class _FakeCursor:
+class FakeCursor:
     def __init__(self, queue: list[list[dict] | list[tuple]]) -> None:
         self.queue = list(queue)
         self.executed: list[tuple[str, list]] = []
 
-    def __enter__(self) -> _FakeCursor:
+    def __enter__(self) -> FakeCursor:
         return self
 
-    def __exit__(self, *_exc: Any) -> bool:
+    def __exit__(self, *exc_obj: Any) -> bool:
         return False
 
     def execute(self, sql: str, params: list) -> None:
         self.executed.append((sql, list(params)))
-        self._next = self.queue.pop(0) if self.queue else []
+        self.next_value = self.queue.pop(0) if self.queue else []
 
     def fetchall(self) -> list:
-        return self._next
+        return self.next_value
 
     def fetchone(self) -> Any:
-        return self._next[0] if self._next else None
+        return self.next_value[0] if self.next_value else None
 
 
-class _FakeConn:
-    def __init__(self, cursor: _FakeCursor) -> None:
-        self._cursor = cursor
+class FakeConn:
+    def __init__(self, cursor: FakeCursor) -> None:
+        self.cursor_obj = cursor
 
-    def cursor(self, **_kw: Any) -> _FakeCursor:
-        return self._cursor
+    def cursor(self, **unused_kwargs: Any) -> FakeCursor:
+        return self.cursor_obj
 
 
 @pytest.fixture
 def patch_db(mocker):
     """Patch app.agent.critique.checks.get_conn to yield a controllable cursor."""
 
-    def _patch(rows_per_execute: list[list]) -> _FakeCursor:
-        cursor = _FakeCursor(rows_per_execute)
-        conn = _FakeConn(cursor)
+    def patch(rows_per_execute: list[list]) -> FakeCursor:
+        cursor = FakeCursor(rows_per_execute)
+        conn = FakeConn(cursor)
 
         @contextmanager
-        def _get_conn():
+        def get_conn():
             yield conn
 
-        mocker.patch("app.agent.critique.checks.get_conn", _get_conn)
+        mocker.patch("app.agent.critique.checks.get_conn", get_conn)
         return cursor
 
-    return _patch
+    return patch
 
 
-def _stop(
+def stop(
     place_id: str = "ChIJtest_p1_aaaaaaaa",
     *,
     arrival: datetime | None = None,
@@ -109,14 +109,14 @@ def _stop(
 
 def test_no_hallucinated_passes_when_all_resolve(patch_db) -> None:
     patch_db([[("ChIJtest_p1_aaaaaaaa",), ("ChIJtest_p2_aaaaaaaa",)]])
-    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")])
+    state = ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa"), stop("ChIJtest_p2_aaaaaaaa")])
     assert no_hallucinated_place_ids(state) == 1.0
 
 
 def test_no_hallucinated_fails_when_any_missing(patch_db) -> None:
     """One missing place_id is critical — score drops to 0."""
     patch_db([[("ChIJtest_p1_aaaaaaaa",)]])
-    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")])
+    state = ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa"), stop("ChIJtest_p2_aaaaaaaa")])
     assert no_hallucinated_place_ids(state) == 0.0
 
 
@@ -129,7 +129,7 @@ def test_no_hallucinated_returns_one_for_empty_stops() -> None:
 
 
 def test_temporal_returns_one_when_no_arrival_times() -> None:
-    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")])
+    state = ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa"), stop("ChIJtest_p2_aaaaaaaa")])
     # No DB call needed — function short-circuits.
     assert temporal_coherence(state) == 1.0
 
@@ -147,8 +147,8 @@ def test_temporal_fractional_when_some_closed(patch_db) -> None:
     )
     state = ItineraryState(
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", arrival=arrival),
-            _stop("ChIJtest_p2_aaaaaaaa", arrival=arrival + timedelta(hours=2)),
+            stop("ChIJtest_p1_aaaaaaaa", arrival=arrival),
+            stop("ChIJtest_p2_aaaaaaaa", arrival=arrival + timedelta(hours=2)),
         ]
     )
     assert temporal_coherence(state) == 0.5
@@ -159,7 +159,7 @@ def test_temporal_treats_missing_row_as_open(patch_db) -> None:
     result; the function defaults that stop to open."""
     arrival = datetime(2026, 5, 1, 19, 0, tzinfo=timezone.utc)
     patch_db([[]])  # JOIN returned zero rows
-    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa", arrival=arrival)])
+    state = ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa", arrival=arrival)])
     assert temporal_coherence(state) == 1.0
 
 
@@ -170,8 +170,8 @@ def test_geographic_perfect_when_close() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
-            _stop("ChIJtest_p2_aaaaaaaa", lat=37.781, lng=-122.411),
+            stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            stop("ChIJtest_p2_aaaaaaaa", lat=37.781, lng=-122.411),
         ],
     )
     assert geographic_coherence(state) == 1.0
@@ -182,9 +182,9 @@ def test_geographic_fractional_when_one_leg_too_long() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
-            _stop("ChIJtest_p2_aaaaaaaa", lat=37.781, lng=-122.411),  # tiny hop
-            _stop("ChIJtest_p3_aaaaaaaa", lat=37.794, lng=-122.41),  # ~1.5km from p2
+            stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            stop("ChIJtest_p2_aaaaaaaa", lat=37.781, lng=-122.411),  # tiny hop
+            stop("ChIJtest_p3_aaaaaaaa", lat=37.794, lng=-122.41),  # ~1.5km from p2
         ],
     )
     assert geographic_coherence(state) == 0.5
@@ -195,9 +195,9 @@ def test_geographic_skips_pairs_missing_coords() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
-            _stop("ChIJtest_p2_aaaaaaaa"),  # no coords
-            _stop("ChIJtest_p3_aaaaaaaa", lat=37.781, lng=-122.411),
+            stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            stop("ChIJtest_p2_aaaaaaaa"),  # no coords
+            stop("ChIJtest_p3_aaaaaaaa", lat=37.781, lng=-122.411),
         ],
     )
     # Neither leg measurable — both endpoints incomplete.
@@ -205,7 +205,7 @@ def test_geographic_skips_pairs_missing_coords() -> None:
 
 
 def test_geographic_returns_one_for_single_stop() -> None:
-    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41)])
+    state = ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41)])
     assert geographic_coherence(state) == 1.0
 
 
@@ -216,8 +216,8 @@ def test_walking_budget_respected_when_under() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=2400),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
-            _stop("ChIJtest_p2_aaaaaaaa", lat=37.781, lng=-122.411),
+            stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            stop("ChIJtest_p2_aaaaaaaa", lat=37.781, lng=-122.411),
         ],
     )
     assert walking_budget_respected(state) == 1.0
@@ -227,8 +227,8 @@ def test_walking_budget_violated_when_over() -> None:
     state = ItineraryState(
         constraints=UserConstraints(walking_budget_m=100),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
-            _stop("ChIJtest_p2_aaaaaaaa", lat=37.80, lng=-122.41),  # ~2.2km
+            stop("ChIJtest_p1_aaaaaaaa", lat=37.78, lng=-122.41),
+            stop("ChIJtest_p2_aaaaaaaa", lat=37.80, lng=-122.41),  # ~2.2km
         ],
     )
     assert walking_budget_respected(state) == 0.0
@@ -259,7 +259,7 @@ def test_constraints_satisfied_full_pass(patch_db) -> None:
             min_user_rating_count=50,
             neighborhood="Mission",
         ),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa")],
     )
     assert constraints_satisfied(state) == 1.0
 
@@ -287,7 +287,7 @@ def test_constraints_satisfied_partial(patch_db) -> None:
             min_user_rating_count=50,
             neighborhood="Mission",
         ),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa")],
     )
     # 3 of 4 expressed constraints satisfied = 0.75
     assert constraints_satisfied(state) == pytest.approx(0.75)
@@ -311,7 +311,7 @@ def test_constraints_satisfied_neighborhood_falls_back_to_address(patch_db) -> N
     )
     state = ItineraryState(
         constraints=UserConstraints(neighborhood="North Beach"),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa")],
     )
     assert constraints_satisfied(state) == 1.0
 
@@ -322,7 +322,7 @@ def test_constraints_satisfied_skips_hallucinated_pids(patch_db) -> None:
     patch_db([[]])  # no rows
     state = ItineraryState(
         constraints=UserConstraints(price_level_max=2),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa"), stop("ChIJtest_p2_aaaaaaaa")],
     )
     # No rows = no scoring possible — return 1.0 vacuously.
     assert constraints_satisfied(state) == 1.0
@@ -337,7 +337,7 @@ def test_category_compliance_abstains_when_no_requested_types() -> None:
     """D-03 abstain contract: empty requested_primary_types -> 1.0."""
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=[]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance(state) == 1.0
 
@@ -386,7 +386,7 @@ def test_category_compliance_populated_path_still_returns_float() -> None:
     """
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     result = category_compliance(state)
     assert isinstance(result, float), "populated path must return float, not None"
@@ -409,7 +409,7 @@ def test_category_compliance_zero_stop_none_excluded_from_aggregation() -> None:
     )
     populated_state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
 
     zero_stop_score = category_compliance(zero_stop_state)
@@ -431,7 +431,7 @@ def test_category_compliance_single_exact_family_match() -> None:
     """Same exact primary_type -> family matches -> 1.0."""
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance(state) == 1.0
 
@@ -443,8 +443,8 @@ def test_category_compliance_multi_slot_all_match() -> None:
             requested_primary_types=["Sushi Restaurant", "Cocktail Bar"],
         ),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
-            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
+            stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
         ],
     )
     assert category_compliance(state) == 1.0
@@ -454,7 +454,7 @@ def test_category_compliance_family_mismatch_single_stop() -> None:
     """Family mismatch (restaurant vs bar) -> 0.0."""
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Cocktail Bar")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Cocktail Bar")],
     )
     assert category_compliance(state) == 0.0
 
@@ -466,8 +466,8 @@ def test_category_compliance_partial_match_two_slots() -> None:
             requested_primary_types=["Sushi Restaurant", "Cocktail Bar"],
         ),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
-            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Coffee Shop"),  # cafe family, not bar
+            stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            stop("ChIJtest_p2_aaaaaaaa", primary_type="Coffee Shop"),  # cafe family, not bar
         ],
     )
     assert category_compliance(state) == 0.5
@@ -483,8 +483,8 @@ def test_category_compliance_length_mismatch_more_stops_than_requested() -> None
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
-            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
+            stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
         ],
     )
     assert category_compliance(state) == 0.5
@@ -499,7 +499,7 @@ def test_category_compliance_length_mismatch_fewer_stops_than_requested() -> Non
         constraints=UserConstraints(
             requested_primary_types=["Sushi Restaurant", "Cocktail Bar"],
         ),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance(state) == 0.5
 
@@ -508,7 +508,7 @@ def test_category_compliance_none_primary_type_is_mismatch() -> None:
     """primary_type=None can't be scored as a match — score as mismatch (strict)."""
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type=None)],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type=None)],
     )
     assert category_compliance(state) == 0.0
 
@@ -526,7 +526,7 @@ def test_category_compliance_pure_function_no_db_access(mocker) -> None:
     sentinel = mocker.patch("app.agent.critique.checks.get_conn")
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Cocktail Bar"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Cocktail Bar")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Cocktail Bar")],
     )
     assert category_compliance(state) == 1.0
     sentinel.assert_not_called()
@@ -540,7 +540,7 @@ def test_category_compliance_pure_function_no_db_access(mocker) -> None:
 def test_category_compliance_strict_abstains_when_no_requested_types() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=[]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance_strict(state) == 1.0
 
@@ -556,7 +556,7 @@ def test_category_compliance_strict_returns_one_for_empty_stops() -> None:
 def test_category_compliance_strict_exact_keyword_match() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance_strict(state) == 1.0
 
@@ -564,11 +564,11 @@ def test_category_compliance_strict_exact_keyword_match() -> None:
 def test_category_compliance_strict_within_family_drift_returns_zero() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Pizza Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Pizza Restaurant")],
     )
     family_state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Sushi Restaurant"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Pizza Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Pizza Restaurant")],
     )
     assert category_compliance(family_state) == 1.0
     assert category_compliance_strict(state) == 0.0
@@ -578,8 +578,8 @@ def test_category_compliance_strict_multi_slot_all_match() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase", "cocktails"]),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
-            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
+            stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
         ],
     )
     assert category_compliance_strict(state) == 1.0
@@ -589,8 +589,8 @@ def test_category_compliance_strict_partial_match() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase", "cocktails"]),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
-            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Coffee Shop"),
+            stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            stop("ChIJtest_p2_aaaaaaaa", primary_type="Coffee Shop"),
         ],
     )
     assert category_compliance_strict(state) == 0.5
@@ -599,7 +599,7 @@ def test_category_compliance_strict_partial_match() -> None:
 def test_category_compliance_strict_falls_back_to_family_on_unmapped_keyword() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["Italian Restaurant"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Restaurant")],
     )
     assert category_compliance(state) == 1.0
     assert category_compliance_strict(state) == 1.0
@@ -609,8 +609,8 @@ def test_category_compliance_strict_length_mismatch_dilutes() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
         stops=[
-            _stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
-            _stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
+            stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant"),
+            stop("ChIJtest_p2_aaaaaaaa", primary_type="Cocktail Bar"),
         ],
     )
     assert category_compliance_strict(state) == 0.5
@@ -619,7 +619,7 @@ def test_category_compliance_strict_length_mismatch_dilutes() -> None:
 def test_category_compliance_strict_none_primary_type_is_mismatch() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type=None)],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type=None)],
     )
     assert category_compliance_strict(state) == 0.0
 
@@ -627,7 +627,7 @@ def test_category_compliance_strict_none_primary_type_is_mismatch() -> None:
 def test_category_compliance_strict_keyword_lookup_is_case_insensitive() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["OMAKASE"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="Sushi Restaurant")],
     )
     assert category_compliance_strict(state) == 1.0
 
@@ -635,7 +635,7 @@ def test_category_compliance_strict_keyword_lookup_is_case_insensitive() -> None
 def test_category_compliance_strict_primary_type_match_is_case_preserving() -> None:
     state = ItineraryState(
         constraints=UserConstraints(requested_primary_types=["omakase"]),
-        stops=[_stop("ChIJtest_p1_aaaaaaaa", primary_type="sushi restaurant")],
+        stops=[stop("ChIJtest_p1_aaaaaaaa", primary_type="sushi restaurant")],
     )
     assert category_compliance_strict(state) == 0.0
 
@@ -656,7 +656,7 @@ def test_category_compliance_strict_itinerary_violations_registration(mocker) ->
     mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=1.0)
     mocker.patch("app.agent.critique.checks.rationale_stop_alignment", return_value=1.0)
 
-    assert itinerary_violations(ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])) == [
+    assert itinerary_violations(ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa")])) == [
         "category_compliance_strict"
     ]
 
@@ -687,7 +687,7 @@ def test_rationale_stop_alignment_name_substring_match() -> None:
     """Stop name appearing in the rationale is enough — case-insensitive."""
     state = ItineraryState(
         stops=[
-            _stop(
+            stop(
                 "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu offers a tasting menu",
@@ -702,7 +702,7 @@ def test_rationale_stop_alignment_family_keyword_match() -> None:
     """No name match but family-keyword 'restaurant' present -> match."""
     state = ItineraryState(
         stops=[
-            _stop(
+            stop(
                 "ChIJtest_p1_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="An intimate restaurant experience",
@@ -729,7 +729,7 @@ def test_rationale_stop_alignment_catches_closure_swap_placeholder_bleed() -> No
     """
     state = ItineraryState(
         stops=[
-            _stop(
+            stop(
                 "ChIJtest_p1_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
@@ -744,7 +744,7 @@ def test_rationale_stop_alignment_bar_family_keyword() -> None:
     """No name match but 'cocktail' is a bar-family keyword -> 1.0."""
     state = ItineraryState(
         stops=[
-            _stop(
+            stop(
                 "ChIJtest_p1_aaaaaaaa",
                 name="Stookey's",
                 rationale="Excellent cocktails in a vintage setting",
@@ -759,13 +759,13 @@ def test_rationale_stop_alignment_multi_stop_fractional() -> None:
     """Score is matches / len(stops) across multiple stops."""
     state = ItineraryState(
         stops=[
-            _stop(
+            stop(
                 "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu offers a tasting menu",
                 primary_type="Sushi Restaurant",
             ),
-            _stop(
+            stop(
                 "ChIJtest_p2_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
@@ -785,7 +785,7 @@ def test_rationale_stop_alignment_none_primary_type_no_name_match() -> None:
     """
     state = ItineraryState(
         stops=[
-            _stop(
+            stop(
                 "ChIJtest_p1_aaaaaaaa",
                 name="Mystery Spot",
                 rationale="A pleasant place with great vibes",
@@ -800,7 +800,7 @@ def test_rationale_stop_alignment_case_insensitive_name_match() -> None:
     """Name substring match is case-insensitive (lowercased on both sides)."""
     state = ItineraryState(
         stops=[
-            _stop(
+            stop(
                 "ChIJtest_p1_aaaaaaaa",
                 name="KAISEKI YUZU",
                 # uppercase name, lowercase rationale
@@ -823,7 +823,7 @@ def test_rationale_stop_alignment_pure_function_no_db_access(mocker) -> None:
     sentinel = mocker.patch("app.agent.critique.checks.get_conn")
     state = ItineraryState(
         stops=[
-            _stop(
+            stop(
                 "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu omakase",
@@ -837,7 +837,7 @@ def test_rationale_stop_alignment_pure_function_no_db_access(mocker) -> None:
 
 # --- is_rationale_aligned (public helper, plan 04-05) -----------------------
 # The per-stop boolean rule used by rationale_stop_alignment was extracted into
-# a public helper so the revision dispatcher (_first_misaligned_stop_index in
+# a public helper so the revision dispatcher (first_misaligned_stop_index in
 # app/agent/revision.py) can call it without duplicating the rule. Tests below
 # pin (a) helper behavior on each branch and (b) byte-identical scorer behavior
 # pre/post extraction so the DRY refactor can't regress the existing scorer.
@@ -845,54 +845,54 @@ def test_rationale_stop_alignment_pure_function_no_db_access(mocker) -> None:
 
 def test_is_rationale_aligned_name_substring_match() -> None:
     """Name appearing in the rationale (case-insensitive) -> True."""
-    stop = _stop(
+    candidate_stop = stop(
         "ChIJtest_p1_aaaaaaaa",
         name="Lazy Bear",
         rationale="Lazy Bear is excellent",
         primary_type="American Restaurant",
     )
-    assert is_rationale_aligned(stop) is True
+    assert is_rationale_aligned(candidate_stop) is True
 
 
 def test_is_rationale_aligned_family_keyword_match() -> None:
     """No name match but a family keyword in rationale -> True."""
-    stop = _stop(
+    candidate_stop = stop(
         "ChIJtest_p1_aaaaaaaa",
         name="Lazy Bear",
         rationale="An intimate restaurant experience downtown",
         primary_type="American Restaurant",
     )
-    assert is_rationale_aligned(stop) is True
+    assert is_rationale_aligned(candidate_stop) is True
 
 
 def test_is_rationale_aligned_neither_match_returns_false() -> None:
     """Closure-swap placeholder bleed: no name AND no family keyword -> False."""
-    stop = _stop(
+    candidate_stop = stop(
         "ChIJtest_p1_aaaaaaaa",
         name="Lazy Bear",
         rationale="Walking-distance alternative for Kaiseki Yuzu",
         primary_type="American Restaurant",
     )
-    assert is_rationale_aligned(stop) is False
+    assert is_rationale_aligned(candidate_stop) is False
 
 
 def test_is_rationale_aligned_none_primary_type_no_name_match() -> None:
     """primary_type=None means we can't derive family keywords; name substring
     is the only path. No name match -> False."""
-    stop = _stop(
+    candidate_stop = stop(
         "ChIJtest_p1_aaaaaaaa",
         name="Mystery Spot",
         rationale="A pleasant place with great vibes",
         primary_type=None,
     )
-    assert is_rationale_aligned(stop) is False
+    assert is_rationale_aligned(candidate_stop) is False
 
 
 def test_is_rationale_aligned_none_or_empty_rationale_returns_false() -> None:
     """Defensive: empty rationale -> False (would crash on .lower() pre-extraction
     if name were also None; the helper coerces None defensively)."""
     # rationale="" branch
-    stop_empty = _stop(
+    stop_empty = stop(
         "ChIJtest_p1_aaaaaaaa",
         name="Lazy Bear",
         rationale="",
@@ -916,25 +916,25 @@ def test_rationale_stop_alignment_behavior_unchanged_after_extraction() -> None:
     """
     state = ItineraryState(
         stops=[
-            _stop(
+            stop(
                 "ChIJtest_p1_aaaaaaaa",
                 name="Kaiseki Yuzu",
                 rationale="Kaiseki Yuzu offers a tasting menu",
                 primary_type="Sushi Restaurant",
             ),
-            _stop(
+            stop(
                 "ChIJtest_p2_aaaaaaaa",
                 name="Stookey's",
                 rationale="Excellent cocktails in a vintage setting",
                 primary_type="Cocktail Bar",
             ),
-            _stop(
+            stop(
                 "ChIJtest_p3_aaaaaaaa",
                 name="Lazy Bear",
                 rationale="Walking-distance alternative for Kaiseki Yuzu",
                 primary_type="American Restaurant",
             ),
-            _stop(
+            stop(
                 "ChIJtest_p4_aaaaaaaa",
                 name="Mystery Spot",
                 rationale="A pleasant place with great vibes",
@@ -951,11 +951,11 @@ def test_rationale_stop_alignment_behavior_unchanged_after_extraction() -> None:
 
 
 def test_stop_count_satisfied_checks_explicit_request() -> None:
-    assert stop_count_satisfied(ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])) == 1.0
+    assert stop_count_satisfied(ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa")])) == 1.0
     assert (
         stop_count_satisfied(
             ItineraryState(
-                stops=[_stop("ChIJtest_p1_aaaaaaaa"), _stop("ChIJtest_p2_aaaaaaaa")],
+                stops=[stop("ChIJtest_p1_aaaaaaaa"), stop("ChIJtest_p2_aaaaaaaa")],
                 constraints=UserConstraints(num_stops=3),
             )
         )
@@ -965,9 +965,9 @@ def test_stop_count_satisfied_checks_explicit_request() -> None:
         stop_count_satisfied(
             ItineraryState(
                 stops=[
-                    _stop("ChIJtest_p1_aaaaaaaa"),
-                    _stop("ChIJtest_p2_aaaaaaaa"),
-                    _stop("ChIJtest_p3_aaaaaaaa"),
+                    stop("ChIJtest_p1_aaaaaaaa"),
+                    stop("ChIJtest_p2_aaaaaaaa"),
+                    stop("ChIJtest_p3_aaaaaaaa"),
                 ],
                 constraints=UserConstraints(num_stops=3),
             )
@@ -989,7 +989,7 @@ def test_itinerary_violations_reports_failed_checks_in_order(mocker) -> None:
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=0.0)
     mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=0.5)
     mocker.patch("app.agent.critique.checks.rationale_stop_alignment", return_value=0.0)
-    state = ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])
+    state = ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa")])
     assert itinerary_violations(state) == [
         "no_hallucinated_place_ids",
         "stop_count_satisfied",
@@ -1016,7 +1016,7 @@ def test_itinerary_violations_empty_when_all_pass(mocker) -> None:
         "rationale_stop_alignment",
     ):
         mocker.patch(f"app.agent.critique.checks.{fn}", return_value=1.0)
-    assert itinerary_violations(ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])) == []
+    assert itinerary_violations(ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa")])) == []
 
 
 def test_itinerary_violations_fails_open_on_db_error(mocker) -> None:
@@ -1035,7 +1035,7 @@ def test_itinerary_violations_fails_open_on_db_error(mocker) -> None:
     mocker.patch("app.agent.critique.checks.walking_budget_respected", return_value=1.0)
     mocker.patch("app.agent.critique.checks.constraints_satisfied", return_value=1.0)
     mocker.patch("app.agent.critique.checks.rationale_stop_alignment", return_value=1.0)
-    assert itinerary_violations(ItineraryState(stops=[_stop("ChIJtest_p1_aaaaaaaa")])) == []
+    assert itinerary_violations(ItineraryState(stops=[stop("ChIJtest_p1_aaaaaaaa")])) == []
 
 
 def test_thresholds_are_strict_enough() -> None:
@@ -1108,7 +1108,7 @@ def test_phase7_known_d_07_10_preamble_exception() -> None:
     regressing from `refinement_minimal_edit.median == 1.0` (pre-Phase-7)
     to `0.0` under the pure task-only preamble. After the user-approved
     D-07-10 iteration, one behavioral-prescription sentence was added back
-    to `_REFINEMENT_PREAMBLE`. It was deliberately phrased to avoid the
+    to `REFINEMENT_PREAMBLE`. It was deliberately phrased to avoid the
     six D-07-04 forbidden literal substrings ("byte-for-byte", etc.) but
     IS semantically equivalent — it tells the model to reuse `place_id` /
     `slot` on non-target stops, which is the byte-equality rule the scorer
@@ -1128,13 +1128,13 @@ def test_phase7_known_d_07_10_preamble_exception() -> None:
     deliberate contract change). See 07-07-SUMMARY.md for the full
     measurement + decision record.
     """
-    from app.agent.io import _REFINEMENT_PREAMBLE
+    from app.agent.io import REFINEMENT_PREAMBLE
 
     expected_d_07_10_exception_sentence = (
         "Reuse the `place_id` and `slot` index of every stop you are not changing "
         "exactly as listed; only the slot named by the user gets a new `place_id`."
     )
-    assert expected_d_07_10_exception_sentence in _REFINEMENT_PREAMBLE, (
+    assert expected_d_07_10_exception_sentence in REFINEMENT_PREAMBLE, (
         "Phase 7 / D-07-10 KNOWN-EXCEPTION sentence drifted. "
         "If you intentionally removed or rewrote the prescription, update this "
         "test AND 07-07-SUMMARY.md's PROMPT-04 outcome record together. "
@@ -1170,17 +1170,17 @@ def test_refinement_minimal_edit_smoke_callable_returns_float() -> None:
 # validation on Stop.place_id).
 
 
-_PID_LEN20_A = "ChIJtest_fixture_a_aaaaa"  # 24 chars, satisfies ^[A-Za-z0-9_-]{20,255}$
-_PID_LEN20_B = "ChIJtest_fixture_b_bbbbb"
-_PID_LEN20_C = "ChIJtest_fixture_c_ccccc"
-_PID_LEN20_D = "ChIJtest_fixture_d_ddddd"
-_PID_LEN20_E = "ChIJtest_fixture_e_eeeee"
-_PID_LEN20_NEW2 = "ChIJtest_new_slot2_xxxxx"
-_PID_LEN20_NEW4 = "ChIJtest_new_slot4_yyyyy"
-_PID_LEN20_LONE = "ChIJlone_valid_id_aaaa"
+PID_LEN20_A = "ChIJtest_fixture_a_aaaaa"  # 24 chars, satisfies ^[A-Za-z0-9_-]{20,255}$
+PID_LEN20_B = "ChIJtest_fixture_b_bbbbb"
+PID_LEN20_C = "ChIJtest_fixture_c_ccccc"
+PID_LEN20_D = "ChIJtest_fixture_d_ddddd"
+PID_LEN20_E = "ChIJtest_fixture_e_eeeee"
+PID_LEN20_NEW2 = "ChIJtest_new_slot2_xxxxx"
+PID_LEN20_NEW4 = "ChIJtest_new_slot4_yyyyy"
+PID_LEN20_LONE = "ChIJlone_valid_id_aaaa"
 
 
-def _refinement_stop(place_id: str, primary_type: str | None = None) -> Stop:
+def refinement_stop(place_id: str, primary_type: str | None = None) -> Stop:
     """Build a Stop fixture suitable for the refinement_minimal_edit scorer.
 
     Only ``place_id`` matters for the scorer's byte-equal comparison. Required
@@ -1230,7 +1230,7 @@ class TestRefinementMinimalEdit:
         state = ItineraryState()
         state.scratch = {
             "refinement_context": False,
-            "prior_committed_stops": [{"slot": 1, "place_id": _PID_LEN20_A}],
+            "prior_committed_stops": [{"slot": 1, "place_id": PID_LEN20_A}],
             "refinement_target_slot": 2,
         }
         assert refinement_minimal_edit(state) == 1.0
@@ -1261,7 +1261,7 @@ class TestRefinementMinimalEdit:
         state = ItineraryState()
         state.scratch = {
             "refinement_context": True,
-            "prior_committed_stops": [{"slot": 1, "place_id": _PID_LEN20_A}],
+            "prior_committed_stops": [{"slot": 1, "place_id": PID_LEN20_A}],
         }
         assert refinement_minimal_edit(state) == 0.0
 
@@ -1291,7 +1291,7 @@ class TestRefinementMinimalEdit:
             "refinement_target_slot": 2,
             "prior_committed_stops": [
                 {"slot": 1},  # missing place_id
-                {"place_id": _PID_LEN20_A},  # missing slot
+                {"place_id": PID_LEN20_A},  # missing slot
                 {},  # empty
                 {"slot": 2, "place_id": ""},  # empty place_id
             ],
@@ -1307,13 +1307,13 @@ class TestRefinementMinimalEdit:
         Nothing to preserve — the user asked to change the only stop.
         """
         state = ItineraryState(
-            stops=[_refinement_stop(_PID_LEN20_NEW2)],
+            stops=[refinement_stop(PID_LEN20_NEW2)],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 1,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_LONE},
+                {"slot": 1, "place_id": PID_LEN20_LONE},
             ],
         }
         assert refinement_minimal_edit(state) == 1.0
@@ -1325,18 +1325,18 @@ class TestRefinementMinimalEdit:
         current → 2/2 → 1.0."""
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),  # slot 1 — preserved
-                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 — changed (target)
-                _refinement_stop(_PID_LEN20_C),  # slot 3 — preserved
+                refinement_stop(PID_LEN20_A),  # slot 1 — preserved
+                refinement_stop(PID_LEN20_NEW2),  # slot 2 — changed (target)
+                refinement_stop(PID_LEN20_C),  # slot 3 — preserved
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 1.0
@@ -1354,8 +1354,8 @@ class TestRefinementMinimalEdit:
         """
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),  # slot 1 preserved
-                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 changed (target)
+                refinement_stop(PID_LEN20_A),  # slot 1 preserved
+                refinement_stop(PID_LEN20_NEW2),  # slot 2 changed (target)
                 # slot 3 entirely dropped from current
             ],
         )
@@ -1363,9 +1363,9 @@ class TestRefinementMinimalEdit:
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 0.5
@@ -1380,19 +1380,19 @@ class TestRefinementMinimalEdit:
         """
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),  # slot 1 preserved
-                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 changed (target)
-                _refinement_stop(_PID_LEN20_C),  # slot 3 preserved
-                _refinement_stop(_PID_LEN20_NEW4),  # slot 4 NEW (inserted)
+                refinement_stop(PID_LEN20_A),  # slot 1 preserved
+                refinement_stop(PID_LEN20_NEW2),  # slot 2 changed (target)
+                refinement_stop(PID_LEN20_C),  # slot 3 preserved
+                refinement_stop(PID_LEN20_NEW4),  # slot 4 NEW (inserted)
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 1.0
@@ -1402,18 +1402,18 @@ class TestRefinementMinimalEdit:
         preserved), slot 3 preserved → 1/2 → 0.5."""
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_D),  # slot 1 changed (not preserved)
-                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 changed (target)
-                _refinement_stop(_PID_LEN20_C),  # slot 3 preserved
+                refinement_stop(PID_LEN20_D),  # slot 1 changed (not preserved)
+                refinement_stop(PID_LEN20_NEW2),  # slot 2 changed (target)
+                refinement_stop(PID_LEN20_C),  # slot 3 preserved
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 0.5
@@ -1423,18 +1423,18 @@ class TestRefinementMinimalEdit:
         CHANGED → 0/2 → 0.0 (every non-target stop lost)."""
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_D),  # slot 1 changed
-                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 changed (target)
-                _refinement_stop(_PID_LEN20_E),  # slot 3 changed
+                refinement_stop(PID_LEN20_D),  # slot 1 changed
+                refinement_stop(PID_LEN20_NEW2),  # slot 2 changed (target)
+                refinement_stop(PID_LEN20_E),  # slot 3 changed
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 0.0
@@ -1459,18 +1459,18 @@ class TestRefinementMinimalEdit:
         """
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),  # slot 1 preserved
-                _refinement_stop(_PID_LEN20_NEW2, primary_type="Cocktail Bar"),
-                _refinement_stop(_PID_LEN20_C),  # slot 3 preserved
+                refinement_stop(PID_LEN20_A),  # slot 1 preserved
+                refinement_stop(PID_LEN20_NEW2, primary_type="Cocktail Bar"),
+                refinement_stop(PID_LEN20_C),  # slot 3 preserved
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": "Cocktail Bar"},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B, "primary_type": "Cocktail Bar"},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 1.0
@@ -1482,18 +1482,18 @@ class TestRefinementMinimalEdit:
         """
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),
-                _refinement_stop(_PID_LEN20_NEW2, primary_type="Wine Bar"),
-                _refinement_stop(_PID_LEN20_C),
+                refinement_stop(PID_LEN20_A),
+                refinement_stop(PID_LEN20_NEW2, primary_type="Wine Bar"),
+                refinement_stop(PID_LEN20_C),
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": "Cocktail Bar"},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B, "primary_type": "Cocktail Bar"},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 0.0
@@ -1507,19 +1507,19 @@ class TestRefinementMinimalEdit:
         """
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),
-                _refinement_stop(_PID_LEN20_NEW2, primary_type="Cafe"),
-                _refinement_stop(_PID_LEN20_C),
+                refinement_stop(PID_LEN20_A),
+                refinement_stop(PID_LEN20_NEW2, primary_type="Cafe"),
+                refinement_stop(PID_LEN20_C),
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
+                {"slot": 1, "place_id": PID_LEN20_A},
                 # Target slot 2 entry omits primary_type entirely (legacy payload).
-                {"slot": 2, "place_id": _PID_LEN20_B},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 2, "place_id": PID_LEN20_B},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 1.0
@@ -1534,18 +1534,18 @@ class TestRefinementMinimalEdit:
         """
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),
-                _refinement_stop(_PID_LEN20_NEW2, primary_type="Cafe"),
-                _refinement_stop(_PID_LEN20_C),
+                refinement_stop(PID_LEN20_A),
+                refinement_stop(PID_LEN20_NEW2, primary_type="Cafe"),
+                refinement_stop(PID_LEN20_C),
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": None},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B, "primary_type": None},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 1.0
@@ -1557,18 +1557,18 @@ class TestRefinementMinimalEdit:
         """
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),
-                _refinement_stop(_PID_LEN20_NEW2, primary_type=None),
-                _refinement_stop(_PID_LEN20_C),
+                refinement_stop(PID_LEN20_A),
+                refinement_stop(PID_LEN20_NEW2, primary_type=None),
+                refinement_stop(PID_LEN20_C),
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": "Cocktail Bar"},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B, "primary_type": "Cocktail Bar"},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 0.0
@@ -1586,8 +1586,8 @@ class TestRefinementMinimalEdit:
         """
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),  # slot 1 preserved
-                _refinement_stop(_PID_LEN20_NEW2, primary_type="Bar"),  # target
+                refinement_stop(PID_LEN20_A),  # slot 1 preserved
+                refinement_stop(PID_LEN20_NEW2, primary_type="Bar"),  # target
                 # slot 3 dropped entirely from current
             ],
         )
@@ -1595,9 +1595,9 @@ class TestRefinementMinimalEdit:
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B, "primary_type": "Bar"},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B, "primary_type": "Bar"},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 0.5
@@ -1613,14 +1613,14 @@ class TestRefinementMinimalEdit:
         """
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_NEW2, primary_type="Restaurant"),
+                refinement_stop(PID_LEN20_NEW2, primary_type="Restaurant"),
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 1,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_LONE, "primary_type": "Cocktail Bar"},
+                {"slot": 1, "place_id": PID_LEN20_LONE, "primary_type": "Cocktail Bar"},
             ],
         }
         assert refinement_minimal_edit(state) == 1.0
@@ -1648,16 +1648,16 @@ class TestRefinementMinimalEdit:
 
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_D),  # slot 1 changed (drops score)
-                _refinement_stop(_PID_LEN20_NEW2),  # slot 2 target
+                refinement_stop(PID_LEN20_D),  # slot 1 changed (drops score)
+                refinement_stop(PID_LEN20_NEW2),  # slot 2 target
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B},
             ],
         }
         violations = itinerary_violations(state)
@@ -1678,8 +1678,8 @@ class TestRefinementMinimalEdit:
 
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),
-                _refinement_stop(_PID_LEN20_B),
+                refinement_stop(PID_LEN20_A),
+                refinement_stop(PID_LEN20_B),
             ],
         )
         # No refinement_context in scratch — this is the ad-hoc case.
@@ -1698,18 +1698,18 @@ class TestRefinementMinimalEdit:
         # Use a real refinement-context state (Branch 5 normal path).
         state = ItineraryState(
             stops=[
-                _refinement_stop(_PID_LEN20_A),
-                _refinement_stop(_PID_LEN20_NEW2),
-                _refinement_stop(_PID_LEN20_C),
+                refinement_stop(PID_LEN20_A),
+                refinement_stop(PID_LEN20_NEW2),
+                refinement_stop(PID_LEN20_C),
             ],
         )
         state.scratch = {
             "refinement_context": True,
             "refinement_target_slot": 2,
             "prior_committed_stops": [
-                {"slot": 1, "place_id": _PID_LEN20_A},
-                {"slot": 2, "place_id": _PID_LEN20_B},
-                {"slot": 3, "place_id": _PID_LEN20_C},
+                {"slot": 1, "place_id": PID_LEN20_A},
+                {"slot": 2, "place_id": PID_LEN20_B},
+                {"slot": 3, "place_id": PID_LEN20_C},
             ],
         }
         assert refinement_minimal_edit(state) == 1.0

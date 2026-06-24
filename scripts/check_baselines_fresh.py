@@ -37,7 +37,7 @@ Exit code conventions (Plan 03-10 / WR-02 hardening):
     | rc | meaning                                                          |
     |  0 | gate passed (one of the four truth-table pass branches above)    |
     |  1 | gate failed: stale baselines (rule-1 violation)                  |
-    |  2 | infrastructure failure (RuntimeError from _run_git: rc != 0,     |
+    |  2 | infrastructure failure (RuntimeError from run_git: rc != 0,     |
     |    | missing git binary, or explicit empty-string BASE_SHA)           |
 """
 
@@ -68,11 +68,11 @@ SKIP_BASELINE_TOKEN = "[skip-baseline]"  # noqa: S105 - bypass marker, not a cre
 # accidentally trip the gate. The token must appear at a line boundary (start
 # of message or after a newline), optionally preceded by whitespace, and must
 # be followed by whitespace or end-of-string — i.e. trailer-style placement.
-_SKIP_BASELINE_RE = re.compile(r"(^|\n)\s*\[skip-baseline\](\s|$)")
+SKIP_BASELINE_RE = re.compile(r"(^|\n)\s*\[skip-baseline\](\s|$)")
 DEFAULT_BASE = "origin/main"
 
 
-def _run_git(args: list[str]) -> str:
+def run_git(args: list[str]) -> str:
     """Run ``git`` with ``args`` and return stdout.
 
     Raises ``RuntimeError`` on non-zero git exit or a missing ``git`` binary
@@ -111,23 +111,23 @@ def _run_git(args: list[str]) -> str:
     return result.stdout
 
 
-def _changed_paths(base_sha: str) -> set[str]:
+def changed_paths(base_sha: str) -> set[str]:
     """Return the set of paths that changed between ``base_sha`` and HEAD.
 
     Uses the three-dot ``BASE...HEAD`` syntax (merge-base diff) so the
     output reflects only what the PR introduced, not unrelated mainline
     commits that landed since the branch forked.
     """
-    raw = _run_git(["diff", "--name-only", f"{base_sha}...HEAD"])
+    raw = run_git(["diff", "--name-only", f"{base_sha}...HEAD"])
     return {line for line in raw.splitlines() if line}
 
 
-def _last_commit_message() -> str:
+def last_commit_message() -> str:
     """Return the full body (subject + body) of HEAD."""
-    return _run_git(["log", "-1", "--format=%B"])
+    return run_git(["log", "-1", "--format=%B"])
 
 
-def _agent_changed(paths: set[str]) -> list[str]:
+def agent_changed(paths: set[str]) -> list[str]:
     """Return changed paths under any watch-set prefix (sorted for determinism).
 
     Watch-set (D-11-21 / BASE-04): ``app/agent/``, ``app/llm_factory.py``,
@@ -136,7 +136,7 @@ def _agent_changed(paths: set[str]) -> list[str]:
     return sorted(p for p in paths if any(p.startswith(prefix) for prefix in WATCH_PREFIXES))
 
 
-def _baselines_changed(paths: set[str]) -> list[str]:
+def baselines_changed(paths: set[str]) -> list[str]:
     """Return changed ``configs/eval_baselines/*.json`` paths.
 
     Non-``.json`` files under the baselines dir (e.g. a stray README) do
@@ -148,7 +148,7 @@ def _baselines_changed(paths: set[str]) -> list[str]:
     )
 
 
-def _format_stale_error(agent_paths: list[str]) -> str:
+def format_stale_error(agent_paths: list[str]) -> str:
     """Render the actionable error message for the stale-baseline gate."""
     lines = [
         "ERROR: lint-baselines gate (Plan 03-07 / EVAL-07 / P9 / D-11-21):",
@@ -179,7 +179,7 @@ def _format_stale_error(agent_paths: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
+def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     """Parse argv. Both positional BASE_SHA and ``--merge-base`` are accepted."""
     parser = argparse.ArgumentParser(
         prog="check_baselines_fresh",
@@ -205,7 +205,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     return parser.parse_args(list(argv))
 
 
-def _resolve_base(args: argparse.Namespace) -> str:
+def resolve_base(args: argparse.Namespace) -> str:
     """Pick the effective diff base from positional/flag/default precedence.
 
     WR-02: empty-string positional BASE_SHA used to be falsy and silently
@@ -238,24 +238,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     Exit codes:
         0 = gate passed (one of the four truth-table pass branches)
         1 = gate failed: stale baselines (rule-1 violation)
-        2 = infrastructure failure (RuntimeError from _run_git / _resolve_base)
+        2 = infrastructure failure (RuntimeError from run_git / resolve_base)
     """
-    args = _parse_args(argv if argv is not None else sys.argv[1:])
+    args = parse_args(argv if argv is not None else sys.argv[1:])
 
     # WR-02: surface infrastructure failures (missing git, rc != 0 from git,
     # empty BASE_SHA) as rc=2 with an actionable stderr message — distinct
     # from rc=1 stale-baseline failures so CI signal is unambiguous.
     try:
-        base = _resolve_base(args)
-        paths = _changed_paths(base)
-        commit_msg = _last_commit_message()
+        base = resolve_base(args)
+        paths = changed_paths(base)
+        commit_msg = last_commit_message()
     except RuntimeError as exc:
         sys.stderr.write(f"check_baselines_fresh: {exc}\n")
         return 2
 
-    agent_paths = _agent_changed(paths)
-    baseline_paths = _baselines_changed(paths)
-    bypass_used = bool(_SKIP_BASELINE_RE.search(commit_msg))
+    agent_paths = agent_changed(paths)
+    baseline_paths = baselines_changed(paths)
+    bypass_used = bool(SKIP_BASELINE_RE.search(commit_msg))
 
     # Branch 3: no watch-set change at all → trivially pass.
     if not agent_paths:
@@ -290,7 +290,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     # Branch 1: agent changed, NO baseline refresh, NO bypass → HARD FAIL.
-    sys.stderr.write(_format_stale_error(agent_paths))
+    sys.stderr.write(format_stale_error(agent_paths))
     sys.stderr.write("\n")
     return 1
 

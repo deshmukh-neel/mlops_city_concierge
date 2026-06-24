@@ -3,9 +3,9 @@ of tool calls. Verifies plan->act->critique loops correctly and terminates.
 
 tests/unit/fixtures/reason_04_prune_baseline.json is the REASON-06 byte-identity
 baseline for the gpt-4o-mini (empty additional_kwargs, no _reasoning_state) path
-through `_prune_for_llm` + `NoOpAdapter().replay_reasoning_state(...)`. The
+through `prune_for_llm` + `NoOpAdapter().replay_reasoning_state(...)`. The
 fixture was generated at Phase 8 commit time from this very test file's input
-list. Regenerate ONLY on an INTENTIONAL change to `_prune_for_llm` or
+list. Regenerate ONLY on an INTENTIONAL change to `prune_for_llm` or
 `NoOpAdapter` via:
 
     poetry run python tests/unit/test_agent_graph.py --regen-reason-04-fixture
@@ -31,14 +31,14 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 
 from app.agent.adapters import NoOpAdapter
 from app.agent.commit import commit_stops, enrich_stops_with_booking
-from app.agent.graph import _prune_for_llm, build_agent_graph
+from app.agent.graph import build_agent_graph, prune_for_llm
 from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.tools.booking import BookingProposal
 from app.tools.directions import DirectionsLeg, DirectionsResult
 from app.tools.retrieval import PlaceDetails, PlaceHit
 
 
-def _details_for(place_id: str, name: str | None = None) -> PlaceDetails:
+def details_for(place_id: str, name: str | None = None) -> PlaceDetails:
     """Minimal PlaceDetails fixture for booking-enrichment tests. Booking
     construction itself is mocked via propose_booking_from_details; only the
     place_id needs to be load-bearing here."""
@@ -50,7 +50,7 @@ def _details_for(place_id: str, name: str | None = None) -> PlaceDetails:
     )
 
 
-def _rich_details_for(place_id: str) -> PlaceDetails:
+def rich_details_for(place_id: str) -> PlaceDetails:
     """PlaceDetails carrying address/rating/price for card-field tests."""
     return PlaceDetails(
         place_id=place_id,
@@ -66,16 +66,16 @@ def _rich_details_for(place_id: str) -> PlaceDetails:
     )
 
 
-def _patch_details_many_for(place_ids: list[str]):
+def patch_details_many_for(place_ids: list[str]):
     """Patch get_details_many to return a minimal PlaceDetails for each id.
     Returns the patcher so tests can also assert call_count if they care."""
     return patch(
         "app.agent.commit.get_details_many",
-        return_value={pid: _details_for(pid) for pid in place_ids},
+        return_value={pid: details_for(pid) for pid in place_ids},
     )
 
 
-class _ScriptedLLM(BaseChatModel):
+class ScriptedLLM(BaseChatModel):
     """Test double that returns scripted AIMessages in order."""
 
     scripted: list[AIMessage]
@@ -96,16 +96,16 @@ class _ScriptedLLM(BaseChatModel):
         msg = self.scripted.pop(0)
         return ChatResult(generations=[ChatGeneration(message=msg)])
 
-    def bind_tools(self, tools: Any, **kwargs: Any) -> _ScriptedLLM:
+    def bind_tools(self, tools: Any, **kwargs: Any) -> ScriptedLLM:
         return self
 
 
-def _make_fake(scripted: list[AIMessage]) -> _ScriptedLLM:
-    return _ScriptedLLM(scripted=list(scripted))
+def make_fake(scripted: list[AIMessage]) -> ScriptedLLM:
+    return ScriptedLLM(scripted=list(scripted))
 
 
 async def test_graph_terminates_on_no_tool_call() -> None:
-    fake = _make_fake([AIMessage(content="here is your plan", tool_calls=[])])
+    fake = make_fake([AIMessage(content="here is your plan", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
     assert out["done"] is True
@@ -116,8 +116,8 @@ async def test_graph_retries_unneeded_stop_count_clarification(monkeypatch) -> N
     """If the caller has already parsed an explicit stop count, the model
     should not be allowed to end the request by asking for that same count."""
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [
             PlaceHit(
                 place_id="ChIJtest_p1_aaaaaaaa",
                 name="Place p1",
@@ -126,7 +126,7 @@ async def test_graph_retries_unneeded_stop_count_clarification(monkeypatch) -> N
             )
         ],
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(content="How many stops would you like?", tool_calls=[]),
             AIMessage(
@@ -163,8 +163,8 @@ async def test_graph_retries_finalize_without_stops_regardless_of_wording(monkey
     phrasings like "I'd love to know the number of places..." Drop the
     heuristic; the structural condition is sufficient and unambiguous."""
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [
             PlaceHit(
                 place_id="ChIJtest_p1_aaaaaaaa",
                 name="Place p1",
@@ -173,7 +173,7 @@ async def test_graph_retries_finalize_without_stops_regardless_of_wording(monkey
             )
         ],
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             # Non-stereotyped phrasing — old heuristic would miss this.
             AIMessage(content="To narrow it down, what vibe are you going for?", tool_calls=[]),
@@ -205,7 +205,7 @@ async def test_graph_retries_finalize_without_stops_regardless_of_wording(monkey
 async def test_graph_does_not_retry_when_num_stops_unset(monkeypatch) -> None:
     """No nudge when there's no explicit count — the model is allowed to
     clarify ambiguous requests."""
-    fake = _make_fake([AIMessage(content="How many stops?", tool_calls=[])])
+    fake = make_fake([AIMessage(content="How many stops?", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(
         ItineraryState(messages=[HumanMessage(content="plan something")]),
@@ -218,7 +218,7 @@ async def test_graph_does_not_retry_when_num_stops_unset(monkeypatch) -> None:
 async def test_graph_retry_is_one_shot(monkeypatch) -> None:
     """If after the nudge the model STILL finalizes empty, the retry doesn't
     fire a second time — the conversation ends with whatever the model said."""
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(content="What's your budget?", tool_calls=[]),
             AIMessage(content="Could you confirm your neighborhood?", tool_calls=[]),
@@ -241,7 +241,7 @@ async def test_graph_injects_explicit_stop_count_context() -> None:
     # triggers the structural retry nudge (num_stops set + no stops yet); the
     # second is the model's response to that nudge. We only care that the
     # system prompt contained the deterministic stop-count context.
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(content="ok", tool_calls=[]),
             AIMessage(content="planning", tool_calls=[]),
@@ -262,7 +262,7 @@ async def test_graph_injects_explicit_stop_count_context() -> None:
 
 async def test_graph_executes_tool_and_continues(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
+        "app.agent.tools.semantic_search_impl",
         lambda **kw: [
             PlaceHit(
                 place_id="ChIJtest_p1_aaaaaaaa",
@@ -280,7 +280,7 @@ async def test_graph_executes_tool_and_continues(monkeypatch) -> None:
             )
         ],
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -317,9 +317,9 @@ async def test_graph_respects_max_steps(monkeypatch) -> None:
         )
         for i in range(20)
     ]
-    fake = _make_fake(looping)
+    fake = make_fake(looping)
     graph = build_agent_graph(fake, max_steps=3)
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="x")]))
     assert out["step_count"] == 3
@@ -339,7 +339,7 @@ async def test_graph_finalizes_on_commit_even_if_llm_keeps_calling_tools(
     deterministically on multi-stop queries (3/3 live repros)."""
     # Hard checks pass so the commit is accepted as final (no revision loop).
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     commit_call = AIMessage(
         content="",
@@ -368,7 +368,7 @@ async def test_graph_finalizes_on_commit_even_if_llm_keeps_calling_tools(
         )
         for i in range(20)
     ]
-    fake = _make_fake([commit_call, *keep_searching])
+    fake = make_fake([commit_call, *keep_searching])
     graph = build_agent_graph(fake, max_steps=8)
 
     # p0 must be grounded via a prior tool result or commit_stops rejects it
@@ -390,7 +390,7 @@ async def test_graph_finalizes_on_commit_even_if_llm_keeps_calling_tools(
             }
         ]
     }
-    with _patch_details_many_for(["ChIJtest_p0_aaaaaaaa"]):
+    with patch_details_many_for(["ChIJtest_p0_aaaaaaaa"]):
         out = await graph.ainvoke(
             ItineraryState(
                 messages=[HumanMessage(content="omakase date night, 1 stop")],
@@ -408,7 +408,7 @@ async def test_graph_finalizes_on_commit_even_if_llm_keeps_calling_tools(
 
 
 async def test_graph_handles_unknown_tool_name(monkeypatch) -> None:
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -430,12 +430,12 @@ async def test_graph_handles_unknown_tool_name(monkeypatch) -> None:
 
 
 async def test_graph_records_tool_exception_in_scratch(monkeypatch) -> None:
-    def _boom(**kw):
+    def boom(**kw):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr("app.agent.tools._semantic_search", _boom)
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", boom)
 
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -459,9 +459,9 @@ async def test_graph_records_tool_exception_in_scratch(monkeypatch) -> None:
 
     # The exception must also surface to the LLM via the ToolMessage content,
     # not just to scratch — otherwise the model has no way to react.
-    from langchain_core.messages import ToolMessage as _ToolMessage
+    from langchain_core.messages import ToolMessage as ToolMessageAlias
 
-    tool_messages = [m for m in out["messages"] if isinstance(m, _ToolMessage)]
+    tool_messages = [m for m in out["messages"] if isinstance(m, ToolMessageAlias)]
     assert tool_messages, "act() must append a ToolMessage even on tool failure"
     assert "db down" in tool_messages[-1].content
 
@@ -471,7 +471,7 @@ async def test_plan_does_not_double_insert_system_prompt(monkeypatch) -> None:
     second one on top of it."""
     from langchain_core.messages import SystemMessage
 
-    fake = _make_fake([AIMessage(content="hi", tool_calls=[])])
+    fake = make_fake([AIMessage(content="hi", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(
         ItineraryState(
@@ -489,10 +489,10 @@ async def test_plan_does_not_double_insert_system_prompt(monkeypatch) -> None:
 async def test_act_handles_parallel_tool_calls(monkeypatch) -> None:
     """Modern OpenAI/Gemini fan out multiple tool calls in one AIMessage. Both
     must run, both ToolMessages append, and step_count increments by 1."""
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
-    monkeypatch.setattr("app.agent.tools._nearby", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
+    monkeypatch.setattr("app.agent.tools.nearby_impl", lambda **unused_kwargs: [])
 
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -515,9 +515,9 @@ async def test_act_handles_parallel_tool_calls(monkeypatch) -> None:
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
 
-    from langchain_core.messages import ToolMessage as _ToolMessage
+    from langchain_core.messages import ToolMessage as ToolMessageAlias
 
-    tool_messages = [m for m in out["messages"] if isinstance(m, _ToolMessage)]
+    tool_messages = [m for m in out["messages"] if isinstance(m, ToolMessageAlias)]
     assert {tm.tool_call_id for tm in tool_messages} == {
         "ChIJtest_a_aaaaaaaaa",
         "ChIJtest_b_aaaaaaaaa",
@@ -537,7 +537,7 @@ def test_prune_for_llm_keeps_short_history_intact() -> None:
         ToolMessage(content="[]", tool_call_id="1"),
         AIMessage(content="done", tool_calls=[]),
     ]
-    assert _prune_for_llm(msgs) == msgs
+    assert prune_for_llm(msgs) == msgs
 
 
 def test_prune_for_llm_drops_oldest_tool_exchanges() -> None:
@@ -566,7 +566,7 @@ def test_prune_for_llm_drops_oldest_tool_exchanges() -> None:
         ToolMessage(content="r3", tool_call_id="c"),
         AIMessage(content="done", tool_calls=[]),
     ]
-    pruned = _prune_for_llm(msgs)
+    pruned = prune_for_llm(msgs)
     tool_messages = [m for m in pruned if isinstance(m, ToolMessage)]
     # The oldest ToolMessage ("r1") is dropped.
     assert {tm.content for tm in tool_messages} == {"r2", "r3"}
@@ -579,7 +579,7 @@ def test_prune_for_llm_drops_oldest_tool_exchanges() -> None:
 def test_prune_for_llm_preserves_additional_kwargs_on_stub() -> None:
     """D-08-07: the pre-cutoff stub constructor preserves `additional_kwargs`
     from the original AIMessage. Without this, a `_reasoning_state` payload
-    stashed on an AIMessage from > _RECENT_TOOL_EXCHANGES_KEPT turns ago would
+    stashed on an AIMessage from > RECENT_TOOL_EXCHANGES_KEPT turns ago would
     be silently dropped by the pruner before the adapter's
     `replay_reasoning_state` could see it (REASON-04 precondition for Plan 03).
     """
@@ -603,7 +603,7 @@ def test_prune_for_llm_preserves_additional_kwargs_on_stub() -> None:
         ToolMessage(content="r3", tool_call_id="a3"),
         AIMessage(content="done", tool_calls=[]),
     ]
-    pruned = _prune_for_llm(msgs)
+    pruned = prune_for_llm(msgs)
     # The stub replaces the oldest tool-issuing AIMessage at index 1
     # (immediately after HumanMessage("hi")). It must keep content +
     # additional_kwargs but lose tool_calls.
@@ -618,7 +618,7 @@ def test_prune_for_llm_preserves_additional_kwargs_on_stub() -> None:
 # Type tag mapping for message classes — single source of truth used both by
 # the regen-fixture script (CLI flag below) and the test itself. Mirrors the
 # fixture's "type" field exactly.
-_MESSAGE_TYPE_TAG = {
+MESSAGE_TYPE_TAG = {
     SystemMessage: "system",
     HumanMessage: "human",
     AIMessage: "ai",
@@ -626,7 +626,7 @@ _MESSAGE_TYPE_TAG = {
 }
 
 
-def _serialize_messages_for_fixture(msgs: list[BaseMessage]) -> list[dict[str, Any]]:
+def serialize_messages_for_fixture(msgs: list[BaseMessage]) -> list[dict[str, Any]]:
     """JSON-serializable representation of a message list (D-08-15).
 
     Each entry: {type, content, tool_calls, tool_call_id, additional_kwargs}.
@@ -635,13 +635,13 @@ def _serialize_messages_for_fixture(msgs: list[BaseMessage]) -> list[dict[str, A
     for non-ToolMessages; `additional_kwargs` is always a dict (possibly empty).
 
     Used on BOTH sides of the byte-identity check: the fixture is generated
-    from `_serialize_messages_for_fixture(pipeline_output)` and the runtime
-    output is compared via `_serialize_messages_for_fixture(pipeline_output)`,
+    from `serialize_messages_for_fixture(pipeline_output)` and the runtime
+    output is compared via `serialize_messages_for_fixture(pipeline_output)`,
     so the helper itself cannot accidentally introduce a comparison-side bias.
     """
     out: list[dict[str, Any]] = []
     for m in msgs:
-        type_tag = _MESSAGE_TYPE_TAG.get(type(m), type(m).__name__.lower())
+        type_tag = MESSAGE_TYPE_TAG.get(type(m), type(m).__name__.lower())
         tool_calls = getattr(m, "tool_calls", None)
         # AIMessages always have a tool_calls attribute (possibly []); to keep
         # the fixture clean for stub/non-tool AIMessages we normalize empty
@@ -660,9 +660,9 @@ def _serialize_messages_for_fixture(msgs: list[BaseMessage]) -> list[dict[str, A
     return out
 
 
-def _reason_04_input_messages() -> list[BaseMessage]:
+def reason_04_input_messages() -> list[BaseMessage]:
     """Realistic refinement-turn message list with 3 tool-issuing AIMessages
-    (D-08-15). _RECENT_TOOL_EXCHANGES_KEPT=2 forces the OLDEST to be stubbed,
+    (D-08-15). RECENT_TOOL_EXCHANGES_KEPT=2 forces the OLDEST to be stubbed,
     exercising the pre-cutoff branch patched by Plan 02. All AIMessages have
     empty `additional_kwargs` — the gpt-4o-mini case where NoOpAdapter is
     observationally a no-op and the Plan-02 kwargs-preservation patch is
@@ -692,14 +692,14 @@ def _reason_04_input_messages() -> list[BaseMessage]:
     ]
 
 
-def _reason_04_pipeline_output(msgs: list[BaseMessage]) -> list[BaseMessage]:
+def reason_04_pipeline_output(msgs: list[BaseMessage]) -> list[BaseMessage]:
     """Run the input list through the post-Phase-8 pipeline that REASON-06
-    guards: `_prune_for_llm` then `NoOpAdapter().replay_reasoning_state(...,
+    guards: `prune_for_llm` then `NoOpAdapter().replay_reasoning_state(...,
     None)`. State=None because the input list carries no `_reasoning_state`
     marker — this is the gpt-4o-mini case where NoOpAdapter.replay is a
     mathematical identity (D-08-15).
     """
-    pruned = _prune_for_llm(msgs)
+    pruned = prune_for_llm(msgs)
     return NoOpAdapter().replay_reasoning_state(pruned, None)
 
 
@@ -710,7 +710,7 @@ def test_reason_04_noop_adapter_byte_identical_to_pre_phase8() -> None:
 
         poetry run python tests/unit/test_agent_graph.py --regen-reason-04-fixture
 
-    Regenerate ONLY when an INTENTIONAL change to `_prune_for_llm` or
+    Regenerate ONLY when an INTENTIONAL change to `prune_for_llm` or
     `NoOpAdapter` requires the baseline to move; document the change in the
     fixture commit message AND in the Phase 8 SUMMARY (D-08-15).
 
@@ -719,9 +719,9 @@ def test_reason_04_noop_adapter_byte_identical_to_pre_phase8() -> None:
     the hardest possible level — byte-identical output for the locked v2.0 prod
     anchor's message shape.
     """
-    msgs = _reason_04_input_messages()
-    out = _reason_04_pipeline_output(msgs)
-    serialized = _serialize_messages_for_fixture(out)
+    msgs = reason_04_input_messages()
+    out = reason_04_pipeline_output(msgs)
+    serialized = serialize_messages_for_fixture(out)
 
     fixture_path = Path(__file__).parent / "fixtures" / "reason_04_prune_baseline.json"
     expected = json.loads(fixture_path.read_text())
@@ -742,7 +742,7 @@ def test_reason_04_noop_adapter_byte_identical_to_pre_phase8() -> None:
 # ---------- Phase 8 Plan 03: ProviderAdapter wiring (D-08-04..06, D-08-16) ----------
 
 
-class _RecordingLLM(BaseChatModel):
+class RecordingLLM(BaseChatModel):
     """Test double that records the inbound messages list for each `_generate`
     call, then returns the next scripted AIMessage in order. Used by the
     replay test to assert the adapter injected `_reasoning_state` into the
@@ -771,7 +771,7 @@ class _RecordingLLM(BaseChatModel):
         msg = self.scripted.pop(0)
         return ChatResult(generations=[ChatGeneration(message=msg)])
 
-    def bind_tools(self, tools: Any, **kwargs: Any) -> _RecordingLLM:
+    def bind_tools(self, tools: Any, **kwargs: Any) -> RecordingLLM:
         return self
 
 
@@ -781,7 +781,7 @@ async def test_build_agent_graph_provider_default_is_noop_adapter() -> None:
     `additional_kwargs` does NOT have `_reasoning_state` set (NoOp.capture
     returns None, so the post-ainvoke writer never fires).
     """
-    fake = _make_fake([AIMessage(content="here is your plan", tool_calls=[])])
+    fake = make_fake([AIMessage(content="here is your plan", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)  # default provider
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
 
@@ -805,7 +805,7 @@ async def test_plan_captures_reasoning_state_via_adapter(monkeypatch) -> None:
     marker = {"provider": "test_capture", "reasoning_content": "captured"}
     monkeypatch.setitem(ADAPTERS, "scripted", MockReasoningAdapter(payload=marker))
 
-    fake = _make_fake([AIMessage(content="here is your plan", tool_calls=[])])
+    fake = make_fake([AIMessage(content="here is your plan", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4, provider="scripted")
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
 
@@ -835,9 +835,9 @@ async def test_plan_replays_reasoning_state_into_outbound(monkeypatch) -> None:
         ),
         AIMessage(content="done", tool_calls=[]),
     ]
-    recording = _RecordingLLM(scripted=list(scripted), recorded_inputs=[])
+    recording = RecordingLLM(scripted=list(scripted), recorded_inputs=[])
     # Patch the tool so act() succeeds without DB.
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     graph = build_agent_graph(recording, max_steps=4, provider="scripted")
     out = await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
@@ -855,7 +855,7 @@ async def test_plan_replays_reasoning_state_into_outbound(monkeypatch) -> None:
     assert ai_in_turn2[-1].additional_kwargs.get("_reasoning_state") == marker
 
 
-def _state_with_grounded(place_ids: list[str], party_size: int = 2) -> ItineraryState:
+def state_with_grounded(place_ids: list[str], party_size: int = 2) -> ItineraryState:
     """Build a state where the given place_ids appear in scratch, so
     commit_stops considers them grounded."""
     hits = [
@@ -877,7 +877,7 @@ def test_commit_stops_enriches_with_booking() -> None:
     committed stop, without the LLM calling a tool. Now batched: one
     get_details_many fetches details for all stops in a single round-trip,
     then per-stop URL construction is pure."""
-    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
+    state = state_with_grounded(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
     raw_stops = [
         {
             "place_id": "ChIJtest_p1_aaaaaaaa",
@@ -901,7 +901,7 @@ def test_commit_stops_enriches_with_booking() -> None:
         )
 
     with (
-        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]) as mock_get,
+        patch_details_many_for(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]) as mock_get,
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         committed, payload = commit_stops(state, raw_stops)
@@ -920,7 +920,7 @@ def test_commit_stops_skips_enrichment_for_place_id_missing_from_db() -> None:
     condition: deletion between scratch grounding and enrichment, or a stale
     id), the stop is committed without a booking link instead of crashing.
     Same recoverable semantic the old ValueError("unknown place_id") had."""
-    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
+    state = state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
         {
             "place_id": "ChIJtest_p1_aaaaaaaa",
@@ -941,7 +941,7 @@ def test_commit_stops_enrichment_swallows_psycopg_db_blip() -> None:
     """A transient DB error during the batched read shouldn't kill the whole
     commit — the user still gets the planned stops, just without booking
     links. The error is caught at the single point of DB contact."""
-    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
+    state = state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
         {
             "place_id": "ChIJtest_p1_aaaaaaaa",
@@ -965,7 +965,7 @@ def test_commit_stops_enrichment_propagates_programmer_errors() -> None:
     """Bugs in URL construction (TypeError, AttributeError, etc.) must NOT
     be silently swallowed — that's how regressions ship to prod undetected.
     Only the documented recoverable cases (missing-from-DB, DB blip) are caught."""
-    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
+    state = state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
         {
             "place_id": "ChIJtest_p1_aaaaaaaa",
@@ -975,7 +975,7 @@ def test_commit_stops_enrichment_propagates_programmer_errors() -> None:
         },
     ]
     with (
-        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
+        patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch(
             "app.agent.commit.propose_booking_from_details",
             side_effect=TypeError("propose_booking_from_details() got an unexpected kwarg"),
@@ -990,7 +990,7 @@ def test_commit_stops_re_commit_is_idempotent() -> None:
     first plan fails a check. Re-committing the same place_id must produce the
     same booking link — same inputs, same output. Locks the contract so a
     future 'skip if already enriched' optimization can't silently break it."""
-    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
+    state = state_with_grounded(["ChIJtest_p1_aaaaaaaa"])
     raw_stops = [
         {
             "place_id": "ChIJtest_p1_aaaaaaaa",
@@ -1008,7 +1008,7 @@ def test_commit_stops_re_commit_is_idempotent() -> None:
         )
 
     with (
-        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
+        patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         first_committed, _ = commit_stops(state, raw_stops)
@@ -1023,7 +1023,7 @@ def test_commit_stops_per_stop_independence_when_one_id_missing() -> None:
     still ship the other stop's booking link. The for-loop in
     enrich_stops_with_booking skips per-stop on missing details rather than
     bailing on the whole commit."""
-    state = _state_with_grounded(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
+    state = state_with_grounded(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
     raw_stops = [
         {
             "place_id": "ChIJtest_p1_aaaaaaaa",
@@ -1051,7 +1051,7 @@ def test_commit_stops_per_stop_independence_when_one_id_missing() -> None:
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"ChIJtest_p2_aaaaaaaa": _details_for("ChIJtest_p2_aaaaaaaa")},
+            return_value={"ChIJtest_p2_aaaaaaaa": details_for("ChIJtest_p2_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
@@ -1089,7 +1089,7 @@ def test_enrich_stops_with_booking_mutates_in_place() -> None:
 
     original_ids = [id(s) for s in stops]
     with (
-        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]),
+        patch_details_many_for(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
@@ -1114,7 +1114,7 @@ def test_enrich_populates_card_fields_from_details() -> None:
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"ChIJtest_p1_aaaaaaaa": _rich_details_for("ChIJtest_p1_aaaaaaaa")},
+            return_value={"ChIJtest_p1_aaaaaaaa": rich_details_for("ChIJtest_p1_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
@@ -1143,7 +1143,7 @@ def test_enrich_backfills_coordinates_when_stop_has_none() -> None:
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"ChIJtest_p1_aaaaaaaa": _rich_details_for("ChIJtest_p1_aaaaaaaa")},
+            return_value={"ChIJtest_p1_aaaaaaaa": rich_details_for("ChIJtest_p1_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
@@ -1176,7 +1176,7 @@ def test_enrich_does_not_overwrite_llm_supplied_coordinates() -> None:
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"ChIJtest_p1_aaaaaaaa": _rich_details_for("ChIJtest_p1_aaaaaaaa")},
+            return_value={"ChIJtest_p1_aaaaaaaa": rich_details_for("ChIJtest_p1_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
@@ -1195,7 +1195,7 @@ def test_enrich_card_fields_set_even_when_no_booking_time() -> None:
     with (
         patch(
             "app.agent.commit.get_details_many",
-            return_value={"ChIJtest_p1_aaaaaaaa": _rich_details_for("ChIJtest_p1_aaaaaaaa")},
+            return_value={"ChIJtest_p1_aaaaaaaa": rich_details_for("ChIJtest_p1_aaaaaaaa")},
         ),
         patch("app.agent.commit.propose_booking_from_details") as mock_build,
     ):
@@ -1233,7 +1233,7 @@ def test_enrich_skipped_when_no_time_anywhere() -> None:
     state = ItineraryState(constraints=UserConstraints(party_size=2))  # when=None
 
     with (
-        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
+        patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details") as mock_build,
     ):
         enrich_stops_with_booking(stops, state)
@@ -1251,7 +1251,7 @@ def test_enrich_idempotent_when_no_time_set() -> None:
     state = ItineraryState(constraints=UserConstraints(party_size=2))
 
     with (
-        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
+        patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details") as mock_build,
     ):
         enrich_stops_with_booking(stops, state)
@@ -1280,7 +1280,7 @@ def test_enrich_uses_constraints_when_when_arrival_time_missing() -> None:
         return BookingProposal(place_id=details.place_id, provider="resy", booking_url="https://x")
 
     with (
-        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
+        patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
@@ -1312,7 +1312,7 @@ def test_enrich_party_size_defaulting(party_size_in: int | None, expected_in_cal
         return BookingProposal(place_id=details.place_id, provider="resy", booking_url="https://x")
 
     with (
-        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
+        patch_details_many_for(["ChIJtest_p1_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
@@ -1353,7 +1353,7 @@ def test_enrich_stops_with_booking_uses_arrival_time_per_stop() -> None:
         )
 
     with (
-        _patch_details_many_for(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]),
+        patch_details_many_for(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"]),
         patch("app.agent.commit.propose_booking_from_details", side_effect=fake_build),
     ):
         enrich_stops_with_booking(stops, state)
@@ -1364,7 +1364,7 @@ def test_enrich_stops_with_booking_uses_arrival_time_per_stop() -> None:
     ]
 
 
-def _committed_state(n_stops: int, *, with_coords: bool) -> ItineraryState:
+def committed_state(n_stops: int, *, with_coords: bool) -> ItineraryState:
     base = datetime(2026, 5, 17, 18, 0, tzinfo=timezone.utc)
     stops = []
     for i in range(n_stops):
@@ -1403,7 +1403,7 @@ async def test_step_telemetry_is_produced_after_tool_call(monkeypatch, mocker) -
     """
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
+        "app.agent.tools.semantic_search_impl",
         lambda **kw: [
             PlaceHit(
                 place_id="ChIJtest_p1_aaaaaaaa",
@@ -1421,7 +1421,7 @@ async def test_step_telemetry_is_produced_after_tool_call(monkeypatch, mocker) -
             )
         ],
     )
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -1462,9 +1462,9 @@ async def test_step_telemetry_is_produced_after_tool_call(monkeypatch, mocker) -
             entry["tool_calls_this_step"], bool
         )
 
-    import json as _json
+    import json as json_mod
 
-    _json.dumps(telemetry)  # must not raise — JSON-safety guard
+    json_mod.dumps(telemetry)  # must not raise — JSON-safety guard
 
     assert any(e["tool_calls_this_step"] >= 1 for e in telemetry), (
         "at least one entry must record tool_calls_this_step >= 1"
@@ -1477,7 +1477,7 @@ async def test_step_telemetry_json_safe_after_commit(monkeypatch, mocker) -> Non
     step (the most complex act() code path). Guards the JSON-safety invariant for the
     full graph run that Phase 13 eval will exercise."""
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     commit_call = AIMessage(
         content="",
@@ -1515,9 +1515,9 @@ async def test_step_telemetry_json_safe_after_commit(monkeypatch, mocker) -> Non
             }
         ]
     }
-    fake = _make_fake([commit_call])
+    fake = make_fake([commit_call])
     graph = build_agent_graph(fake, max_steps=4)
-    with _patch_details_many_for(["ChIJtest_p0_aaaaaaaa"]):
+    with patch_details_many_for(["ChIJtest_p0_aaaaaaaa"]):
         out = await graph.ainvoke(
             ItineraryState(
                 messages=[HumanMessage(content="omakase date, 1 stop")],
@@ -1526,11 +1526,11 @@ async def test_step_telemetry_json_safe_after_commit(monkeypatch, mocker) -> Non
             )
         )
 
-    import json as _json
+    import json as json_mod
 
     telemetry = out["step_telemetry"]
     assert isinstance(telemetry, list)
-    _json.dumps(telemetry)  # must not raise
+    json_mod.dumps(telemetry)  # must not raise
 
     assert out["done"] is True
     # The commit step must have recorded a tool call
@@ -1543,9 +1543,9 @@ async def test_step_telemetry_accumulates_across_multiple_steps(monkeypatch, moc
     """INST-04: telemetry entries accumulate across plan steps — two tool-call
     steps produce at least two entries (one per plan() invocation)."""
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(
                 content="",
@@ -1578,18 +1578,18 @@ async def test_step_telemetry_revision_loop_keeps_one_entry_per_step(monkeypatch
     must merge into ONE telemetry entry (llm_call_seconds summed), never
     produce duplicate "step" values — Phase 13 consumers join on "step"
     against viable_candidates_per_step and would double-count otherwise."""
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
     # First critique sees a retryable violation (drives the revision loop back
     # to plan at the same step_count); every later call sees a clean plan.
     calls = {"n": 0}
 
-    def _violations_once(_state):
+    def violations_once(state_obj):
         calls["n"] += 1
         return ["geographic_coherence"] if calls["n"] == 1 else []
 
-    mocker.patch("app.agent.revision.itinerary_violations", side_effect=_violations_once)
+    mocker.patch("app.agent.revision.itinerary_violations", side_effect=violations_once)
 
-    fake = _make_fake(
+    fake = make_fake(
         [
             AIMessage(content="here is plan A", tool_calls=[]),
             AIMessage(content="here is revised plan B", tool_calls=[]),
@@ -1613,13 +1613,13 @@ async def test_step_telemetry_revision_loop_keeps_one_entry_per_step(monkeypatch
     merged = telemetry[-1]
     assert isinstance(merged["llm_call_seconds"], float)
     assert merged["llm_call_seconds"] >= 0.0
-    import json as _json
+    import json as json_mod
 
-    _json.dumps(telemetry)
+    json_mod.dumps(telemetry)
 
 
 async def test_retime_node_present_and_routed(monkeypatch) -> None:
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    fake = make_fake([AIMessage(content="done", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
     assert "retime" in graph.get_graph().nodes
 
@@ -1627,7 +1627,7 @@ async def test_retime_node_present_and_routed(monkeypatch) -> None:
 async def test_retime_at_most_one_directions_call(monkeypatch, mocker) -> None:
     calls = {"n": 0}
 
-    async def _counting_route_legs(stops, mode="walk"):
+    async def counting_route_legs(stops, mode="walk"):
         calls["n"] += 1
         return DirectionsResult(
             legs=[DirectionsLeg(duration_s=600, distance_m=800.0)] * (len(stops) - 1),
@@ -1636,11 +1636,11 @@ async def test_retime_at_most_one_directions_call(monkeypatch, mocker) -> None:
             source="google",
         )
 
-    mocker.patch("app.agent.graph.route_legs", _counting_route_legs)
+    mocker.patch("app.agent.graph.route_legs", counting_route_legs)
     # The swap_closed_stops node (after retime) runs its own closure check;
     # stub it to "all open" so we measure retime's route_legs call only.
     mocker.patch(
-        "app.agent.swap._per_stop_closure_status",
+        "app.agent.swap.per_stop_closure_status",
         side_effect=lambda stops: [False] * len(stops),
     )
     # Prevent critique from hitting the DB (place_ids p0-p2 don't exist in
@@ -1648,18 +1648,18 @@ async def test_retime_at_most_one_directions_call(monkeypatch, mocker) -> None:
     # and exhaust the scripted LLM when the full suite runs after any test
     # that activates a real DB pool via load_dotenv in ingest_places_sf.py).
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    fake = make_fake([AIMessage(content="done", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
-    await graph.ainvoke(_committed_state(3, with_coords=True))
+    await graph.ainvoke(committed_state(3, with_coords=True))
     assert calls["n"] == 1
 
 
 async def test_retime_passthrough_when_not_routable(monkeypatch, mocker) -> None:
     route = mocker.patch("app.agent.graph.route_legs")
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    fake = make_fake([AIMessage(content="done", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
-    out = await graph.ainvoke(_committed_state(1, with_coords=True))
+    out = await graph.ainvoke(committed_state(1, with_coords=True))
     route.assert_not_called()
     assert out["stops"][0].arrival_time == datetime(2026, 5, 17, 18, 0, tzinfo=timezone.utc)
 
@@ -1667,9 +1667,9 @@ async def test_retime_passthrough_when_not_routable(monkeypatch, mocker) -> None
 async def test_retime_passthrough_when_coordless(monkeypatch, mocker) -> None:
     route = mocker.patch("app.agent.graph.route_legs")
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    fake = make_fake([AIMessage(content="done", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
-    await graph.ainvoke(_committed_state(3, with_coords=False))
+    await graph.ainvoke(committed_state(3, with_coords=False))
     route.assert_not_called()
 
 
@@ -1678,14 +1678,14 @@ async def test_graph_includes_swap_closed_stops_node(monkeypatch) -> None:
     closure-aware swap pass runs after real-time arrival_times land. Replaces
     the deleted retime+caveat tests — temporal_coherence handling is now the
     swap node's job, not retime's."""
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    fake = make_fake([AIMessage(content="done", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
     assert "swap_closed_stops" in graph.get_graph().nodes
 
 
 async def test_graph_does_not_import_final_with_caveats_in_retime() -> None:
     """Regression: closure handling lives in app/agent/swap.py now. The
-    retime node must not call _final_with_caveats on temporal_coherence —
+    retime node must not call final_with_caveats on temporal_coherence —
     the caveat text users saw on closure was the worst-of-both-worlds path
     (broken plan + ugly warning). The swap node replaces it."""
     import inspect
@@ -1693,8 +1693,8 @@ async def test_graph_does_not_import_final_with_caveats_in_retime() -> None:
     from app.agent import graph as graph_mod
 
     src = inspect.getsource(graph_mod)
-    assert "_final_with_caveats" not in src, (
-        "retime() must not call _final_with_caveats on temporal_coherence; "
+    assert "final_with_caveats" not in src, (
+        "retime() must not call final_with_caveats on temporal_coherence; "
         "closure handling lives in app/agent/swap.py now."
     )
 
@@ -1705,7 +1705,7 @@ async def test_act_does_not_mutate_aimessage_tool_call_args_across_steps(
     """Regression for "TypeError: Object of type SearchFilters is not JSON
     serializable" surfaced live on turn 3 of the omakase flow.
 
-    Failure path: `act()` used to do `tc["args"] = _inject_closure_exclusions(...)`,
+    Failure path: `act()` used to do `tc["args"] = inject_closure_exclusions(...)`,
     stuffing a Pydantic SearchFilters into the tool_call args dict that
     LangChain stores inside AIMessage.tool_calls. On the NEXT plan() pass,
     langchain serializes the AIMessage for OpenAI's API and `json.dumps`
@@ -1714,7 +1714,7 @@ async def test_act_does_not_mutate_aimessage_tool_call_args_across_steps(
     Verify that across a multi-step graph turn — where the same AIMessage
     survives into a follow-up plan() — its tool_call args stay JSON-safe.
     """
-    import json as _json
+    import json as json_mod
     from datetime import datetime
 
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -1726,7 +1726,7 @@ async def test_act_does_not_mutate_aimessage_tool_call_args_across_steps(
 
     captured: dict = {"step_2_args": None, "step_2_dumps_ok": False}
 
-    class _MultiStepLLM(BaseChatModel):
+    class MultiStepLLM(BaseChatModel):
         @property
         def _llm_type(self) -> str:
             return "multistep"
@@ -1767,7 +1767,7 @@ async def test_act_does_not_mutate_aimessage_tool_call_args_across_steps(
                     if isinstance(m, AIMessage) and m.tool_calls:
                         captured["step_2_args"] = m.tool_calls[0]["args"]
                         try:
-                            _json.dumps(m.tool_calls[0]["args"])
+                            json_mod.dumps(m.tool_calls[0]["args"])
                             captured["step_2_dumps_ok"] = True
                         except TypeError:
                             captured["step_2_dumps_ok"] = False
@@ -1793,7 +1793,7 @@ async def test_act_does_not_mutate_aimessage_tool_call_args_across_steps(
         ],
     )
 
-    graph = build_agent_graph(_MultiStepLLM(), max_steps=4)
+    graph = build_agent_graph(MultiStepLLM(), max_steps=4)
     await graph.ainvoke(state)
 
     assert captured["step_2_args"] is not None, "second plan() never ran"
@@ -1815,7 +1815,7 @@ async def test_retime_noop_when_first_stop_has_no_arrival(monkeypatch, mocker) -
     on a max-steps short-circuit with committed-but-untimed stops). retime
     must swallow it and no-op, never propagate out of /chat."""
 
-    async def _ok(stops, mode="walk"):
+    async def ok(stops, mode="walk"):
         return DirectionsResult(
             legs=[DirectionsLeg(duration_s=600, distance_m=800.0)] * (len(stops) - 1),
             total_duration_s=600 * (len(stops) - 1),
@@ -1823,13 +1823,13 @@ async def test_retime_noop_when_first_stop_has_no_arrival(monkeypatch, mocker) -
             source="google",
         )
 
-    mocker.patch("app.agent.graph.route_legs", _ok)
+    mocker.patch("app.agent.graph.route_legs", ok)
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
-    st = _committed_state(2, with_coords=True)
+    st = committed_state(2, with_coords=True)
     # Clear arrival_time on the first stop (simulates untimed commit).
     cleared = [s.model_copy(update={"arrival_time": None}) for s in st.stops]
     st = st.model_copy(update={"stops": cleared})
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    fake = make_fake([AIMessage(content="done", tool_calls=[])])
     graph = build_agent_graph(fake, max_steps=4)
     out = await graph.ainvoke(st)  # must NOT raise
     # No-op: stops unchanged (still None on stop 0), reply unchanged.
@@ -1841,7 +1841,7 @@ async def test_retime_noop_when_first_stop_has_no_arrival(monkeypatch, mocker) -
 
 
 def test_replay_flags_read_at_build_time() -> None:
-    """REPLAY_MULTI_MESSAGE_ENABLED and REPLAY_CONTENT_BLOCKS_ENABLED must appear in graph.py.
+    """REPLAY_MULTI_MESSAGE_ENABLED and REPLAY_CONTENTBLOCKS_ENABLED must appear in graph.py.
 
     Mirrors test_forced_commit_step_flag_reads_at_build_time in test_graph_forced_commit.py —
     greppable source check so flag names are never silently renamed without updating tests.
@@ -1854,15 +1854,15 @@ def test_replay_flags_read_at_build_time() -> None:
     assert "REPLAY_MULTI_MESSAGE_ENABLED" in src, (
         "REPLAY_MULTI_MESSAGE_ENABLED must appear in graph.py (REPLAY-01 build-time read)"
     )
-    assert "REPLAY_CONTENT_BLOCKS_ENABLED" in src, (
-        "REPLAY_CONTENT_BLOCKS_ENABLED must appear in graph.py (REPLAY-02 build-time read)"
+    assert "REPLAY_CONTENTBLOCKS_ENABLED" in src, (
+        "REPLAY_CONTENTBLOCKS_ENABLED must appear in graph.py (REPLAY-02 build-time read)"
     )
 
 
 def test_prune_for_llm_flag_on_preserves_list_content() -> None:
     """REPLAY-02 flag-ON: pre-cutoff AIMessage retains list content (not str).
 
-    With preserve_content_blocks=True, _prune_for_llm must keep the original
+    With preserve_content_blocks=True, prune_for_llm must keep the original
     content shape (list) verbatim for pre-cutoff tool-calling AIMessages.
     """
     msgs: list[BaseMessage] = [
@@ -1884,7 +1884,7 @@ def test_prune_for_llm_flag_on_preserves_list_content() -> None:
         ),
         ToolMessage(content="r3", tool_call_id="a3"),
     ]
-    pruned = _prune_for_llm(msgs, preserve_content_blocks=True)
+    pruned = prune_for_llm(msgs, preserve_content_blocks=True)
     # The oldest tool-calling AIMessage (index 1) should retain list content.
     pre_cutoff_ai = pruned[1]
     assert isinstance(pre_cutoff_ai, AIMessage)
@@ -1921,7 +1921,7 @@ def test_prune_for_llm_flag_off_collapses_list_content_to_str() -> None:
         ToolMessage(content="r3", tool_call_id="a3"),
     ]
     # Default (flag off) — no preserve_content_blocks
-    pruned = _prune_for_llm(msgs)
+    pruned = prune_for_llm(msgs)
     pre_cutoff_ai = pruned[1]
     assert isinstance(pre_cutoff_ai, AIMessage)
     assert isinstance(pre_cutoff_ai.content, str), (
@@ -1948,31 +1948,31 @@ async def test_replay_multi_message_flag_on_routes_through_multi_replay(
     monkeypatch.setenv("FORCED_COMMIT_STEP", "0")
     monkeypatch.setenv("VIABILITY_CONTRACT_ENABLED", "0")
     monkeypatch.setenv("PARALLEL_TOOL_EXECUTION_ENABLED", "0")
-    monkeypatch.delenv("REPLAY_CONTENT_BLOCKS_ENABLED", raising=False)
+    monkeypatch.delenv("REPLAY_CONTENTBLOCKS_ENABLED", raising=False)
 
     # Build a spy adapter: real NoOpAdapter with multi_replay tracked.
     spy_adapter = NoOpAdapter()
     multi_calls: list[int] = []
     original_multi = spy_adapter.replay_reasoning_state_multi
 
-    def _spy_multi(outbound):  # type: ignore[no-untyped-def]
+    def spy_multi(outbound):  # type: ignore[no-untyped-def]
         multi_calls.append(len(outbound))
         return original_multi(outbound)
 
-    spy_adapter.replay_reasoning_state_multi = _spy_multi  # type: ignore[method-assign]
+    spy_adapter.replay_reasoning_state_multi = spy_multi  # type: ignore[method-assign]
 
     single_calls: list[int] = []
     original_single = spy_adapter.replay_reasoning_state
 
-    def _spy_single(outbound, state):  # type: ignore[no-untyped-def]
+    def spy_single(outbound, state):  # type: ignore[no-untyped-def]
         single_calls.append(len(outbound))
         return original_single(outbound, state)
 
-    spy_adapter.replay_reasoning_state = _spy_single  # type: ignore[method-assign]
+    spy_adapter.replay_reasoning_state = spy_single  # type: ignore[method-assign]
 
     monkeypatch.setitem(ADAPTERS, "scripted", spy_adapter)
 
-    fake = _make_fake([AIMessage(content="done", tool_calls=[])])
+    fake = make_fake([AIMessage(content="done", tool_calls=[])])
     # Build graph AFTER monkeypatch so flag reads see the patched values.
     graph = build_agent_graph(fake, max_steps=4, provider="scripted")
     await graph.ainvoke(ItineraryState(messages=[HumanMessage(content="hi")]))
@@ -1993,7 +1993,7 @@ async def test_replay_multi_message_flag_on_routes_through_multi_replay(
 #
 # `--regen-reason-04-fixture` regenerates tests/unit/fixtures/reason_04_prune_baseline.json
 # from the SAME pipeline the byte-identity regression test asserts against. Run
-# this ONLY when an INTENTIONAL change to `_prune_for_llm` or `NoOpAdapter`
+# this ONLY when an INTENTIONAL change to `prune_for_llm` or `NoOpAdapter`
 # requires the baseline to move; document the change in the fixture commit
 # message AND in the Phase 8 SUMMARY. The regen path is gated behind an
 # explicit CLI flag (T-08-13 mitigation: no accidental drift).
@@ -2001,9 +2001,9 @@ if __name__ == "__main__":
     import sys
 
     if "--regen-reason-04-fixture" in sys.argv:
-        msgs = _reason_04_input_messages()
-        out = _reason_04_pipeline_output(msgs)
-        serialized = _serialize_messages_for_fixture(out)
+        msgs = reason_04_input_messages()
+        out = reason_04_pipeline_output(msgs)
+        serialized = serialize_messages_for_fixture(out)
 
         fixture_path = Path(__file__).parent / "fixtures" / "reason_04_prune_baseline.json"
         fixture_path.parent.mkdir(parents=True, exist_ok=True)

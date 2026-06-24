@@ -364,7 +364,7 @@ class QueryStats:
     pages_processed: int = 0
 
 
-def _sleep_for_rate_limit(last_request_at: float | None) -> None:
+def sleep_for_rate_limit(last_request_at: float | None) -> None:
     if last_request_at is None:
         return
 
@@ -373,7 +373,7 @@ def _sleep_for_rate_limit(last_request_at: float | None) -> None:
         time.sleep(MIN_REQUEST_INTERVAL_SECONDS - elapsed)
 
 
-def _is_retryable_status(status_code: int) -> bool:
+def is_retryable_status(status_code: int) -> bool:
     return status_code == 429 or 500 <= status_code < 600
 
 
@@ -404,7 +404,7 @@ def search_places(query: str, page_token: str | None = None) -> tuple[list[dict]
             payload = response.json()
             return payload.get("places", []), payload.get("nextPageToken")
 
-        if not _is_retryable_status(response.status_code) or attempt == API_MAX_RETRIES:
+        if not is_retryable_status(response.status_code) or attempt == API_MAX_RETRIES:
             print(f"Google Places API error response: {response.text}")
             response.raise_for_status()
 
@@ -420,7 +420,7 @@ def search_places(query: str, page_token: str | None = None) -> tuple[list[dict]
     raise RuntimeError("Unexpected API retry flow reached.")
 
 
-def _place_row(place: dict, source_query: str) -> tuple:
+def place_row(place: dict, source_query: str) -> tuple:
     location = place.get("location") or {}
     display_name = place.get("displayName") or {}
     primary_type_display = place.get("primaryTypeDisplayName") or {}
@@ -675,7 +675,7 @@ def upsert_places(
     rows_changed = 0
     with conn.cursor() as cur:
         for place in places:
-            cur.execute(sql, _place_row(place, source_query))
+            cur.execute(sql, place_row(place, source_query))
             rows_changed += cur.rowcount
     conn.commit()
     return rows_changed
@@ -812,7 +812,7 @@ def process_query_page(
     query_stats: QueryStats,
     last_request_at: float | None,
 ) -> tuple[str | None, float]:
-    _sleep_for_rate_limit(last_request_at)
+    sleep_for_rate_limit(last_request_at)
     places, next_token = search_places(query=query, page_token=page_token)
     last_request_at = time.time()
 

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.main import ActiveModelConfig, LoadedConfig, app
 
 
-def _stub_loaded_config(fake_chain) -> LoadedConfig:
+def stub_loaded_config(fake_chain) -> LoadedConfig:
     return LoadedConfig(
         chain=fake_chain,
         llm=object(),
@@ -22,7 +22,7 @@ def _stub_loaded_config(fake_chain) -> LoadedConfig:
     )
 
 
-def _final_state_dict(stops: list[dict[str, Any]] | None = None, reply: str = "Try it.") -> dict:
+def final_state_dict(stops: list[dict[str, Any]] | None = None, reply: str = "Try it.") -> dict:
     return {
         "messages": [],
         "constraints": {},
@@ -39,8 +39,8 @@ def _final_state_dict(stops: list[dict[str, Any]] | None = None, reply: str = "T
 def test_chat_endpoint_returns_reply_places_raglabel(mocker) -> None:
     fake_graph = mocker.Mock()
 
-    async def _ainvoke(state, config=None):
-        return _final_state_dict(
+    async def ainvoke(state, config=None):
+        return final_state_dict(
             stops=[
                 {
                     "place_id": "ChIJtest_p1_aaaaaaaa",
@@ -55,9 +55,9 @@ def test_chat_endpoint_returns_reply_places_raglabel(mocker) -> None:
             reply="Trick Dog at 7pm, ~60 min.",
         )
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -101,12 +101,12 @@ def test_chat_endpoint_schedules_query_log_with_captured_slots(mocker) -> None:
     """
     fake_graph = mocker.Mock()
 
-    async def _ainvoke(state, config=None):
-        return _final_state_dict(reply="Sure, here is your plan.")
+    async def ainvoke(state, config=None):
+        return final_state_dict(reply="Sure, here is your plan.")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -157,13 +157,13 @@ def test_chat_endpoint_passes_history_to_graph(mocker) -> None:
     fake_graph = mocker.Mock()
     captured: dict[str, Any] = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -194,13 +194,13 @@ def test_chat_endpoint_parses_explicit_stop_count(mocker) -> None:
     fake_graph = mocker.Mock()
     captured: dict[str, Any] = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -227,13 +227,13 @@ def test_chat_endpoint_preserves_explicit_stop_count_across_turns(mocker) -> Non
     fake_graph = mocker.Mock()
     captured: dict[str, Any] = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -260,13 +260,13 @@ def test_chat_endpoint_current_message_count_wins_over_history(mocker) -> None:
     fake_graph = mocker.Mock()
     captured: dict[str, Any] = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -289,12 +289,12 @@ def test_chat_endpoint_current_message_count_wins_over_history(mocker) -> None:
 def test_chat_endpoint_accepts_empty_history(mocker) -> None:
     fake_graph = mocker.Mock()
 
-    async def _ainvoke(state, config=None):
-        return _final_state_dict(reply="ok")
+    async def ainvoke(state, config=None):
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -312,13 +312,13 @@ def test_chat_endpoint_accepts_conversation_state(mocker) -> None:
     fake_graph = mocker.Mock()
     captured: dict = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -364,8 +364,8 @@ def test_chat_endpoint_returns_conversation_state(mocker) -> None:
     """Final state's closure_context must be echoed in the response."""
     fake_graph = mocker.Mock()
 
-    async def _ainvoke(state, config=None):
-        d = _final_state_dict(reply="ok")
+    async def ainvoke(state, config=None):
+        d = final_state_dict(reply="ok")
         d["closure_context"] = [
             {
                 "schema_version": 1,
@@ -383,9 +383,9 @@ def test_chat_endpoint_returns_conversation_state(mocker) -> None:
         ]
         return d
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -410,13 +410,13 @@ def test_chat_endpoint_degrades_on_malformed_conversation_state(mocker) -> None:
     fake_graph = mocker.Mock()
     captured: dict = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -436,12 +436,12 @@ def test_chat_endpoint_degrades_on_malformed_conversation_state(mocker) -> None:
 def test_chat_endpoint_first_turn_omits_conversation_state(mocker) -> None:
     fake_graph = mocker.Mock()
 
-    async def _ainvoke(state, config=None):
-        return _final_state_dict(reply="ok")
+    async def ainvoke(state, config=None):
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -459,7 +459,7 @@ def test_chat_endpoint_first_turn_omits_conversation_state(mocker) -> None:
 # ─── Accept / decline / alternative early-return (Task 15) ───────────────
 
 
-def _pending_state(
+def pending_state(
     place_id: str = "ChIJtest_closed_aaaa",
     family: str = "dessert",
     proposed_id: str = "ChIJtest_sophies_aaa",
@@ -527,7 +527,7 @@ def test_chat_endpoint_accept_path_inserts_proposed_alternative(mocker) -> None:
         side_effect=AssertionError("graph should not run on accept path")
     )
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
     # Re-validation of proposed_alternative: re-fetch details + re-check open
@@ -549,9 +549,9 @@ def test_chat_endpoint_accept_path_inserts_proposed_alternative(mocker) -> None:
             },
         ),
     )
-    mocker.patch("app.main._place_is_open_now", return_value=True)
-    mocker.patch("app.main._per_stop_closure_status", return_value=[False, False, False])
-    mocker.patch("app.main._bounded_retime_after_swap", side_effect=lambda stops: stops)
+    mocker.patch("app.main.place_is_open_now", return_value=True)
+    mocker.patch("app.main.per_stop_closure_status", return_value=[False, False, False])
+    mocker.patch("app.main.bounded_retime_after_swap", side_effect=lambda stops: stops)
     mocker.patch("app.main.enrich_stops_with_booking", return_value=None)
 
     with TestClient(app) as client:
@@ -563,7 +563,7 @@ def test_chat_endpoint_accept_path_inserts_proposed_alternative(mocker) -> None:
                     {"role": "user", "content": "plan a date"},
                     {"role": "assistant", "content": "The closest open dessert..."},
                 ],
-                "conversation_state": _pending_state(),
+                "conversation_state": pending_state(),
             },
         )
 
@@ -583,7 +583,7 @@ def test_chat_endpoint_decline_path_drops_closed_stop(mocker) -> None:
         side_effect=AssertionError("graph should not run on decline path")
     )
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -592,7 +592,7 @@ def test_chat_endpoint_decline_path_drops_closed_stop(mocker) -> None:
             "/chat",
             json={
                 "message": "no thanks",
-                "conversation_state": _pending_state(),
+                "conversation_state": pending_state(),
             },
         )
 
@@ -609,13 +609,13 @@ def test_chat_endpoint_alternative_path_falls_through_to_graph(mocker) -> None:
     fake_graph = mocker.Mock()
     captured: dict = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -624,7 +624,7 @@ def test_chat_endpoint_alternative_path_falls_through_to_graph(mocker) -> None:
             "/chat",
             json={
                 "message": "find something cheaper instead",
-                "conversation_state": _pending_state(),
+                "conversation_state": pending_state(),
             },
         )
 
@@ -643,10 +643,10 @@ def test_chat_endpoint_alternative_path_falls_through_to_graph(mocker) -> None:
 # ─── WR-01: early-return paths must NOT schedule a demand-query log ──────
 #
 # These pin the behavioral contract documented at app/main.py: the
-# _try_accept_path / _decline_path early-returns exit before
+# try_accept_path / decline_path early-returns exit before
 # background_tasks.add_task(log_user_query, ...) is reached, so closure
 # replies are never logged. Both tests install a LOCAL spy that OVERRIDES the
-# autouse `_neutralize_query_log` no-op (tests/conftest.py) — the no-op alone
+# autouse `neutralize_query_log` no-op (tests/conftest.py) — the no-op alone
 # cannot detect a regression, since it swallows every call. With a real spy,
 # `assert_not_called()` fails loudly if a future refactor hoists add_task above
 # the early-return branches (which would also log with extracted_types /
@@ -661,7 +661,7 @@ def test_chat_endpoint_accept_path_does_not_log(mocker) -> None:
         side_effect=AssertionError("graph should not run on accept path")
     )
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
     # Re-validation of proposed_alternative: re-fetch details + re-check open
@@ -685,9 +685,9 @@ def test_chat_endpoint_accept_path_does_not_log(mocker) -> None:
             },
         ),
     )
-    mocker.patch("app.main._place_is_open_now", return_value=True)
-    mocker.patch("app.main._per_stop_closure_status", return_value=[False, False, False])
-    mocker.patch("app.main._bounded_retime_after_swap", side_effect=lambda stops: stops)
+    mocker.patch("app.main.place_is_open_now", return_value=True)
+    mocker.patch("app.main.per_stop_closure_status", return_value=[False, False, False])
+    mocker.patch("app.main.bounded_retime_after_swap", side_effect=lambda stops: stops)
     mocker.patch("app.main.enrich_stops_with_booking", return_value=None)
 
     # Override the autouse conftest no-op with a real spy for this test.
@@ -702,7 +702,7 @@ def test_chat_endpoint_accept_path_does_not_log(mocker) -> None:
                     {"role": "user", "content": "plan a date"},
                     {"role": "assistant", "content": "The closest open dessert..."},
                 ],
-                "conversation_state": _pending_state(),
+                "conversation_state": pending_state(),
             },
         )
 
@@ -718,7 +718,7 @@ def test_chat_endpoint_decline_path_does_not_log(mocker) -> None:
         side_effect=AssertionError("graph should not run on decline path")
     )
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
@@ -730,7 +730,7 @@ def test_chat_endpoint_decline_path_does_not_log(mocker) -> None:
             "/chat",
             json={
                 "message": "no thanks",
-                "conversation_state": _pending_state(),
+                "conversation_state": pending_state(),
             },
         )
 
@@ -742,7 +742,7 @@ def test_chat_endpoint_decline_path_does_not_log(mocker) -> None:
 # ─── Phase 4 hybrid intake pipeline (D-04-01..D-04-03) ─────────────────
 
 
-def _make_intake_llm(extraction_result, observed: dict[str, Any] | None = None) -> Any:
+def make_intake_llm(extraction_result, observed: dict[str, Any] | None = None) -> Any:
     """Fake LLM with .bind/.with_structured_output/.ainvoke that returns the
     provided SlotExtractionResult (or raises if it's an Exception)."""
     observed = observed if observed is not None else {}
@@ -750,38 +750,38 @@ def _make_intake_llm(extraction_result, observed: dict[str, Any] | None = None) 
     observed.setdefault("wso_call_count", 0)
     observed.setdefault("ainvoke_call_count", 0)
 
-    class _Structured:
+    class Structured:
         async def ainvoke(self, prompt: str, *args: Any, **kwargs: Any):
             observed["ainvoke_call_count"] += 1
             if isinstance(extraction_result, Exception):
                 raise extraction_result
             return extraction_result
 
-    class _Bound:
-        def with_structured_output(self, *args: Any, **kwargs: Any) -> _Structured:
+    class Bound:
+        def with_structured_output(self, *args: Any, **kwargs: Any) -> Structured:
             observed["wso_call_count"] += 1
-            return _Structured()
+            return Structured()
 
-    class _LLM:
-        def bind(self, **kwargs: Any) -> _Bound:
+    class LLM:
+        def bind(self, **kwargs: Any) -> Bound:
             observed["bind_calls"].append(dict(kwargs))
-            return _Bound()
+            return Bound()
 
-    return type("ChatOpenAI", (_LLM,), {})()
+    return type("ChatOpenAI", (LLM,), {})()
 
 
 def test_chat_free_text_skips_intake(mocker) -> None:
     """Free-text /chat → has_slot_structure=False; no bind, no
     with_structured_output, no LLM ainvoke. Zero-latency-tax invariant."""
     observed: dict[str, Any] = {}
-    fake_llm = _make_intake_llm(Exception("should never be invoked on free-text"), observed)
+    fake_llm = make_intake_llm(Exception("should never be invoked on free-text"), observed)
     fake_graph = mocker.Mock()
 
-    async def _ainvoke(state, config=None):
-        return _final_state_dict(reply="ok")
+    async def ainvoke(state, config=None):
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
-    cfg = _stub_loaded_config(mocker.Mock())
+    fake_graph.ainvoke = ainvoke
+    cfg = stub_loaded_config(mocker.Mock())
     cfg.llm = fake_llm
     mocker.patch("app.main.load_registered_rag_chain", return_value=cfg)
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
@@ -804,7 +804,7 @@ def test_chat_slot_structured_triggers_intake(mocker) -> None:
     observed: dict[str, Any] = {}
     from app.agent.input_parsing import SlotExtractionResult
 
-    fake_llm = _make_intake_llm(
+    fake_llm = make_intake_llm(
         SlotExtractionResult(
             requested_primary_types=["Sushi Restaurant", "Cocktail Bar", "Dessert Shop"]
         ),
@@ -813,12 +813,12 @@ def test_chat_slot_structured_triggers_intake(mocker) -> None:
     fake_graph = mocker.Mock()
     captured: dict[str, Any] = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
-    cfg = _stub_loaded_config(mocker.Mock())
+    fake_graph.ainvoke = ainvoke
+    cfg = stub_loaded_config(mocker.Mock())
     cfg.llm = fake_llm
     mocker.patch("app.main.load_registered_rag_chain", return_value=cfg)
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
@@ -844,16 +844,16 @@ def test_chat_intake_exception_fails_open(mocker) -> None:
     """Intake LLM raises → handler logs warning and falls back to
     requested_primary_types=[]; the request still 200s (D-04-03 fail-open)."""
     observed: dict[str, Any] = {}
-    fake_llm = _make_intake_llm(RuntimeError("intake provider down"), observed)
+    fake_llm = make_intake_llm(RuntimeError("intake provider down"), observed)
     fake_graph = mocker.Mock()
     captured: dict[str, Any] = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
-    cfg = _stub_loaded_config(mocker.Mock())
+    fake_graph.ainvoke = ainvoke
+    cfg = stub_loaded_config(mocker.Mock())
     cfg.llm = fake_llm
     mocker.patch("app.main.load_registered_rag_chain", return_value=cfg)
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
@@ -875,13 +875,13 @@ def test_chat_endpoint_accept_escalates_when_proposed_alternative_missing(mocker
     fake_graph = mocker.Mock()
     captured: dict = {}
 
-    async def _ainvoke(state, config=None):
+    async def ainvoke(state, config=None):
         captured["state"] = state
-        return _final_state_dict(reply="ok")
+        return final_state_dict(reply="ok")
 
-    fake_graph.ainvoke = _ainvoke
+    fake_graph.ainvoke = ainvoke
     mocker.patch(
-        "app.main.load_registered_rag_chain", return_value=_stub_loaded_config(mocker.Mock())
+        "app.main.load_registered_rag_chain", return_value=stub_loaded_config(mocker.Mock())
     )
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
     mocker.patch("app.main.get_details", return_value=None)  # gone from DB
@@ -891,7 +891,7 @@ def test_chat_endpoint_accept_escalates_when_proposed_alternative_missing(mocker
             "/chat",
             json={
                 "message": "yes",
-                "conversation_state": _pending_state(),
+                "conversation_state": pending_state(),
             },
         )
 

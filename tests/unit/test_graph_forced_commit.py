@@ -36,8 +36,8 @@ from app.agent.state import ItineraryState, Stop, UserConstraints
 # ---------------------------------------------------------------------------
 # Valid Google Place ID for Stop construction (20+ chars, alphanumeric + _ + -)
 # ---------------------------------------------------------------------------
-_VALID_PLACE_ID = "ChIJxxx_sushi_test_0001"
-_VALID_PLACE_ID_2 = "ChIJxxx_ramen_test_0002"
+VALID_PLACE_ID = "ChIJxxx_sushi_test_0001"
+VALID_PLACE_ID_2 = "ChIJxxx_ramen_test_0002"
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ _VALID_PLACE_ID_2 = "ChIJxxx_ramen_test_0002"
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_llm_semantic_search_only() -> MagicMock:
+def make_mock_llm_semantic_search_only() -> MagicMock:
     """Mock LLM that always emits a semantic_search tool call (never commits).
 
     ainvoke is an AsyncMock so the graph's `await llm_with_tools.ainvoke(...)` succeeds.
@@ -68,10 +68,10 @@ def _make_mock_llm_semantic_search_only() -> MagicMock:
     return mock
 
 
-def _viable_scratch(
+def viable_scratch(
     n_viable: int = 1,
     primary_type: str = "sushi_restaurant",
-    base_place_id: str = _VALID_PLACE_ID,
+    base_place_id: str = VALID_PLACE_ID,
 ) -> dict[str, list[dict[str, Any]]]:
     """Scratch with n_viable semantic_search hits above threshold (each unique place_id)."""
     results = []
@@ -98,7 +98,7 @@ def _viable_scratch(
     }
 
 
-def _state_with_viable_scratch(
+def state_with_viable_scratch(
     n_viable: int = 1,
     primary_type: str = "sushi_restaurant",
     requested_primary_types: list[str] | None = None,
@@ -108,7 +108,7 @@ def _state_with_viable_scratch(
     if requested_primary_types is None:
         requested_primary_types = [primary_type] * n_viable
     return ItineraryState(
-        scratch=_viable_scratch(n_viable, primary_type),
+        scratch=viable_scratch(n_viable, primary_type),
         constraints=UserConstraints(
             requested_primary_types=requested_primary_types,
             num_stops=n_viable,
@@ -118,7 +118,7 @@ def _state_with_viable_scratch(
     )
 
 
-def _state_without_viable_scratch(step_count: int = 0) -> ItineraryState:
+def state_without_viable_scratch(step_count: int = 0) -> ItineraryState:
     """Minimal state with NO viable scratch entries (similarity too low)."""
     return ItineraryState(
         scratch={
@@ -131,7 +131,7 @@ def _state_without_viable_scratch(step_count: int = 0) -> ItineraryState:
                             "name": "Low Similarity Place",
                             "primary_type": "sushi_restaurant",
                             "similarity": LOW_SIMILARITY_THRESHOLD - 0.10,  # below threshold
-                            "place_id": _VALID_PLACE_ID,
+                            "place_id": VALID_PLACE_ID,
                         }
                     ],
                     "id": "tc0",
@@ -147,10 +147,10 @@ def _state_without_viable_scratch(step_count: int = 0) -> ItineraryState:
     )
 
 
-def _make_committed_stop() -> Stop:
+def make_committed_stop() -> Stop:
     """Minimal valid Stop for use in commit_stops mock return values."""
     return Stop(
-        place_id=_VALID_PLACE_ID,
+        place_id=VALID_PLACE_ID,
         name="Sushi Place",
         primary_type="sushi_restaurant",
         rationale="Good sushi",
@@ -158,7 +158,7 @@ def _make_committed_stop() -> Stop:
     )
 
 
-def _run_graph_sync(graph: Any, initial_state: ItineraryState) -> dict[str, Any]:
+def run_graph_sync(graph: Any, initial_state: ItineraryState) -> dict[str, Any]:
     """Run the compiled LangGraph synchronously and return the final state dict."""
     loop = asyncio.new_event_loop()
     try:
@@ -237,7 +237,7 @@ def test_forced_commit_triggers_at_step_n(
 
     import app.agent.graph as graph_module
 
-    committed_stop = _make_committed_stop()
+    committed_stop = make_committed_stop()
 
     with (
         patch.object(graph_module, "all_slots_viable", return_value=True),
@@ -246,7 +246,7 @@ def test_forced_commit_triggers_at_step_n(
             "best_viable_candidate_per_slot",
             return_value=[
                 {
-                    "place_id": _VALID_PLACE_ID,
+                    "place_id": VALID_PLACE_ID,
                     "name": "Sushi Place",
                     "primary_type": "sushi_restaurant",
                     "similarity": LOW_SIMILARITY_THRESHOLD + 0.05,
@@ -260,7 +260,7 @@ def test_forced_commit_triggers_at_step_n(
             "commit_stops",
             return_value=(
                 [committed_stop],
-                {"committed": [_VALID_PLACE_ID], "rejected": []},
+                {"committed": [VALID_PLACE_ID], "rejected": []},
             ),
         ),
         # Mock critique_final_with_stops to return done=True (avoids DB connection)
@@ -277,15 +277,15 @@ def test_forced_commit_triggers_at_step_n(
         patch.object(graph_module, "swap_closed_stops", new=AsyncMock(return_value={})),
     ):
         # Build graph after patches are applied so critique() closure captures patched fns
-        mock_llm = _make_mock_llm_semantic_search_only()
+        mock_llm = make_mock_llm_semantic_search_only()
         graph = build_agent_graph(mock_llm, max_steps=8)
 
         # State at step_count=1 — after act() increments to 2, critique fires at
         # step_count 2 >= FORCED_COMMIT_STEP=2.
-        state = _state_with_viable_scratch(n_viable=1, step_count=1)
+        state = state_with_viable_scratch(n_viable=1, step_count=1)
 
         with patch("app.agent.graph.asyncio.to_thread", new=AsyncMock(return_value=[])):
-            final = _run_graph_sync(graph, state)
+            final = run_graph_sync(graph, state)
 
     assert final.get("commit_forced") is True, "commit_forced must be True after A2 triggers"
     assert final.get("forced_commit_step") is not None, "forced_commit_step must be set"
@@ -320,15 +320,15 @@ def test_forced_commit_skipped_when_no_viable_slot(
         ),
         patch.object(graph_module, "swap_closed_stops", new=AsyncMock(return_value={})),
     ):
-        mock_llm = _make_mock_llm_semantic_search_only()
+        mock_llm = make_mock_llm_semantic_search_only()
         graph = build_agent_graph(mock_llm, max_steps=8)
 
         # State at step_count=8 (>= max_steps=8) — critique fires immediately.
         # The A2 branch fires when step_count >= _forced_commit_step AND viable.
         # Since all_slots_viable=False, A2 skips; then step_count >= max_steps fires.
-        state = _state_without_viable_scratch(step_count=8)
+        state = state_without_viable_scratch(step_count=8)
 
-        final = _run_graph_sync(graph, state)
+        final = run_graph_sync(graph, state)
 
     # No viable candidate → forced commit skips → short_circuit_max_steps finalizes
     assert final.get("commit_forced", False) is False, (
@@ -415,11 +415,11 @@ def test_forced_commit_synthesizer_real_placehit_shapes(
         ),
         patch.object(graph_module, "swap_closed_stops", new=AsyncMock(return_value={})),
     ):
-        mock_llm = _make_mock_llm_semantic_search_only()
+        mock_llm = make_mock_llm_semantic_search_only()
         graph = build_agent_graph(mock_llm, max_steps=8)
 
         with patch("app.agent.graph.asyncio.to_thread", new=AsyncMock(return_value=[])):
-            final = _run_graph_sync(graph, state)
+            final = run_graph_sync(graph, state)
 
     assert final.get("commit_forced") is True, (
         f"commit_forced must be True when synthesizer runs on real PlaceHit shapes; "
@@ -454,14 +454,14 @@ def test_forced_commit_step_zero_disables_branch(
         ),
         patch.object(graph_module, "swap_closed_stops", new=AsyncMock(return_value={})),
     ):
-        mock_llm = _make_mock_llm_semantic_search_only()
+        mock_llm = make_mock_llm_semantic_search_only()
         graph = build_agent_graph(mock_llm, max_steps=8)
 
         # State at step_count=8 (>= max_steps=8) — A2 is off (flag=0), so
         # the branch is never entered even though all_slots_viable=True.
-        state = _state_with_viable_scratch(n_viable=1, step_count=8)
+        state = state_with_viable_scratch(n_viable=1, step_count=8)
 
-        final = _run_graph_sync(graph, state)
+        final = run_graph_sync(graph, state)
 
     # FORCED_COMMIT_STEP=0 → A2 branch disabled → short_circuit_max_steps runs
     assert final.get("commit_forced", False) is False, (

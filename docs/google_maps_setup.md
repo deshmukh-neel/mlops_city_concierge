@@ -40,13 +40,11 @@ protection, not secrecy):
 
 - **Application restrictions → Websites (HTTP referrers)**, add:
   - `http://localhost:5173/*` (Vite dev) — **add this now**
-  - the deployed frontend origin `/*` — **only when a deployed frontend
-    exists.** There is currently **no deployed frontend** (no CI builds
-    `frontend/`; it runs locally or points at the deployed *backend*). Adding a
-    referrer for a non-existent origin does nothing — defer it. When the
-    frontend is deployed, add its real origin here in the console (no code
-    change). Until then, requests from any non-localhost origin will fail with
-    `RefererNotAllowedMapError` — that is the restriction working, not a bug.
+  - the deployed Vercel origin `/*` once the public demo project exists, for
+    example `https://your-project.vercel.app/*`. Add the real generated origin
+    after Vercel creates it. Until then, requests from any non-localhost origin
+    will fail with `RefererNotAllowedMapError` — that is the restriction
+    working, not a bug.
 - **API restrictions → Restrict key** → select **Maps JavaScript API** and
   **Directions API** only.
 
@@ -72,8 +70,9 @@ to the no-key fallback.
 **Docker Compose:** put the same two vars in your root `.env`; the `frontend`
 service forwards them (see `docker-compose.yml`).
 
-**Deployed frontend:** provide both as build/runtime env on the host that
-serves `frontend/` (they must be present at Vite build time, prefixed `VITE_`).
+**Deployed frontend:** provide both as Vercel environment variables for the
+`frontend/` project. They must be present at Vite build time, prefixed `VITE_`.
+See `docs/public_demo_deployment.md`.
 
 ## Verify
 

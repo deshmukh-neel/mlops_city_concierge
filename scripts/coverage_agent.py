@@ -38,7 +38,7 @@ from app.db import get_conn
 from scripts.ingest_places_sf import CUISINES, NEIGHBORHOODS, build_seed_queries
 from scripts.sandbox_guard import assert_sandbox_write_target
 
-_log = logging.getLogger("coverage_agent")
+logger = logging.getLogger("coverage_agent")
 
 
 @dataclass
@@ -108,10 +108,10 @@ def gather_stats(days: int) -> list[CoverageStat]:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(sql, [CUISINES, cutoff])
         stats = [CoverageStat(*row) for row in cur.fetchall()]
-    return _fill_missing_cuisines(stats)
+    return fill_missing_cuisines(stats)
 
 
-def _fill_missing_cuisines(stats: list[CoverageStat]) -> list[CoverageStat]:
+def fill_missing_cuisines(stats: list[CoverageStat]) -> list[CoverageStat]:
     """Synthesize zero-count rows for cuisines absent from the result set.
 
     Cuisines with 0 places are silently dropped by the SQL (no rows to group),
@@ -129,35 +129,35 @@ def find_gaps(stats: list[CoverageStat], min_place_count: int = 5) -> list[Cover
     ]
 
 
-_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
-_REQUIRED_KEYS = {"query_text", "field_mode", "rationale"}
+FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
+REQUIRED_KEYS = {"query_text", "field_mode", "rationale"}
 
 
-def _parse_proposals(raw: str) -> list[ProposedQuery]:
+def parse_proposals(raw: str) -> list[ProposedQuery]:
     """Parse LLM JSON output into ProposedQuery objects.
 
     Tolerates ```json fences. Skips items missing required keys or with
     non-string values rather than failing the whole run.
     """
-    cleaned = _FENCE_RE.sub("", raw).strip()
+    cleaned = FENCE_RE.sub("", raw).strip()
     if not cleaned:
         return []
     try:
         items = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        _log.warning("LLM returned non-JSON output (%s); ignoring", e)
+        logger.warning("LLM returned non-JSON output (%s); ignoring", e)
         return []
     if not isinstance(items, list):
-        _log.warning("LLM returned non-list payload (%r); ignoring", type(items).__name__)
+        logger.warning("LLM returned non-list payload (%r); ignoring", type(items).__name__)
         return []
 
     proposals: list[ProposedQuery] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        if not _REQUIRED_KEYS.issubset(item.keys()):
+        if not REQUIRED_KEYS.issubset(item.keys()):
             continue
-        if not all(isinstance(item[k], str) for k in _REQUIRED_KEYS):
+        if not all(isinstance(item[k], str) for k in REQUIRED_KEYS):
             continue
         proposals.append(
             ProposedQuery(
@@ -173,16 +173,16 @@ def _parse_proposals(raw: str) -> list[ProposedQuery]:
 # Demand-extraction catalog sets (module-level, built once on import)
 # ---------------------------------------------------------------------------
 
-_CUISINES_SET: frozenset[str] = frozenset(CUISINES)
-_NEIGHBORHOODS_SET: frozenset[str] = frozenset(NEIGHBORHOODS)
+CUISINES_SET: frozenset[str] = frozenset(CUISINES)
+NEIGHBORHOODS_SET: frozenset[str] = frozenset(NEIGHBORHOODS)
 
 # Catalog aliases: multi-word Google primary_type / colloquial spellings whose
 # normalized form does NOT equal the single-token catalog cuisine. Without these
 # the type→cuisine tier silently drops real demand — e.g. app/main.py's slot
 # intake emits the primary_type "Steak House", which normalizes to "steak house"
 # and misses the catalog "steakhouse" (CDX-M1). Keys are lowercased; values MUST
-# be _CUISINES_SET members.
-_CUISINE_ALIASES: dict[str, str] = {
+# be CUISINES_SET members.
+CUISINE_ALIASES: dict[str, str] = {
     "steak house": "steakhouse",
     "dim sum": "dimsum",
 }
@@ -192,16 +192,16 @@ _CUISINE_ALIASES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-def _types_to_cuisines(primary_types: list[str]) -> list[str]:
+def types_to_cuisines(primary_types: list[str]) -> list[str]:
     """Tier-1 cuisine extraction: map requested_primary_types to catalog cuisines.
 
     Strips the " restaurant" suffix (case-insensitive), lowercases, and checks
-    membership in _CUISINES_SET.  No LLM call — pure lexical mapping.
+    membership in CUISINES_SET.  No LLM call — pure lexical mapping.
 
     Examples::
 
-        _types_to_cuisines(["Vietnamese Restaurant"])  # → ["vietnamese"]
-        _types_to_cuisines(["Bar"])                    # → []
+        types_to_cuisines(["Vietnamese Restaurant"])  # → ["vietnamese"]
+        types_to_cuisines(["Bar"])                    # → []
     """
     result: list[str] = []
     for pt in primary_types:
@@ -209,18 +209,18 @@ def _types_to_cuisines(primary_types: list[str]) -> list[str]:
         # Canonicalize multi-word/colloquial forms (e.g. "steak house" → "steakhouse")
         # before catalog membership so primary_types like "Steak House" are not
         # silently dropped (CDX-M1).
-        candidate = _CUISINE_ALIASES.get(candidate, candidate)
-        if candidate in _CUISINES_SET:
+        candidate = CUISINE_ALIASES.get(candidate, candidate)
+        if candidate in CUISINES_SET:
             result.append(candidate)
     return result
 
 
-def _lexical_cuisines(message: str) -> list[str]:
+def lexical_cuisines(message: str) -> list[str]:
     """Tier-2a cuisine extraction: scan message text for catalog cuisine names.
 
     Case-insensitive substring/word scan of *message* against every CUISINES
     catalog member.  Returns a list (possibly empty) of all catalog cuisines
-    named in the message.  No LLM call — symmetric to _lexical_neighborhoods.
+    named in the message.  No LLM call — symmetric to lexical_neighborhoods.
 
     This closes the ROUND-3 HIGH: app/main.py returns requested_primary_types=[]
     for free-text messages, so the cuisine must be recovered from the message itself.
@@ -231,13 +231,13 @@ def _lexical_cuisines(message: str) -> list[str]:
     # misses (e.g. "dim sum" in the message → catalog "dimsum") — CDX-M1.
     found.extend(
         canonical
-        for alias, canonical in _CUISINE_ALIASES.items()
+        for alias, canonical in CUISINE_ALIASES.items()
         if alias in lower_msg and canonical not in found
     )
     return found
 
 
-def _lexical_neighborhoods(message: str) -> list[str]:
+def lexical_neighborhoods(message: str) -> list[str]:
     """Tier-1 neighborhood extraction: scan message text for catalog neighborhood names.
 
     Case-insensitive substring scan of *message* against every NEIGHBORHOODS
@@ -246,17 +246,17 @@ def _lexical_neighborhoods(message: str) -> list[str]:
 
     Examples::
 
-        _lexical_neighborhoods("dinner in Outer Sunset")
+        lexical_neighborhoods("dinner in Outer Sunset")
         # → ["Outer Sunset"]
 
-        _lexical_neighborhoods("dinner in the Mission District and drinks in North Beach")
+        lexical_neighborhoods("dinner in the Mission District and drinks in North Beach")
         # → ["Mission District", "North Beach"]
     """
     lower_msg = message.lower()
     return [n for n in NEIGHBORHOODS if n.lower() in lower_msg]
 
 
-def _build_demand_batch_prompt(messages: list[str]) -> str:
+def build_demand_batch_prompt(messages: list[str]) -> str:
     """Build a batch extraction prompt that embeds messages as a JSON array.
 
     Using json.dumps prevents a message containing ``"]}`` or other JSON-special
@@ -285,7 +285,7 @@ def _build_demand_batch_prompt(messages: list[str]) -> str:
     )
 
 
-def _extract_demand_batch(
+def extract_demand_batch(
     messages: list[str], llm: Any | None
 ) -> list[tuple[list[str], list[str]]]:
     """Call the LLM once to extract (neighborhoods, cuisines) for each message.
@@ -297,7 +297,7 @@ def _extract_demand_batch(
 
     Catalog filtering is applied to BOTH axes so off-catalog LLM answers are
     silently dropped (T-18-02-INJ residual + ROUND-3 catalog-constraint).
-    Fence-tolerant JSON parsing mirrors ``_parse_proposals``/``_FENCE_RE``.
+    Fence-tolerant JSON parsing mirrors ``parse_proposals``/``FENCE_RE``.
     """
     empty: list[tuple[list[str], list[str]]] = [([], []) for _ in range(len(messages))]
     if not messages:
@@ -305,31 +305,31 @@ def _extract_demand_batch(
     if llm is None:
         return empty
 
-    prompt = _build_demand_batch_prompt(messages)
+    prompt = build_demand_batch_prompt(messages)
     try:
         raw = llm.invoke([HumanMessage(content=prompt)]).content
         if not isinstance(raw, str):
-            _log.warning("LLM returned non-string in demand batch; using empty pairs")
+            logger.warning("LLM returned non-string in demand batch; using empty pairs")
             return empty
-        cleaned = _FENCE_RE.sub("", raw).strip()
+        cleaned = FENCE_RE.sub("", raw).strip()
         items = json.loads(cleaned)
         if not isinstance(items, list):
-            _log.warning("LLM demand batch returned non-list; using empty pairs")
+            logger.warning("LLM demand batch returned non-list; using empty pairs")
             return empty
     except (json.JSONDecodeError, Exception) as exc:
-        _log.warning("LLM demand batch parse error (%s); using empty pairs", exc)
+        logger.warning("LLM demand batch parse error (%s); using empty pairs", exc)
         return empty
 
     results: list[tuple[list[str], list[str]]] = []
-    for i, _msg in enumerate(messages):
+    for i, _ in enumerate(messages):
         if i >= len(items) or not isinstance(items[i], dict):
             results.append(([], []))
             continue
         item = items[i]
         raw_neighborhoods = item.get("neighborhoods", [])
         raw_cuisines = item.get("cuisines", [])
-        catalog_hoods = [n for n in raw_neighborhoods if n in _NEIGHBORHOODS_SET]
-        catalog_cuiss = [c for c in raw_cuisines if c in _CUISINES_SET]
+        catalog_hoods = [n for n in raw_neighborhoods if n in NEIGHBORHOODS_SET]
+        catalog_cuiss = [c for c in raw_cuisines if c in CUISINES_SET]
         results.append((catalog_hoods, catalog_cuiss))
     return results
 
@@ -347,7 +347,7 @@ def get_demand_conn(url: str):  # type: ignore[return]
     without touching the shared pool's DATABASE_URL or its lru_cache settings.
     Set to read-only so it can NEVER be used for writes (T-18-02-PROD).
 
-    Mirrors the ``_snapshot_ids_from_url`` pattern in loop_falsifier.py.
+    Mirrors the ``snapshot_ids_from_url`` pattern in loop_falsifier.py.
     """
     with contextlib.closing(psycopg2.connect(url)) as conn:
         conn.set_session(readonly=True, autocommit=True)
@@ -368,13 +368,13 @@ def gather_demand(
     Two-tier extraction on BOTH axes:
 
     Cuisine axis (ROUND-3 HIGH — symmetric to neighborhood):
-      1. _types_to_cuisines(requested_primary_types)  [no LLM]
-      2. _lexical_cuisines(message)                   [no LLM — tier 2a]
-      3. _extract_demand_batch (combined with neighborhood misses) [LLM — tier 2b]
+      1. types_to_cuisines(requested_primary_types)  [no LLM]
+      2. lexical_cuisines(message)                   [no LLM — tier 2a]
+      3. extract_demand_batch (combined with neighborhood misses) [LLM — tier 2b]
 
     Neighborhood axis:
-      1. _lexical_neighborhoods(message)  [no LLM]
-      2. _extract_demand_batch            [LLM — combined single call with cuisine misses]
+      1. lexical_neighborhoods(message)  [no LLM]
+      2. extract_demand_batch            [LLM — combined single call with cuisine misses]
 
     Returns:
         (demand_counts, rows_scanned, unmapped_count)
@@ -404,14 +404,14 @@ def gather_demand(
 
     for message, primary_types in rows:
         # Neighborhood tier-1: lexical
-        hoods = _lexical_neighborhoods(message)
+        hoods = lexical_neighborhoods(message)
         needs_llm_hood = len(hoods) == 0
 
         # Cuisine tier-1: types lookup
-        cuiss = _types_to_cuisines(list(primary_types))
+        cuiss = types_to_cuisines(list(primary_types))
         if not cuiss:
             # Cuisine tier-2a: lexical message scan
-            cuiss = _lexical_cuisines(message)
+            cuiss = lexical_cuisines(message)
         needs_llm_cuisine = len(cuiss) == 0
 
         pre_resolved.append((message, hoods, cuiss, needs_llm_hood, needs_llm_cuisine))
@@ -420,7 +420,7 @@ def gather_demand(
     # Collect rows that still need the LLM on at least one axis
     miss_indices: list[int] = []
     miss_messages: list[str] = []
-    for idx, (message, _hoods, _cuiss, needs_llm_hood, needs_llm_cuisine) in enumerate(
+    for idx, (message, _, _, needs_llm_hood, needs_llm_cuisine) in enumerate(
         pre_resolved
     ):
         if needs_llm_hood or needs_llm_cuisine:
@@ -429,7 +429,7 @@ def gather_demand(
 
     llm_results: list[tuple[list[str], list[str]]] = []
     if miss_messages:
-        llm_results = _extract_demand_batch(miss_messages, llm)
+        llm_results = extract_demand_batch(miss_messages, llm)
 
     # Merge LLM results back into pre_resolved
     for batch_pos, orig_idx in enumerate(miss_indices):
@@ -449,7 +449,7 @@ def gather_demand(
     demand_counts: dict[tuple[str, str], int] = defaultdict(int)
     unmapped_count = 0
 
-    for _message, hoods, cuiss, _nh, _nc in pre_resolved:
+    for _, hoods, cuiss, _, _ in pre_resolved:
         # Cartesian product within the row (REVIEW MEDIUM + ROUND-3 cuisine cross-product)
         pairs = [(n, c) for n in hoods for c in cuiss]
         if pairs:
@@ -478,10 +478,10 @@ def gap_to_seed_query(neighborhood: str, cuisine: str) -> str:
     Raises AssertionError when either argument is not a catalog member —
     off-catalog inputs would produce un-ingestable seeds (D-03, T-18-03-SEED).
     """
-    assert neighborhood in _NEIGHBORHOODS_SET, (
+    assert neighborhood in NEIGHBORHOODS_SET, (
         f"gap_to_seed_query: {neighborhood!r} is not a catalog neighborhood"
     )
-    assert cuisine in _CUISINES_SET, f"gap_to_seed_query: {cuisine!r} is not a catalog cuisine"
+    assert cuisine in CUISINES_SET, f"gap_to_seed_query: {cuisine!r} is not a catalog cuisine"
     seed = f"{cuisine} restaurants in {neighborhood} San Francisco"
     # Catalog-membership assertion so every emitted seed is loop-consumable
     # (premark_seed_isolation membership — D-03). build_seed_queries is already
@@ -578,13 +578,13 @@ def find_demand_gaps(
     return gaps
 
 
-def _format_gap_line(g: CoverageStat) -> str:
+def format_gap_line(g: CoverageStat) -> str:
     axis, _, name = g.bucket.partition(":")
     return f"- type={axis} name='{name}' place_count={g.place_count}"
 
 
-def _build_proposal_prompt(gaps: list[CoverageStat]) -> str:
-    gap_lines = "\n".join(_format_gap_line(g) for g in gaps)
+def build_proposal_prompt(gaps: list[CoverageStat]) -> str:
+    gap_lines = "\n".join(format_gap_line(g) for g in gaps)
     return f"""You are a data coverage planner for a SF restaurant database.
 
 Coverage gaps (buckets with under-represented place counts):
@@ -613,12 +613,12 @@ def propose_queries(gaps: list[CoverageStat], llm: Any | None) -> list[ProposedQ
     """Ask the LLM to fill the given gaps. Returns [] if no gaps or no LLM."""
     if not gaps or llm is None:
         return []
-    prompt = _build_proposal_prompt(gaps)
+    prompt = build_proposal_prompt(gaps)
     raw = llm.invoke([HumanMessage(content=prompt)]).content
     if not isinstance(raw, str):
-        _log.warning("LLM returned non-string content type %s; ignoring", type(raw).__name__)
+        logger.warning("LLM returned non-string content type %s; ignoring", type(raw).__name__)
         return []
-    return _parse_proposals(raw)
+    return parse_proposals(raw)
 
 
 def existing_query_texts(conn: Any) -> set[str]:
@@ -738,11 +738,11 @@ def insert_pending(proposals: list[ProposedQuery], dry_run: bool, conn: Any = No
                 inserted += cur.rowcount
         conn.commit()
     else:
-        with get_conn() as _conn, _conn.cursor() as cur:
+        with get_conn() as conn_obj, conn_obj.cursor() as cur:
             for p in proposals:
                 cur.execute(sql, [p.query_text, p.rationale])
                 inserted += cur.rowcount
-            _conn.commit()
+            conn_obj.commit()
     return inserted
 
 
@@ -781,15 +781,15 @@ def log_to_mlflow(
         mlflow.log_metric("proposals_inserted", inserted)
         mlflow.log_metric("demand_rows_scanned", demand_rows_scanned)
         mlflow.log_metric("unmapped_count", unmapped_count)
-        mlflow.log_dict({"stats": [_stat_to_dict(s) for s in stats]}, "stats.json")
-        mlflow.log_dict({"gaps": [_stat_to_dict(g) for g in gaps]}, "gaps.json")
+        mlflow.log_dict({"stats": [stat_to_dict(s) for s in stats]}, "stats.json")
+        mlflow.log_dict({"gaps": [stat_to_dict(g) for g in gaps]}, "gaps.json")
         mlflow.log_dict({"proposals": [asdict(p) for p in proposals]}, "proposals.json")
         mlflow.log_dict({"dropped": [asdict(p) for p in dropped]}, "dropped.json")
         if demand_gaps:
             mlflow.log_dict({"demand_gaps": [asdict(g) for g in demand_gaps]}, "demand_gaps.json")
 
 
-def _stat_to_dict(stat: CoverageStat) -> dict[str, Any]:
+def stat_to_dict(stat: CoverageStat) -> dict[str, Any]:
     out = asdict(stat)
     if out["last_ingest"] is not None:
         out["last_ingest"] = out["last_ingest"].isoformat()
@@ -834,7 +834,7 @@ def gap_mine_main(argv: list[str] | None = None) -> int:
 
     # Cold-start: no mappable demand → honest no-op (D-04)
     if not demand_counts:
-        _log.info("gap_mine_main: no mappable demand (cold start); inserting nothing")
+        logger.info("gap_mine_main: no mappable demand (cold start); inserting nothing")
         log_to_mlflow(
             stats=[],
             gaps=[],
@@ -856,7 +856,7 @@ def gap_mine_main(argv: list[str] | None = None) -> int:
     demand_gaps = find_demand_gaps(demand_counts, pair_supply, args.min_places)
 
     if not demand_gaps:
-        _log.info("gap_mine_main: demand exists but all pairs meet supply floor; nothing to insert")
+        logger.info("gap_mine_main: demand exists but all pairs meet supply floor; nothing to insert")
         log_to_mlflow(
             stats=[],
             gaps=[],
@@ -938,7 +938,7 @@ def main(argv: list[str] | None = None) -> int:
     gaps = find_gaps(stats, args.min_places)
     llm = vibe.make_judge()
     if llm is None and gaps:
-        _log.warning("judge unavailable (missing creds?); skipping LLM proposal step")
+        logger.warning("judge unavailable (missing creds?); skipping LLM proposal step")
     proposals = propose_queries(gaps, llm)
     with get_conn() as conn:
         kept, dropped = filter_already_covered(proposals, existing_query_texts(conn))

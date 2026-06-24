@@ -25,7 +25,7 @@ import sys
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from app.agent.graph import _diagnose_last_tool_result
+from app.agent.graph import diagnose_last_tool_result
 from app.agent.state import ItineraryState, Stop, UserConstraints
 from app.tools.retrieval import PlaceHit
 
@@ -35,7 +35,7 @@ load_dotenv()
 # --- Section 1: per-step diagnostic on synthetic tool results ----------------
 
 
-def _state_with_last_call(tool_name: str, args: dict, result) -> ItineraryState:
+def state_with_last_call(tool_name: str, args: dict, result) -> ItineraryState:
     """Build the minimal state the diagnostic needs: an issuing AIMessage,
     a ToolMessage, and a matching scratch entry."""
     return ItineraryState(
@@ -110,8 +110,8 @@ def smoke_per_step_diagnostic() -> None:
         ),
     ]
     for label, tool, args, result in cases:
-        state = _state_with_last_call(tool, args, result)
-        hint = _diagnose_last_tool_result(state)
+        state = state_with_last_call(tool, args, result)
+        hint = diagnose_last_tool_result(state)
         if hint is None:
             print(f"  {label:<22}  -> (no hint)")
         else:

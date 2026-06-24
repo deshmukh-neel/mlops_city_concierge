@@ -205,10 +205,10 @@ stderr.
 
 Per D-11-11, gemini is logged-not-gated — errored gemini cells **do not block** BASE-01.
 Record the deferral in `tests/unit/test_eval_matrix.py`
-`_DEFERRED_BASELINE_CELLS["eval_matrix_refinement.yaml"]`:
+`DEFERREDBASELINE_CELLS["eval_matrix_refinement.yaml"]`:
 
 ```python
-_DEFERRED_BASELINE_CELLS = {
+DEFERREDBASELINE_CELLS = {
     "eval_matrix_refinement.yaml": {
         "gemini/gemini-3.1-pro-preview",  # D-11-11: deferred — gemini errored at regen
     },
@@ -240,7 +240,7 @@ correct documented outcome.
 
 **Do not re-run the matrix on depleted Anthropic credits** — the error is deterministic
 and burns no useful compute. Proceed without the anthropic cell; record the deferral in
-`_DEFERRED_BASELINE_CELLS` in `tests/unit/test_eval_matrix.py`.
+`DEFERREDBASELINE_CELLS` in `tests/unit/test_eval_matrix.py`.
 
 To promote anthropic back to an active gate when billing is restored, see
 `docs/eval_gates.md § Anthropic deferral (2026-06-11)` for the step-by-step promotion
@@ -251,7 +251,7 @@ path.
 `gemini/gemini-3.1-pro-preview` n=5 baseline is **deferred as a v2.2 user budget
 decision** (D-12-09, 2026-06-11) — no quota or billing top-up; same treatment as the
 anthropic ANCH-01 deferral. Gemini stays `logged-not-gated` with its
-`_DEFERRED_BASELINE_CELLS["eval_matrix_refinement.yaml"]` entry intact.
+`DEFERREDBASELINE_CELLS["eval_matrix_refinement.yaml"]` entry intact.
 
 This is **measurement debt, not unknown risk**: the single scored gemini run already hit
 `committed_itinerary_rate 1.0` — first evidence the Phase-9 provider adapter fixed the
@@ -270,7 +270,7 @@ when they error (n_scored < n_requested per D-10-03), which is the correct outco
 4. Confirm `committed_itinerary_rate` is present in `configs/eval_baselines/refinement_cheaper.json`
    for the `gemini/gemini-3.1-pro-preview` provider.
 5. Remove `"gemini/gemini-3.1-pro-preview"` from
-   `_DEFERRED_BASELINE_CELLS["eval_matrix_refinement.yaml"]` in
+   `DEFERREDBASELINE_CELLS["eval_matrix_refinement.yaml"]` in
    `tests/unit/test_eval_matrix.py` — run the parity test to confirm `missing == deferred`
    still holds (it should now equal the empty set for the refinement matrix).
 6. Edit `configs/eval_gates.yaml`: set the gemini family entry to `status: active` (or

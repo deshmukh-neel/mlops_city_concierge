@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.tools.filters import (
-    _PRIMARY_TYPE_FAMILIES,
+    PRIMARY_TYPE_FAMILIES,
     SearchFilters,
     compile_filters,
     family_from_query,
@@ -168,18 +168,18 @@ def test_open_at_accepts_tz_aware_datetime() -> None:
     assert f_utc.open_at.tzinfo is timezone.utc
 
 
-# ─── _PRIMARY_TYPE_FAMILIES + family_of (closure-aware swap) ─────────────
+# ─── PRIMARY_TYPE_FAMILIES + family_of (closure-aware swap) ─────────────
 
 
 def test_primary_type_families_all_have_types_and_primary_types() -> None:
-    for family, members in _PRIMARY_TYPE_FAMILIES.items():
+    for family, members in PRIMARY_TYPE_FAMILIES.items():
         assert set(members.keys()) == {"types", "primary_types"}, family
         assert members["types"], f"{family} types must not be empty"
         assert members["primary_types"], f"{family} primary_types must not be empty"
 
 
 def test_dessert_family_preserves_existing_dessert_members() -> None:
-    dessert = _PRIMARY_TYPE_FAMILIES["dessert"]
+    dessert = PRIMARY_TYPE_FAMILIES["dessert"]
     assert "dessert_shop" in dessert["types"]
     assert "Dessert Shop" in dessert["primary_types"]
     assert "Ice Cream Shop" in dessert["primary_types"]

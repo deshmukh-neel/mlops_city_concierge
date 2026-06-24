@@ -19,86 +19,86 @@ class TestTypesToCuisines:
     """Test 1: lexical cuisine map — tier 1 (no LLM)."""
 
     def test_known_types_map_to_lowercase_cuisines(self) -> None:
-        from scripts.coverage_agent import _types_to_cuisines
+        from scripts.coverage_agent import types_to_cuisines
 
-        result = _types_to_cuisines(["Vietnamese Restaurant", "Italian Restaurant"])
+        result = types_to_cuisines(["Vietnamese Restaurant", "Italian Restaurant"])
         assert sorted(result) == ["italian", "vietnamese"]
 
     def test_bars_have_no_cuisine(self) -> None:
-        from scripts.coverage_agent import _types_to_cuisines
+        from scripts.coverage_agent import types_to_cuisines
 
-        result = _types_to_cuisines(["Bar", "Cocktail Bar"])
+        result = types_to_cuisines(["Bar", "Cocktail Bar"])
         assert result == []
 
     def test_empty_list_returns_empty(self) -> None:
-        from scripts.coverage_agent import _types_to_cuisines
+        from scripts.coverage_agent import types_to_cuisines
 
-        assert _types_to_cuisines([]) == []
+        assert types_to_cuisines([]) == []
 
     def test_mixed_known_and_unknown(self) -> None:
-        from scripts.coverage_agent import _types_to_cuisines
+        from scripts.coverage_agent import types_to_cuisines
 
-        result = _types_to_cuisines(["Korean Restaurant", "Bar"])
+        result = types_to_cuisines(["Korean Restaurant", "Bar"])
         assert result == ["korean"]
 
     def test_restaurant_suffix_stripped_correctly(self) -> None:
-        from scripts.coverage_agent import _types_to_cuisines
+        from scripts.coverage_agent import types_to_cuisines
 
-        result = _types_to_cuisines(["Thai Restaurant"])
+        result = types_to_cuisines(["Thai Restaurant"])
         assert result == ["thai"]
 
     def test_multiword_primary_type_alias(self) -> None:
         # CDX-M1: app/main.py's slot intake emits the primary_type "Steak House",
         # which normalizes to "steak house" — the catalog cuisine is "steakhouse".
         # The alias map must recover it instead of silently dropping the demand.
-        from scripts.coverage_agent import _types_to_cuisines
+        from scripts.coverage_agent import types_to_cuisines
 
-        assert _types_to_cuisines(["Steak House"]) == ["steakhouse"]
+        assert types_to_cuisines(["Steak House"]) == ["steakhouse"]
         # "Fine Dining Restaurant" legitimately has no catalog cuisine (like Bar).
-        assert _types_to_cuisines(["Fine Dining Restaurant"]) == []
+        assert types_to_cuisines(["Fine Dining Restaurant"]) == []
 
 
 class TestLexicalCuisines:
     """Test 2: lexical message-cuisine fallback — tier 2a (ROUND-3 HIGH, no LLM)."""
 
     def test_finds_single_catalog_cuisine_in_message(self) -> None:
-        from scripts.coverage_agent import _lexical_cuisines
+        from scripts.coverage_agent import lexical_cuisines
 
-        result = _lexical_cuisines("vietnamese restaurants in Outer Sunset")
+        result = lexical_cuisines("vietnamese restaurants in Outer Sunset")
         assert result == ["vietnamese"]
 
     def test_case_insensitive(self) -> None:
-        from scripts.coverage_agent import _lexical_cuisines
+        from scripts.coverage_agent import lexical_cuisines
 
-        result = _lexical_cuisines("VIETNAMESE restaurants in Outer Sunset")
+        result = lexical_cuisines("VIETNAMESE restaurants in Outer Sunset")
         assert result == ["vietnamese"]
 
     def test_finds_two_cuisines_in_message(self) -> None:
-        from scripts.coverage_agent import _lexical_cuisines
+        from scripts.coverage_agent import lexical_cuisines
 
-        result = _lexical_cuisines("italian or thai tonight")
+        result = lexical_cuisines("italian or thai tonight")
         assert sorted(result) == ["italian", "thai"]
 
     def test_multiword_alias_in_message(self) -> None:
         # CDX-M1: "dim sum" in free text should recover catalog "dimsum"
         # (the single-token catalog scan alone would miss it).
-        from scripts.coverage_agent import _lexical_cuisines
+        from scripts.coverage_agent import lexical_cuisines
 
-        assert _lexical_cuisines("looking for dim sum in Chinatown") == ["dimsum"]
+        assert lexical_cuisines("looking for dim sum in Chinatown") == ["dimsum"]
 
     def test_no_catalog_cuisine_returns_empty(self) -> None:
-        from scripts.coverage_agent import _lexical_cuisines
+        from scripts.coverage_agent import lexical_cuisines
 
-        result = _lexical_cuisines("somewhere fun to eat")
+        result = lexical_cuisines("somewhere fun to eat")
         assert result == []
 
     def test_no_llm_call(self) -> None:
         """Must resolve purely lexically — no LLM dependency."""
-        from scripts.coverage_agent import _lexical_cuisines
+        from scripts.coverage_agent import lexical_cuisines
 
-        # If _lexical_cuisines accidentally tried to import or call vibe, it would fail
+        # If lexical_cuisines accidentally tried to import or call vibe, it would fail
         # in this isolated test; the test passing at all proves no LLM is invoked.
-        result = _lexical_cuisines("korean bbq in the Mission")
+        result = lexical_cuisines("korean bbq in the Mission")
         assert "korean" in result
 
 
@@ -106,66 +106,66 @@ class TestLexicalNeighborhoods:
     """Test 3: lexical neighborhood pre-pass (REVIEW MEDIUM — lexical-before-LLM)."""
 
     def test_finds_single_neighborhood(self) -> None:
-        from scripts.coverage_agent import _lexical_neighborhoods
+        from scripts.coverage_agent import lexical_neighborhoods
 
-        result = _lexical_neighborhoods("dinner in Outer Sunset")
+        result = lexical_neighborhoods("dinner in Outer Sunset")
         assert result == ["Outer Sunset"]
 
     def test_case_insensitive(self) -> None:
-        from scripts.coverage_agent import _lexical_neighborhoods
+        from scripts.coverage_agent import lexical_neighborhoods
 
-        result = _lexical_neighborhoods("dinner in outer sunset")
+        result = lexical_neighborhoods("dinner in outer sunset")
         assert result == ["Outer Sunset"]
 
     def test_multi_neighborhood_message(self) -> None:
-        from scripts.coverage_agent import _lexical_neighborhoods
+        from scripts.coverage_agent import lexical_neighborhoods
 
-        result = _lexical_neighborhoods("dinner in the Mission District and drinks in North Beach")
+        result = lexical_neighborhoods("dinner in the Mission District and drinks in North Beach")
         assert sorted(result) == ["Mission District", "North Beach"]
 
     def test_no_neighborhood_returns_empty(self) -> None:
-        from scripts.coverage_agent import _lexical_neighborhoods
+        from scripts.coverage_agent import lexical_neighborhoods
 
-        result = _lexical_neighborhoods("somewhere cozy please")
+        result = lexical_neighborhoods("somewhere cozy please")
         assert result == []
 
     def test_no_llm_call(self) -> None:
         """Must resolve purely lexically — no LLM dependency."""
-        from scripts.coverage_agent import _lexical_neighborhoods
+        from scripts.coverage_agent import lexical_neighborhoods
 
-        result = _lexical_neighborhoods("lunch in Chinatown")
+        result = lexical_neighborhoods("lunch in Chinatown")
         assert result == ["Chinatown"]
 
 
 class TestExtractDemandBatch:
     """Test 4: combined batched extractor — LLM only for misses."""
 
-    def _make_llm(self, payload: list[dict]) -> MagicMock:
+    def make_llm(self, payload: list[dict]) -> MagicMock:
         llm = MagicMock()
         llm.invoke.return_value.content = json.dumps(payload)
         return llm
 
     def test_single_combined_call_for_misses_only(self) -> None:
         """Three messages: two resolve lexically (not passed to LLM), one doesn't."""
-        from scripts.coverage_agent import _extract_demand_batch
+        from scripts.coverage_agent import extract_demand_batch
 
-        llm = self._make_llm([{"neighborhoods": ["Outer Sunset"], "cuisines": ["chinese"]}])
-        # Only the one lexical-miss message is passed to _extract_demand_batch
+        llm = self.make_llm([{"neighborhoods": ["Outer Sunset"], "cuisines": ["chinese"]}])
+        # Only the one lexical-miss message is passed to extract_demand_batch
         messages = ["dim sum in the deep east bay"]
-        result = _extract_demand_batch(messages, llm)
+        result = extract_demand_batch(messages, llm)
         assert llm.invoke.call_count == 1
         assert len(result) == 1
 
     def test_returns_one_pair_per_message(self) -> None:
-        from scripts.coverage_agent import _extract_demand_batch
+        from scripts.coverage_agent import extract_demand_batch
 
-        llm = self._make_llm(
+        llm = self.make_llm(
             [
                 {"neighborhoods": ["Outer Sunset"], "cuisines": ["vietnamese"]},
                 {"neighborhoods": ["Mission District"], "cuisines": ["thai"]},
             ]
         )
-        result = _extract_demand_batch(["msg1", "msg2"], llm)
+        result = extract_demand_batch(["msg1", "msg2"], llm)
         assert len(result) == 2
         # Each element is (neighborhoods_list, cuisines_list)
         n0, c0 = result[0]
@@ -173,9 +173,9 @@ class TestExtractDemandBatch:
 
     def test_returns_empty_pairs_when_llm_none(self) -> None:
         """Test 8b: LLM None — rows that needed it degrade to empty."""
-        from scripts.coverage_agent import _extract_demand_batch
+        from scripts.coverage_agent import extract_demand_batch
 
-        result = _extract_demand_batch(["dim sum somewhere obscure"], None)
+        result = extract_demand_batch(["dim sum somewhere obscure"], None)
         assert result == [([], [])]
 
 
@@ -183,48 +183,48 @@ class TestCatalogConstraint:
     """Test 5: catalog constraint on LLM output — off-catalog names dropped."""
 
     def test_filters_off_catalog_neighborhood(self) -> None:
-        from scripts.coverage_agent import _extract_demand_batch
+        from scripts.coverage_agent import extract_demand_batch
 
         llm = MagicMock()
         # LLM returns "Berkeley" which is NOT in NEIGHBORHOODS
         llm.invoke.return_value.content = json.dumps(
             [{"neighborhoods": ["Berkeley", "Outer Sunset"], "cuisines": ["vietnamese"]}]
         )
-        result = _extract_demand_batch(["vietnamese places"], llm)
+        result = extract_demand_batch(["vietnamese places"], llm)
         neighborhoods, cuisines = result[0]
         assert "Berkeley" not in neighborhoods
         assert "Outer Sunset" in neighborhoods
 
     def test_filters_off_catalog_cuisine(self) -> None:
-        from scripts.coverage_agent import _extract_demand_batch
+        from scripts.coverage_agent import extract_demand_batch
 
         llm = MagicMock()
         # LLM returns "fusion" which is NOT in CUISINES
         llm.invoke.return_value.content = json.dumps(
             [{"neighborhoods": ["Mission District"], "cuisines": ["fusion", "italian"]}]
         )
-        result = _extract_demand_batch(["italian somewhere"], llm)
+        result = extract_demand_batch(["italian somewhere"], llm)
         _, cuisines = result[0]
         assert "fusion" not in cuisines
         assert "italian" in cuisines
 
     def test_tolerates_json_fences(self) -> None:
-        from scripts.coverage_agent import _extract_demand_batch
+        from scripts.coverage_agent import extract_demand_batch
 
         llm = MagicMock()
         payload = json.dumps([{"neighborhoods": ["Castro"], "cuisines": ["japanese"]}])
         llm.invoke.return_value.content = f"```json\n{payload}\n```"
-        result = _extract_demand_batch(["sushi in Castro"], llm)
+        result = extract_demand_batch(["sushi in Castro"], llm)
         neighborhoods, cuisines = result[0]
         assert "Castro" in neighborhoods
         assert "japanese" in cuisines
 
     def test_malformed_json_returns_empty_pairs(self) -> None:
-        from scripts.coverage_agent import _extract_demand_batch
+        from scripts.coverage_agent import extract_demand_batch
 
         llm = MagicMock()
         llm.invoke.return_value.content = "not json"
-        result = _extract_demand_batch(["some message"], llm)
+        result = extract_demand_batch(["some message"], llm)
         assert result == [([], [])]
 
 
@@ -249,10 +249,10 @@ class TestPromptInjectionSafety:
     """Test 7: batch prompt uses json.dumps to encode messages, not raw interpolation."""
 
     def test_messages_are_json_encoded_in_prompt(self) -> None:
-        from scripts.coverage_agent import _build_demand_batch_prompt
+        from scripts.coverage_agent import build_demand_batch_prompt
 
         message = '"]}) DROP TABLE; --'
-        prompt = _build_demand_batch_prompt([message])
+        prompt = build_demand_batch_prompt([message])
         # The message must appear json.dumps-encoded, not raw
         assert json.dumps(message) in prompt
         # The embedded message array must be valid JSON that round-trips back to
@@ -265,10 +265,10 @@ class TestPromptInjectionSafety:
         assert json.loads(encoded_array) == [message]
 
     def test_prompt_contains_json_array(self) -> None:
-        from scripts.coverage_agent import _build_demand_batch_prompt
+        from scripts.coverage_agent import build_demand_batch_prompt
 
         messages = ["vietnamese in Outer Sunset", "tacos in Mission"]
-        prompt = _build_demand_batch_prompt(messages)
+        prompt = build_demand_batch_prompt(messages)
         # The encoded messages array must be present in the prompt
         encoded = json.dumps(messages)
         assert encoded in prompt
@@ -280,11 +280,11 @@ class TestLlmNoneGraceful:
     def test_lexical_cuisine_hit_maps_without_llm(self) -> None:
         """A message with both neighborhood AND cuisine in lexical catalogs maps
         even when llm is None (judge-absence invariant — ROUND-2 MEDIUM-3 + ROUND-3)."""
-        from scripts.coverage_agent import _lexical_cuisines, _lexical_neighborhoods
+        from scripts.coverage_agent import lexical_cuisines, lexical_neighborhoods
 
         message = "vietnamese restaurants in Outer Sunset"
-        neighborhoods = _lexical_neighborhoods(message)
-        cuisines = _lexical_cuisines(message)
+        neighborhoods = lexical_neighborhoods(message)
+        cuisines = lexical_cuisines(message)
 
         # Both resolve lexically — LLM not needed
         assert "Outer Sunset" in neighborhoods
@@ -296,21 +296,21 @@ class TestLlmNoneGraceful:
 
     def test_types_to_cuisines_hit_maps_without_llm(self) -> None:
         """A row with explicit requested_primary_types also maps without LLM."""
-        from scripts.coverage_agent import _lexical_neighborhoods, _types_to_cuisines
+        from scripts.coverage_agent import lexical_neighborhoods, types_to_cuisines
 
         types = ["Korean Restaurant"]
         message = "dinner in Noe Valley"
-        cuisines = _types_to_cuisines(types)
-        neighborhoods = _lexical_neighborhoods(message)
+        cuisines = types_to_cuisines(types)
+        neighborhoods = lexical_neighborhoods(message)
 
         assert "korean" in cuisines
         assert "Noe Valley" in neighborhoods
 
     def test_llm_none_lexical_miss_degrades_gracefully(self) -> None:
         """A lexical-miss row with llm=None returns empty pairs without crashing."""
-        from scripts.coverage_agent import _extract_demand_batch
+        from scripts.coverage_agent import extract_demand_batch
 
-        result = _extract_demand_batch(["some paraphrase that misses lexically"], None)
+        result = extract_demand_batch(["some paraphrase that misses lexically"], None)
         assert result == [([], [])]
         # No exception raised — the system degrades gracefully
 
@@ -320,15 +320,15 @@ class TestLlmNoneGraceful:
 # ---------------------------------------------------------------------------
 
 
-class _CapturingCursor:
+class CapturingCursor:
     """Stub cursor for capturing SQL calls (mirrors test_coverage_agent.py pattern)."""
 
     def __init__(self, rows: list[tuple] | None = None) -> None:
         self.captured: list[tuple] = []
-        self._rows = rows or []
+        self.rows_data = rows or []
         self.rowcount = 0
 
-    def __enter__(self) -> _CapturingCursor:
+    def __enter__(self) -> CapturingCursor:
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -338,29 +338,29 @@ class _CapturingCursor:
         self.captured.append((sql, params))
 
     def fetchall(self) -> list[tuple]:
-        return self._rows
+        return self.rows_data
 
 
-class _CapturingConn:
+class CapturingConn:
     """Stub connection for capturing SQL calls."""
 
     def __init__(self, rows: list[tuple] | None = None) -> None:
-        self.cursor_obj = _CapturingCursor(rows)
+        self.cursor_obj = CapturingCursor(rows)
 
-    def __enter__(self) -> _CapturingConn:
+    def __enter__(self) -> CapturingConn:
         return self
 
     def __exit__(self, *args: object) -> None:
         pass
 
-    def cursor(self) -> _CapturingCursor:
+    def cursor(self) -> CapturingCursor:
         return self.cursor_obj
 
 
 @contextmanager
-def _stub_get_conn(rows: list[tuple]):
+def stub_get_conn(rows: list[tuple]):
     """A context-manager factory that yields a _CapturingConn with the given rows."""
-    conn = _CapturingConn(rows)
+    conn = CapturingConn(rows)
     yield conn
 
 
@@ -370,7 +370,7 @@ class TestGatherDemandShape:
     def test_returns_3_tuple(self, monkeypatch) -> None:
         from scripts import coverage_agent
 
-        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _stub_get_conn([]))
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: stub_get_conn([]))
 
         with patch.object(coverage_agent, "vibe") as mock_vibe:
             mock_vibe.make_judge.return_value = None
@@ -397,7 +397,7 @@ class TestGatherDemandCounting:
             ("vietnamese restaurants in Outer Sunset", ["Vietnamese Restaurant"]),
             ("thai food in the Mission District", ["Thai Restaurant"]),
         ]
-        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _stub_get_conn(rows))
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: stub_get_conn(rows))
 
         with patch.object(coverage_agent, "vibe") as mock_vibe:
             mock_vibe.make_judge.return_value = None
@@ -416,7 +416,7 @@ class TestGatherDemandUnmapped:
 
         # A row that maps to nothing on either axis
         rows = [("somewhere fun", [])]
-        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _stub_get_conn(rows))
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: stub_get_conn(rows))
 
         with patch.object(coverage_agent, "vibe") as mock_vibe:
             mock_vibe.make_judge.return_value = None
@@ -438,7 +438,7 @@ class TestGatherDemandWindowing:
         captured_params: list = []
 
         class CapturingSQLConn:
-            class _Cur:
+            class Cur:
                 rowcount = 0
 
                 def __enter__(self):
@@ -461,7 +461,7 @@ class TestGatherDemandWindowing:
                 pass
 
             def cursor(self):
-                return self._Cur()
+                return self.Cur()
 
         @contextmanager
         def stub_get_conn():
@@ -488,14 +488,14 @@ class TestGatherDemandPoolPath:
         @contextmanager
         def mock_pool():
             pool_call_count[0] += 1
-            yield _CapturingConn([])
+            yield CapturingConn([])
 
         demand_conn_call_count = [0]
 
         @contextmanager
         def mock_demand_conn(url):
             demand_conn_call_count[0] += 1
-            yield _CapturingConn([])
+            yield CapturingConn([])
 
         monkeypatch.setattr(coverage_agent, "get_conn", mock_pool)
         monkeypatch.setattr(coverage_agent, "get_demand_conn", mock_demand_conn)
@@ -514,14 +514,14 @@ class TestGatherDemandPoolPath:
         @contextmanager
         def mock_pool():
             pool_call_count[0] += 1
-            yield _CapturingConn([])
+            yield CapturingConn([])
 
         demand_conn_call_count = [0]
 
         @contextmanager
         def mock_demand_conn(url):
             demand_conn_call_count[0] += 1
-            yield _CapturingConn([])
+            yield CapturingConn([])
 
         monkeypatch.setattr(coverage_agent, "get_conn", mock_pool)
         monkeypatch.setattr(coverage_agent, "get_demand_conn", mock_demand_conn)
@@ -541,7 +541,7 @@ class TestGatherDemandMultiIntent:
 
         # "italian in Mission District and North Beach" should produce 2 pairs
         rows = [("italian in Mission District and North Beach", ["Italian Restaurant"])]
-        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _stub_get_conn(rows))
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: stub_get_conn(rows))
 
         with patch.object(coverage_agent, "vibe") as mock_vibe:
             mock_vibe.make_judge.return_value = None
@@ -558,9 +558,9 @@ class TestGatherDemandRound3HighLexical:
         from scripts import coverage_agent
 
         # The free-text case: app/main.py returns requested_primary_types=[]
-        # The cuisine must be recovered from the message via _lexical_cuisines
+        # The cuisine must be recovered from the message via lexical_cuisines
         rows = [("vietnamese restaurants in Outer Sunset", [])]
-        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _stub_get_conn(rows))
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: stub_get_conn(rows))
 
         with patch.object(coverage_agent, "vibe") as mock_vibe:
             mock_vibe.make_judge.return_value = None
@@ -579,7 +579,7 @@ class TestGatherDemandRound3HighLlm:
         # A row with empty types and a message whose cuisine is NOT in lexical CUISINES
         # (paraphrase — e.g. "pho place" doesn't contain "vietnamese" literally)
         rows = [("a pho place in Outer Sunset", [])]
-        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _stub_get_conn(rows))
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: stub_get_conn(rows))
 
         # The LLM returns the catalog cuisine for the paraphrase
         llm_response = json.dumps([{"neighborhoods": ["Outer Sunset"], "cuisines": ["vietnamese"]}])
@@ -602,14 +602,14 @@ class TestGatherDemandJudgeNone:
         from scripts import coverage_agent
 
         rows = [
-            # Lexical hit on both axes (via _types_to_cuisines + _lexical_neighborhoods)
+            # Lexical hit on both axes (via types_to_cuisines + lexical_neighborhoods)
             ("dinner in Noe Valley", ["Korean Restaurant"]),
-            # Lexical hit via _lexical_cuisines + _lexical_neighborhoods
+            # Lexical hit via lexical_cuisines + lexical_neighborhoods
             ("vietnamese food in Outer Sunset", []),
             # Lexical miss — needs LLM but judge is None → unmapped
             ("a great pho place near the park", []),
         ]
-        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _stub_get_conn(rows))
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: stub_get_conn(rows))
 
         with patch.object(coverage_agent, "vibe") as mock_vibe:
             mock_vibe.make_judge.return_value = None
@@ -624,7 +624,7 @@ class TestGatherDemandJudgeNone:
 
 
 class TestGatherDemandSingleBatchCall:
-    """Test 10: _extract_demand_batch is called AT MOST ONCE (ROUND-3 — no per-row round-trip)."""
+    """Test 10: extract_demand_batch is called AT MOST ONCE (ROUND-3 — no per-row round-trip)."""
 
     def test_batch_called_at_most_once(self, monkeypatch) -> None:
         from scripts import coverage_agent
@@ -639,7 +639,7 @@ class TestGatherDemandSingleBatchCall:
             # Needs LLM for neighborhood
             ("vietnamese noodle shop downtown", []),
         ]
-        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _stub_get_conn(rows))
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: stub_get_conn(rows))
 
         batch_calls: list[list[str]] = []
 
@@ -648,14 +648,14 @@ class TestGatherDemandSingleBatchCall:
             # Return empty pairs for each message
             return [([], [])] * len(messages)
 
-        monkeypatch.setattr(coverage_agent, "_extract_demand_batch", mock_extract_demand_batch)
+        monkeypatch.setattr(coverage_agent, "extract_demand_batch", mock_extract_demand_batch)
 
         with patch.object(coverage_agent, "vibe") as mock_vibe:
             mock_vibe.make_judge.return_value = MagicMock()
             coverage_agent.gather_demand(days=14)
 
         assert len(batch_calls) <= 1, (
-            f"_extract_demand_batch must be called at most once, got {len(batch_calls)}"
+            f"extract_demand_batch must be called at most once, got {len(batch_calls)}"
         )
 
 
@@ -858,7 +858,7 @@ class TestSeedFormatOffCatalogRaises:
 # ---------------------------------------------------------------------------
 
 
-class _MultiQueryConn:
+class MultiQueryConn:
     """A stub connection that can serve different rows to different SELECT calls.
 
     The ``rows_by_query`` dict maps a substring of the SQL to the rows to return.
@@ -866,12 +866,12 @@ class _MultiQueryConn:
     """
 
     def __init__(self, rows_by_query: dict[str, list[tuple]]) -> None:
-        self._rows_by_query = rows_by_query
+        self.rows_by_query = rows_by_query
         self.execute_calls: list[tuple[str, object]] = []
         self.insert_calls: list[tuple[str, object]] = []
         self.committed = False
         # current_database() stub
-        self._dbname = "city_concierge_sandbox"
+        self.dbname_value = "city_concierge_sandbox"
 
     def __enter__(self):
         return self
@@ -880,16 +880,16 @@ class _MultiQueryConn:
         pass
 
     def cursor(self):
-        return _MultiQueryCursor(self)
+        return MultiQueryCursor(self)
 
     def commit(self):
         self.committed = True
 
 
-class _MultiQueryCursor:
-    def __init__(self, conn: _MultiQueryConn) -> None:
-        self._conn = conn
-        self._rows: list[tuple] = []
+class MultiQueryCursor:
+    def __init__(self, conn: MultiQueryConn) -> None:
+        self.conn_obj = conn
+        self.rows_data: list[tuple] = []
         self.rowcount = 1
 
     def __enter__(self):
@@ -899,35 +899,35 @@ class _MultiQueryCursor:
         pass
 
     def execute(self, sql: str, params=None) -> None:
-        self._conn.execute_calls.append((sql, params))
+        self.conn_obj.execute_calls.append((sql, params))
         # Dispatch rows based on SQL fragment
-        self._rows = []
-        for key, rows in self._conn._rows_by_query.items():
+        self.rows_data = []
+        for key, rows in self.conn_obj.rows_by_query.items():
             if key in sql:
-                self._rows = rows
+                self.rows_data = rows
                 break
         # Support current_database() call from sandbox guard
         if "current_database" in sql:
-            self._rows = [(self._conn._dbname,)]
+            self.rows_data = [(self.conn_obj.dbname_value,)]
         # Track INSERT calls
         if "INSERT" in sql.upper():
-            self._conn.insert_calls.append((sql, params))
+            self.conn_obj.insert_calls.append((sql, params))
 
     def fetchall(self) -> list[tuple]:
-        return self._rows
+        return self.rows_data
 
     def fetchone(self) -> tuple | None:
-        return self._rows[0] if self._rows else None
+        return self.rows_data[0] if self.rows_data else None
 
 
-def _make_multi_conn(
+def make_multi_conn(
     checkpoint_rows: list[tuple] = (),
     proposal_rows: list[tuple] = (),
     pqh_rows: list[tuple] = (),
     dbname: str = "city_concierge_sandbox",
-) -> _MultiQueryConn:
+) -> MultiQueryConn:
     """Build a multi-query stub connection with preset rows for each table."""
-    conn = _MultiQueryConn(
+    conn = MultiQueryConn(
         rows_by_query={
             "places_ingest_query_checkpoints": list(checkpoint_rows),
             "places_ingest_query_proposals": list(proposal_rows),
@@ -935,19 +935,19 @@ def _make_multi_conn(
             "user_query_log": [],
         }
     )
-    conn._dbname = dbname
+    conn.dbname_value = dbname
     return conn
 
 
-class _StatusAwareCheckpointCursor:
+class StatusAwareCheckpointCursor:
     """Cursor stub that returns an `incomplete` checkpoint row ONLY when the
     SELECT omits the `status = 'completed'` predicate (CDX-L1)."""
 
     def __init__(self, prefixed_row: str) -> None:
-        self._prefixed_row = prefixed_row
-        self._rows: list[tuple] = []
+        self.prefixed_row = prefixed_row
+        self.rows_data: list[tuple] = []
 
-    def __enter__(self) -> _StatusAwareCheckpointCursor:
+    def __enter__(self) -> StatusAwareCheckpointCursor:
         return self
 
     def __exit__(self, *a: object) -> None:
@@ -956,27 +956,27 @@ class _StatusAwareCheckpointCursor:
     def execute(self, sql: str, params: object = None) -> None:
         if "places_ingest_query_checkpoints" in sql:
             # The incomplete row leaks only if the completed-status filter is absent.
-            self._rows = [] if "status = 'completed'" in sql else [(self._prefixed_row,)]
+            self.rows_data = [] if "status = 'completed'" in sql else [(self.prefixed_row,)]
         else:
-            self._rows = []
+            self.rows_data = []
 
     def fetchall(self) -> list[tuple]:
-        return self._rows
+        return self.rows_data
 
     def fetchone(self) -> tuple | None:
-        return self._rows[0] if self._rows else None
+        return self.rows_data[0] if self.rows_data else None
 
 
-class _StatusAwareCheckpointConn:
+class StatusAwareCheckpointConn:
     """Connection stub backing the CDX-L1 status-filter test."""
 
-    _dbname = "city_concierge_sandbox"
+    dbname_value = "city_concierge_sandbox"
 
     def __init__(self, prefixed_row: str) -> None:
-        self._prefixed_row = prefixed_row
+        self.prefixed_row = prefixed_row
 
-    def cursor(self) -> _StatusAwareCheckpointCursor:
-        return _StatusAwareCheckpointCursor(self._prefixed_row)
+    def cursor(self) -> StatusAwareCheckpointCursor:
+        return StatusAwareCheckpointCursor(self.prefixed_row)
 
 
 class TestIngestedQueryTextsHigh2:
@@ -992,7 +992,7 @@ class TestIngestedQueryTextsHigh2:
         )
 
         # No checkpoints, no proposals → ingested set is empty
-        conn = _make_multi_conn()
+        conn = make_multi_conn()
 
         ingested = ingested_query_texts(conn)
 
@@ -1015,7 +1015,7 @@ class TestIngestedQueryTextsExcludesCatalog:
         from scripts.ingest_places_sf import build_seed_queries
 
         # No rows in either table
-        conn = _make_multi_conn()
+        conn = make_multi_conn()
         ingested = ingested_query_texts(conn)
 
         # Any catalog seed must be absent from ingested (it's not in DB tables)
@@ -1040,10 +1040,10 @@ class TestCheckpointPrefixDedup:
         prefixed = f"all::{raw_seed}"
 
         # Completed checkpoint with FIELD_MODE:: prefix
-        conn = _make_multi_conn(checkpoint_rows=[(prefixed,), ("status_col_dummy",)])
+        conn = make_multi_conn(checkpoint_rows=[(prefixed,), ("status_col_dummy",)])
         # Override _rows_by_query to also have status='completed' filter support
-        conn._rows_by_query["places_ingest_query_checkpoints"] = [(prefixed,)]
-        conn._rows_by_query["places_ingest_query_proposals"] = []
+        conn.rows_by_query["places_ingest_query_checkpoints"] = [(prefixed,)]
+        conn.rows_by_query["places_ingest_query_proposals"] = []
 
         ingested = ingested_query_texts(conn)
 
@@ -1053,9 +1053,9 @@ class TestCheckpointPrefixDedup:
         )
 
         # No-:: row is returned as-is (defensive)
-        conn2 = _make_multi_conn(checkpoint_rows=[("no_prefix_seed",)])
-        conn2._rows_by_query["places_ingest_query_checkpoints"] = [("no_prefix_seed",)]
-        conn2._rows_by_query["places_ingest_query_proposals"] = []
+        conn2 = make_multi_conn(checkpoint_rows=[("no_prefix_seed",)])
+        conn2.rows_by_query["places_ingest_query_checkpoints"] = [("no_prefix_seed",)]
+        conn2.rows_by_query["places_ingest_query_proposals"] = []
         ingested2 = ingested_query_texts(conn2)
         assert "no_prefix_seed" in ingested2
 
@@ -1086,7 +1086,7 @@ class TestCheckpointStatusFilter:
         # the row is suppressed and the seed is absent. If the filter were ever
         # dropped, the row would leak and this test would FAIL — proving the
         # filter exists, not merely that an empty stub returned nothing (CDX-L1).
-        ingested = ingested_query_texts(_StatusAwareCheckpointConn(prefixed))
+        ingested = ingested_query_texts(StatusAwareCheckpointConn(prefixed))
 
         # The seed must be ABSENT (incomplete checkpoint filtered out by status)
         assert raw_seed not in ingested
@@ -1134,7 +1134,7 @@ class TestSameConnectionGuardAndInsert:
         monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
 
         # Stub get_conn to yield a single traceable object
-        sentinel_conn = _make_multi_conn()
+        sentinel_conn = make_multi_conn()
 
         from contextlib import contextmanager
 
@@ -1237,7 +1237,7 @@ class TestGuardImportedNotRedefined:
 
         @contextmanager
         def fake_get_conn():
-            yield _make_multi_conn()
+            yield make_multi_conn()
 
         monkeypatch.setattr(ca, "get_conn", fake_get_conn)
 
@@ -1278,7 +1278,7 @@ class TestGuardImportedNotRedefined:
 
         @contextmanager
         def fake_get_conn():
-            yield _make_multi_conn()
+            yield make_multi_conn()
 
         monkeypatch.setattr(ca, "get_conn", fake_get_conn)
 
@@ -1311,19 +1311,19 @@ class TestColdStart:
         monkeypatch.setattr(ca, "gather_pair_supply", lambda pairs, conn=None: {})
         monkeypatch.setattr(ca, "ingested_query_texts", lambda conn: set())
 
-        import mlflow as _mlflow
+        import mlflow as mlflow_mod
 
         def fake_log_metric(key, val):
             logged_metrics[key] = val
 
-        monkeypatch.setattr(_mlflow, "log_metric", fake_log_metric)
+        monkeypatch.setattr(mlflow_mod, "log_metric", fake_log_metric)
         monkeypatch.setattr(ca, "log_to_mlflow", lambda *a, **kw: None)
 
         from contextlib import contextmanager
 
         @contextmanager
         def fake_get_conn():
-            yield _make_multi_conn()
+            yield make_multi_conn()
 
         monkeypatch.setattr(ca, "get_conn", fake_get_conn)
 
@@ -1364,7 +1364,7 @@ class TestHappyPath:
 
         @contextmanager
         def fake_get_conn():
-            yield _make_multi_conn()
+            yield make_multi_conn()
 
         monkeypatch.setattr(ca, "get_conn", fake_get_conn)
 
@@ -1411,7 +1411,7 @@ class TestDryRun:
 
         @contextmanager
         def fake_get_conn():
-            yield _make_multi_conn()
+            yield make_multi_conn()
 
         monkeypatch.setattr(ca, "get_conn", fake_get_conn)
 
@@ -1457,7 +1457,7 @@ class TestTopNAfterDedup:
 
         @contextmanager
         def fake_get_conn():
-            yield _make_multi_conn()
+            yield make_multi_conn()
 
         monkeypatch.setattr(ca, "get_conn", fake_get_conn)
 
@@ -1478,13 +1478,13 @@ class TestMLflowDemandMetrics:
         logged_metrics: dict[str, float] = {}
         logged_dicts: dict[str, object] = {}
 
-        import mlflow as _mlflow
+        import mlflow as mlflow_mod
 
-        monkeypatch.setattr(_mlflow, "set_experiment", lambda *a, **kw: None)
-        monkeypatch.setattr(_mlflow, "log_param", lambda *a, **kw: None)
-        monkeypatch.setattr(_mlflow, "log_dict", lambda d, name: logged_dicts.update({name: d}))
+        monkeypatch.setattr(mlflow_mod, "set_experiment", lambda *a, **kw: None)
+        monkeypatch.setattr(mlflow_mod, "log_param", lambda *a, **kw: None)
+        monkeypatch.setattr(mlflow_mod, "log_dict", lambda d, name: logged_dicts.update({name: d}))
         monkeypatch.setattr(
-            _mlflow, "log_metric", lambda key, val: logged_metrics.update({key: val})
+            mlflow_mod, "log_metric", lambda key, val: logged_metrics.update({key: val})
         )
 
         class FakeRun:
@@ -1494,7 +1494,7 @@ class TestMLflowDemandMetrics:
             def __exit__(self, *a):
                 pass
 
-        monkeypatch.setattr(_mlflow, "start_run", lambda **kw: FakeRun())
+        monkeypatch.setattr(mlflow_mod, "start_run", lambda **kw: FakeRun())
 
         from scripts.coverage_agent import (
             DemandGap,
@@ -1563,7 +1563,7 @@ class TestJudgeNoneStillMinesLexical:
 
         @contextmanager
         def fake_get_conn():
-            yield _make_multi_conn()
+            yield make_multi_conn()
 
         monkeypatch.setattr(ca, "get_conn", fake_get_conn)
 

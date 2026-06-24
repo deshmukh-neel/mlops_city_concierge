@@ -41,7 +41,7 @@ def test_smoke_module_imports() -> None:
 # ---------------------------------------------------------------------------
 
 
-class _StubCursor:
+class StubCursor:
     """Returns rows based on which table the SQL references.
 
     Branches:
@@ -60,11 +60,11 @@ class _StubCursor:
     """
 
     def __init__(self, *, empty_demand: bool = False) -> None:
-        self._empty_demand = empty_demand
+        self.empty_demand = empty_demand
         self.executed: list[tuple[str, Any]] = []
-        self._last_sql = ""
+        self.last_sql = ""
 
-    def __enter__(self) -> _StubCursor:
+    def __enter__(self) -> StubCursor:
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -72,17 +72,17 @@ class _StubCursor:
 
     def execute(self, sql: str, params: Any = None) -> None:
         self.executed.append((sql, params))
-        self._last_sql = sql
+        self.last_sql = sql
 
     def fetchall(self) -> list[tuple]:
-        sql = self._last_sql
+        sql = self.last_sql
         if "FROM user_query_log" in sql:
-            if self._empty_demand:
+            if self.empty_demand:
                 return []
             # Functional demand row:
             # message names catalog cuisine "vietnamese" + catalog neighborhood "Outer Sunset"
             # requested_primary_types is EMPTY [] — the free-text case (app/main.py produces this)
-            # This exercises Plan 02's _lexical_cuisines fallback (ROUND-3 HIGH).
+            # This exercises Plan 02's lexical_cuisines fallback (ROUND-3 HIGH).
             return [("vietnamese restaurants in Outer Sunset", [])]
         if "FROM place_query_hits" in sql:
             # Return a pair-supply row with count=0 (below any min_places threshold)
@@ -104,15 +104,15 @@ class _StubCursor:
         return 0
 
 
-class _StubConn:
+class StubConn:
     def __init__(self, *, empty_demand: bool = False) -> None:
-        self._empty_demand = empty_demand
+        self.empty_demand = empty_demand
         self.commits = 0
-        self.cursors: list[_StubCursor] = []
-        self._executed_sqls: list[str] = []
+        self.cursors: list[StubCursor] = []
+        self.executed_sqls: list[str] = []
 
-    def cursor(self) -> _StubCursor:
-        cur = _StubCursor(empty_demand=self._empty_demand)
+    def cursor(self) -> StubCursor:
+        cur = StubCursor(empty_demand=self.empty_demand)
         self.cursors.append(cur)
         return cur
 
@@ -120,17 +120,17 @@ class _StubConn:
         self.commits += 1
 
 
-def _make_get_conn(*, empty_demand: bool = False):
+def make_get_conn(*, empty_demand: bool = False):
     """Return a context-manager factory yielding a _StubConn."""
 
     @contextmanager
-    def _ctx():
-        yield _StubConn(empty_demand=empty_demand)
+    def ctx():
+        yield StubConn(empty_demand=empty_demand)
 
-    return _ctx
+    return ctx
 
 
-def _stub_mlflow(monkeypatch: pytest.MonkeyPatch, coverage_agent):
+def stub_mlflow(monkeypatch: pytest.MonkeyPatch, coverage_agent):
     """Monkeypatch all mlflow.* calls on the module; return the log_dict mock."""
     log_dict = MagicMock()
     start_run = MagicMock()
@@ -154,13 +154,13 @@ def test_smoke_cold_start_empty_db(monkeypatch: pytest.MonkeyPatch) -> None:
     from scripts import coverage_agent
 
     # Empty demand (no user_query_log rows → gather_demand returns no counts)
-    monkeypatch.setattr(coverage_agent, "get_conn", _make_get_conn(empty_demand=True))
-    monkeypatch.setattr(coverage_agent, "get_demand_conn", _make_get_conn(empty_demand=True))
+    monkeypatch.setattr(coverage_agent, "get_conn", make_get_conn(empty_demand=True))
+    monkeypatch.setattr(coverage_agent, "get_demand_conn", make_get_conn(empty_demand=True))
     monkeypatch.setattr(coverage_agent.vibe, "make_judge", lambda: None)
     monkeypatch.setattr(coverage_agent, "assert_sandbox_write_target", lambda conn=None: None)
 
     log_metric = MagicMock()
-    _stub_mlflow(monkeypatch, coverage_agent)
+    stub_mlflow(monkeypatch, coverage_agent)
     monkeypatch.setattr(coverage_agent.mlflow, "log_metric", log_metric)
 
     rc = coverage_agent.gap_mine_main(["--dry-run", "--days", "1"])
@@ -191,14 +191,14 @@ def test_functional_cuisine_recall_emits_demand_gaps_artifact(
     """
     from scripts import coverage_agent
 
-    monkeypatch.setattr(coverage_agent, "get_conn", _make_get_conn(empty_demand=False))
-    monkeypatch.setattr(coverage_agent, "get_demand_conn", _make_get_conn(empty_demand=False))
+    monkeypatch.setattr(coverage_agent, "get_conn", make_get_conn(empty_demand=False))
+    monkeypatch.setattr(coverage_agent, "get_demand_conn", make_get_conn(empty_demand=False))
     # No real LLM needed — the lexical pre-passes fully cover "vietnamese" + "Outer Sunset"
     monkeypatch.setattr(coverage_agent.vibe, "make_judge", lambda: None)
     # Monkeypatch sandbox guard to no-op (unit context has no real sandbox connection)
     monkeypatch.setattr(coverage_agent, "assert_sandbox_write_target", lambda conn=None: None)
 
-    log_dict = _stub_mlflow(monkeypatch, coverage_agent)
+    log_dict = stub_mlflow(monkeypatch, coverage_agent)
 
     rc = coverage_agent.gap_mine_main(["--dry-run", "--days", "1"])
 
@@ -232,17 +232,17 @@ def test_functional_dry_run_no_write(monkeypatch: pytest.MonkeyPatch) -> None:
     """Dry-run functional path must NOT execute any INSERT statement on the stub conn."""
     from scripts import coverage_agent
 
-    stub_conn = _StubConn(empty_demand=False)
+    stub_conn = StubConn(empty_demand=False)
 
     @contextmanager
-    def _fixed_conn():
+    def fixed_conn():
         yield stub_conn
 
-    monkeypatch.setattr(coverage_agent, "get_conn", _fixed_conn)
-    monkeypatch.setattr(coverage_agent, "get_demand_conn", _fixed_conn)
+    monkeypatch.setattr(coverage_agent, "get_conn", fixed_conn)
+    monkeypatch.setattr(coverage_agent, "get_demand_conn", fixed_conn)
     monkeypatch.setattr(coverage_agent.vibe, "make_judge", lambda: None)
     monkeypatch.setattr(coverage_agent, "assert_sandbox_write_target", lambda conn=None: None)
-    _stub_mlflow(monkeypatch, coverage_agent)
+    stub_mlflow(monkeypatch, coverage_agent)
 
     rc = coverage_agent.gap_mine_main(["--dry-run", "--days", "1"])
     assert rc == 0

@@ -1,6 +1,6 @@
 """Unit tests for app/agent/swap.py.
 
-All DB access (place_is_open SQL function) is mocked via _execute_closure_query
+All DB access (place_is_open SQL function) is mocked via execute_closure_query
 or the helper's direct cursor calls. Live-DB behavior is covered separately
 in tests/integration/test_swap_real_db.py.
 """
@@ -15,23 +15,23 @@ from app.agent.state import Stop
 SF = ZoneInfo("America/Los_Angeles")
 
 
-def _normalize_pid(value: str) -> str:
+def normalize_pid(value: str) -> str:
     """Pad short test place_ids to satisfy the Google Place ID format
     validator added in 06-01 Task 3. Inputs already matching the format
     pass through unchanged.
     """
-    import re as _re
+    import re as re_mod
 
-    if _re.fullmatch(r"^[A-Za-z0-9_-]{20,255}$", value):
+    if re_mod.fullmatch(r"^[A-Za-z0-9_-]{20,255}$", value):
         return value
-    descriptor = _re.sub(r"[^A-Za-z0-9_-]", "_", value) or "x"
+    descriptor = re_mod.sub(r"[^A-Za-z0-9_-]", "_", value) or "x"
     base = f"ChIJtest_{descriptor}_"
     while len(base) < 20:
         base += "ChIJtest_a_aaaaaaaaa"
     return base
 
 
-def _stop(
+def stop(
     place_id: str = "p",
     name: str = "X",
     arrival_iso: str = "2026-05-19T19:00:00-07:00",
@@ -40,7 +40,7 @@ def _stop(
     primary_type: str = "Bar",
 ) -> Stop:
     return Stop(
-        place_id=_normalize_pid(place_id),
+        place_id=normalize_pid(place_id),
         name=name,
         rationale="r",
         source="google_places",
@@ -54,39 +54,39 @@ def _stop(
 
 def test_per_stop_closure_status_all_open(mocker) -> None:
     """Every stop returns is_open=True → list of all False (False = not closed)."""
-    from app.agent.swap import _per_stop_closure_status
+    from app.agent.swap import per_stop_closure_status
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         return_value={"ChIJtest_p1_aaaaaaaa": True, "ChIJtest_p2_aaaaaaaa": True},
     )
-    stops = [_stop(place_id="ChIJtest_p1_aaaaaaaa"), _stop(place_id="ChIJtest_p2_aaaaaaaa")]
-    statuses = _per_stop_closure_status(stops)
-    # _per_stop_closure_status returns True for "ChIJtest_closed_aaaa", False for "open".
+    stops = [stop(place_id="ChIJtest_p1_aaaaaaaa"), stop(place_id="ChIJtest_p2_aaaaaaaa")]
+    statuses = per_stop_closure_status(stops)
+    # per_stop_closure_status returns True for "ChIJtest_closed_aaaa", False for "open".
     assert statuses == [False, False]
 
 
 def test_per_stop_closure_status_one_closed(mocker) -> None:
-    from app.agent.swap import _per_stop_closure_status
+    from app.agent.swap import per_stop_closure_status
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         return_value={"ChIJtest_p1_aaaaaaaa": True, "ChIJtest_p2_aaaaaaaa": False},
     )
-    stops = [_stop(place_id="ChIJtest_p1_aaaaaaaa"), _stop(place_id="ChIJtest_p2_aaaaaaaa")]
-    statuses = _per_stop_closure_status(stops)
+    stops = [stop(place_id="ChIJtest_p1_aaaaaaaa"), stop(place_id="ChIJtest_p2_aaaaaaaa")]
+    statuses = per_stop_closure_status(stops)
     assert statuses == [False, True]
 
 
 def test_per_stop_closure_status_skips_stops_without_arrival_time(mocker) -> None:
     """A stop with arrival_time=None can't be checked; treat as not-closed."""
-    from app.agent.swap import _per_stop_closure_status
+    from app.agent.swap import per_stop_closure_status
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         return_value={"ChIJtest_p1_aaaaaaaa": True},
     )
-    stops = [_stop(place_id="ChIJtest_p1_aaaaaaaa")]
+    stops = [stop(place_id="ChIJtest_p1_aaaaaaaa")]
     stops.append(
         Stop(
             place_id="ChIJtest_p2_aaaaaaaa",
@@ -100,7 +100,7 @@ def test_per_stop_closure_status_skips_stops_without_arrival_time(mocker) -> Non
             planned_duration_min=60,
         )
     )
-    statuses = _per_stop_closure_status(stops)
+    statuses = per_stop_closure_status(stops)
     assert statuses == [False, False]
 
 
@@ -108,29 +108,29 @@ def test_per_stop_closure_status_db_failure_fails_open(mocker) -> None:
     """A DB blip must NOT block /chat — the helper returns [False] * n
     (no closure detected) so the plan ships unchanged. Matches checks.py
     fail-open precedent at lines 200-205."""
-    from app.agent.swap import _per_stop_closure_status
+    from app.agent.swap import per_stop_closure_status
 
     mocker.patch(
-        "app.agent.swap._execute_closure_query",
+        "app.agent.swap.execute_closure_query",
         side_effect=Exception("db down"),
     )
-    statuses = _per_stop_closure_status(
-        [_stop(place_id="ChIJtest_p1_aaaaaaaa"), _stop(place_id="ChIJtest_p2_aaaaaaaa")]
+    statuses = per_stop_closure_status(
+        [stop(place_id="ChIJtest_p1_aaaaaaaa"), stop(place_id="ChIJtest_p2_aaaaaaaa")]
     )
     assert statuses == [False, False]
 
 
-# ─── _resolve_insert_position + _score_candidate (Task 8) ───────────────
+# ─── resolve_insert_position + score_candidate (Task 8) ───────────────
 
 
 def test_resolve_insert_position_uses_insert_after_when_anchor_present() -> None:
     from app.agent.state import ClosureContext
-    from app.agent.swap import _resolve_insert_position
+    from app.agent.swap import resolve_insert_position
 
     stops = [
-        _stop(place_id="ChIJtest_a_aaaaaaaaa"),
-        _stop(place_id="ChIJtest_b_aaaaaaaaa"),
-        _stop(place_id="ChIJtest_c_aaaaaaaaa"),
+        stop(place_id="ChIJtest_a_aaaaaaaaa"),
+        stop(place_id="ChIJtest_b_aaaaaaaaa"),
+        stop(place_id="ChIJtest_c_aaaaaaaaa"),
     ]
     ctx = ClosureContext(
         place_id="ChIJtest_closed_aaaa",
@@ -143,14 +143,14 @@ def test_resolve_insert_position_uses_insert_after_when_anchor_present() -> None
         stop_index_hint=99,
     )
     # insert_after a (index 0) -> position 1
-    assert _resolve_insert_position(ctx, stops) == 1
+    assert resolve_insert_position(ctx, stops) == 1
 
 
 def test_resolve_insert_position_falls_back_to_insert_before() -> None:
     from app.agent.state import ClosureContext
-    from app.agent.swap import _resolve_insert_position
+    from app.agent.swap import resolve_insert_position
 
-    stops = [_stop(place_id="ChIJtest_a_aaaaaaaaa"), _stop(place_id="ChIJtest_b_aaaaaaaaa")]
+    stops = [stop(place_id="ChIJtest_a_aaaaaaaaa"), stop(place_id="ChIJtest_b_aaaaaaaaa")]
     ctx = ClosureContext(
         place_id="ChIJtest_closed_aaaa",
         place_name="X",
@@ -162,14 +162,14 @@ def test_resolve_insert_position_falls_back_to_insert_before() -> None:
         stop_index_hint=99,
     )
     # insert_after missing; insert_before b (index 1) -> position 1
-    assert _resolve_insert_position(ctx, stops) == 1
+    assert resolve_insert_position(ctx, stops) == 1
 
 
 def test_resolve_insert_position_falls_back_to_index_hint_clamped() -> None:
     from app.agent.state import ClosureContext
-    from app.agent.swap import _resolve_insert_position
+    from app.agent.swap import resolve_insert_position
 
-    stops = [_stop(place_id="ChIJtest_a_aaaaaaaaa"), _stop(place_id="ChIJtest_b_aaaaaaaaa")]
+    stops = [stop(place_id="ChIJtest_a_aaaaaaaaa"), stop(place_id="ChIJtest_b_aaaaaaaaa")]
     ctx = ClosureContext(
         place_id="ChIJtest_closed_aaaa",
         place_name="X",
@@ -181,37 +181,37 @@ def test_resolve_insert_position_falls_back_to_index_hint_clamped() -> None:
         stop_index_hint=99,
     )
     # Both anchors absent; clamp hint to len(stops)
-    assert _resolve_insert_position(ctx, stops) == 2
+    assert resolve_insert_position(ctx, stops) == 2
 
 
 def test_score_candidate_prefers_lower_route_impact() -> None:
     """Two candidates with identical family-match: the one with smaller
     combined prev+next distance scores higher."""
-    from app.agent.swap import _score_candidate
+    from app.agent.swap import score_candidate
 
-    closed = _stop(place_id="ChIJtest_closed_aaaa", lat=37.78, lng=-122.41)
-    prev_ = _stop(place_id="ChIJtest_prev_aaaaaa", lat=37.78, lng=-122.41)
-    next_ = _stop(place_id="ChIJtest_next_aaaaaa", lat=37.785, lng=-122.41)
+    closed = stop(place_id="ChIJtest_closed_aaaa", lat=37.78, lng=-122.41)
+    prev_ = stop(place_id="ChIJtest_prev_aaaaaa", lat=37.78, lng=-122.41)
+    next_ = stop(place_id="ChIJtest_next_aaaaaa", lat=37.785, lng=-122.41)
 
-    close_candidate = _stop(place_id="ChIJtest_c1_aaaaaaaa", lat=37.78, lng=-122.41)
-    far_candidate = _stop(place_id="ChIJtest_c2_aaaaaaaa", lat=37.90, lng=-122.41)
+    close_candidate = stop(place_id="ChIJtest_c1_aaaaaaaa", lat=37.78, lng=-122.41)
+    far_candidate = stop(place_id="ChIJtest_c2_aaaaaaaa", lat=37.90, lng=-122.41)
 
-    s_close = _score_candidate(close_candidate, closed, prev_, next_, family_match=True)
-    s_far = _score_candidate(far_candidate, closed, prev_, next_, family_match=True)
+    s_close = score_candidate(close_candidate, closed, prev_, next_, family_match=True)
+    s_far = score_candidate(far_candidate, closed, prev_, next_, family_match=True)
     assert s_close > s_far
 
 
 def test_score_candidate_prefers_family_match() -> None:
     """All else equal, a family-matching candidate beats one that doesn't."""
-    from app.agent.swap import _score_candidate
+    from app.agent.swap import score_candidate
 
-    closed = _stop(place_id="ChIJtest_closed_aaaa")
-    prev_ = _stop(place_id="ChIJtest_prev_aaaaaa")
-    next_ = _stop(place_id="ChIJtest_next_aaaaaa")
-    candidate = _stop(place_id="ChIJtest_c_aaaaaaaaa", lat=37.78, lng=-122.41)
+    closed = stop(place_id="ChIJtest_closed_aaaa")
+    prev_ = stop(place_id="ChIJtest_prev_aaaaaa")
+    next_ = stop(place_id="ChIJtest_next_aaaaaa")
+    candidate = stop(place_id="ChIJtest_c_aaaaaaaaa", lat=37.78, lng=-122.41)
 
-    s_match = _score_candidate(candidate, closed, prev_, next_, family_match=True)
-    s_nomatch = _score_candidate(candidate, closed, prev_, next_, family_match=False)
+    s_match = score_candidate(candidate, closed, prev_, next_, family_match=True)
+    s_nomatch = score_candidate(candidate, closed, prev_, next_, family_match=False)
     assert s_match > s_nomatch
 
 
@@ -226,12 +226,12 @@ def test_try_walking_distance_swap_uses_family_and_exclusion(mocker) -> None:
     4. Return the highest-scoring candidate, if any.
     """
     from app.agent.state import ClosureContext, ItineraryState
-    from app.agent.swap import _try_walking_distance_swap
+    from app.agent.swap import try_walking_distance_swap
     from app.tools.retrieval import PlaceHit
 
     captured_calls: list = []
 
-    def _fake_nearby(place_id, radius_m, filters, k):
+    def fake_nearby(place_id, radius_m, filters, k):
         captured_calls.append((place_id, radius_m, filters, k))
         return [
             PlaceHit(
@@ -247,9 +247,9 @@ def test_try_walking_distance_swap_uses_family_and_exclusion(mocker) -> None:
             )
         ]
 
-    mocker.patch("app.agent.swap._nearby_search", side_effect=_fake_nearby)
-    closed = _stop(place_id="ChIJtest_closed_aaaa", primary_type="Dessert Shop")
-    prev_ = _stop(place_id="ChIJtest_prev_aaaaaa", lat=37.78, lng=-122.41)
+    mocker.patch("app.agent.swap.nearby_search", side_effect=fake_nearby)
+    closed = stop(place_id="ChIJtest_closed_aaaa", primary_type="Dessert Shop")
+    prev_ = stop(place_id="ChIJtest_prev_aaaaaa", lat=37.78, lng=-122.41)
     state = ItineraryState(stops=[prev_, closed], closure_context=[])
     ctx = ClosureContext(
         place_id="ChIJtest_closed_aaaa",
@@ -262,7 +262,7 @@ def test_try_walking_distance_swap_uses_family_and_exclusion(mocker) -> None:
         stop_index_hint=1,
     )
 
-    match = _try_walking_distance_swap(state, ctx, anchor_place_id="ChIJtest_prev_aaaaaa")
+    match = try_walking_distance_swap(state, ctx, anchor_place_id="ChIJtest_prev_aaaaaa")
 
     assert match is not None
     assert match.stop.place_id == "ChIJtest_alt1_aaaaaa"
@@ -276,11 +276,11 @@ def test_try_walking_distance_swap_uses_family_and_exclusion(mocker) -> None:
 
 def test_try_walking_distance_swap_returns_none_when_no_candidates(mocker) -> None:
     from app.agent.state import ClosureContext, ItineraryState
-    from app.agent.swap import _try_walking_distance_swap
+    from app.agent.swap import try_walking_distance_swap
 
-    mocker.patch("app.agent.swap._nearby_search", return_value=[])
-    closed = _stop(place_id="ChIJtest_closed_aaaa", primary_type="Dessert Shop")
-    state = ItineraryState(stops=[_stop(place_id="ChIJtest_prev_aaaaaa"), closed])
+    mocker.patch("app.agent.swap.nearby_search", return_value=[])
+    closed = stop(place_id="ChIJtest_closed_aaaa", primary_type="Dessert Shop")
+    state = ItineraryState(stops=[stop(place_id="ChIJtest_prev_aaaaaa"), closed])
     ctx = ClosureContext(
         place_id="ChIJtest_closed_aaaa",
         place_name="Closed",
@@ -291,20 +291,20 @@ def test_try_walking_distance_swap_returns_none_when_no_candidates(mocker) -> No
         insert_before_place_id=None,
         stop_index_hint=1,
     )
-    assert _try_walking_distance_swap(state, ctx, anchor_place_id="ChIJtest_prev_aaaaaa") is None
+    assert try_walking_distance_swap(state, ctx, anchor_place_id="ChIJtest_prev_aaaaaa") is None
 
 
 def test_try_any_distance_search_uses_citywide_radius(mocker) -> None:
-    """Fallback search uses _CITYWIDE_RADIUS_M (30 km) so the question can
+    """Fallback search uses CITYWIDE_RADIUS_M (30 km) so the question can
     propose a drive-distance alternative when nothing is within walking
     distance."""
     from app.agent.state import ClosureContext, ItineraryState
-    from app.agent.swap import _try_any_distance_search
+    from app.agent.swap import try_any_distance_search
     from app.tools.retrieval import PlaceHit
 
     captured = []
 
-    def _fake_nearby(place_id, radius_m, filters, k):
+    def fake_nearby(place_id, radius_m, filters, k):
         captured.append(radius_m)
         return [
             PlaceHit(
@@ -319,9 +319,9 @@ def test_try_any_distance_search_uses_citywide_radius(mocker) -> None:
             )
         ]
 
-    mocker.patch("app.agent.swap._nearby_search", side_effect=_fake_nearby)
-    closed = _stop(place_id="ChIJtest_closed_aaaa", primary_type="Dessert Shop")
-    state = ItineraryState(stops=[_stop(place_id="ChIJtest_prev_aaaaaa"), closed])
+    mocker.patch("app.agent.swap.nearby_search", side_effect=fake_nearby)
+    closed = stop(place_id="ChIJtest_closed_aaaa", primary_type="Dessert Shop")
+    state = ItineraryState(stops=[stop(place_id="ChIJtest_prev_aaaaaa"), closed])
     ctx = ClosureContext(
         place_id="ChIJtest_closed_aaaa",
         place_name="Closed",
@@ -333,7 +333,7 @@ def test_try_any_distance_search_uses_citywide_radius(mocker) -> None:
         stop_index_hint=1,
     )
 
-    match = _try_any_distance_search(state, ctx, anchor_place_id="ChIJtest_prev_aaaaaa")
+    match = try_any_distance_search(state, ctx, anchor_place_id="ChIJtest_prev_aaaaaa")
     assert match is not None
     assert match.distance_m == 4800.0
     assert captured[0] == 30_000
@@ -344,19 +344,19 @@ def test_try_any_distance_search_uses_citywide_radius(mocker) -> None:
 
 def test_apply_swap_replaces_stop_at_position(mocker) -> None:
     from app.agent.state import ItineraryState
-    from app.agent.swap import _apply_swap
+    from app.agent.swap import apply_swap
 
-    s1 = _stop(place_id="ChIJtest_s1_aaaaaaaa", name="S1")
-    s2_closed = _stop(place_id="ChIJtest_s2_closed_a", name="S2 closed")
-    s3 = _stop(place_id="ChIJtest_s3_aaaaaaaa", name="S3")
+    s1 = stop(place_id="ChIJtest_s1_aaaaaaaa", name="S1")
+    s2_closed = stop(place_id="ChIJtest_s2_closed_a", name="S2 closed")
+    s3 = stop(place_id="ChIJtest_s3_aaaaaaaa", name="S3")
     state = ItineraryState(stops=[s1, s2_closed, s3])
-    replacement = _stop(place_id="ChIJtest_s2_new_aaaa", name="S2 new")
+    replacement = stop(place_id="ChIJtest_s2_new_aaaa", name="S2 new")
     leg_durations_min = [10.0, 5.0]
 
     # Avoid touching the real DB during enrich
     mocker.patch("app.agent.swap.enrich_stops_with_booking", return_value=None)
 
-    new_stops = _apply_swap(
+    new_stops = apply_swap(
         state,
         stop_index=1,
         replacement=replacement,
@@ -375,12 +375,12 @@ def test_bounded_retime_after_swap_calls_route_legs_once(mocker) -> None:
     swap-node invocation. Mock route_legs and confirm call_count == 1."""
     import asyncio
 
-    from app.agent.swap import _bounded_retime_after_swap
+    from app.agent.swap import bounded_retime_after_swap
     from app.tools.directions import DirectionsLeg, DirectionsResult
 
     call_count = {"n": 0}
 
-    async def _fake_route(stops, mode="walk"):
+    async def fake_route(stops, mode="walk"):
         call_count["n"] += 1
         legs = [DirectionsLeg(duration_s=600, distance_m=400.0)] * max(len(stops) - 1, 1)
         return DirectionsResult(
@@ -390,20 +390,20 @@ def test_bounded_retime_after_swap_calls_route_legs_once(mocker) -> None:
             source="haversine_fallback",
         )
 
-    mocker.patch("app.agent.swap.route_legs", side_effect=_fake_route)
+    mocker.patch("app.agent.swap.route_legs", side_effect=fake_route)
     stops = [
-        _stop(place_id="ChIJtest_a_aaaaaaaaa"),
-        _stop(place_id="ChIJtest_b_aaaaaaaaa"),
-        _stop(place_id="ChIJtest_c_aaaaaaaaa"),
+        stop(place_id="ChIJtest_a_aaaaaaaaa"),
+        stop(place_id="ChIJtest_b_aaaaaaaaa"),
+        stop(place_id="ChIJtest_c_aaaaaaaaa"),
     ]
-    retimed = asyncio.run(_bounded_retime_after_swap(stops))
+    retimed = asyncio.run(bounded_retime_after_swap(stops))
     assert call_count["n"] == 1
     assert len(retimed) == 3
 
 
 def test_promote_pending_flips_first_queued_to_pending() -> None:
     from app.agent.state import ClosureContext
-    from app.agent.swap import _promote_pending
+    from app.agent.swap import promote_pending
 
     queued1 = ClosureContext(
         place_id="ChIJtest_q1_aaaaaaaa",
@@ -420,14 +420,14 @@ def test_promote_pending_flips_first_queued_to_pending() -> None:
         update={"place_id": "ChIJtest_a_aaaaaaaaa", "outcome": "auto_swapped"}
     )
 
-    promoted = _promote_pending([auto, queued1, queued2])
+    promoted = promote_pending([auto, queued1, queued2])
     outcomes = [c.outcome for c in promoted]
     assert outcomes == ["auto_swapped", "pending_user_decision", "queued_user_decision"]
 
 
 def test_promote_pending_is_noop_when_no_queued() -> None:
     from app.agent.state import ClosureContext
-    from app.agent.swap import _promote_pending
+    from app.agent.swap import promote_pending
 
     auto = ClosureContext(
         place_id="ChIJtest_a_aaaaaaaaa",
@@ -439,16 +439,16 @@ def test_promote_pending_is_noop_when_no_queued() -> None:
         insert_before_place_id=None,
         stop_index_hint=0,
     )
-    assert [c.outcome for c in _promote_pending([auto])] == ["auto_swapped"]
+    assert [c.outcome for c in promote_pending([auto])] == ["auto_swapped"]
 
 
 def test_promote_pending_is_noop_when_pending_already_present() -> None:
     """If pending already exists, don't promote a queued one too."""
     from app.agent.state import ClosureContext
-    from app.agent.swap import _promote_pending
+    from app.agent.swap import promote_pending
 
     pending = ClosureContext(
-        place_id=_normalize_pid("p"),
+        place_id=normalize_pid("p"),
         place_name="P",
         family="bar",
         attempted_arrival=datetime(2026, 5, 19, 20, 0, tzinfo=SF),
@@ -458,18 +458,18 @@ def test_promote_pending_is_noop_when_pending_already_present() -> None:
         stop_index_hint=0,
     )
     queued = pending.model_copy(
-        update={"place_id": _normalize_pid("q"), "outcome": "queued_user_decision"}
+        update={"place_id": normalize_pid("q"), "outcome": "queued_user_decision"}
     )
-    promoted = _promote_pending([pending, queued])
+    promoted = promote_pending([pending, queued])
     outcomes = [c.outcome for c in promoted]
     assert outcomes == ["pending_user_decision", "queued_user_decision"]
 
 
 def test_formulate_closure_question_with_proposal() -> None:
     from app.agent.state import ClosureContext
-    from app.agent.swap import _formulate_closure_question
+    from app.agent.swap import formulate_closure_question
 
-    proposal = _stop(place_id="alt", name="Sophie's Crepes")
+    proposal = stop(place_id="alt", name="Sophie's Crepes")
     ctx = ClosureContext(
         place_id="ChIJtest_closed_aaaa",
         place_name="Mochill Mochidonut",
@@ -482,7 +482,7 @@ def test_formulate_closure_question_with_proposal() -> None:
         proposed_alternative=proposal,
         proposed_distance_m=4800.0,
     )
-    q = _formulate_closure_question(ctx)
+    q = formulate_closure_question(ctx)
     assert "Sophie's Crepes" in q
     assert "Mochill Mochidonut" in q
     # ~3 mi rounding from 4800m is expected
@@ -491,7 +491,7 @@ def test_formulate_closure_question_with_proposal() -> None:
 
 def test_formulate_closure_question_without_proposal() -> None:
     from app.agent.state import ClosureContext
-    from app.agent.swap import _formulate_closure_question
+    from app.agent.swap import formulate_closure_question
 
     ctx = ClosureContext(
         place_id="ChIJtest_closed_aaaa",
@@ -505,19 +505,19 @@ def test_formulate_closure_question_without_proposal() -> None:
         proposed_alternative=None,
         proposed_distance_m=None,
     )
-    q = _formulate_closure_question(ctx)
+    q = formulate_closure_question(ctx)
     assert "Mochill Mochidonut" in q
     # No proposal -> message should ask user to pick / change category
     assert "pick" in q.lower() or "different" in q.lower() or "skip" in q.lower()
 
 
-# ─── _inject_closure_exclusions (Task 12) ────────────────────────────────
+# ─── inject_closure_exclusions (Task 12) ────────────────────────────────
 
 
-def _closure_entry(place_id: str = "ChIJtest_closed1_aaa", outcome: str = "auto_swapped"):
+def closure_entry(place_id: str = "ChIJtest_closed1_aaa", outcome: str = "auto_swapped"):
     from app.agent.state import ClosureContext
 
-    normalized = _normalize_pid(place_id)
+    normalized = normalize_pid(place_id)
     return ClosureContext(
         place_id=normalized,
         place_name=normalized,
@@ -535,18 +535,18 @@ def test_inject_closure_exclusions_merges_into_semantic_search_filters() -> None
     test usage) or a dict (the actual LangChain wire shape). Either way,
     the returned `filters` MUST be a plain dict so the result is
     json-serializable when langchain re-sends the AIMessage.tool_calls."""
-    from app.agent.swap import _inject_closure_exclusions
+    from app.agent.swap import inject_closure_exclusions
     from app.tools.filters import SearchFilters
 
     ctx = [
-        _closure_entry("ChIJtest_closed1_aaa", "auto_swapped"),
-        _closure_entry("ChIJtest_closed2_aaa", "user_accepted_drive"),
+        closure_entry("ChIJtest_closed1_aaa", "auto_swapped"),
+        closure_entry("ChIJtest_closed2_aaa", "user_accepted_drive"),
     ]
     args = {
         "query": "ramen",
         "filters": SearchFilters(min_rating=4.0, excluded_place_ids=["ChIJtest_llm_excluded_"]),
     }
-    out = _inject_closure_exclusions("semantic_search", args, ctx)
+    out = inject_closure_exclusions("semantic_search", args, ctx)
     assert isinstance(out["filters"], dict)
     excluded = out["filters"]["excluded_place_ids"]
     assert set(excluded) == {
@@ -559,11 +559,11 @@ def test_inject_closure_exclusions_merges_into_semantic_search_filters() -> None
 
 
 def test_inject_closure_exclusions_creates_filters_when_absent() -> None:
-    from app.agent.swap import _inject_closure_exclusions
+    from app.agent.swap import inject_closure_exclusions
 
-    ctx = [_closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
+    ctx = [closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
     args = {"query": "ramen"}
-    out = _inject_closure_exclusions("semantic_search", args, ctx)
+    out = inject_closure_exclusions("semantic_search", args, ctx)
     assert "filters" in out
     assert isinstance(out["filters"], dict)
     assert out["filters"]["excluded_place_ids"] == ["ChIJtest_closed1_aaa"]
@@ -571,29 +571,29 @@ def test_inject_closure_exclusions_creates_filters_when_absent() -> None:
 
 def test_inject_closure_exclusions_kg_traverse_is_top_level() -> None:
     """kg_traverse takes excluded_place_ids as a top-level arg, not via filters."""
-    from app.agent.swap import _inject_closure_exclusions
+    from app.agent.swap import inject_closure_exclusions
 
-    ctx = [_closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
+    ctx = [closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
     args = {"place_id": "ChIJtest_anchor_aaaa", "relation_type": "SIMILAR_VECTOR"}
-    out = _inject_closure_exclusions("kg_traverse", args, ctx)
+    out = inject_closure_exclusions("kg_traverse", args, ctx)
     assert out["excluded_place_ids"] == ["ChIJtest_closed1_aaa"]
 
 
 def test_inject_closure_exclusions_empty_context_is_noop() -> None:
-    from app.agent.swap import _inject_closure_exclusions
+    from app.agent.swap import inject_closure_exclusions
 
     args = {"query": "ramen"}
-    out = _inject_closure_exclusions("semantic_search", args, [])
+    out = inject_closure_exclusions("semantic_search", args, [])
     assert out == args
     assert "filters" not in out
 
 
 def test_inject_closure_exclusions_unknown_tool_is_noop() -> None:
-    from app.agent.swap import _inject_closure_exclusions
+    from app.agent.swap import inject_closure_exclusions
 
-    ctx = [_closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
+    ctx = [closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
     args = {"foo": "bar"}
-    out = _inject_closure_exclusions("get_details", args, ctx)
+    out = inject_closure_exclusions("get_details", args, ctx)
     assert out == args
 
 
@@ -604,11 +604,11 @@ def test_inject_closure_exclusions_accepts_dict_filters_from_llm() -> None:
     breaks JSON serialization when the AIMessage is later sent back to the
     LLM with the tool_call still attached.
     """
-    from app.agent.swap import _inject_closure_exclusions
+    from app.agent.swap import inject_closure_exclusions
 
-    ctx = [_closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
+    ctx = [closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
     args = {"query": "ramen", "filters": {"min_rating": 4.0, "excluded_place_ids": ["llm_excl"]}}
-    out = _inject_closure_exclusions("semantic_search", args, ctx)
+    out = inject_closure_exclusions("semantic_search", args, ctx)
     assert isinstance(out["filters"], dict), "filters must round-trip as a dict"
     assert "ChIJtest_closed1_aaa" in out["filters"]["excluded_place_ids"]
     assert "llm_excl" in out["filters"]["excluded_place_ids"]
@@ -620,12 +620,12 @@ def test_inject_closure_exclusions_output_is_json_serializable() -> None:
     the re-sent message blew up. The helper's output must be a plain dict
     tree so langchain can serialize it as the tool_call args.
     """
-    import json as _json
+    import json as json_mod
 
-    from app.agent.swap import _inject_closure_exclusions
+    from app.agent.swap import inject_closure_exclusions
     from app.tools.filters import SearchFilters
 
-    ctx = [_closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
+    ctx = [closure_entry("ChIJtest_closed1_aaa", "auto_swapped")]
     # All three shapes LangChain might deliver: dict, SearchFilters, absent
     for filters_in in (
         {"min_rating": 4.0},
@@ -635,13 +635,13 @@ def test_inject_closure_exclusions_output_is_json_serializable() -> None:
         args = (
             {"query": "ramen"} if filters_in is None else {"query": "ramen", "filters": filters_in}
         )
-        out = _inject_closure_exclusions("semantic_search", args, ctx)
+        out = inject_closure_exclusions("semantic_search", args, ctx)
         # If json.dumps doesn't raise, langchain's _lc_tool_call_to_openai_tool_call
         # won't crash on the round trip.
-        _json.dumps(out)
+        json_mod.dumps(out)
 
 
-# ─── _candidates_to_matches rationale (Phase 5 / RAT-02) ────────────────
+# ─── candidates_to_matches rationale (Phase 5 / RAT-02) ────────────────
 
 
 def test_candidates_to_matches_rationale_satisfies_alignment_scorer() -> None:
@@ -655,10 +655,10 @@ def test_candidates_to_matches_rationale_satisfies_alignment_scorer() -> None:
     """
     from app.agent.critique.checks import is_rationale_aligned
     from app.agent.state import ItineraryState
-    from app.agent.swap import _candidates_to_matches
+    from app.agent.swap import candidates_to_matches
     from app.tools.retrieval import PlaceHit
 
-    closed_stop = _stop(
+    closed_stop = stop(
         place_id="ChIJtest_closed_aaaa",
         name="Closed Pizzeria",
         primary_type="Pizza Restaurant",
@@ -678,7 +678,7 @@ def test_candidates_to_matches_rationale_satisfies_alignment_scorer() -> None:
     )
     state = ItineraryState(stops=[closed_stop], closure_context=[])
 
-    matches = _candidates_to_matches([candidate], closed_stop, state)
+    matches = candidates_to_matches([candidate], closed_stop, state)
 
     assert len(matches) == 1
     rationale = matches[0].stop.rationale or ""
@@ -695,10 +695,10 @@ def test_candidates_to_matches_synthesizes_when_closed_rationale_is_unalignable(
     """
     from app.agent.critique.checks import is_rationale_aligned
     from app.agent.state import ItineraryState
-    from app.agent.swap import _candidates_to_matches
+    from app.agent.swap import candidates_to_matches
     from app.tools.retrieval import PlaceHit
 
-    closed_stop = _stop(
+    closed_stop = stop(
         place_id="ChIJtest_closed_aaaa",
         name="Closed Pizzeria",
         primary_type="Pizza Restaurant",
@@ -716,7 +716,7 @@ def test_candidates_to_matches_synthesizes_when_closed_rationale_is_unalignable(
     )
     state = ItineraryState(stops=[closed_stop], closure_context=[])
 
-    matches = _candidates_to_matches([candidate], closed_stop, state)
+    matches = candidates_to_matches([candidate], closed_stop, state)
 
     assert len(matches) == 1
     rationale = matches[0].stop.rationale or ""
@@ -738,10 +738,10 @@ def test_candidates_to_matches_blocks_legacy_placeholder_carryover() -> None:
     """
     from app.agent.critique.checks import is_rationale_aligned
     from app.agent.state import ItineraryState
-    from app.agent.swap import _candidates_to_matches
+    from app.agent.swap import candidates_to_matches
     from app.tools.retrieval import PlaceHit
 
-    closed_stop = _stop(
+    closed_stop = stop(
         place_id="ChIJtest_closed_aaaa",
         name="Pizzeria Delfina",
         primary_type="Pizza Restaurant",
@@ -761,7 +761,7 @@ def test_candidates_to_matches_blocks_legacy_placeholder_carryover() -> None:
     )
     state = ItineraryState(stops=[closed_stop], closure_context=[])
 
-    matches = _candidates_to_matches([candidate], closed_stop, state)
+    matches = candidates_to_matches([candidate], closed_stop, state)
 
     assert len(matches) == 1
     rationale = matches[0].stop.rationale or ""

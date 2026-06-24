@@ -38,10 +38,10 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINES_DIR = REPO_ROOT / "configs" / "eval_baselines"
 
-_BASELINES_POPULATED = os.environ.get("BASELINES_POPULATED") == "1"
+BASELINES_POPULATED = os.environ.get("BASELINES_POPULATED") == "1"
 
 pytestmark = pytest.mark.skipif(
-    not _BASELINES_POPULATED,
+    not BASELINES_POPULATED,
     reason=(
         "BASELINES_POPULATED != '1' — Phase 3 ships PENDING_USER_RUN stubs. "
         "After running `APP_ENV=eval make eval-matrix RUNS=3` and post-"
@@ -51,14 +51,14 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _baseline_paths() -> list[Path]:
+def baseline_paths() -> list[Path]:
     """Return every configs/eval_baselines/*.json file (sorted, deterministic)."""
     return sorted(BASELINES_DIR.glob("*.json"))
 
 
 def test_baseline_directory_has_expected_files() -> None:
     """The three Phase-3 scenarios each ship one baseline JSON file."""
-    names = {p.name for p in _baseline_paths()}
+    names = {p.name for p in baseline_paths()}
     expected = {
         "omakase_mission_open_ended.json",
         "refinement_cheaper.json",
@@ -69,7 +69,7 @@ def test_baseline_directory_has_expected_files() -> None:
     )
 
 
-@pytest.mark.parametrize("baseline_path", _baseline_paths(), ids=lambda p: p.name)
+@pytest.mark.parametrize("baseline_path", baseline_paths(), ids=lambda p: p.name)
 def test_baseline_generated_at_is_populated(baseline_path: Path) -> None:
     """`generated_at` must carry a real ISO timestamp, not the PENDING stub null.
 
@@ -85,7 +85,7 @@ def test_baseline_generated_at_is_populated(baseline_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("baseline_path", _baseline_paths(), ids=lambda p: p.name)
+@pytest.mark.parametrize("baseline_path", baseline_paths(), ids=lambda p: p.name)
 def test_baseline_scorer_stats_are_populated(baseline_path: Path) -> None:
     """Every {median, min, max} triple under providers.*.scorers.* must be non-null.
 

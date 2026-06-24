@@ -1,6 +1,6 @@
 """Graph-traversal tool. Returns related places by relation_type.
 
-JOINs place_relations to the active embeddings view via _view_name() so the
+JOINs place_relations to the active embeddings view via view_name() so the
 v1/v2 toggle is honored. Destinations missing from the active view (e.g.
 landmark dst_place_ids outside places_raw) are silently dropped by the inner
 JOIN, matching the W7 design contract.
@@ -8,7 +8,7 @@ JOIN, matching the W7 design contract.
 
 from __future__ import annotations
 
-from app.tools.retrieval import PlaceHit, _execute, _view_name
+from app.tools.retrieval import PlaceHit, execute_query, view_name
 
 
 class RelatedPlace(PlaceHit):
@@ -44,7 +44,7 @@ def kg_traverse(
     """
     if relation_type not in VALID_RELATIONS:
         raise ValueError(f"Unknown relation_type: {relation_type}")
-    view = _view_name()  # allowlist member — interpolated into SQL below
+    view = view_name()  # allowlist member — interpolated into SQL below
     sql = f"""
         SELECT pd.place_id, pd.name, pd.primary_type, pd.formatted_address,
                pd.latitude, pd.longitude, pd.rating, pd.price_level,
@@ -69,7 +69,7 @@ def kg_traverse(
     # Pass excluded twice: once for the NULL guard, once for the comparison
     # — keeps the no-exclusion call site backward-compatible.
     exclude = excluded_place_ids or None
-    rows = _execute(sql, [place_id, relation_type, exclude, exclude, k])
+    rows = execute_query(sql, [place_id, relation_type, exclude, exclude, k])
     return [RelatedPlace(**row) for row in rows]
 
 

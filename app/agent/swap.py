@@ -34,12 +34,12 @@ from app.db import get_conn
 from app.tools.directions import route_legs
 from app.tools.filters import SearchFilters, family_of
 from app.tools.retrieval import PlaceHit
-from app.tools.retrieval import nearby as _nearby_search  # aliased for test patching
+from app.tools.retrieval import nearby as nearby_search  # aliased for test patching
 
 logger = logging.getLogger(__name__)
 
 
-def _execute_closure_query(
+def execute_closure_query(
     place_ids: list[str],
     arrivals: list[Any],
 ) -> dict[str, bool]:
@@ -63,7 +63,7 @@ def _execute_closure_query(
         return {row["place_id"]: bool(row["is_open"]) for row in cur.fetchall()}
 
 
-def _per_stop_closure_status(stops: list[Stop]) -> list[bool]:
+def per_stop_closure_status(stops: list[Stop]) -> list[bool]:
     """Return [is_closed_at_arrival] per stop, in the same order as `stops`.
 
     True means "we know this stop is closed at its planned arrival time."
@@ -79,7 +79,7 @@ def _per_stop_closure_status(stops: list[Stop]) -> list[bool]:
     place_ids = [s.place_id for _, s in checkable]
     arrivals = [s.arrival_time for _, s in checkable]
     try:
-        is_open_by_id = _execute_closure_query(place_ids, arrivals)
+        is_open_by_id = execute_closure_query(place_ids, arrivals)
     except Exception as e:  # noqa: BLE001
         logger.warning("closure_swap.db_error: %s", e)
         return [False] * len(stops)
@@ -105,16 +105,16 @@ class CandidateMatch(BaseModel):
 # path. ~500m at 80 m/min ≈ a 6-minute walk — close enough that swapping
 # doesn't change the user's experience materially. Anything beyond this
 # escalates to a user question.
-_WALKING_DISTANCE_BUDGET_M: int = 500
+WALKING_DISTANCE_BUDGET_M: int = 500
 
 # Citywide radius used by the fallback search. SF fits comfortably inside
 # 30 km from any anchor in the city; `nearby()` requires an explicit
 # `radius_m: int` so we pass a large constant rather than introducing a
 # separate citywide function.
-_CITYWIDE_RADIUS_M: int = 30_000
+CITYWIDE_RADIUS_M: int = 30_000
 
 
-def _resolve_insert_position(
+def resolve_insert_position(
     closure: ClosureContext,
     stops: list[Stop],
 ) -> int:
@@ -133,7 +133,7 @@ def _resolve_insert_position(
     return max(0, min(closure.stop_index_hint, len(stops)))
 
 
-def _score_candidate(
+def score_candidate(
     candidate: Stop,
     closed_stop: Stop,
     prev_stop: Stop | None,
@@ -183,10 +183,10 @@ def _score_candidate(
     return fam + route
 
 
-_VALID_FAMILIES = frozenset({"dessert", "bar", "restaurant", "cafe"})
+VALID_FAMILIES = frozenset({"dessert", "bar", "restaurant", "cafe"})
 
 
-def _resolve_anchor(state: ItineraryState, closed_stop: Stop) -> str | None:
+def resolve_anchor(state: ItineraryState, closed_stop: Stop) -> str | None:
     """Pick a stable anchor place_id to search around when looking for an
     alternative to the closed stop.
 
@@ -206,7 +206,7 @@ def _resolve_anchor(state: ItineraryState, closed_stop: Stop) -> str | None:
     return closed_stop.place_id or None
 
 
-def _candidates_to_matches(
+def candidates_to_matches(
     candidates: list[PlaceHit],
     closed_stop: Stop,
     state: ItineraryState,
@@ -261,7 +261,7 @@ def _candidates_to_matches(
         )
         candidate_family = family_of(c.primary_type)
         family_match = candidate_family is not None and candidate_family == closed_family
-        score = _score_candidate(
+        score = score_candidate(
             candidate_stop, closed_stop, prev_stop, next_stop, family_match=family_match
         )
         matches.append(
@@ -277,7 +277,7 @@ def _candidates_to_matches(
     return matches
 
 
-def _excluded_place_ids_from_state(
+def excluded_place_ids_from_state(
     state: ItineraryState,
     extra: list[str] | None = None,
 ) -> list[str]:
@@ -295,13 +295,13 @@ def _excluded_place_ids_from_state(
     return sorted(excluded)
 
 
-def _try_walking_distance_swap(
+def try_walking_distance_swap(
     state: ItineraryState,
     closure: ClosureContext,
     *,
     anchor_place_id: str,
 ) -> CandidateMatch | None:
-    """Search within `_WALKING_DISTANCE_BUDGET_M` for an alternative of the
+    """Search within `WALKING_DISTANCE_BUDGET_M` for an alternative of the
     same family that's open at the closed stop's attempted_arrival.
 
     Returns the highest-scoring match or None if no candidates fit. DB errors
@@ -311,20 +311,20 @@ def _try_walking_distance_swap(
     closed_stop = next((s for s in state.stops if s.place_id == closure.place_id), None)
     if closed_stop is None:
         return None
-    if closure.family not in _VALID_FAMILIES:
+    if closure.family not in VALID_FAMILIES:
         # Without a resolved family we can't do a category-matched search;
         # caller escalates to the user-question path.
         return None
-    excluded = _excluded_place_ids_from_state(state)
+    excluded = excluded_place_ids_from_state(state)
     filters = SearchFilters(
         primary_type_family=closure.family,  # type: ignore[arg-type]
         excluded_place_ids=excluded,
         open_at=closure.attempted_arrival,
     )
     try:
-        candidates = _nearby_search(
+        candidates = nearby_search(
             place_id=anchor_place_id,
-            radius_m=_WALKING_DISTANCE_BUDGET_M,
+            radius_m=WALKING_DISTANCE_BUDGET_M,
             filters=filters,
             k=8,
         )
@@ -333,13 +333,13 @@ def _try_walking_distance_swap(
         return None
     if not candidates:
         return None
-    matches = _candidates_to_matches(candidates, closed_stop, state)
+    matches = candidates_to_matches(candidates, closed_stop, state)
     if not matches:
         return None
     return matches[0]
 
 
-def _try_any_distance_search(
+def try_any_distance_search(
     state: ItineraryState,
     closure: ClosureContext,
     *,
@@ -348,24 +348,24 @@ def _try_any_distance_search(
     """Citywide fallback — used only to populate the user-facing question's
     proposed_alternative when the walking-distance pass failed.
 
-    Uses `_CITYWIDE_RADIUS_M` (30 km, covers all of SF). Same family +
+    Uses `CITYWIDE_RADIUS_M` (30 km, covers all of SF). Same family +
     exclusion rules as walking-distance.
     """
     closed_stop = next((s for s in state.stops if s.place_id == closure.place_id), None)
     if closed_stop is None:
         return None
-    if closure.family not in _VALID_FAMILIES:
+    if closure.family not in VALID_FAMILIES:
         return None
-    excluded = _excluded_place_ids_from_state(state)
+    excluded = excluded_place_ids_from_state(state)
     filters = SearchFilters(
         primary_type_family=closure.family,  # type: ignore[arg-type]
         excluded_place_ids=excluded,
         open_at=closure.attempted_arrival,
     )
     try:
-        candidates = _nearby_search(
+        candidates = nearby_search(
             place_id=anchor_place_id,
-            radius_m=_CITYWIDE_RADIUS_M,
+            radius_m=CITYWIDE_RADIUS_M,
             filters=filters,
             k=5,
         )
@@ -374,13 +374,13 @@ def _try_any_distance_search(
         return None
     if not candidates:
         return None
-    matches = _candidates_to_matches(candidates, closed_stop, state)
+    matches = candidates_to_matches(candidates, closed_stop, state)
     if not matches:
         return None
     return matches[0]
 
 
-async def _bounded_retime_after_swap(stops: list[Stop]) -> list[Stop]:
+async def bounded_retime_after_swap(stops: list[Stop]) -> list[Stop]:
     """One extra `route_legs` call after a swap -> re-chain arrival_times.
 
     Strictly bounded: no recursion, no loop. Called at most once per swap
@@ -404,7 +404,7 @@ async def _bounded_retime_after_swap(stops: list[Stop]) -> list[Stop]:
     return retimed
 
 
-def _apply_swap(
+def apply_swap(
     state: ItineraryState,
     stop_index: int,
     replacement: Stop,
@@ -424,7 +424,7 @@ def _apply_swap(
     return new_stops
 
 
-def _promote_pending(
+def promote_pending(
     closure_context: list[ClosureContext],
 ) -> list[ClosureContext]:
     """If there is no pending entry, promote the first queued one (if any).
@@ -443,12 +443,12 @@ def _promote_pending(
     return promoted
 
 
-def _miles_from_meters(m: float) -> int:
+def miles_from_meters(m: float) -> int:
     """Round to nearest mile for user-facing text. 1609m -> 1mi, 4800m -> 3mi."""
     return round(m / 1609.34)
 
 
-def _formulate_closure_question(pending: ClosureContext) -> str:
+def formulate_closure_question(pending: ClosureContext) -> str:
     """User-facing question text for a pending closure decision.
 
     Two shapes:
@@ -459,7 +459,7 @@ def _formulate_closure_question(pending: ClosureContext) -> str:
     """
     if pending.proposed_alternative is not None:
         distance = pending.proposed_distance_m or 0.0
-        miles = _miles_from_meters(distance)
+        miles = miles_from_meters(distance)
         mode = "drive" if distance > 1500 else "walk/transit"
         return (
             f"{pending.place_name} is closed at the planned arrival time. "
@@ -474,7 +474,7 @@ def _formulate_closure_question(pending: ClosureContext) -> str:
     )
 
 
-def _inject_closure_exclusions(
+def inject_closure_exclusions(
     tool_name: str,
     args: dict[str, Any],
     closure_context: list[ClosureContext],
@@ -531,7 +531,7 @@ def _inject_closure_exclusions(
     return new_args
 
 
-def _cap_closure_context(entries: list[ClosureContext]) -> list[ClosureContext]:
+def cap_closure_context(entries: list[ClosureContext]) -> list[ClosureContext]:
     """Append-and-drop-oldest to `MAX_CLOSURE_CONTEXT_ENTRIES`."""
     if len(entries) <= MAX_CLOSURE_CONTEXT_ENTRIES:
         return entries
@@ -540,14 +540,14 @@ def _cap_closure_context(entries: list[ClosureContext]) -> list[ClosureContext]:
     return entries[dropped:]
 
 
-def _resolve_family_for_stop(stop: Stop) -> str:
+def resolve_family_for_stop(stop: Stop) -> str:
     """family from primary_type. Returns "" when nothing resolves so the
     caller can still record the closure (without searching for a swap)."""
     fam = family_of(stop.primary_type) if stop.primary_type else None
     return fam or ""
 
 
-def _build_closure_context_entry(
+def build_closure_context_entry(
     stops: list[Stop],
     closed_index: int,
     proposed: CandidateMatch | None,
@@ -561,7 +561,7 @@ def _build_closure_context_entry(
     return ClosureContext(
         place_id=closed.place_id,
         place_name=closed.name,
-        family=_resolve_family_for_stop(closed),
+        family=resolve_family_for_stop(closed),
         attempted_arrival=closed.arrival_time
         or datetime.fromtimestamp(0, tz=ZoneInfo("America/Los_Angeles")),
         outcome=outcome,  # type: ignore[arg-type]
@@ -591,11 +591,11 @@ async def swap_closed_stops(state: ItineraryState) -> dict[str, Any]:
     if not state.stops:
         return {}
 
-    closed = _per_stop_closure_status(state.stops)
+    closed = per_stop_closure_status(state.stops)
     if not any(closed):
         return {}
 
-    # Phase 1: try a walking-distance swap for each closed stop.
+    # Try a walking-distance swap for each closed stop.
     working_stops = list(state.stops)
     auto_swapped_entries: list[tuple[int, CandidateMatch]] = []
     pending_indices: list[int] = []
@@ -604,11 +604,11 @@ async def swap_closed_stops(state: ItineraryState) -> dict[str, Any]:
         if not is_closed:
             continue
         closed_stop = working_stops[idx]
-        family = _resolve_family_for_stop(closed_stop)
+        family = resolve_family_for_stop(closed_stop)
         if not family:
             pending_indices.append(idx)
             continue
-        anchor = _resolve_anchor(state, closed_stop)
+        anchor = resolve_anchor(state, closed_stop)
         if anchor is None:
             pending_indices.append(idx)
             continue
@@ -622,7 +622,7 @@ async def swap_closed_stops(state: ItineraryState) -> dict[str, Any]:
             insert_before_place_id=None,
             stop_index_hint=idx,
         )
-        match = _try_walking_distance_swap(state, probe_ctx, anchor_place_id=anchor)
+        match = try_walking_distance_swap(state, probe_ctx, anchor_place_id=anchor)
         if match is None:
             pending_indices.append(idx)
             continue
@@ -634,15 +634,15 @@ async def swap_closed_stops(state: ItineraryState) -> dict[str, Any]:
         for idx, match in auto_swapped_entries:
             working_stops[idx] = match.stop
             new_closure_entries.append(
-                _build_closure_context_entry(
+                build_closure_context_entry(
                     state.stops, idx, proposed=match, outcome="auto_swapped"
                 )
             )
-        # Phase 2: one bounded retime + re-check.
-        retimed = await _bounded_retime_after_swap(working_stops)
+        # Run one bounded retime, then re-check closure status.
+        retimed = await bounded_retime_after_swap(working_stops)
         # Re-check on the retimed plan to catch a swap that's open at the
         # OLD projected arrival but not the NEW one after re-routing.
-        re_closed = _per_stop_closure_status(retimed)
+        re_closed = per_stop_closure_status(retimed)
         # Pull DB enrichment in once on the retimed set so cards stay fresh.
         enrich_stops_with_booking(retimed, state)
         working_stops = retimed
@@ -650,16 +650,16 @@ async def swap_closed_stops(state: ItineraryState) -> dict[str, Any]:
             if is_closed and idx not in pending_indices:
                 pending_indices.append(idx)
 
-    # Phase 3: escalate unresolved closures.
+    # Escalate unresolved closures for user decision.
     pending_indices.sort()
     for n, idx in enumerate(pending_indices):
         closed_stop = working_stops[idx]
-        family = _resolve_family_for_stop(closed_stop)
+        family = resolve_family_for_stop(closed_stop)
         outcome = "pending_user_decision" if n == 0 else "queued_user_decision"
 
         proposal: CandidateMatch | None = None
         if family:
-            anchor = _resolve_anchor(state, closed_stop)
+            anchor = resolve_anchor(state, closed_stop)
             if anchor:
                 probe_ctx = ClosureContext(
                     place_id=closed_stop.place_id,
@@ -671,9 +671,9 @@ async def swap_closed_stops(state: ItineraryState) -> dict[str, Any]:
                     insert_before_place_id=None,
                     stop_index_hint=idx,
                 )
-                proposal = _try_any_distance_search(state, probe_ctx, anchor_place_id=anchor)
+                proposal = try_any_distance_search(state, probe_ctx, anchor_place_id=anchor)
         new_closure_entries.append(
-            _build_closure_context_entry(state.stops, idx, proposed=proposal, outcome=outcome)
+            build_closure_context_entry(state.stops, idx, proposed=proposal, outcome=outcome)
         )
 
     # Drop the closed (unswapped) stops from working_stops so the summary
@@ -681,14 +681,14 @@ async def swap_closed_stops(state: ItineraryState) -> dict[str, Any]:
     pending_set = set(pending_indices)
     final_stops = [s for i, s in enumerate(working_stops) if i not in pending_set]
 
-    merged_context = _cap_closure_context([*state.closure_context, *new_closure_entries])
+    merged_context = cap_closure_context([*state.closure_context, *new_closure_entries])
 
     pending_entry = next(
         (c for c in new_closure_entries if c.outcome == "pending_user_decision"),
         None,
     )
     if pending_entry is not None:
-        final_reply = _formulate_closure_question(pending_entry)
+        final_reply = formulate_closure_question(pending_entry)
     else:
         probe_state = state.model_copy(update={"stops": final_stops})
         final_reply = summarize_stops(probe_state)
@@ -702,19 +702,19 @@ async def swap_closed_stops(state: ItineraryState) -> dict[str, Any]:
 
 __all__ = [
     "CandidateMatch",
-    "_apply_swap",
-    "_bounded_retime_after_swap",
-    "_build_closure_context_entry",
-    "_execute_closure_query",
-    "_formulate_closure_question",
-    "_inject_closure_exclusions",
-    "_per_stop_closure_status",
-    "_promote_pending",
-    "_resolve_anchor",
-    "_resolve_family_for_stop",
-    "_resolve_insert_position",
-    "_score_candidate",
-    "_try_any_distance_search",
-    "_try_walking_distance_swap",
+    "apply_swap",
+    "bounded_retime_after_swap",
+    "build_closure_context_entry",
+    "execute_closure_query",
+    "formulate_closure_question",
+    "inject_closure_exclusions",
+    "per_stop_closure_status",
+    "promote_pending",
+    "resolve_anchor",
+    "resolve_family_for_stop",
+    "resolve_insert_position",
+    "score_candidate",
+    "try_any_distance_search",
+    "try_walking_distance_swap",
     "swap_closed_stops",
 ]

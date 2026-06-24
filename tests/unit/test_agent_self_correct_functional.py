@@ -20,7 +20,7 @@ from app.tools.retrieval import PlaceHit
 from tests.conftest import make_hit
 
 
-class _Scripted(BaseChatModel):
+class Scripted(BaseChatModel):
     scripted: list[AIMessage]
 
     @property
@@ -38,11 +38,11 @@ class _Scripted(BaseChatModel):
             raise RuntimeError("scripted exhausted")
         return ChatResult(generations=[ChatGeneration(message=self.scripted.pop(0))])
 
-    def bind_tools(self, tools: Any, **kwargs: Any) -> _Scripted:
+    def bind_tools(self, tools: Any, **kwargs: Any) -> Scripted:
         return self
 
 
-_hit = make_hit
+hit = make_hit
 
 
 async def test_agent_drops_filter_on_critique_and_succeeds(monkeypatch) -> None:
@@ -54,13 +54,13 @@ async def test_agent_drops_filter_on_critique_and_succeeds(monkeypatch) -> None:
     filter."""
     calls: list[dict[str, Any]] = []
 
-    def _search(**kw: Any) -> list[PlaceHit]:
+    def search(**kw: Any) -> list[PlaceHit]:
         calls.append({"query": kw.get("query"), "filters": kw.get("filters")})
-        return [] if len(calls) == 1 else [_hit()]
+        return [] if len(calls) == 1 else [hit()]
 
-    monkeypatch.setattr("app.agent.tools._semantic_search", _search)
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", search)
 
-    fake = _Scripted(
+    fake = Scripted(
         scripted=[
             # First plan: search with a restrictive filter -> empty.
             AIMessage(
@@ -116,18 +116,18 @@ async def test_step_and_itinerary_critiques_compose(monkeypatch) -> None:
     categories (each gets its own MAX_REVISIONS_PER_REASON budget)."""
     monkeypatch.setattr(
         "app.agent.revision.itinerary_violations",
-        lambda _state: [],
+        lambda state_obj: [],
     )
     # First call empty, second succeeds.
     calls = []
 
-    def _search(**kw):
+    def search(**kw):
         calls.append(kw)
-        return [] if len(calls) == 1 else [_hit("ChIJtest_p1_aaaaaaaa")]
+        return [] if len(calls) == 1 else [hit("ChIJtest_p1_aaaaaaaa")]
 
-    monkeypatch.setattr("app.agent.tools._semantic_search", _search)
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", search)
 
-    fake = _Scripted(
+    fake = Scripted(
         scripted=[
             # 1) empty search
             AIMessage(
@@ -195,27 +195,27 @@ async def test_step_then_itinerary_critique_compose_end_to_end(monkeypatch) -> N
     # Search returns empty once, then good results.
     search_calls = []
 
-    def _search(**kw):
+    def search(**kw):
         search_calls.append(kw)
         return (
             []
             if len(search_calls) == 1
-            else [_hit("ChIJtest_p1_aaaaaaaa"), _hit("ChIJtest_p2_aaaaaaaa")]
+            else [hit("ChIJtest_p1_aaaaaaaa"), hit("ChIJtest_p2_aaaaaaaa")]
         )
 
-    monkeypatch.setattr("app.agent.tools._semantic_search", _search)
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", search)
 
     # First itinerary check after first commit fails geographic_coherence;
     # second check (after revised commit) passes.
     violation_calls = {"n": 0}
 
-    def _violations(_state):
+    def violations(state_obj):
         violation_calls["n"] += 1
         return ["geographic_coherence"] if violation_calls["n"] == 1 else []
 
-    monkeypatch.setattr("app.agent.revision.itinerary_violations", _violations)
+    monkeypatch.setattr("app.agent.revision.itinerary_violations", violations)
 
-    fake = _Scripted(
+    fake = Scripted(
         scripted=[
             # 1) empty search (triggers per-step empty_results hint)
             AIMessage(

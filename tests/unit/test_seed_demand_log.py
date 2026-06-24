@@ -16,14 +16,14 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-class _InsertCursor:
+class InsertCursor:
     """Captures INSERT execute calls for assertion."""
 
     def __init__(self) -> None:
         self.executes: list[tuple] = []
         self.rowcount = 1
 
-    def __enter__(self) -> _InsertCursor:
+    def __enter__(self) -> InsertCursor:
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -36,21 +36,21 @@ class _InsertCursor:
         return ("city_concierge_sandbox",)
 
 
-class _InsertConn:
+class InsertConn:
     """Capturing connection that records commits."""
 
     def __init__(self) -> None:
-        self._cursor = _InsertCursor()
+        self.cursor_obj = InsertCursor()
         self.commits: int = 0
 
-    def __enter__(self) -> _InsertConn:
+    def __enter__(self) -> InsertConn:
         return self
 
     def __exit__(self, *args: object) -> None:
         return None
 
-    def cursor(self) -> _InsertCursor:
-        return self._cursor
+    def cursor(self) -> InsertCursor:
+        return self.cursor_obj
 
     def commit(self) -> None:
         self.commits += 1
@@ -136,7 +136,7 @@ class TestInsertDemandRows:
         import scripts.seed_demand_log as seed_mod
         from scripts.seed_demand_log import insert_demand_rows, seed_demand_rows
 
-        conn = _InsertConn()
+        conn = InsertConn()
         # Patch guard to pass (sandbox context)
         monkeypatch.setattr(seed_mod, "assert_sandbox_write_target", lambda conn=None: None)
 
@@ -144,7 +144,7 @@ class TestInsertDemandRows:
         insert_demand_rows(rows, conn=conn)
 
         insert_executes = [
-            (sql, params) for sql, params in conn._cursor.executes if "INSERT" in sql.upper()
+            (sql, params) for sql, params in conn.cursor_obj.executes if "INSERT" in sql.upper()
         ]
         assert len(insert_executes) == len(rows), "Expected one INSERT per row"
         for sql, params in insert_executes:
@@ -159,7 +159,7 @@ class TestInsertDemandRows:
         import scripts.seed_demand_log as seed_mod
         from scripts.seed_demand_log import insert_demand_rows, seed_demand_rows
 
-        conn = _InsertConn()
+        conn = InsertConn()
         monkeypatch.setattr(seed_mod, "assert_sandbox_write_target", lambda conn=None: None)
 
         rows = seed_demand_rows()
@@ -172,7 +172,7 @@ class TestInsertDemandRows:
         import scripts.seed_demand_log as seed_mod
         from scripts.seed_demand_log import insert_demand_rows, seed_demand_rows
 
-        conn = _InsertConn()
+        conn = InsertConn()
         monkeypatch.setattr(seed_mod, "assert_sandbox_write_target", lambda conn=None: None)
 
         rows = seed_demand_rows()
@@ -190,15 +190,15 @@ class TestInsertDemandRows:
         def tracking_guard(conn=None) -> None:
             call_order.append("guard")
 
-        conn = _InsertConn()
-        orig_cursor_execute = conn._cursor.execute
+        conn = InsertConn()
+        orig_cursor_execute = conn.cursor_obj.execute
 
         def tracking_execute(sql: str, params: object = None) -> None:
             if "INSERT" in sql.upper():
                 call_order.append("insert")
             orig_cursor_execute(sql, params)
 
-        conn._cursor.execute = tracking_execute
+        conn.cursor_obj.execute = tracking_execute
         monkeypatch.setattr(seed_mod, "assert_sandbox_write_target", tracking_guard)
 
         rows = seed_demand_rows()
@@ -215,14 +215,14 @@ class TestInsertDemandRows:
         def raising_guard(conn=None) -> None:
             raise RuntimeError("not a sandbox — refusing write")
 
-        conn = _InsertConn()
+        conn = InsertConn()
         monkeypatch.setattr(seed_mod, "assert_sandbox_write_target", raising_guard)
 
         rows = seed_demand_rows()
         with pytest.raises(RuntimeError, match="not a sandbox"):
             insert_demand_rows(rows, conn=conn)
 
-        insert_executes = [sql for sql, _ in conn._cursor.executes if "INSERT" in sql.upper()]
+        insert_executes = [sql for sql, _ in conn.cursor_obj.executes if "INSERT" in sql.upper()]
         assert insert_executes == [], "No INSERTs should execute when guard raises"
 
     def test_guard_imported_from_sandbox_guard(self) -> None:

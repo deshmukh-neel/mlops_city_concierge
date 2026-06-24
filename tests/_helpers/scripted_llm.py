@@ -1,9 +1,7 @@
-"""Shared scripted-LLM test helpers (Plan 03-11 / WR-03 hoist).
+"""Shared scripted-LLM test helpers.
 
 Consolidates the two near-identical scripted-LLM-with-recording test classes
-that previously lived in:
-  - tests/unit/test_chat_functional.py (`_ScriptedLLM`)
-  - tests/unit/test_eval_agent.py (`_RecordingScriptedLLM`)
+that previously lived in endpoint and eval-agent tests.
 
 Production `app.llm_factory.ScriptedChatModel` is intentionally NOT
 consolidated into this helper. It has scenario-registry semantics
@@ -17,7 +15,7 @@ Contract differences from the production class:
     runner never deadlocks; tests do not need that affordance.
   - `RecordingScriptedLLM.seen` uses `Field(default_factory=list)` so callers
     do NOT need to pass `seen=outer_var` (which was misleading anyway since
-    Pydantic deep-copies during validation — see WR-04 in 03-VERIFICATION.md).
+    Pydantic deep-copies during validation).
 """
 
 from __future__ import annotations

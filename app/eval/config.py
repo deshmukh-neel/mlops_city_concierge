@@ -73,7 +73,7 @@ class ExpectedConstraints(BaseModel):
 
     @field_validator("types_any", "requested_primary_types")
     @classmethod
-    def _strip_non_empty_list(cls, value: list[str], info: ValidationInfo) -> list[str]:
+    def strip_non_empty_list(cls, value: list[str], info: ValidationInfo) -> list[str]:
         """Trim expected place-type lists and discard blank entries."""
         field_name = info.field_name or "list"
         cleaned: list[str] = []

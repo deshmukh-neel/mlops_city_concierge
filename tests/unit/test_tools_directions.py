@@ -29,34 +29,34 @@ def test_models_construct() -> None:
 
 
 # Two known SF coords ~1 km apart (Mission Dolores → 16th St BART)
-_A = (37.7596, -122.4269)
-_B = (37.7651, -122.4194)
+A = (37.7596, -122.4269)
+B = (37.7651, -122.4194)
 
 
 async def test_unknown_mode_raises_before_network() -> None:
     with pytest.raises(ValueError, match="unknown mode"):
-        await route_legs([_A, _B], mode="teleport")
+        await route_legs([A, B], mode="teleport")
 
 
 async def test_missing_key_uses_fallback() -> None:
     # conftest does not set GOOGLE_DIRECTIONS_API_KEY -> '' -> fallback,
     # and no HTTP is attempted.
-    result = await route_legs([_A, _B], mode="walk")
+    result = await route_legs([A, B], mode="walk")
     assert result.source == "haversine_fallback"
     assert result.mode == "walk"
     assert len(result.legs) == 1
 
 
 async def test_fallback_durations_match_haversine() -> None:
-    result = await route_legs([_A, _B], mode="walk")
-    expected_s = round(haversine_m(_A, _B) / WALKING_SPEED_M_PER_MIN * 60)
+    result = await route_legs([A, B], mode="walk")
+    expected_s = round(haversine_m(A, B) / WALKING_SPEED_M_PER_MIN * 60)
     assert result.legs[0].duration_s == expected_s
     assert result.total_duration_s == expected_s
-    assert math.isclose(result.legs[0].distance_m, haversine_m(_A, _B), rel_tol=1e-9)
+    assert math.isclose(result.legs[0].distance_m, haversine_m(A, B), rel_tol=1e-9)
 
 
 async def test_fallback_handles_three_stops() -> None:
-    result = await route_legs([_A, _B, _A], mode="walk")
+    result = await route_legs([A, B, A], mode="walk")
     assert result.source == "haversine_fallback"
     assert len(result.legs) == 2  # N-1 legs for N stops
 
@@ -64,14 +64,14 @@ async def test_fallback_handles_three_stops() -> None:
 async def test_single_stop_returns_empty_legs() -> None:
     """The <2-stops early return is a distinct path: empty legs, zero total,
     fallback source — not a haversine computation."""
-    result = await route_legs([_A], mode="walk")
+    result = await route_legs([A], mode="walk")
     assert result.legs == []
     assert result.total_duration_s == 0
     assert result.source == "haversine_fallback"
     assert result.mode == "walk"
 
 
-def _key(monkeypatch) -> None:
+def key(monkeypatch) -> None:
     """Set a non-empty key so route_legs takes the network path."""
     monkeypatch.setenv("GOOGLE_DIRECTIONS_API_KEY", "test-directions-key")
     from app.config import get_settings
@@ -79,7 +79,7 @@ def _key(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
-def _ok_response(legs: list[dict]) -> httpx.Response:
+def ok_response(legs: list[dict]) -> httpx.Response:
     return httpx.Response(
         200,
         json={"routes": [{"legs": legs}]},
@@ -88,12 +88,12 @@ def _ok_response(legs: list[dict]) -> httpx.Response:
 
 
 async def test_route_legs_walk_parses_legs(monkeypatch, mocker) -> None:
-    _key(monkeypatch)
+    key(monkeypatch)
     post = mocker.AsyncMock(
-        return_value=_ok_response([{"duration": "780s", "distanceMeters": 1040}])
+        return_value=ok_response([{"duration": "780s", "distanceMeters": 1040}])
     )
     mocker.patch("httpx.AsyncClient.post", post)
-    result = await route_legs([_A, _B], mode="walk")
+    result = await route_legs([A, B], mode="walk")
     assert result.source == "google"
     assert result.mode == "walk"
     assert result.legs == [DirectionsLeg(duration_s=780, distance_m=1040.0)]
@@ -104,31 +104,31 @@ async def test_route_legs_walk_parses_legs(monkeypatch, mocker) -> None:
 
 
 async def test_route_legs_transit_maps_travelmode(monkeypatch, mocker) -> None:
-    _key(monkeypatch)
+    key(monkeypatch)
     post = mocker.AsyncMock(
-        return_value=_ok_response([{"duration": "600s", "distanceMeters": 900}])
+        return_value=ok_response([{"duration": "600s", "distanceMeters": 900}])
     )
     mocker.patch("httpx.AsyncClient.post", post)
-    await route_legs([_A, _B], mode="transit")
+    await route_legs([A, B], mode="transit")
     # 2 stops => single point-to-point request even for transit.
     body = post.call_args.kwargs["json"]
     assert body["travelMode"] == "TRANSIT"
 
 
 async def test_route_legs_drive_maps_travelmode(monkeypatch, mocker) -> None:
-    _key(monkeypatch)
+    key(monkeypatch)
     post = mocker.AsyncMock(
-        return_value=_ok_response([{"duration": "300s", "distanceMeters": 2000}])
+        return_value=ok_response([{"duration": "300s", "distanceMeters": 2000}])
     )
     mocker.patch("httpx.AsyncClient.post", post)
-    await route_legs([_A, _B], mode="drive")
+    await route_legs([A, B], mode="drive")
     assert post.call_args.kwargs["json"]["travelMode"] == "DRIVE"
 
 
 async def test_walk_three_stops_single_request_with_intermediates(monkeypatch, mocker) -> None:
-    _key(monkeypatch)
+    key(monkeypatch)
     post = mocker.AsyncMock(
-        return_value=_ok_response(
+        return_value=ok_response(
             [
                 {"duration": "400s", "distanceMeters": 500},
                 {"duration": "500s", "distanceMeters": 600},
@@ -136,7 +136,7 @@ async def test_walk_three_stops_single_request_with_intermediates(monkeypatch, m
         )
     )
     mocker.patch("httpx.AsyncClient.post", post)
-    result = await route_legs([_A, _B, _A], mode="walk")
+    result = await route_legs([A, B, A], mode="walk")
     assert post.call_count == 1  # one multi-leg request
     assert "intermediates" in post.call_args.kwargs["json"]
     assert len(result.legs) == 2
@@ -148,44 +148,44 @@ async def test_transit_with_intermediates_routes_per_leg(monkeypatch, mocker) ->
     transit/drive with intermediates, route per-leg point-to-point and stitch.
     Not on the canonical /chat path (backend re-times WALK only) but kept
     honest for the integration test / future use."""
-    _key(monkeypatch)
+    key(monkeypatch)
     post = mocker.AsyncMock(
         side_effect=[
-            _ok_response([{"duration": "400s", "distanceMeters": 500}]),
-            _ok_response([{"duration": "500s", "distanceMeters": 600}]),
+            ok_response([{"duration": "400s", "distanceMeters": 500}]),
+            ok_response([{"duration": "500s", "distanceMeters": 600}]),
         ]
     )
     mocker.patch("httpx.AsyncClient.post", post)
-    result = await route_legs([_A, _B, _A], mode="transit")
+    result = await route_legs([A, B, A], mode="transit")
     assert post.call_count == 2  # N-1 point-to-point requests
     assert len(result.legs) == 2
     assert result.total_duration_s == 900
 
 
 async def test_timeout_falls_back(monkeypatch, mocker) -> None:
-    _key(monkeypatch)
+    key(monkeypatch)
     mocker.patch(
         "httpx.AsyncClient.post",
         mocker.AsyncMock(side_effect=httpx.TimeoutException("slow")),
     )
-    result = await route_legs([_A, _B], mode="walk")
+    result = await route_legs([A, B], mode="walk")
     assert result.source == "haversine_fallback"
 
 
 async def test_non_200_falls_back(monkeypatch, mocker) -> None:
-    _key(monkeypatch)
+    key(monkeypatch)
     mocker.patch(
         "httpx.AsyncClient.post",
         mocker.AsyncMock(
             return_value=httpx.Response(500, text="err", request=httpx.Request("POST", "https://x"))
         ),
     )
-    result = await route_legs([_A, _B], mode="walk")
+    result = await route_legs([A, B], mode="walk")
     assert result.source == "haversine_fallback"
 
 
 async def test_malformed_body_falls_back(monkeypatch, mocker) -> None:
-    _key(monkeypatch)
+    key(monkeypatch)
     mocker.patch(
         "httpx.AsyncClient.post",
         mocker.AsyncMock(
@@ -196,14 +196,14 @@ async def test_malformed_body_falls_back(monkeypatch, mocker) -> None:
             )
         ),
     )
-    result = await route_legs([_A, _B], mode="walk")
+    result = await route_legs([A, B], mode="walk")
     assert result.source == "haversine_fallback"
 
 
 async def test_empty_routes_list_falls_back(monkeypatch, mocker) -> None:
     """Routes API returns {"routes": []} (HTTP 200) for an unroutable pair —
     must degrade to haversine, NOT raise IndexError out of route_legs."""
-    _key(monkeypatch)
+    key(monkeypatch)
     mocker.patch(
         "httpx.AsyncClient.post",
         mocker.AsyncMock(
@@ -214,5 +214,5 @@ async def test_empty_routes_list_falls_back(monkeypatch, mocker) -> None:
             )
         ),
     )
-    result = await route_legs([_A, _B], mode="walk")
+    result = await route_legs([A, B], mode="walk")
     assert result.source == "haversine_fallback"

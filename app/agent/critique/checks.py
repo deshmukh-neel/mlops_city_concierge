@@ -16,9 +16,9 @@ from psycopg2.extras import RealDictCursor
 from app.agent.planning import haversine_m
 from app.agent.state import ItineraryState, Stop
 from app.db import get_conn
-from app.tools.filters import _PRIMARY_TYPE_FAMILIES, family_of
+from app.tools.filters import PRIMARY_TYPE_FAMILIES, family_of
 
-_log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 CRITIQUE_THRESHOLDS: dict[str, float] = {
     "constraints_satisfied": 0.8,
@@ -34,8 +34,8 @@ CRITIQUE_THRESHOLDS: dict[str, float] = {
 }
 
 
-def _build_family_keywords() -> dict[str, frozenset[str]]:
-    """Derive per-family keyword sets from filters._PRIMARY_TYPE_FAMILIES.
+def build_family_keywords() -> dict[str, frozenset[str]]:
+    """Derive per-family keyword sets from filters.PRIMARY_TYPE_FAMILIES.
 
     Combines `types` (snake_case array column values) and `primary_types`
     (Title Case scalar values), splits multi-word entries on underscores and
@@ -44,7 +44,7 @@ def _build_family_keywords() -> dict[str, frozenset[str]]:
     rationale describes the right family of place.
     """
     keywords: dict[str, frozenset[str]] = {}
-    for family, columns in _PRIMARY_TYPE_FAMILIES.items():
+    for family, columns in PRIMARY_TYPE_FAMILIES.items():
         words: set[str] = set()
         for value in (*columns["types"], *columns["primary_types"]):
             for token in value.replace("_", " ").lower().split():
@@ -54,9 +54,9 @@ def _build_family_keywords() -> dict[str, frozenset[str]]:
     return keywords
 
 
-_FAMILY_KEYWORDS: dict[str, frozenset[str]] = _build_family_keywords()
+FAMILY_KEYWORDS: dict[str, frozenset[str]] = build_family_keywords()
 
-_STRICT_TYPE_KEYWORDS: dict[str, frozenset[str]] = {
+STRICT_TYPE_KEYWORDS: dict[str, frozenset[str]] = {
     "omakase": frozenset({"Sushi Restaurant", "Japanese Restaurant", "Fine Dining Restaurant"}),
     "sushi": frozenset({"Sushi Restaurant", "Japanese Restaurant"}),
     "ramen": frozenset({"Ramen Restaurant", "Japanese Restaurant"}),
@@ -291,7 +291,7 @@ def category_compliance_strict(state: ItineraryState) -> float:
     matches = 0
     for i in range(overlap):
         stop_primary_type = state.stops[i].primary_type
-        expected = _STRICT_TYPE_KEYWORDS.get(requested[i].lower())
+        expected = STRICT_TYPE_KEYWORDS.get(requested[i].lower())
         if expected is not None:
             if stop_primary_type in expected:
                 matches += 1
@@ -306,14 +306,14 @@ def category_compliance_strict(state: ItineraryState) -> float:
 def is_rationale_aligned(stop: Stop) -> bool:
     """Per-stop rationale-alignment rule. Public helper (plan 04-05).
 
-    Both `rationale_stop_alignment` (scorer) and `_first_misaligned_stop_index`
+    Both `rationale_stop_alignment` (scorer) and `first_misaligned_stop_index`
     (revision dispatcher in `app/agent/revision.py`) call this so the per-stop
     rule is single-sourced — no duplicated interpretation of "aligned" across
     the scorer and the dispatcher (DRY).
 
     Returns True iff the stop's rationale contains either (a) the stop's name
     (case-insensitive substring) or (b) at least one keyword from the family
-    derived from `family_of(stop.primary_type)` via `_FAMILY_KEYWORDS`. Returns
+    derived from `family_of(stop.primary_type)` via `FAMILY_KEYWORDS`. Returns
     False for empty / None rationale, for None primary_type with no name match,
     or when neither path fires.
     """
@@ -325,7 +325,7 @@ def is_rationale_aligned(stop: Stop) -> bool:
     family = family_of(stop.primary_type)
     if family is None:
         return False
-    keywords = _FAMILY_KEYWORDS.get(family, frozenset())
+    keywords = FAMILY_KEYWORDS.get(family, frozenset())
     return any(kw in rationale_lower for kw in keywords)
 
 
@@ -489,7 +489,7 @@ def refinement_minimal_edit(state: ItineraryState) -> float:
         - prior 3 stops, target_slot=2, current inserted a NEW slot 4
           alongside preserved slots 1+3 → 1.0 (insertions are neutral).
 
-    Pure function of state: no DB access. The `_try(...)` fail-open in
+    Pure function of state: no DB access. The `try_check(...)` fail-open in
     `itinerary_violations` therefore never trips on a DB error here.
     """
     # Branch 1: abstain when not in refinement context.
@@ -596,11 +596,11 @@ def itinerary_violations(state: ItineraryState) -> list[str]:
     gets their plan; the missed check shows up in logs."""
     failed: list[str] = []
 
-    def _try(name: str, fn) -> None:
+    def try_check(name: str, fn) -> None:
         try:
             score = fn(state)
         except Exception as e:  # noqa: BLE001
-            _log.warning("itinerary check %s failed; skipping: %s", name, e)
+            logger.warning("itinerary check %s failed; skipping: %s", name, e)
             return
         if score is None:
             # Scorer abstained (e.g. category_compliance on zero-stop runs).
@@ -613,19 +613,19 @@ def itinerary_violations(state: ItineraryState) -> list[str]:
     # check assumes the place_ids are real. Stop count comes next because a
     # partially rejected commit is not a complete itinerary even if every
     # committed place is individually valid.
-    _try("no_hallucinated_place_ids", no_hallucinated_place_ids)
-    _try("stop_count_satisfied", stop_count_satisfied)
-    _try("category_compliance", category_compliance)
-    _try("category_compliance_strict", category_compliance_strict)
-    _try("temporal_coherence", temporal_coherence)
-    _try("geographic_coherence", geographic_coherence)
-    _try("walking_budget_respected", walking_budget_respected)
-    _try("constraints_satisfied", constraints_satisfied)
-    _try("rationale_stop_alignment", rationale_stop_alignment)
+    try_check("no_hallucinated_place_ids", no_hallucinated_place_ids)
+    try_check("stop_count_satisfied", stop_count_satisfied)
+    try_check("category_compliance", category_compliance)
+    try_check("category_compliance_strict", category_compliance_strict)
+    try_check("temporal_coherence", temporal_coherence)
+    try_check("geographic_coherence", geographic_coherence)
+    try_check("walking_budget_respected", walking_budget_respected)
+    try_check("constraints_satisfied", constraints_satisfied)
+    try_check("rationale_stop_alignment", rationale_stop_alignment)
     # refinement_minimal_edit is grouped adjacent to rationale_stop_alignment
     # because both are refinement-related. Per its Branch 1 abstain, this
     # call returns 1.0 every time `state.scratch['refinement_context']` is
     # absent (the ad-hoc revision-loop invocation case), so it never produces
     # a spurious violation in the standard /chat critique path.
-    _try("refinement_minimal_edit", refinement_minimal_edit)
+    try_check("refinement_minimal_edit", refinement_minimal_edit)
     return failed

@@ -1,12 +1,11 @@
-"""Fire-and-forget user query logging for the v2.3 adaptive data loop.
+"""Fire-and-forget user query logging for the adaptive data loop.
 
 This module is called from FastAPI BackgroundTasks so the INSERT runs AFTER
 the ChatResponse is built and returned — it adds 0ms to user-perceived
-latency (Phase 17 CONTEXT D-01).
+latency.
 
-Failure posture (D-04): swallow ALL exceptions and emit a logger.warning
-so a DB failure can never surface to the user or leave an unawaited-task
-warning. Fail-open, fail-quiet.
+Logging failures are swallowed with a warning so a DB failure can never
+surface to the user or leave an unawaited-task warning.
 """
 
 from __future__ import annotations
@@ -28,12 +27,11 @@ def log_user_query(
 ) -> None:
     """Insert one row into user_query_log.
 
-    Called via background_tasks.add_task() — must swallow all exceptions
-    so a logging failure never propagates to the /chat response path or
-    leaves an unawaited-exception warning (Phase 17 CONTEXT D-04).
+    Called via background_tasks.add_task(); must swallow all exceptions so a
+    logging failure never propagates to the /chat response path.
 
     Parameterised INSERT uses %s placeholders so the raw user message is
-    never interpolated into the SQL string (T-17-04 SQL-injection guard).
+    never interpolated into the SQL string.
     """
     try:
         with get_conn() as conn, conn.cursor() as cur:

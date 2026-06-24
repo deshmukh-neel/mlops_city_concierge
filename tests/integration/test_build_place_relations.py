@@ -35,30 +35,30 @@ from scripts.build_place_relations import (  # noqa: E402
     main,
 )
 
-_PREFIX = "KGT_"
-_EMBED_DIM = 1536
+PREFIX = "KGT_"
+EMBED_DIM = 1536
 
 # Five places clustered tightly downtown (within ~800m of each other) plus
 # five spread out. Three share the "Mission" neighborhood. Two carry
 # containingPlaces; three carry addressDescriptor.landmarks.
-_CLUSTER = [
+CLUSTER = [
     ("KGT_a", 37.7880, -122.4074, "Mission"),
     ("KGT_b", 37.7883, -122.4078, "Mission"),
     ("KGT_c", 37.7886, -122.4071, "Mission"),
     ("KGT_d", 37.7879, -122.4069, "SoMa"),
     ("KGT_e", 37.7884, -122.4080, "SoMa"),
 ]
-_FAR = [
+FAR = [
     ("KGT_f", 37.8100, -122.4770, "Presidio"),
     ("KGT_g", 37.7600, -122.4350, "Noe Valley"),
     ("KGT_h", 37.7350, -122.5050, "Sunset"),
     ("KGT_i", 37.8050, -122.4100, "North Beach"),
     ("KGT_j", 37.7700, -122.3900, "Dogpatch"),
 ]
-_ALL = _CLUSTER + _FAR
+ALL = CLUSTER + FAR
 
 
-def _source_json(place_id: str, neighborhood: str) -> dict:
+def source_json(place_id: str, neighborhood: str) -> dict:
     sj: dict = {"addressComponents": [{"types": ["neighborhood"], "longText": neighborhood}]}
     # Two places get containingPlaces edges.
     if place_id == "KGT_a":
@@ -81,7 +81,7 @@ def _source_json(place_id: str, neighborhood: str) -> dict:
 
 
 @pytest.fixture
-def _writable_or_skip() -> None:
+def writable_or_skip() -> None:
     """Skip if the current DB role can't write the fixture tables.
 
     Mirrors the guard in ``test_coverage_agent.py``: integration runs against
@@ -103,7 +103,7 @@ def _writable_or_skip() -> None:
 
 
 @pytest.fixture
-def seed_10_places(_writable_or_skip):
+def seed_10_places(writable_or_skip):
     rows = [
         (
             pid,
@@ -112,9 +112,9 @@ def seed_10_places(_writable_or_skip):
             lat,
             lng,
             "OPERATIONAL",
-            json.dumps(_source_json(pid, nbhd)),
+            json.dumps(source_json(pid, nbhd)),
         )
-        for pid, lat, lng, nbhd in _ALL
+        for pid, lat, lng, nbhd in ALL
     ]
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -134,27 +134,27 @@ def seed_10_places(_writable_or_skip):
         with conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM place_relations WHERE src_place_id LIKE %s",
-                [_PREFIX + "%"],
+                [PREFIX + "%"],
             )
             cur.execute(
                 "DELETE FROM place_embeddings_v2 WHERE place_id LIKE %s",
-                [_PREFIX + "%"],
+                [PREFIX + "%"],
             )
             cur.execute(
                 "DELETE FROM places_raw WHERE place_id LIKE %s",
-                [_PREFIX + "%"],
+                [PREFIX + "%"],
             )
         conn.commit()
 
 
-def _deterministic_vector(seed: int) -> list[float]:
+def deterministic_vector(seed: int) -> list[float]:
     """Reproducible, dependency-free pseudo-vector keyed by ``seed``.
 
     A sinusoid over the dimension index — fully deterministic, no RNG (ruff
     S311), and cosine similarity between two such vectors is a smooth function
     of their phase offset, which is exactly what the threshold test needs.
     """
-    return [math.sin((i + 1) * 0.001 + seed) for i in range(_EMBED_DIM)]
+    return [math.sin((i + 1) * 0.001 + seed) for i in range(EMBED_DIM)]
 
 
 @pytest.fixture
@@ -162,13 +162,13 @@ def seed_embeddings_v2(seed_10_places):
     # KGT_a / KGT_b get near-identical phases so their cosine exceeds the 0.65
     # threshold; every other place gets a well-separated phase.
     vectors: dict[str, list[float]] = {}
-    for idx, (pid, _, _, _) in enumerate(_ALL):
+    for idx, (pid, _, _, _) in enumerate(ALL):
         if pid == "KGT_a":
-            vectors[pid] = _deterministic_vector(0.0)
+            vectors[pid] = deterministic_vector(0.0)
         elif pid == "KGT_b":
-            vectors[pid] = _deterministic_vector(0.0005)
+            vectors[pid] = deterministic_vector(0.0005)
         else:
-            vectors[pid] = _deterministic_vector(10.0 + idx * 5.0)
+            vectors[pid] = deterministic_vector(10.0 + idx * 5.0)
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.executemany(
@@ -185,12 +185,12 @@ def seed_embeddings_v2(seed_10_places):
     yield
 
 
-def _count(relation_type: str) -> int:
+def count(relation_type: str) -> int:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) FROM place_relations "
             "WHERE relation_type = %s AND src_place_id LIKE %s",
-            [relation_type, _PREFIX + "%"],
+            [relation_type, PREFIX + "%"],
         )
         row = cur.fetchone()
         return row[0] if row else 0
@@ -206,7 +206,7 @@ def test_full_build(seed_embeddings_v2) -> None:
         "NEAR_LANDMARK",
         "SIMILAR_VECTOR",
     ):
-        assert _count(rt) > 0, f"{rt} produced no rows"
+        assert count(rt) > 0, f"{rt} produced no rows"
 
 
 def test_near_symmetric_within_tolerance(seed_embeddings_v2) -> None:
@@ -215,7 +215,7 @@ def test_near_symmetric_within_tolerance(seed_embeddings_v2) -> None:
         cur.execute(
             "SELECT src_place_id, dst_place_id, weight FROM place_relations "
             "WHERE relation_type = 'NEAR' AND src_place_id LIKE %s",
-            [_PREFIX + "%"],
+            [PREFIX + "%"],
         )
         edges = {(s, d): w for s, d, w in cur.fetchall()}
     assert edges
@@ -230,7 +230,7 @@ def test_contained_in_populates_from_source_json(seed_embeddings_v2) -> None:
         cur.execute(
             "SELECT src_place_id, dst_place_id FROM place_relations "
             "WHERE relation_type = 'CONTAINED_IN' AND src_place_id LIKE %s",
-            [_PREFIX + "%"],
+            [PREFIX + "%"],
         )
         edges = set(cur.fetchall())
     assert ("KGT_a", "KGT_PARENT_1") in edges
@@ -244,7 +244,7 @@ def test_similar_vector_threshold(seed_embeddings_v2) -> None:
         cur.execute(
             "SELECT weight FROM place_relations "
             "WHERE relation_type = 'SIMILAR_VECTOR' AND src_place_id LIKE %s",
-            [_PREFIX + "%"],
+            [PREFIX + "%"],
         )
         weights = [w for (w,) in cur.fetchall()]
     assert weights, "expected at least one SIMILAR_VECTOR edge (KGT_a/KGT_b)"
@@ -256,11 +256,11 @@ def test_idempotent(seed_embeddings_v2) -> None:
     """BLD-01: re-running yields zero PK growth (assert on COUNT, not built_at)."""
     assert main([]) == 0
     first = {
-        rt: _count(rt)
+        rt: count(rt)
         for rt in ("NEAR", "SAME_NEIGHBORHOOD", "CONTAINED_IN", "NEAR_LANDMARK", "SIMILAR_VECTOR")
     }
     assert main([]) == 0
-    second = {rt: _count(rt) for rt in first}
+    second = {rt: count(rt) for rt in first}
     assert first == second
 
 
@@ -268,11 +268,11 @@ def test_only_flag_subset(seed_embeddings_v2) -> None:
     """BLD-01: --only NEAR rebuilds only NEAR, leaving others untouched."""
     assert main([]) == 0
     before = {
-        rt: _count(rt)
+        rt: count(rt)
         for rt in ("SAME_NEIGHBORHOOD", "CONTAINED_IN", "NEAR_LANDMARK", "SIMILAR_VECTOR")
     }
     assert main(["--only", "NEAR"]) == 0
-    after = {rt: _count(rt) for rt in before}
+    after = {rt: count(rt) for rt in before}
     assert before == after
 
 

@@ -23,7 +23,7 @@ from app.agent.state import ItineraryState
 from app.config import get_settings
 from app.llm_factory import build_chat_model
 
-_log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 VIBE_THRESHOLD = 3.0  # 0-5 rubric; below this triggers one revision pass.
 VIBE_ENV_VAR = "EVAL_VIBE_CRITIQUE_ENABLED"
@@ -116,14 +116,14 @@ def make_judge() -> BaseChatModel | None:
             "kimi": "moonshot_api_key",
         }.get(provider)
         if key_attr is None:
-            _log.warning("unknown vibe judge provider %r; skipping", provider)
+            logger.warning("unknown vibe judge provider %r; skipping", provider)
             return None
         if not getattr(s, key_attr, ""):
-            _log.warning("vibe judge requested but key for provider %r missing; skipping", provider)
+            logger.warning("vibe judge requested but key for provider %r missing; skipping", provider)
             return None
         return build_chat_model(provider, model, temperature=0.0)
     except Exception as e:  # noqa: BLE001
-        _log.warning(
+        logger.warning(
             "vibe judge construction failed (provider=%s model=%s): %s", provider, model, e
         )
         return None

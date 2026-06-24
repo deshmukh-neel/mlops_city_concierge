@@ -34,7 +34,7 @@ class BookingProposal(BaseModel):
 
 
 @dataclass(frozen=True)
-class _ProviderSpec:
+class ProviderSpec:
     """How a single deep-linkable provider is recognized and parameterized.
 
     `host_match` substrings are checked against the URL hostname (lowercased)
@@ -47,25 +47,25 @@ class _ProviderSpec:
     notes: str
 
 
-_PROVIDER_SPECS: dict[Provider, _ProviderSpec] = {
-    "resy": _ProviderSpec(
+PROVIDER_SPECS: dict[Provider, ProviderSpec] = {
+    "resy": ProviderSpec(
         host_match=("resy.com",),
-        params=lambda d, _t, n: {"date": d, "seats": n},
+        params=lambda d, unused_time, n: {"date": d, "seats": n},
         notes="Tap to open Resy with your date and party size pre-filled.",
     ),
-    "tock": _ProviderSpec(
+    "tock": ProviderSpec(
         host_match=("exploretock.com", "tock.com"),
         params=lambda d, t, n: {"date": d, "size": n, "time": t},
         notes="Tap to open Tock with your reservation pre-filled.",
     ),
-    "opentable": _ProviderSpec(
+    "opentable": ProviderSpec(
         host_match=("opentable.com",),
         params=lambda d, t, n: {"covers": n, "dateTime": f"{d}T{t}"},
         notes="Tap to open OpenTable with your reservation pre-filled.",
     ),
 }
 
-_FALLBACK_NOTES: dict[Provider, str] = {
+FALLBACK_NOTES: dict[Provider, str] = {
     "unknown": (
         "Online booking not detected; opens the venue's website. "
         "You may need to find their reservations page."
@@ -78,7 +78,7 @@ def detect_provider(website_uri: str | None) -> Provider:
     if not website_uri:
         return "unknown"
     host = (urlparse(website_uri).hostname or "").lower()
-    for name, spec in _PROVIDER_SPECS.items():
+    for name, spec in PROVIDER_SPECS.items():
         if any(needle in host for needle in spec.host_match):
             return name
     return "unknown"
@@ -111,16 +111,16 @@ def propose_booking_from_details(
     N round-trips for an N-stop itinerary. propose_booking() above remains
     the convenient single-place entry point for direct callers + tests."""
     detected = detect_provider(details.website_uri)
-    url, effective = _build_booking_url(detected, details, when, party_size)
+    url, effective = build_booking_url(detected, details, when, party_size)
     return BookingProposal(
         place_id=details.place_id,
         provider=effective,
         booking_url=url,
-        notes=_notes_for(effective),
+        notes=notes_for(effective),
     )
 
 
-def _build_booking_url(
+def build_booking_url(
     detected: Provider,
     details: PlaceDetails,
     when: datetime,
@@ -137,10 +137,10 @@ def _build_booking_url(
     reservations page the user actually wants.
     """
     website = details.website_uri
-    spec = _PROVIDER_SPECS.get(detected)
+    spec = PROVIDER_SPECS.get(detected)
     if spec and website:
         params = spec.params(when.strftime("%Y-%m-%d"), when.strftime("%H:%M"), party_size)
-        return _append_query(website, params), detected
+        return append_query(website, params), detected
     if website:
         return website, "unknown"
     if details.maps_uri:
@@ -152,7 +152,7 @@ def _build_booking_url(
     return f"https://www.google.com/maps/search/?{query}", "google_maps"
 
 
-def _append_query(url: str, params: dict) -> str:
+def append_query(url: str, params: dict) -> str:
     """Merge `params` into the URL's query string, replacing existing keys.
 
     Uses urlsplit/urlunsplit so fragments are preserved, pre-encoded params
@@ -167,6 +167,6 @@ def _append_query(url: str, params: dict) -> str:
     return urlunsplit(parts._replace(query=urlencode(merged)))
 
 
-def _notes_for(provider: Provider) -> str:
-    spec = _PROVIDER_SPECS.get(provider)
-    return spec.notes if spec is not None else _FALLBACK_NOTES[provider]
+def notes_for(provider: Provider) -> str:
+    spec = PROVIDER_SPECS.get(provider)
+    return spec.notes if spec is not None else FALLBACK_NOTES[provider]

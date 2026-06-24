@@ -1,7 +1,7 @@
 """Integration tests for the closure-aware swap node — gated on APP_ENV=integration.
 
 These exercise the real `place_is_open()` PL/pgSQL helper, the real
-`_PRIMARY_TYPE_FAMILIES` SQL clauses, and the real `nearby()` projection.
+`PRIMARY_TYPE_FAMILIES` SQL clauses, and the real `nearby()` projection.
 They're the only layer that can catch hours-data drift (Google Places hours
 changes) that mocked tests can't.
 
@@ -26,15 +26,15 @@ pytestmark = pytest.mark.skipif(
 
 from app.agent.state import ClosureContext, ItineraryState, Stop  # noqa: E402
 from app.agent.swap import (  # noqa: E402
-    _per_stop_closure_status,
-    _try_walking_distance_swap,
+    per_stop_closure_status,
     swap_closed_stops,
+    try_walking_distance_swap,
 )
 
 SF = ZoneInfo("America/Los_Angeles")
 
 
-def _make_stop(
+def make_stop(
     place_id: str,
     name: str,
     primary_type: str,
@@ -64,14 +64,14 @@ def test_per_stop_closure_status_call_against_live_db_does_not_raise() -> None:
     the contract.
     """
     stops = [
-        _make_stop(
+        make_stop(
             place_id="ChIJ_a_real_place_id_in_the_index",
             name="Test Place",
             primary_type="Bar",
             arrival=datetime(2026, 5, 19, 3, 0, tzinfo=SF),
         ),
     ]
-    statuses = _per_stop_closure_status(stops)
+    statuses = per_stop_closure_status(stops)
     assert isinstance(statuses, list)
     assert len(statuses) == 1
     assert isinstance(statuses[0], bool)
@@ -82,7 +82,7 @@ def test_swap_node_runs_against_live_db_without_raising() -> None:
     even when no stops are closed (or the place_id isn't in the index).
     """
     stops = [
-        _make_stop(
+        make_stop(
             place_id="ChIJ_a_real_place_id_in_the_index",
             name="Anchor",
             primary_type="Bar",
@@ -97,11 +97,11 @@ def test_swap_node_runs_against_live_db_without_raising() -> None:
 def test_walking_distance_search_uses_real_family_mapping() -> None:
     """A walking-distance search for the dessert family must return only
     candidates whose primary_type belongs to that family list (per the live
-    `_PRIMARY_TYPE_FAMILIES` SQL clauses)."""
-    from app.tools.filters import _PRIMARY_TYPE_FAMILIES
+    `PRIMARY_TYPE_FAMILIES` SQL clauses)."""
+    from app.tools.filters import PRIMARY_TYPE_FAMILIES
 
-    dessert_primaries = set(_PRIMARY_TYPE_FAMILIES["dessert"]["primary_types"])
-    closed = _make_stop(
+    dessert_primaries = set(PRIMARY_TYPE_FAMILIES["dessert"]["primary_types"])
+    closed = make_stop(
         place_id="ChIJ_a_dessert_place_id",
         name="Closed Dessert",
         primary_type="Dessert Shop",
@@ -118,7 +118,7 @@ def test_walking_distance_search_uses_real_family_mapping() -> None:
         insert_before_place_id=None,
         stop_index_hint=0,
     )
-    match = _try_walking_distance_swap(state, ctx, anchor_place_id=closed.place_id)
+    match = try_walking_distance_swap(state, ctx, anchor_place_id=closed.place_id)
     if match is None:
         pytest.skip("No walking-distance match in the live DB for this anchor.")
     assert match.stop.primary_type is None or match.stop.primary_type in dessert_primaries

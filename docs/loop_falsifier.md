@@ -45,7 +45,7 @@ and regenerate the paraphrases (see below). The rest of the orchestrator is gap-
 
 Without the orchestrator's seed-isolation pre-mark, `scripts/ingest_places_sf.py`
 (line 936) would concatenate the inserted pending proposal with its full 3,410-query
-static catalog, capped at `MAX_API_CALLS = 2000`. That would:
+static catalog, capped at `MAXAPI_CALLS = 2000`. That would:
 
 1. Issue up to **2,000 paid Google Places API calls** (not 1).
 2. Make the DB-diff the entire 2,000-row ingest — after-hit@k would pass by
