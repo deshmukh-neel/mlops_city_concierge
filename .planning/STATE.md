@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Adaptive Data Loop
-status: "Phase 18 shipped — PR #113"
-last_updated: "2026-06-20T21:39:17.657Z"
-last_activity: "2026-06-20 -- Phase 18 shipped PR #113"
+status: "Phase 19 shipped — PR #115"
+last_updated: "2026-06-25T06:15:35.991Z"
+last_activity: 2026-06-21
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 33
-  percent: 75
+  completed_phases: 4
+  total_plans: 13
+  completed_plans: 37
+  percent: 100
 ---
 
 # Project State
@@ -30,10 +30,10 @@ See: .planning/MILESTONES.md for historical record (v1.0, v2.0, v2.1, v2.2)
 
 ## Current Position
 
-Phase: 18
+Phase: 19
 Plan: Not started
-Status: Phase 18 shipped — PR #113
-Last activity: 2026-06-20 -- Phase 18 shipped PR #113
+Status: Phase 19 shipped — PR #115
+Last activity: 2026-06-21
 
 ## Blockers / Readiness Notes
 
@@ -63,10 +63,10 @@ Last activity: 2026-06-20 -- Phase 18 shipped PR #113
 
 ## Session Continuity
 
-Last session: 2026-06-18T19:01:34.075Z
-Stopped at: Completed 18-03-gap-scoring-cli-PLAN.md
-Resume file: None
-Next step: Execute 18-04-tests-make-docs-PLAN.md (smoke/functional/integration tests + make gap-mine + docs sync).
+Last session: 2026-06-20T18:30:00.000Z
+Stopped at: 19-04-PLAN.md — COMPLETE (all 3 tasks done; calibration deferred; docs + sync + tests green)
+Resume file: None — phase and milestone complete
+Next step: Open PR for gsd/phase-19-productionized-loop-metric-loop; merge into main to close v2.3.
 
 ## Performance Metrics
 
@@ -95,6 +95,10 @@ Next step: Execute 18-04-tests-make-docs-PLAN.md (smoke/functional/integration t
 | Phase 18-gap-mining-gap P01 | 20 | 4 tasks | 6 files |
 | Phase 18-gap-mining-gap P02 | 287 | 2 tasks | 2 files |
 | Phase 18-gap-mining-gap P03 | 421 | 2 tasks | 2 files |
+| Phase 19 P01 | 166 | 2 tasks | 2 files |
+| Phase 19-productionized-loop-metric-loop P02 | 216 | 2 tasks | 3 files |
+| Phase 19-productionized-loop-metric-loop P03 | 301 | 2 tasks | 1 files |
+| Phase 19-productionized-loop-metric-loop P04 | 25 | 3 tasks | 5 files |
 
 ## Decisions
 
@@ -117,6 +121,9 @@ Next step: Execute 18-04-tests-make-docs-PLAN.md (smoke/functional/integration t
 - [Phase ?]: D-02/D-03/D-04: user_query_log 7-column demand-signal table created; raw-message verbatim store documented; chained to head e0cd7069bc8f; write path deferred to 17-02
 - [Phase ?]: Shared guard module path and H3 pass condition
 - [Phase 18-03]: TRUE pair-level supply (gather_pair_supply) supersedes RESEARCH Open Question #1 per-cuisine resolution; ingested_query_texts filters checkpoints to status='completed' AND normalizes FIELD_MODE:: prefix; sandbox guard runs on SAME conn as insert_pending; cold-start keyed on empty demand (not judge absence)
+- [Phase ?]: D-02: --populated IS the idempotent populated reset (DROP+re-provision); --reset is schema-only; gap-bucket exclusion covers per-neighborhood + citywide + eatery-overlap queries via LOOP_GAP_NEIGHBORHOOD/LOOP_GAP_CUISINE
+- [Phase 19-04]: FLOOR=0.0 stays uncalibrated — corpus structural finding: per-(neighborhood,cuisine) SF supply gaps are not zeroable (cuisine leaks across ~20 neighborhoods via Places API); calibration deferred to citywide-absent-cuisine gap construct; bugs fixed: dbf9b1a (metric target-set asymmetry), 387f1b3 (Gemini block-content crash); loop plumbing-verified; docs/loop_runner.md is the canonical runbook; all three AI-instruction files synced for make loop
+- [Phase 19-04]: v2.3 Adaptive Data Loop milestone COMPLETE — 4/4 phases, 13/13 plans shipped
 
 ## Operator Next Steps
 

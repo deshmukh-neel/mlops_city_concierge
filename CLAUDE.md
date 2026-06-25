@@ -45,7 +45,10 @@ python scripts/seed.py    # Generate sample JSONL data
 # Adaptive data loop (Phase 18 / v2.3)
 make gap-mine             # Mine demand×supply gaps from user_query_log → pending proposals (writes to sandbox; reads sandbox by default or DEMAND_DATABASE_URL when set; writes guarded by assert_sandbox_write_target / current_database())
 make gap-mine-dry         # Dry-run the gap miner (no inserts; same read source as gap-mine)
+make loop                 # Productionized loop runner — full gap-mine→ingest→embed→score cycle (requires SANDBOX_DATABASE_URL + GOOGLE_PLACES_API_KEY + OPENAI_API_KEY); see docs/loop_runner.md
 ```
+
+> **Phase 19 (v2.3 capstone):** `make loop` wires the productionized loop runner (`scripts/loop_runner.py`) end-to-end. The gate is OPERATOR-run (live keys + sandbox); CI unit-tests only the pure decision logic (floor handling, cold-start, one-gap handoff, stale-proposal rejection, exit-code mapping) at zero API cost. FLOOR is currently 0.0 (uncalibrated — calibration deferred due to SF corpus geography; see `docs/loop_runner.md` for the structural finding and deferred-calibration plan).
 
 ## Architecture
 
