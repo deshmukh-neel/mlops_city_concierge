@@ -48,7 +48,7 @@ pytestmark = pytest.mark.skipif(
 
 # Pre-compute the full catalog seed set once at module import time
 # (build_seed_queries() is pure and fast; no DB connection needed).
-_CATALOG_SEEDS: frozenset[str] = frozenset(build_seed_queries())
+CATALOG_SEEDS: frozenset[str] = frozenset(build_seed_queries())
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ _CATALOG_SEEDS: frozenset[str] = frozenset(build_seed_queries())
 
 
 @pytest.fixture
-def _proposals_table_or_skip() -> None:
+def proposals_table_or_skip() -> None:
     """Skip when places_ingest_query_proposals is absent or unwritable."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -75,7 +75,7 @@ def _proposals_table_or_skip() -> None:
 
 
 @pytest.fixture
-def _user_query_log_or_skip() -> None:
+def user_query_log_or_skip() -> None:
     """Skip when user_query_log is absent or unwritable (Phase 17 migration not applied)."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'user_query_log'")
@@ -86,7 +86,7 @@ def _user_query_log_or_skip() -> None:
             pytest.skip("current DB role lacks INSERT/DELETE on user_query_log")
 
 
-def _stub_mlflow(monkeypatch: pytest.MonkeyPatch) -> None:
+def stub_mlflow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Monkeypatch all mlflow.* calls so integration test doesn't need MLflow."""
     from scripts import coverage_agent
 
@@ -100,7 +100,7 @@ def _stub_mlflow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(coverage_agent.mlflow, "log_dict", MagicMock())
 
 
-def _purge_demand_rows(marker_session_id: str) -> None:
+def purge_demand_rows(marker_session_id: str) -> None:
     """Delete test-seeded demand rows by their unique session_id marker."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -110,7 +110,7 @@ def _purge_demand_rows(marker_session_id: str) -> None:
         conn.commit()
 
 
-def _purge_proposal_row(query_text: str) -> None:
+def purge_proposal_row(query_text: str) -> None:
     """Delete a single proposal row by exact query_text (only call when test created it)."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -125,13 +125,13 @@ def _purge_proposal_row(query_text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_table_readiness(_proposals_table_or_skip, _user_query_log_or_skip) -> None:
+def test_table_readiness(proposals_table_or_skip, user_query_log_or_skip) -> None:
     """Schema-deploy gate: passes once both tables are deployed, skips before."""
 
 
 def test_seeded_demand_produces_pending_proposal(
-    _proposals_table_or_skip,
-    _user_query_log_or_skip,
+    proposals_table_or_skip,
+    user_query_log_or_skip,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """End-to-end: seeded sandbox demand → real pending proposal row (GAP-03).
@@ -155,7 +155,7 @@ def test_seeded_demand_produces_pending_proposal(
     for n in NEIGHBORHOODS:
         for c in CUISINES:
             seed = gap_to_seed_query(n, c)
-            if seed not in _CATALOG_SEEDS:
+            if seed not in CATALOG_SEEDS:
                 # Defensive: with the default QUERY_LIMIT=0 every NEIGHBORHOODS×
                 # CUISINES seed is in build_seed_queries(), so this is currently
                 # unreachable — but a non-zero QUERY_LIMIT would truncate the
@@ -218,7 +218,7 @@ def test_seeded_demand_produces_pending_proposal(
         # --- Step 5: Stub mlflow and vibe.make_judge ---
         from scripts import coverage_agent
 
-        _stub_mlflow(monkeypatch)
+        stub_mlflow(monkeypatch)
         # Stub the LLM to a no-op — the lexical pre-passes on BOTH axes cover
         # the seeded row; LLM is NOT required for the integration path.
         monkeypatch.setattr(coverage_agent.vibe, "make_judge", lambda: None)
@@ -243,8 +243,8 @@ def test_seeded_demand_produces_pending_proposal(
     finally:
         # --- Step 8: Scoped cleanup ---
         # Always delete the seeded demand rows (by unique marker).
-        _purge_demand_rows(marker_session_id)
+        purge_demand_rows(marker_session_id)
         # Delete the proposal ONLY if the test created it (step 3 confirmed it
         # did not pre-exist).  Never blanket-delete (REVIEW MEDIUM).
         if not proposal_pre_existed:
-            _purge_proposal_row(seed_text)
+            purge_proposal_row(seed_text)

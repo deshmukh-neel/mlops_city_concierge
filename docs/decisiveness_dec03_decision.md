@@ -67,14 +67,14 @@ matches entirely. A value below 0.40 would likely degrade category_compliance.
 
 **Suppress `low_similarity` hints once every requested stop has a viable candidate.**
 
-Currently `_diagnose_one` in `app/agent/revision.py` fires `low_similarity` unconditionally for
+Currently `diagnose_one` in `app/agent/revision.py` fires `low_similarity` unconditionally for
 any `semantic_search` result below the threshold. This is correct when no slot has a viable
 candidate yet — the model should rephrase and retry. But once **every** requested stop already has
 at least one viable candidate in the scratch buffer (rule-8-met condition), the `low_similarity`
 hint is counterproductive: it tells the model to rephrase when it should instead call
 `commit_itinerary`.
 
-**Scoping rule (rule8-met gate):** In `_diagnose_last_tool_result`, before emitting a
+**Scoping rule (rule8-met gate):** In `diagnose_last_tool_result`, before emitting a
 `low_similarity` hint:
 
 1. Check if the arm flag is ON (`VIABILITY_CONTRACT_ENABLED` is truthy).
@@ -107,7 +107,7 @@ This is mechanically enforced by:
   (the scoping gate uses the same threshold).
 - `all_slots_viable` in `revision.py` is only called when the flag is ON.
 - Flag-OFF behavior is byte-identical to current behavior: no `all_slots_viable` call is made,
-  `_diagnose_last_tool_result` follows the existing code path exactly.
+  `diagnose_last_tool_result` follows the existing code path exactly.
 
 ---
 

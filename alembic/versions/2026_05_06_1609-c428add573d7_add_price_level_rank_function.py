@@ -22,7 +22,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-_PRICE_LEVEL_RANK_FN = """
+PRICE_LEVEL_RANK_FN = """
 CREATE OR REPLACE FUNCTION price_level_rank(price_level TEXT)
 RETURNS INT AS $$
 BEGIN
@@ -40,7 +40,7 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 
 
 def upgrade() -> None:
-    op.execute(_PRICE_LEVEL_RANK_FN)
+    op.execute(PRICE_LEVEL_RANK_FN)
 
 
 def downgrade() -> None:

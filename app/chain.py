@@ -17,14 +17,14 @@ from .retriever import PgVectorRetriever
 # Default prompt of the legacy langchain RetrievalQA "stuff" chain, preserved
 # verbatim so migrating off langchain.chains (removed in langchain 1.x) does not
 # change model behavior.
-_STUFF_PROMPT = ChatPromptTemplate.from_template(
+STUFF_PROMPT = ChatPromptTemplate.from_template(
     "Use the following pieces of context to answer the question at the end. "
     "If you don't know the answer, just say that you don't know, don't try to "
     "make up an answer.\n\n{context}\n\nQuestion: {question}\nHelpful Answer:"
 )
 
 
-def _format_docs(docs: list[Document]) -> str:
+def format_docs(docs: list[Document]) -> str:
     return "\n\n".join(doc.page_content for doc in docs)
 
 
@@ -37,15 +37,15 @@ def build_retrieval_qa(retriever: BaseRetriever, llm: BaseChatModel) -> Runnable
     the original output contract: ``invoke({"query": q})`` returns
     ``{"result": <answer>, "source_documents": [<Document>, ...]}``.
     """
-    answer = _STUFF_PROMPT | llm | StrOutputParser()
+    answer = STUFF_PROMPT | llm | StrOutputParser()
 
-    def _invoke(payload: dict[str, Any]) -> dict[str, Any]:
+    def invoke_chain(payload: dict[str, Any]) -> dict[str, Any]:
         query = payload["query"]
         docs = retriever.invoke(query)
-        result = answer.invoke({"context": _format_docs(docs), "question": query})
+        result = answer.invoke({"context": format_docs(docs), "question": query})
         return {"result": result, "source_documents": docs}
 
-    return RunnableLambda(_invoke)
+    return RunnableLambda(invoke_chain)
 
 
 @dataclass

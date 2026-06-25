@@ -10,9 +10,9 @@ from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_pool: ThreadedConnectionPool | None = None
-_pool_config: tuple[str, int, int] | None = None
-_pool_lock = Lock()
+connection_pool: ThreadedConnectionPool | None = None
+connection_pool_config: tuple[str, int, int] | None = None
+connection_pool_lock = Lock()
 
 
 def init_db_pool(
@@ -33,28 +33,28 @@ def init_db_pool(
     if min_connections > max_connections:
         raise ValueError("db_pool_min_connections cannot exceed db_pool_max_connections.")
 
-    global _pool, _pool_config
-    with _pool_lock:
+    global connection_pool, connection_pool_config
+    with connection_pool_lock:
         requested = (database_url, min_connections, max_connections)
-        if _pool is not None:
-            if _pool_config != requested:
+        if connection_pool is not None:
+            if connection_pool_config != requested:
                 raise RuntimeError(
                     "init_db_pool was called with different parameters than the "
                     "existing pool. Call close_db_pool() before re-initialising."
                 )
-            return _pool
-        _pool = ThreadedConnectionPool(
+            return connection_pool
+        connection_pool = ThreadedConnectionPool(
             min_connections,
             max_connections,
             dsn=database_url,
         )
-        _pool_config = requested
-        return _pool
+        connection_pool_config = requested
+        return connection_pool
 
 
 def get_connection() -> connection:
     """Borrow a connection from the shared pool, creating the pool lazily if needed."""
-    return _ensure_db_pool().getconn()
+    return ensure_db_pool().getconn()
 
 
 def return_connection(conn: connection, *, close: bool = False) -> None:
@@ -66,7 +66,7 @@ def return_connection(conn: connection, *, close: bool = False) -> None:
     swallow that — the connection is gone either way and the caller doesn't
     benefit from a noisy traceback in shutdown logs.
     """
-    pool = _pool
+    pool = connection_pool
     if pool is None:
         try:
             conn.close()
@@ -82,16 +82,16 @@ def return_connection(conn: connection, *, close: bool = False) -> None:
 
 def close_db_pool() -> None:
     """Close every connection owned by the process-local pool."""
-    global _pool, _pool_config
-    with _pool_lock:
-        if _pool is not None:
-            _pool.closeall()
-            _pool = None
-            _pool_config = None
+    global connection_pool, connection_pool_config
+    with connection_pool_lock:
+        if connection_pool is not None:
+            connection_pool.closeall()
+            connection_pool = None
+            connection_pool_config = None
 
 
-def _ensure_db_pool() -> ThreadedConnectionPool:
-    pool = _pool
+def ensure_db_pool() -> ThreadedConnectionPool:
+    pool = connection_pool
     if pool is not None:
         return pool
 

@@ -158,7 +158,7 @@ Cloud Run reaches Cloud SQL through the auto-injected socket sidecar via `CLOUD_
 ### Live Environment
 
 - **Backend (Cloud Run):** https://city-concierge-api-6amzjx52nq-uc.a.run.app
-- **Frontend (Vercel):** see the `frontend/` directory; configure `VITE_API_URL` to the Cloud Run URL above
+- **Frontend (Vercel):** see `docs/public_demo_deployment.md`; configure `VITE_API_URL` to the Cloud Run URL above
 - **Image registry:** `us-central1-docker.pkg.dev/mlops-491820/ml-repo/city-concierge`
 - **Cloud SQL instance:** `mlops-491820:us-central1:mlops--city-concierge` (Postgres 18, pgvector 0.8.1, private IP `10.127.0.3`)
 - **Cloud Run egress:** Direct VPC Egress on VPC `default`, subnet `default`, `private-ranges-only`
@@ -182,6 +182,9 @@ GitHub Actions handle everything from lint to deploy. Triggers and jobs:
 Cloud Run distinguishes between **secrets** (mounted from Secret Manager — `POSTGRES_PASSWORD`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) and **plain env vars** (set on the service — `MLFLOW_TRACKING_URI`, `POSTGRES_DB`, `POSTGRES_USER`, `CLOUD_SQL_INSTANCE_CONNECTION_NAME`). The Vercel frontend uses `VITE_*` vars only — these compile into the JS bundle and are visible in the browser, so never put secrets there.
 
 See `.env.example` for the full list with sample values.
+
+For the public demo frontend setup, including Vercel project settings, Maps key
+restrictions, CORS defaults, and smoke tests, see `docs/public_demo_deployment.md`.
 
 ### Manual Operations
 

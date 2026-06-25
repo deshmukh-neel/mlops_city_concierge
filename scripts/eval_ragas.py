@@ -745,7 +745,7 @@ def log_score_report_to_mlflow(
 ) -> str:
     """Log the scored RAGAS report, metrics, and model metadata to MLflow."""
     settings = get_settings()
-    os.environ.setdefault("MLFLOW_ARTIFACTS_URI", settings.mlflow_artifacts_uri)
+    os.environ.setdefault("MLFLOWARTIFACTS_URI", settings.mlflow_artifacts_uri)
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
 

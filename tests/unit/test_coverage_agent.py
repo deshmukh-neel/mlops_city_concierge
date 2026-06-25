@@ -9,13 +9,13 @@ from scripts import coverage_agent
 from scripts.coverage_agent import (
     CoverageStat,
     ProposedQuery,
-    _build_proposal_prompt,
-    _fill_missing_cuisines,
-    _parse_proposals,
+    build_proposal_prompt,
+    fill_missing_cuisines,
     filter_already_covered,
     find_gaps,
     gather_stats,
     insert_pending,
+    parse_proposals,
     propose_queries,
 )
 from scripts.ingest_places_sf import CUISINES
@@ -45,7 +45,7 @@ class TestFindGaps:
 
 
 class TestParseProposals:
-    def _payload(self) -> str:
+    def payload(self) -> str:
         return json.dumps(
             [
                 {
@@ -57,26 +57,26 @@ class TestParseProposals:
         )
 
     def test_plain_json(self) -> None:
-        proposals = _parse_proposals(self._payload())
+        proposals = parse_proposals(self.payload())
         assert len(proposals) == 1
         assert proposals[0].query_text == "burmese restaurants in San Francisco"
 
     def test_strips_code_fences(self) -> None:
-        wrapped = f"```json\n{self._payload()}\n```"
-        assert len(_parse_proposals(wrapped)) == 1
+        wrapped = f"```json\n{self.payload()}\n```"
+        assert len(parse_proposals(wrapped)) == 1
 
     def test_strips_unlabeled_code_fences(self) -> None:
-        wrapped = f"```\n{self._payload()}\n```"
-        assert len(_parse_proposals(wrapped)) == 1
+        wrapped = f"```\n{self.payload()}\n```"
+        assert len(parse_proposals(wrapped)) == 1
 
     def test_invalid_json_returns_empty(self) -> None:
-        assert _parse_proposals("not json at all") == []
+        assert parse_proposals("not json at all") == []
 
     def test_empty_string_returns_empty(self) -> None:
-        assert _parse_proposals("") == []
+        assert parse_proposals("") == []
 
     def test_non_list_payload_returns_empty(self) -> None:
-        assert _parse_proposals('{"query_text": "x"}') == []
+        assert parse_proposals('{"query_text": "x"}') == []
 
     def test_skips_items_missing_required_keys(self) -> None:
         raw = json.dumps(
@@ -86,7 +86,7 @@ class TestParseProposals:
                 {"query_text": "x", "field_mode": "y"},
             ]
         )
-        proposals = _parse_proposals(raw)
+        proposals = parse_proposals(raw)
         assert len(proposals) == 1
         assert proposals[0].query_text == "ok"
 
@@ -97,11 +97,11 @@ class TestParseProposals:
                 {"query_text": "x", "field_mode": "enriched", "rationale": None},
             ]
         )
-        assert _parse_proposals(raw) == []
+        assert parse_proposals(raw) == []
 
     def test_defaults_blank_field_mode_to_enriched(self) -> None:
         raw = json.dumps([{"query_text": "q", "field_mode": "", "rationale": "r"}])
-        proposals = _parse_proposals(raw)
+        proposals = parse_proposals(raw)
         assert proposals[0].field_mode == "enriched"
 
     def test_strips_whitespace_from_values(self) -> None:
@@ -116,7 +116,7 @@ class TestParseProposals:
                 }
             ]
         )
-        proposals = _parse_proposals(raw)
+        proposals = parse_proposals(raw)
         assert proposals[0].query_text == "vietnamese restaurants in San Francisco"
         assert proposals[0].field_mode == "enriched"
         assert proposals[0].rationale == "thin"
@@ -156,48 +156,48 @@ class TestProposeQueries:
         assert propose_queries(gaps, llm) == []
 
 
-class _CapturingCursor:
+class CapturingCursor:
     def __init__(self, captured: list[tuple]) -> None:
-        self._captured = captured
+        self.captured_items = captured
 
-    def __enter__(self) -> _CapturingCursor:
+    def __enter__(self) -> CapturingCursor:
         return self
 
     def __exit__(self, *args: object) -> None:
         return None
 
     def execute(self, sql: str, params: object) -> None:
-        self._captured.append((sql, params))
+        self.captured_items.append((sql, params))
 
     def fetchall(self) -> list[tuple]:
         return []
 
 
-class _CapturingConn:
+class CapturingConn:
     def __init__(self, captured: list[tuple]) -> None:
-        self._captured = captured
+        self.captured_items = captured
 
-    def __enter__(self) -> _CapturingConn:
+    def __enter__(self) -> CapturingConn:
         return self
 
     def __exit__(self, *args: object) -> None:
         return None
 
-    def cursor(self) -> _CapturingCursor:
-        return _CapturingCursor(self._captured)
+    def cursor(self) -> CapturingCursor:
+        return CapturingCursor(self.captured_items)
 
 
 class TestGatherStatsSql:
     """Lock the SQL contract: parameter shape + bucket allowlist."""
 
-    def _captured_executes(self, monkeypatch) -> list[tuple]:
+    def captured_executes(self, monkeypatch) -> list[tuple]:
         captured: list[tuple] = []
-        monkeypatch.setattr(coverage_agent, "get_conn", lambda: _CapturingConn(captured))
+        monkeypatch.setattr(coverage_agent, "get_conn", lambda: CapturingConn(captured))
         gather_stats(days=14)
         return captured
 
     def test_passes_cuisine_allowlist_and_cutoff(self, monkeypatch) -> None:
-        captured = self._captured_executes(monkeypatch)
+        captured = self.captured_executes(monkeypatch)
         assert len(captured) == 1
         sql, params = captured[0]
         assert len(params) == 2
@@ -207,7 +207,7 @@ class TestGatherStatsSql:
         assert cutoff is not None  # the time bound for recent_query_diversity
 
     def test_neighborhood_regex_filters_non_matching_addresses(self, monkeypatch) -> None:
-        sql, _ = self._captured_executes(monkeypatch)[0]
+        sql, _ = self.captured_executes(monkeypatch)[0]
         # The non-matching guard lives in the WHERE clause of the neighborhoods CTE,
         # not just the regexp_replace. Without this clause, garbage addresses pass
         # through unchanged and pollute the bucket list.
@@ -217,7 +217,7 @@ class TestGatherStatsSql:
 class TestFillMissingCuisines:
     def test_zero_coverage_cuisines_are_synthesized(self) -> None:
         stats = [CoverageStat("cuisine:italian", 100, 0, None)]
-        out = _fill_missing_cuisines(stats)
+        out = fill_missing_cuisines(stats)
         bucket_set = {s.bucket for s in out}
         # italian is preserved, every other CUISINES entry shows up at 0
         assert "cuisine:italian" in bucket_set
@@ -232,7 +232,7 @@ class TestFillMissingCuisines:
     def test_zero_coverage_cuisine_is_visible_to_find_gaps(self) -> None:
         # Without the synthesis, a cuisine with 0 ingested places is invisible
         # — exactly the gap the agent most needs to see.
-        stats = _fill_missing_cuisines([CoverageStat("cuisine:italian", 100, 0, None)])
+        stats = fill_missing_cuisines([CoverageStat("cuisine:italian", 100, 0, None)])
         gaps = find_gaps(stats, min_place_count=5)
         zero_cuisine_gaps = [
             g for g in gaps if g.bucket.startswith("cuisine:") and g.place_count == 0
@@ -246,7 +246,7 @@ class TestPromptFormat:
             CoverageStat("neighborhood:Mission", 4, 0, None),
             CoverageStat("cuisine:burmese", 0, 0, None),
         ]
-        prompt = _build_proposal_prompt(gaps)
+        prompt = build_proposal_prompt(gaps)
         assert "type=neighborhood name='Mission' place_count=4" in prompt
         assert "type=cuisine name='burmese' place_count=0" in prompt
         assert "type=neighborhood gaps" in prompt
@@ -290,37 +290,37 @@ class TestFilterAlreadyCovered:
         assert "vietnamese restaurants in San Francisco" in seeds
 
 
-class _InsertCursor:
+class InsertCursor:
     """Stub cursor that records executes and reports rowcount=1 per execute."""
 
     def __init__(self, captured: list[tuple]) -> None:
-        self._captured = captured
+        self.captured_items = captured
         self.rowcount = 0
 
-    def __enter__(self) -> _InsertCursor:
+    def __enter__(self) -> InsertCursor:
         return self
 
     def __exit__(self, *args: object) -> None:
         return None
 
     def execute(self, sql: str, params: object) -> None:
-        self._captured.append((sql, params))
+        self.captured_items.append((sql, params))
         self.rowcount = 1
 
 
-class _InsertConn:
+class InsertConn:
     def __init__(self, captured: list[tuple]) -> None:
-        self._captured = captured
+        self.captured_items = captured
         self.commits = 0
 
-    def __enter__(self) -> _InsertConn:
+    def __enter__(self) -> InsertConn:
         return self
 
     def __exit__(self, *args: object) -> None:
         return None
 
-    def cursor(self) -> _InsertCursor:
-        return _InsertCursor(self._captured)
+    def cursor(self) -> InsertCursor:
+        return InsertCursor(self.captured_items)
 
     def commit(self) -> None:
         self.commits += 1
@@ -340,7 +340,7 @@ class TestInsertPending:
 
     def test_insert_writes_each_proposal_and_commits(self, monkeypatch) -> None:
         captured: list[tuple] = []
-        conn = _InsertConn(captured)
+        conn = InsertConn(captured)
         monkeypatch.setattr(coverage_agent, "get_conn", lambda: conn)
 
         proposals = [
@@ -351,7 +351,7 @@ class TestInsertPending:
 
         assert n == 2  # rowcount=1 per execute, summed
         assert len(captured) == 2
-        for sql, _params in captured:
+        for sql, _ in captured:
             assert "INSERT INTO places_ingest_query_proposals" in sql
             assert "ON CONFLICT (query_text) DO NOTHING" in sql
         assert [params for _, params in captured] == [

@@ -1,11 +1,4 @@
-"""Critique / revision-diagnosis logic for the agent graph.
-
-Split out of graph.py (FUTURE_WATCH: app/agent/ directory size). Public entry
-points (critique_step, critique_final_with_stops, short_circuit_max_steps,
-finalize_as_is) are called by the graph's `critique` node. Everything else is
-module-internal (underscore-prefixed); white-box tests import those by their
-private name, matching the existing test pattern.
-"""
+"""Critique and revision-diagnosis logic for the agent graph."""
 
 from __future__ import annotations
 
@@ -20,11 +13,8 @@ from app.agent.critique.checks import is_rationale_aligned, itinerary_violations
 from app.agent.state import ItineraryState, RevisionAction, RevisionHint
 from app.config import env_flag
 
-# D-13-07: code default stays 0.55 (seed finding 2 — it already is 0.55).
-# The experiment knob is LOW_SIMILARITY_THRESHOLD_OVERRIDE: used in the A1 arm
-# to test values BELOW 0.55. Empty/unset falls back to the code default.
-# T-13-03-01 mitigation: malformed value raises ValueError at import time
-# (operator-visible at process start), not silently at a runtime hotpath.
+# Empty/unset falls back to the code default. A malformed override raises at
+# import time so operators see it during process start.
 LOW_SIMILARITY_THRESHOLD: float = float(
     os.environ.get("LOW_SIMILARITY_THRESHOLD_OVERRIDE", "") or "0.55"
 )
@@ -32,17 +22,17 @@ LOW_SIMILARITY_THRESHOLD: float = float(
 MAX_REVISIONS_PER_REASON = 2
 
 
-def _can_retry(state: ItineraryState, reason: str) -> bool:
+def can_retry(state: ItineraryState, reason: str) -> bool:
     return state.revision_counts.get(reason, 0) < MAX_REVISIONS_PER_REASON
 
 
-def _bumped_counts(state: ItineraryState, reason: str) -> dict[str, int]:
+def bumped_counts(state: ItineraryState, reason: str) -> dict[str, int]:
     counts = dict(state.revision_counts)
     counts[reason] = counts.get(reason, 0) + 1
     return counts
 
 
-def _scratch_entries_for_last_round(
+def scratch_entries_for_last_round(
     state: ItineraryState,
 ) -> list[tuple[str, dict[str, Any]]]:
     """Return (tool_name, scratch_entry) pairs for every tool_call in the most
@@ -79,7 +69,7 @@ def _scratch_entries_for_last_round(
     return pairs
 
 
-def _most_restrictive_filter(filters: dict[str, Any] | None) -> str:
+def most_restrictive_filter(filters: dict[str, Any] | None) -> str:
     """Deterministic priority order for which filter to drop first."""
     if not filters:
         return "none"
@@ -89,7 +79,7 @@ def _most_restrictive_filter(filters: dict[str, Any] | None) -> str:
     return "none"
 
 
-def _diagnose_one(
+def diagnose_one(
     tool_name: str,
     entry: dict[str, Any],
     low_similarity_count: int = 0,
@@ -120,7 +110,7 @@ def _diagnose_one(
                 reason="empty_results",
                 detail=f"No matches for {args}.",
                 suggested_action="drop_filter",
-                target={"filter": _most_restrictive_filter(args.get("filters"))},
+                target={"filter": most_restrictive_filter(args.get("filters"))},
             )
         if all(getattr(h, "business_status", None) != "OPERATIONAL" for h in result):
             return RevisionHint(
@@ -176,30 +166,24 @@ def _diagnose_one(
     return None
 
 
-def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
+def diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
     """Diagnose every tool_call in the most recent issuing AIMessage and
     return the first hint in tool_call order. Returns None if every call was
     healthy. The agent revises one issue per round; later issues, if any,
     will be diagnosed on the next round.
 
-    DEC-03 (A1 arm, D-13-07): When VIABILITY_CONTRACT_ENABLED is set AND every
-    requested stop already has a viable candidate, the low_similarity hint is
-    suppressed so the model can commit rather than rephrase. The suppression
-    applies ONLY to low_similarity; all other hint reasons fire unconditionally.
-    CRITICAL — flag-off byte-identity: the all_slots_viable call is gated
-    entirely behind the flag check so flag-off runs never reach it.
+    When VIABILITY_CONTRACT_ENABLED is set and every requested stop already has
+    a viable candidate, the low_similarity hint is suppressed so the model can
+    commit rather than rephrase. All other hint reasons still fire.
     """
     low_similarity_count = state.revision_counts.get("low_similarity", 0)
-    for tool_name, entry in _scratch_entries_for_last_round(state):
-        hint = _diagnose_one(tool_name, entry, low_similarity_count=low_similarity_count)
+    for tool_name, entry in scratch_entries_for_last_round(state):
+        hint = diagnose_one(tool_name, entry, low_similarity_count=low_similarity_count)
         if hint is None:
             continue
-        # DEC-03 gate: suppress low_similarity once every slot has a viable candidate,
-        # but ONLY when the arm flag is ON (T-13-03-02 mitigation: flag-off path never
-        # calls all_slots_viable so current behavior is byte-identical when flag is off).
-        # WR-02: flag read live per call via env_flag so DEC-01 prompt addendum (graph.py
-        # build-time) and DEC-03 critique scoping both pick up env changes at the same
-        # effective time — the import-time freeze hazard is eliminated.
+        # Suppress low_similarity once every slot has a viable candidate, but
+        # only when the feature flag is on. The flag is read per call so local
+        # tests and request-scoped environments can flip it without reimporting.
         if hint.reason == "low_similarity" and env_flag("VIABILITY_CONTRACT_ENABLED"):
             from app.agent.viability import all_slots_viable  # noqa: PLC0415
 
@@ -209,13 +193,12 @@ def _diagnose_last_tool_result(state: ItineraryState) -> RevisionHint | None:
     return None
 
 
-def _first_misaligned_stop_index(state: ItineraryState) -> int:
+def first_misaligned_stop_index(state: ItineraryState) -> int:
     """Return the index of the first stop that fails is_rationale_aligned.
 
-    Used by the rationale_stop_alignment branch of `_hint_for_violation` to
+    Used by the rationale_stop_alignment branch of `hint_for_violation` to
     identify which stop the model should rewrite. Shares the per-stop boolean
-    rule with `rationale_stop_alignment` in `app/agent/critique/checks.py` via
-    the public `is_rationale_aligned` helper (DRY — plan 04-05 ADVISORY 3).
+    rule with `rationale_stop_alignment` via `is_rationale_aligned`.
 
     Returns 0 as a defensive fallback when either (a) state.stops is empty (the
     dispatcher should never call this with no violations, but it must not
@@ -228,7 +211,7 @@ def _first_misaligned_stop_index(state: ItineraryState) -> int:
     return 0
 
 
-def _hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
+def hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
     """Map a check name from itinerary_violations() to a structured hint."""
     if reason == "geographic_coherence":
         return RevisionHint(
@@ -289,7 +272,7 @@ def _hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
         # rationale text is misaligned"). Budget gating uses the CHECK name
         # ("rationale_stop_alignment") so this reason's retry budget is
         # independent of constraint_unmet_in_final.
-        offending_index = _first_misaligned_stop_index(state)
+        offending_index = first_misaligned_stop_index(state)
         return RevisionHint(
             reason="rationale_misaligned",
             detail=(
@@ -307,7 +290,7 @@ def _hint_for_violation(reason: str, state: ItineraryState) -> RevisionHint:
     )
 
 
-def _final_with_caveats(last_content: str, violations: list[str]) -> str:
+def final_with_caveats(last_content: str, violations: list[str]) -> str:
     """Compose a final reply that lists what didn't quite work. Better than
     silently shipping a bad plan."""
     caveats = (
@@ -318,7 +301,7 @@ def _final_with_caveats(last_content: str, violations: list[str]) -> str:
     return (last_content or "") + caveats
 
 
-def _last_ai_content(last: BaseMessage | None) -> str:
+def last_ai_content(last: BaseMessage | None) -> str:
     return last.content if isinstance(last, AIMessage) and isinstance(last.content, str) else ""
 
 
@@ -357,7 +340,7 @@ def short_circuit_max_steps(state: ItineraryState) -> dict[str, Any]:
 
 
 def finalize_as_is(state: ItineraryState, last: BaseMessage | None) -> dict[str, Any]:
-    return {"done": True, "final_reply": state.final_reply or _last_ai_content(last)}
+    return {"done": True, "final_reply": state.final_reply or last_ai_content(last)}
 
 
 def critique_final_with_stops(
@@ -368,15 +351,15 @@ def critique_final_with_stops(
     """Run deterministic checks; if any fail, drive a revision (or ship with
     caveats once budgets are exhausted). If they all pass, run the optional
     cheap-LLM vibe check; if that fails, drive a revision. Otherwise finalize."""
-    last_content = _last_ai_content(last)
+    last_content = last_ai_content(last)
     violations = itinerary_violations(state)
     if violations:
-        actionable = next((v for v in violations if _can_retry(state, v)), None)
+        actionable = next((v for v in violations if can_retry(state, v)), None)
         if actionable is not None:
-            hint = _hint_for_violation(actionable, state)
+            hint = hint_for_violation(actionable, state)
             return {
                 "revision_hints": [*state.revision_hints, hint],
-                "revision_counts": _bumped_counts(state, actionable),
+                "revision_counts": bumped_counts(state, actionable),
                 "messages": [
                     HumanMessage(
                         content=(
@@ -388,10 +371,10 @@ def critique_final_with_stops(
                 ],
                 "done": False,
             }
-        return {"done": True, "final_reply": _final_with_caveats(last_content, violations)}
+        return {"done": True, "final_reply": final_with_caveats(last_content, violations)}
 
     score = vibe.vibe_check(state, judge_llm)
-    if score is not None and score < vibe.VIBE_THRESHOLD and _can_retry(state, "vibe_mismatch"):
+    if score is not None and score < vibe.VIBE_THRESHOLD and can_retry(state, "vibe_mismatch"):
         hint = RevisionHint(
             reason="vibe_mismatch",
             detail=f"Cross-stop vibe coherence scored {score:.1f}/5.",
@@ -400,7 +383,7 @@ def critique_final_with_stops(
         )
         return {
             "revision_hints": [*state.revision_hints, hint],
-            "revision_counts": _bumped_counts(state, "vibe_mismatch"),
+            "revision_counts": bumped_counts(state, "vibe_mismatch"),
             "messages": [
                 HumanMessage(
                     content=(
@@ -424,12 +407,12 @@ def critique_final_with_stops(
 def critique_step(state: ItineraryState) -> dict[str, Any]:
     """React to the last tool result. Emit a per-step hint if it was empty,
     all-closed, low-similarity, or errored. Bounded by retry budget."""
-    hint = _diagnose_last_tool_result(state)
-    if hint is None or not _can_retry(state, hint.reason):
+    hint = diagnose_last_tool_result(state)
+    if hint is None or not can_retry(state, hint.reason):
         return {}
     return {
         "revision_hints": [*state.revision_hints, hint],
-        "revision_counts": _bumped_counts(state, hint.reason),
+        "revision_counts": bumped_counts(state, hint.reason),
         "messages": [
             HumanMessage(
                 content=(

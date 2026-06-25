@@ -55,7 +55,7 @@ No fresh n=5 control run is spent — the Phase-13 plateau numbers are reused as
 Per D-14-01, the hard cap is **≤ 4 full live matrix runs total** across all arms in this phase:
 
 - **R1** — `REPLAY_MULTI_MESSAGE_ENABLED=1` (pure replay effect, all DEC flags UNSET)
-- **R2** — `REPLAY_CONTENT_BLOCKS_ENABLED=1` (pure replay effect, all DEC flags UNSET)
+- **R2** — `REPLAY_CONTENTBLOCKS_ENABLED=1` (pure replay effect, all DEC flags UNSET)
 - **R3** (conditional combo) — run ONLY if neither R1 nor R2 clears alone but both show
   positive signal (mirrors Phase-13 D-13-01 A4 rule)
 - **Discretionary 4th run (escalation valve)** — if R1/R2/R3 all plateau but the best
@@ -145,9 +145,9 @@ R1 shows positive signal (matching A2's +0.500) without clearing the bar. Both R
 
 ---
 
-## R2: Content-Block Preservation Through _prune_for_llm
+## R2: Content-Block Preservation Through prune_for_llm
 
-**Flag config:** `REPLAY_CONTENT_BLOCKS_ENABLED=1`
+**Flag config:** `REPLAY_CONTENTBLOCKS_ENABLED=1`
 **DEC arm flags:** ALL UNSET (pure replay effect, no attribution confounding)
 **Mechanism:** When the flag is ON, the pre-cutoff replacement at `graph.py:228-235`
 preserves the original `m.content` shape (list or str) verbatim instead of collapsing
@@ -217,7 +217,7 @@ informative outcome that closes this criterion with evidence.
 > That claim holds for plain Chat-Completions `ChatOpenAI` (gpt-4o-mini) but NOT for
 > the gpt-5 family: since W10, gpt-5 models route through `OpenAIReasoningChatModel`
 > (`app/llm_factory.py`) with `use_responses_api=True`, and Responses-API
-> `AIMessage.content` IS a content-block LIST (the `_lift_reasoning_blocks` hook at
+> `AIMessage.content` IS a content-block LIST (the `lift_reasoning_blocks` hook at
 > `llm_factory.py:116` explicitly checks `isinstance(content, list)` — structural proof
 > the list shape exists). The audit looked at the adapter, not the chat-model factory.
 > Consequence measured below: R2 is NOT null on gpt-5-mini — it is catastrophically
@@ -305,9 +305,9 @@ for** ("or reveals a surprising signal").
 observable loss?" — NO. The opposite: for gpt-5-mini the `str()` collapse was
 **load-bearing protection**. gpt-5-mini's Responses-API `AIMessage.content` is a
 content-block list that embeds function-call items. The flag-off `str()` collapse
-flattened those blocks into inert text; with `REPLAY_CONTENT_BLOCKS_ENABLED=1` the
+flattened those blocks into inert text; with `REPLAY_CONTENTBLOCKS_ENABLED=1` the
 preserved list re-sends `function_call` items whose paired ToolMessage outputs were
-pruned (`_prune_for_llm` still drops pre-cutoff ToolMessages), violating OpenAI's
+pruned (`prune_for_llm` still drops pre-cutoff ToolMessages), violating OpenAI's
 unanswered-tool_call contract → deterministic
 `400 "No tool output found for function call"` on every episode (10/10). The
 `AIMessage(content=m.content, ...)` constructor strips the `.tool_calls` ATTRIBUTE,
@@ -331,7 +331,7 @@ on a structurally no-op path for the anchor).
 
 ## R3: Conditional Combo (R1 + R2)
 
-**Flag config:** `REPLAY_MULTI_MESSAGE_ENABLED=1 REPLAY_CONTENT_BLOCKS_ENABLED=1`
+**Flag config:** `REPLAY_MULTI_MESSAGE_ENABLED=1 REPLAY_CONTENTBLOCKS_ENABLED=1`
 **DEC arm flags:** ALL UNSET
 
 **Status: CONDITIONAL** — this arm runs ONLY if BOTH of the following hold after R1 and R2:
@@ -436,7 +436,7 @@ precondition checks.
 | Arm | Flag Config | gpt-5-mini pooled | Delta vs floor (0.000) | Delta vs A2 (0.500) | gpt-4o-mini anchor | Falsifier exit |
 |---|---|---|---|---|---|---|
 | R1 | `REPLAY_MULTI_MESSAGE_ENABLED=1` | 0.500 (model-initiated 4/10, forced 0/10) | +0.500 | ±0.000 | 1.000 — non-regression PASS | 1 (FAIL) |
-| R2 | `REPLAY_CONTENT_BLOCKS_ENABLED=1` | ERRORED — 0/10 evaluable (10/10 provider 400s) | — (catastrophic; no measurement) | — | 1.000 median — non-regression PASS | 1 (FAIL) |
+| R2 | `REPLAY_CONTENTBLOCKS_ENABLED=1` | ERRORED — 0/10 evaluable (10/10 provider 400s) | — (catastrophic; no measurement) | — | 1.000 median — non-regression PASS | 1 (FAIL) |
 | R3 | `R1+R2` (conditional) | NOT RUN | — | — | — | — |
 | Discretionary valve | `R1+FORCED_COMMIT_STEP=6` | NOT RUN | — | — | — | — |
 
@@ -458,7 +458,7 @@ the decisiveness gap and what reasoning-state interventions can and cannot contr
 - **v2.1 (Phase 9):** Per-message `_reasoning_state` round-trip proved byte-correct through
   all four provider adapters (OpenAI, DeepSeek, Anthropic, Gemini). Each in-window
   tool-calling AIMessage has its own `_reasoning_state` stashed in `additional_kwargs`
-  and D-08-07 preserves kwargs across the `_prune_for_llm` boundary. State capture and
+  and D-08-07 preserves kwargs across the `prune_for_llm` boundary. State capture and
   replay are mechanically correct at the per-adapter level. **The state round-trip is not
   the problem.**
 
@@ -503,7 +503,7 @@ the decisiveness gap and what reasoning-state interventions can and cannot contr
 
 ARCH-FUT-01 entails architectural work to replace or augment the current LangGraph-based
 agent loop with a custom imperative loop that natively threads per-message reasoning state
-without relying on `additional_kwargs` round-tripping across the `_prune_for_llm` boundary.
+without relying on `additional_kwargs` round-tripping across the `prune_for_llm` boundary.
 This was originally conceived as a contingency for the case where state loss was causing the
 decisiveness gap — exposing reasoning content to the LLM on every in-window turn regardless
 of prune cutoff, and potentially enabling cross-request persistence beyond the current

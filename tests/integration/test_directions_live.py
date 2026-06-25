@@ -20,12 +20,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 # Mission Dolores -> 16th St BART, ~1 km, definitely walkable.
-_A = (37.7596, -122.4269)
-_B = (37.7651, -122.4194)
+A = (37.7596, -122.4269)
+B = (37.7651, -122.4194)
 
 
 async def test_route_legs_live_walk() -> None:
-    result = await route_legs([_A, _B], mode="walk")
+    result = await route_legs([A, B], mode="walk")
     assert result.source == "google"
     assert result.mode == "walk"
     assert len(result.legs) == 1

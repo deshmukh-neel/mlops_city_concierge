@@ -9,11 +9,11 @@ from app.agent.prompts import (
     rule8_viability_addendum,
 )
 
-_FMT = {"max_steps": 8, "current_datetime": "2026-05-18 19:00 PDT (Monday)"}
+FMT = {"max_steps": 8, "current_datetime": "2026-05-18 19:00 PDT (Monday)"}
 
 
 def test_system_prompt_renders_with_max_steps() -> None:
-    rendered = SYSTEM_PROMPT.format(**_FMT)
+    rendered = SYSTEM_PROMPT.format(**FMT)
     assert "8" in rendered
     assert "{max_steps}" not in rendered
 
@@ -24,7 +24,7 @@ def test_system_prompt_format_round_trips() -> None:
     in the output — that is intended, but a single unescaped brace in the
     raw template would raise here.
     """
-    SYSTEM_PROMPT.format(**_FMT)
+    SYSTEM_PROMPT.format(**FMT)
 
 
 def test_system_prompt_only_substitutes_known_placeholders() -> None:
@@ -42,7 +42,7 @@ def test_system_prompt_only_substitutes_known_placeholders() -> None:
     """
     import re
 
-    rendered = SYSTEM_PROMPT.format(**_FMT)
+    rendered = SYSTEM_PROMPT.format(**FMT)
     # A bare `{word}` after rendering would be an un-substituted placeholder
     # (legit JSON braces are doubled and render as `{` and `}` separately).
     leftover = re.findall(r"\{[a-zA-Z_]\w*\}", rendered)
@@ -213,7 +213,7 @@ def test_revision_guidance_has_rationale_misaligned_bullet() -> None:
 
 
 def test_revision_guidance_covers_every_revision_reason_used_by_dispatch() -> None:
-    """Every RevisionReason that `_hint_for_violation` can emit must appear
+    """Every RevisionReason that `hint_for_violation` can emit must appear
     in REVISION_GUIDANCE so the model has interpretation guidance for the
     CRITIQUE_ITINERARY HumanMessage.
 
@@ -303,7 +303,7 @@ def test_viability_contract_addendum_is_additive() -> None:
 
     VIABILITY_CONTRACT_ENABLED — this comment makes the flag name greppable.
     """
-    rendered = SYSTEM_PROMPT.format(**_FMT) + rule8_viability_addendum(enabled=True)
+    rendered = SYSTEM_PROMPT.format(**FMT) + rule8_viability_addendum(enabled=True)
     s = rendered.lower()
     # Existing locks from test_system_prompt_has_decisive_commit_contract must still hold:
     assert "commit_itinerary" in s
@@ -320,7 +320,7 @@ def test_viability_contract_flag_off_unchanged() -> None:
 
     VIABILITY_CONTRACT_ENABLED — this comment makes the flag name greppable.
     """
-    base = SYSTEM_PROMPT.format(**_FMT)
+    base = SYSTEM_PROMPT.format(**FMT)
     with_empty_addendum = base + rule8_viability_addendum(enabled=False)
     # Byte-identical: addendum is empty string
     assert with_empty_addendum == base

@@ -30,7 +30,7 @@ class TestQueryLogIntegration:
     """Real-DB INSERT round-trip tests for log_user_query."""
 
     @pytest.fixture(autouse=True)
-    def _table_writable_or_skip(self) -> None:
+    def table_writable_or_skip(self) -> None:
         """Skip when user_query_log is absent or the DB role can't write it.
 
         Mirrors the guard in ``test_build_place_relations.py`` /

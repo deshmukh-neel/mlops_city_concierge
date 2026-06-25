@@ -56,12 +56,12 @@ from app.eval.config import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Default eval-queries YAML to forward to each subprocess invocation.
-_DEFAULT_EVAL_QUERIES_REL = "configs/eval_queries.yaml"
+DEFAULT_EVAL_QUERIES_REL = "configs/eval_queries.yaml"
 
 # Default output base under the repository root.
-_DEFAULT_OUTPUT_BASE = REPO_ROOT / "eval_reports"
+DEFAULT_OUTPUT_BASE = REPO_ROOT / "eval_reports"
 
-_log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -72,7 +72,7 @@ class MatrixCell:
     threaded from `MatrixEntry.env`. When set, `run_matrix` composes it
     into the subprocess `env=` kwarg AND applies it to `os.environ` for
     the cell's lifetime (NEW HIGH-B) so in-process consumers like
-    `_run_prod_threading` see the override.
+    `run_prod_threading` see the override.
     """
 
     provider: str
@@ -117,7 +117,7 @@ def iter_cells(matrix: EvalMatrixConfig, runs: int) -> Iterator[MatrixCell]:
                 )
 
 
-def _iso_timestamp_filename_safe() -> str:
+def iso_timestamp_filename_safe() -> str:
     """ISO8601 UTC timestamp with colons replaced (Windows + URL safe)."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
 
@@ -128,18 +128,18 @@ def resolve_run_dir(base: Path | None = None) -> Path:
     The directory is created eagerly so subprocess invocations can write
     their cell JSONs without each having to mkdir-p.
     """
-    base_path = base if base is not None else _DEFAULT_OUTPUT_BASE
-    run_dir = base_path / _iso_timestamp_filename_safe()
+    base_path = base if base is not None else DEFAULT_OUTPUT_BASE
+    run_dir = base_path / iso_timestamp_filename_safe()
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
 
 
-def _provider_label(provider: str, model: str) -> str:
+def provider_label(provider: str, model: str) -> str:
     """The cross-provider summary keys by 'provider/model' for diffing."""
     return f"{provider}/{model}"
 
 
-def _parse_cell_filename(name: str) -> tuple[str, str, str, int] | None:
+def parse_cell_filename(name: str) -> tuple[str, str, str, int] | None:
     """Parse `{provider}--{model}--{scenario_id}--run-{n}.json` back to its
     parts. Returns None if the filename does not match the expected shape
     (so a stray file in the output dir does not crash the aggregator)."""
@@ -159,7 +159,7 @@ def _parse_cell_filename(name: str) -> tuple[str, str, str, int] | None:
     return provider, model, scenario_id, run_n
 
 
-def _scorer_means_from_cell(payload: dict[str, Any]) -> dict[str, float]:
+def scorer_means_from_cell(payload: dict[str, Any]) -> dict[str, float]:
     """Extract `{scorer_name}_mean` keys from one cell's aggregate dict.
 
     Plan 03-07 baselines diff on per-scorer median across runs; we only
@@ -194,7 +194,7 @@ def _scorer_means_from_cell(payload: dict[str, Any]) -> dict[str, float]:
     return out
 
 
-def _stats_for_values(values: Sequence[float]) -> dict[str, float | int]:
+def stats_for_values(values: Sequence[float]) -> dict[str, float | int]:
     """Compute the {median, min, max, stdev, n} table for one cell-stack."""
     n = len(values)
     if n == 0:
@@ -248,7 +248,7 @@ def aggregate_cell_jsons(
     baseline comparisons) can detect that per-provider keys reflect the
     override target instead of the originally configured provider. The
     per-provider scorer keys are NOT re-mapped by this field — they keep
-    whatever name `_apply_override` wrote into the cell filenames.
+    whatever name `apply_override` wrote into the cell filenames.
 
     When `eval_queries_config` is provided (D-10-09), per-scenario
     `baseline_eligible` flags are resolved from the eval-queries config and
@@ -270,32 +270,32 @@ def aggregate_cell_jsons(
     for path in sorted(output_dir.glob("*.json")):
         if path.name == "summary.json":
             continue
-        parsed = _parse_cell_filename(path.name)
+        parsed = parse_cell_filename(path.name)
         if parsed is None:
             # WR-01: surface unparseable filenames so a stray '--' in a
             # provider/model name (or a foreign file dropped into the run dir)
             # is observable instead of silently zeroing a cell.
-            _log.warning(
+            logger.warning(
                 "eval_matrix: skipping unparseable cell file %s in %s",
                 path.name,
                 output_dir,
             )
             continue
-        provider, model, scenario_id, _run_n = parsed
+        provider, model, scenario_id, run_n = parsed
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        provider_key = _provider_label(provider, model)
+        provider_key = provider_label(provider, model)
         scenario_block = grouped.setdefault(scenario_id, {})
         provider_block = scenario_block.setdefault(provider_key, {})
-        for scorer_name, value in _scorer_means_from_cell(payload).items():
+        for scorer_name, value in scorer_means_from_cell(payload).items():
             provider_block.setdefault(scorer_name, []).append(value)
 
         # D-11-02: thread committed_itinerary_rate from the aggregate block into
         # the scorers accumulation so the gate checker's
         # `scorers → committed_itinerary_rate → median` read becomes evaluable.
-        # This metric is not in CRITIQUE_THRESHOLDS so _scorer_means_from_cell
+        # This metric is not in CRITIQUE_THRESHOLDS so scorer_means_from_cell
         # excludes it deliberately; we add it here as a supplemental scalar that
         # bypasses the whitelist (it is the hard-gate metric per D-10-07/D-11-02,
         # not a critique-threshold scorer).
@@ -335,10 +335,10 @@ def aggregate_cell_jsons(
     # D-10-09: build a scenario_id -> baseline_eligible lookup from the
     # eval_queries_config when provided. Unknown IDs default to True
     # (fail toward enforcement, not silent exclusion; T-10-03-03).
-    _baseline_eligible_lookup: dict[str, bool] = {}
+    baseline_eligible_lookup: dict[str, bool] = {}
     if eval_queries_config is not None:
         for case in eval_queries_config.hand_written:
-            _baseline_eligible_lookup[case.id] = case.baseline_eligible
+            baseline_eligible_lookup[case.id] = case.baseline_eligible
 
     # Compute per-(scenario, provider, scorer) stats.
     scenarios_out: dict[str, Any] = {}
@@ -351,7 +351,7 @@ def aggregate_cell_jsons(
             n_errored = err_block.get("n_errored", 0)
             providers_out[provider_key] = {
                 "scorers": {
-                    scorer: _stats_for_values(values) for scorer, values in scorers.items()
+                    scorer: stats_for_values(values) for scorer, values in scorers.items()
                 },
                 "n_scored": n_scored,
                 "n_errored": n_errored,
@@ -361,7 +361,7 @@ def aggregate_cell_jsons(
         # eval_queries_config was provided. Default True for unknown scenarios.
         scenario_block: dict[str, Any] = {"providers": providers_out}
         if eval_queries_config is not None:
-            scenario_block["baseline_eligible"] = _baseline_eligible_lookup.get(scenario_id, True)
+            scenario_block["baseline_eligible"] = baseline_eligible_lookup.get(scenario_id, True)
         scenarios_out[scenario_id] = scenario_block
 
     # Include provider-key blocks that only have errored runs (no scored runs
@@ -372,7 +372,7 @@ def aggregate_cell_jsons(
             {
                 "providers": {},
                 **(
-                    {"baseline_eligible": _baseline_eligible_lookup.get(scenario_id, True)}
+                    {"baseline_eligible": baseline_eligible_lookup.get(scenario_id, True)}
                     if eval_queries_config is not None
                     else {}
                 ),
@@ -389,7 +389,7 @@ def aggregate_cell_jsons(
                 }
 
     result: dict[str, Any] = {
-        "generated_at": _iso_timestamp_filename_safe(),
+        "generated_at": iso_timestamp_filename_safe(),
         "scenarios": scenarios_out,
     }
     if top_level_errors:
@@ -399,7 +399,7 @@ def aggregate_cell_jsons(
     return result
 
 
-def _build_subprocess_cmd(
+def build_subprocess_cmd(
     cell: MatrixCell,
     cell_path: Path,
     eval_queries_path: str,
@@ -432,7 +432,7 @@ def _build_subprocess_cmd(
     ]
 
 
-def _gate_blocks(matrix: EvalMatrixConfig, llm_provider_override: str | None) -> bool:
+def gate_blocks(matrix: EvalMatrixConfig, llm_provider_override: str | None) -> bool:
     """Return True when APP_ENV=eval is required but not set.
 
     The gate fires when ANY entry uses a non-scripted provider AND the
@@ -449,7 +449,7 @@ def _gate_blocks(matrix: EvalMatrixConfig, llm_provider_override: str | None) ->
     return bool(real_providers)
 
 
-def _apply_override(
+def apply_override(
     entries: Sequence[MatrixEntry], llm_provider_override: str | None
 ) -> Sequence[MatrixEntry]:
     """Return entries with `provider` rewritten to llm_provider_override when set.
@@ -495,12 +495,12 @@ def run_matrix(
     if llm_provider_override:
         # IN-02: surface the rebind in CI logs so operators reading the run
         # output can correlate per-provider summary keys to the override target.
-        _log.info(
+        logger.info(
             "eval_matrix: --llm-provider-override=%s active; entries rebound",
             llm_provider_override,
         )
     effective_matrix = EvalMatrixConfig(
-        entries=list(_apply_override(matrix.entries, llm_provider_override)),
+        entries=list(apply_override(matrix.entries, llm_provider_override)),
         scenarios=list(matrix.scenarios),
     )
     violation_cells: list[dict[str, Any]] = []  # D-11-16: rc==1 model-behavior violations
@@ -511,7 +511,7 @@ def run_matrix(
     # shared snapshot to support flag-on-refinement-cell-only patterns.
     # NEW HIGH-B: the per-cell env is ALSO applied to `os.environ` during
     # the cell's run with try/finally cleanup, so in-process readers
-    # (e.g., unit-test invocations of `_run_prod_threading`'s
+    # (e.g., unit-test invocations of `run_prod_threading`'s
     # `os.environ.get('REFINEMENT_STRUCTURED_PLAN_ENABLED')` read) see
     # the override. Without the apply step, the env propagated to the
     # subprocess child but was invisible to in-process consumers.
@@ -527,11 +527,11 @@ def run_matrix(
         try:
             if cell.env:
                 os.environ.update(cell.env)
-            cmd = _build_subprocess_cmd(
+            cmd = build_subprocess_cmd(
                 cell=cell,
                 cell_path=cell_path,
                 eval_queries_path=eval_queries_path,
-                llm_provider_override=None,  # already applied via _apply_override
+                llm_provider_override=None,  # already applied via apply_override
             )
             # cmd is built from a closed allowlist (sys.executable + repo-relative
             # script path + structured matrix/scenario fields) — no shell, no
@@ -579,13 +579,13 @@ def run_matrix(
     return rc, violation_cells, error_cells
 
 
-def _validate_override(value: str | None) -> str | None:
+def validate_override(value: str | None) -> str | None:
     """argparse type for --llm-provider-override (WR-04).
 
     `--` is reserved as the cell-filename separator in `scripts/eval_matrix.py`.
     The `MatrixEntry.reject_double_dash` validator already enforces this at
     YAML-load time, but without an upfront argparse-level check, a malformed
-    --llm-provider-override value bubbles into `_apply_override` as a
+    --llm-provider-override value bubbles into `apply_override` as a
     `pydantic.ValidationError` mid-`run_matrix()` — no actionable CLI error.
     Rejecting `--` at parse time keeps the operator-facing error path clean
     (argparse rc=2 + usage) instead of a pydantic traceback.
@@ -618,7 +618,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--llm-provider-override",
         default=None,
-        type=_validate_override,
+        type=validate_override,
         help=(
             "Force ALL entries to this provider (typical CI: 'scripted'). "
             "Bypasses the APP_ENV=eval gate when set to 'scripted'."
@@ -634,7 +634,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--eval-queries",
-        default=_DEFAULT_EVAL_QUERIES_REL,
+        default=DEFAULT_EVAL_QUERIES_REL,
         help="Eval-queries YAML to forward to each subprocess.",
     )
     parser.add_argument(
@@ -652,7 +652,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "Structural-only validation mode: load the matrix config, "
             "iterate cells, verify env override propagation through "
-            "_apply_override, verify scripts.eval_agent.DETERMINISTIC_CHECKS "
+            "apply_override, verify scripts.eval_agent.DETERMINISTIC_CHECKS "
             "contains 'refinement_minimal_edit', verify "
             "app.agent.io.build_refinement_prompt_message is callable on a "
             "valid single-stop input. Exits 0 if all checks pass; exits 1 "
@@ -665,7 +665,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _print_dry_run(matrix: EvalMatrixConfig, runs: int) -> None:
+def print_dry_run(matrix: EvalMatrixConfig, runs: int) -> None:
     """Print one line per cell in deterministic order. Used by --dry-run."""
     for cell in iter_cells(matrix, runs=runs):
         print(f"{cell.provider}/{cell.model} :: {cell.scenario_id} :: --run-{cell.run_n}")
@@ -704,12 +704,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 1
 
-        # Check 3: every cell is reachable via _apply_override (the scripted
+        # Check 3: every cell is reachable via apply_override (the scripted
         # override path); MEDIUM-1 regression guard (env is preserved).
-        rebound = list(_apply_override(matrix.entries, "scripted"))
+        rebound = list(apply_override(matrix.entries, "scripted"))
         if len(rebound) != len(matrix.entries):
             print(
-                f"structural-check: _apply_override changed entry count "
+                f"structural-check: apply_override changed entry count "
                 f"({len(matrix.entries)} -> {len(rebound)})",
                 file=sys.stderr,
             )
@@ -717,7 +717,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for original, rebound_entry in zip(matrix.entries, rebound, strict=True):
             if rebound_entry.env != original.env:
                 print(
-                    f"structural-check: _apply_override dropped env on "
+                    f"structural-check: apply_override dropped env on "
                     f"{original.provider}/{original.model}: {original.env} -> "
                     f"{rebound_entry.env} (MEDIUM-1 regression)",
                     file=sys.stderr,
@@ -774,15 +774,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         from app.eval.config import EvalQuery
         from scripts.eval_agent import make_error_record
 
-        _synthetic_case = EvalQuery(
+        synthetic_case = EvalQuery(
             id="structural_check_synthetic",
             query="structural check probe",
             reference="structural check probe reference",
             expects_clarification_or_relaxation=True,
         )
         try:
-            _err_record = make_error_record(
-                _synthetic_case, "turn0", RuntimeError("quota exceeded")
+            err_record = make_error_record(
+                synthetic_case, "turn0", RuntimeError("quota exceeded")
             )
         except Exception as exc:
             print(
@@ -791,17 +791,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        if _err_record.status != "error":
+        if err_record.status != "error":
             print(
-                f"structural-check: make_error_record status={_err_record.status!r} "
+                f"structural-check: make_error_record status={err_record.status!r} "
                 "expected 'error' (D-10-03 schema contract violated)",
                 file=sys.stderr,
             )
             return 1
-        _err_stage = (_err_record.error or {}).get("stage")
-        if _err_stage not in {"setup", "turn0", "turnN"}:
+        err_stage = (err_record.error or {}).get("stage")
+        if err_stage not in {"setup", "turn0", "turnN"}:
             print(
-                f"structural-check: make_error_record error.stage={_err_stage!r} not in "
+                f"structural-check: make_error_record error.stage={err_stage!r} not in "
                 "{'setup','turn0','turnN'} — D-10-03 stage contract violated",
                 file=sys.stderr,
             )
@@ -809,7 +809,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         print(
             f"structural-check: OK — matrix has {len(cells)} cell(s), "
-            f"env-override preserved through _apply_override, scorer "
+            f"env-override preserved through apply_override, scorer "
             f"registered, shared helper functional, error-schema valid",
             file=sys.stderr,
         )
@@ -818,11 +818,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Apply override for the dry-run printout so users see the effective
     # provider list before any subprocess fires.
     effective_for_print = EvalMatrixConfig(
-        entries=list(_apply_override(matrix.entries, args.llm_provider_override)),
+        entries=list(apply_override(matrix.entries, args.llm_provider_override)),
         scenarios=list(matrix.scenarios),
     )
 
-    if _gate_blocks(matrix, args.llm_provider_override):
+    if gate_blocks(matrix, args.llm_provider_override):
         print(
             "eval_matrix: APP_ENV=eval required for real-provider matrix runs; "
             "pass --llm-provider-override scripted for CI or set APP_ENV=eval",
@@ -831,7 +831,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     if args.dry_run:
-        _print_dry_run(effective_for_print, runs=args.runs)
+        print_dry_run(effective_for_print, runs=args.runs)
         return 0
 
     output_dir = Path(args.output_dir) if args.output_dir is not None else resolve_run_dir()
@@ -851,26 +851,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     # scenario block. A missing or malformed file must NOT block summary writing
     # — fall back to None (no baseline_eligible keys) with a logged warning.
     try:
-        _eval_queries_cfg: EvalQueriesConfig | None = load_eval_queries(args.eval_queries)
-    except (OSError, ValueError, yaml.YAMLError) as _exc:
-        _log.warning(
+        eval_queries_cfg: EvalQueriesConfig | None = load_eval_queries(args.eval_queries)
+    except (OSError, ValueError, yaml.YAMLError) as exc_obj:
+        logger.warning(
             "eval_matrix: could not load eval-queries config %r (%s); "
             "baseline_eligible will be omitted from summary.json",
             args.eval_queries,
-            _exc,
+            exc_obj,
         )
-        _eval_queries_cfg = None
+        eval_queries_cfg = None
     summary = aggregate_cell_jsons(
         output_dir,
         llm_provider_override=args.llm_provider_override,
-        eval_queries_config=_eval_queries_cfg,
+        eval_queries_config=eval_queries_cfg,
     )
     # D-11-16: record violation and error cells separately in summary.json.
     summary["violation_cells"] = violation_cells
     summary["error_cells"] = error_cells
 
     # D-10-03: compute total_errored across all provider-key blocks in summary.
-    # A cell with any errored run is INVALID_FOR_BASELINE and forces a non-zero
+    # A cell with any errored run is INVALID_FORBASELINE and forces a non-zero
     # exit code, reported on a stderr line DISTINCT from the subprocess failures
     # line (T-10-02-02 — an errored matrix cannot exit 0).
     total_errored = sum(
@@ -899,7 +899,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if total_errored > 0:
         print(
-            f"eval_matrix: {total_errored} run(s) had errors (INVALID_FOR_BASELINE); "
+            f"eval_matrix: {total_errored} run(s) had errors (INVALID_FORBASELINE); "
             f"see {summary_path}#/errors",
             file=sys.stderr,
         )

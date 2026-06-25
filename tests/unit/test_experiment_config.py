@@ -17,7 +17,7 @@ from scripts.log_model_to_mlflow import (
 )
 
 
-def _valid_payload() -> dict:
+def valid_payload() -> dict:
     return {
         "experiment_name": "city-concierge-rag-test",
         "sample_queries": [
@@ -48,7 +48,7 @@ def write_experiment_config(tmp_path: Path, payload: dict) -> Path:
 
 
 def test_load_experiment_config_loads_valid_yaml(tmp_path: Path) -> None:
-    config_path = write_experiment_config(tmp_path, _valid_payload())
+    config_path = write_experiment_config(tmp_path, valid_payload())
 
     config = load_experiment_config(config_path)
 
@@ -64,16 +64,16 @@ def test_load_experiment_config_loads_valid_yaml(tmp_path: Path) -> None:
     ]
 
 
-def _payload_with_run(**overrides: object) -> dict:
-    payload = _valid_payload()
+def payload_with_run(**overrides: object) -> dict:
+    payload = valid_payload()
     run = dict(payload["runs"][0])
     run.update(overrides)
     payload["runs"] = [run]
     return payload
 
 
-def _payload_without_run_field(field: str) -> dict:
-    payload = _valid_payload()
+def payload_without_run_field(field: str) -> dict:
+    payload = valid_payload()
     run = dict(payload["runs"][0])
     run.pop(field)
     payload["runs"] = [run]
@@ -83,21 +83,21 @@ def _payload_without_run_field(field: str) -> dict:
 @pytest.mark.parametrize(
     ("payload", "match"),
     [
-        (_payload_with_run(llm_provider="anthropic"), r"llm_provider"),
-        (_payload_without_run_field("temperature"), r"(?s)temperature.*[Ff]ield required"),
-        (_payload_without_run_field("chat_model"), r"(?s)chat_model.*[Ff]ield required"),
-        (_payload_with_run(k=0), r"(?s)k.*greater than 0"),
-        (_payload_with_run(k=True), r"k"),
-        (_payload_with_run(k="five"), r"k"),
-        (_payload_with_run(temperature="hot"), r"temperature"),
-        (_payload_with_run(chat_model=""), r"chat_model"),
-        (_payload_with_run(chat_model="   "), r"chat_model"),
-        ({**_valid_payload(), "sample_queries": "not a list"}, r"sample_queries"),
-        ({**_valid_payload(), "sample_queries": []}, r"sample_queries"),
-        ({**_valid_payload(), "sample_queries": ["  "]}, r"sample_queries"),
-        ({**_valid_payload(), "runs": []}, r"runs"),
-        ({**_valid_payload(), "runs": None}, r"runs"),
-        ({**_valid_payload(), "experiment_name": ""}, r"experiment_name"),
+        (payload_with_run(llm_provider="anthropic"), r"llm_provider"),
+        (payload_without_run_field("temperature"), r"(?s)temperature.*[Ff]ield required"),
+        (payload_without_run_field("chat_model"), r"(?s)chat_model.*[Ff]ield required"),
+        (payload_with_run(k=0), r"(?s)k.*greater than 0"),
+        (payload_with_run(k=True), r"k"),
+        (payload_with_run(k="five"), r"k"),
+        (payload_with_run(temperature="hot"), r"temperature"),
+        (payload_with_run(chat_model=""), r"chat_model"),
+        (payload_with_run(chat_model="   "), r"chat_model"),
+        ({**valid_payload(), "sample_queries": "not a list"}, r"sample_queries"),
+        ({**valid_payload(), "sample_queries": []}, r"sample_queries"),
+        ({**valid_payload(), "sample_queries": ["  "]}, r"sample_queries"),
+        ({**valid_payload(), "runs": []}, r"runs"),
+        ({**valid_payload(), "runs": None}, r"runs"),
+        ({**valid_payload(), "experiment_name": ""}, r"experiment_name"),
     ],
 )
 def test_load_experiment_config_rejects_invalid_payloads(
@@ -129,7 +129,7 @@ def test_repo_experiments_yaml_is_valid() -> None:
 
 
 def test_log_rag_experiments_from_config_logs_each_run(mocker) -> None:
-    config = ExperimentConfig.model_validate(_valid_payload())
+    config = ExperimentConfig.model_validate(valid_payload())
     log_rag_experiment = mocker.patch(
         "scripts.log_model_to_mlflow.log_rag_experiment",
         side_effect=["run-1", "run-2"],
@@ -159,7 +159,7 @@ def test_log_rag_experiments_from_config_logs_each_run(mocker) -> None:
 
 
 def test_log_rag_experiments_from_config_applies_overrides(mocker) -> None:
-    config = ExperimentConfig.model_validate(_valid_payload())
+    config = ExperimentConfig.model_validate(valid_payload())
     log_rag_experiment = mocker.patch(
         "scripts.log_model_to_mlflow.log_rag_experiment",
         side_effect=["run-1", "run-2"],
@@ -201,7 +201,7 @@ def mock_mlflow_batch(mocker):
 def test_main_config_mode_uses_yaml_values(
     tmp_path: Path, mock_log_rag_experiment, mock_mlflow_batch
 ) -> None:
-    config_path = write_experiment_config(tmp_path, _valid_payload())
+    config_path = write_experiment_config(tmp_path, valid_payload())
     mock_log_rag_experiment.side_effect = ["run-1", "run-2"]
 
     main(["--config", str(config_path)])
@@ -218,7 +218,7 @@ def test_main_config_mode_uses_yaml_values(
 def test_main_config_mode_experiment_name_override(
     tmp_path: Path, mock_log_rag_experiment, mock_mlflow_batch
 ) -> None:
-    config_path = write_experiment_config(tmp_path, _valid_payload())
+    config_path = write_experiment_config(tmp_path, valid_payload())
     mock_log_rag_experiment.side_effect = ["run-1", "run-2"]
 
     main(["--config", str(config_path), "--experiment-name", "override-exp"])
@@ -230,7 +230,7 @@ def test_main_config_mode_experiment_name_override(
 def test_main_config_mode_sample_query_override(
     tmp_path: Path, mock_log_rag_experiment, mock_mlflow_batch
 ) -> None:
-    config_path = write_experiment_config(tmp_path, _valid_payload())
+    config_path = write_experiment_config(tmp_path, valid_payload())
     mock_log_rag_experiment.side_effect = ["run-1", "run-2"]
 
     main(["--config", str(config_path), "--sample-query", "only this"])
@@ -253,7 +253,7 @@ def test_main_ad_hoc_mode_loads_default_sample_queries_from_yaml(
     mocker, mock_log_rag_experiment
 ) -> None:
     mocker.patch(
-        "scripts.log_model_to_mlflow._load_default_sample_queries",
+        "scripts.log_model_to_mlflow.load_default_sample_queries",
         return_value=["yaml-query"],
     )
 

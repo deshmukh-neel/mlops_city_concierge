@@ -3,7 +3,7 @@
 
 Reads a completed eval_reports run directory (latest by default) and answers:
   - Did openai/gpt-5-mini hit >= 0.6 committed_itinerary_rate (median-weighted
-    across scenarios; see _pooled_commit_rate) pooled over
+    across scenarios; see pooled_commit_rate) pooled over
     all scored scenarios? (D-12-08: pooled across configs/eval_matrix.yaml cells)
   - Did openai/gpt-4o-mini hold >= its honest baseline floor?
 
@@ -36,18 +36,18 @@ from typing import Any
 # No top-level LLM SDK imports — artifact-reading only (D-12-06)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-_DEFAULT_OUTPUT_BASE = REPO_ROOT / "eval_reports"
+DEFAULT_OUTPUT_BASE = REPO_ROOT / "eval_reports"
 
 # INST-05 / D-12-08: pooled committed_itinerary_rate bar for gpt-5-mini
-_FALSIFIER_BAR = 0.6
+FALSIFIER_BAR = 0.6
 
 # Provider keys used in falsifier checks
-_GPT5_KEY = "openai/gpt-5-mini"
-_ANCHOR_KEY = "openai/gpt-4o-mini"
-_ANCHOR_METRIC = "committed_itinerary_rate"
+GPT5_KEY = "openai/gpt-5-mini"
+ANCHOR_KEY = "openai/gpt-4o-mini"
+ANCHOR_METRIC = "committed_itinerary_rate"
 
 
-def _latest_run_dir(base: Path) -> Path:
+def latest_run_dir(base: Path) -> Path:
     """Return the most recently created subdirectory in base (latest eval run).
 
     ISO8601 filenames sort lexicographically, so the last entry is the newest.
@@ -65,10 +65,10 @@ def _latest_run_dir(base: Path) -> Path:
 
 
 # WR-06: the scope of this falsifier is configs/eval_matrix.yaml (D-12-08).
-_DEFAULT_MATRIX_CONFIG = REPO_ROOT / "configs" / "eval_matrix.yaml"
+DEFAULT_MATRIX_CONFIG = REPO_ROOT / "configs" / "eval_matrix.yaml"
 
 
-def _expected_matrix_scenarios(matrix_path: Path = _DEFAULT_MATRIX_CONFIG) -> set[str]:
+def expected_matrix_scenarios(matrix_path: Path = DEFAULT_MATRIX_CONFIG) -> set[str]:
     """Return the scenario ids declared in configs/eval_matrix.yaml (WR-06).
 
     Used only to WARN when a graded summary contains none of the expected
@@ -90,7 +90,7 @@ def _expected_matrix_scenarios(matrix_path: Path = _DEFAULT_MATRIX_CONFIG) -> se
     return {str(s) for s in scenarios if isinstance(s, str)}
 
 
-def _pooled_commit_rate(
+def pooled_commit_rate(
     summary: dict[str, Any],
     provider_key: str,
     scenario_ids: set[str] | None = None,
@@ -176,7 +176,7 @@ def _pooled_commit_rate(
     return pooled, per_scenario
 
 
-def _commit_split_from_run_dir(
+def commit_split_from_run_dir(
     run_dir: Path,
     provider_key: str,
     scenario_ids: set[str] | None = None,
@@ -225,7 +225,7 @@ def _commit_split_from_run_dir(
     return model_initiated, forced
 
 
-def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
+def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     """Parse argv for the falsifier report."""
     parser = argparse.ArgumentParser(
         prog="eval_falsifier",
@@ -250,7 +250,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default="configs/eval_baselines",
         help="Baseline JSON directory for anchor non-regression (default: configs/eval_baselines).",
     )
-    # WR-05: no --gates-config flag. The 0.6 bar is _FALSIFIER_BAR (INST-05 /
+    # WR-05: no --gates-config flag. The 0.6 bar is FALSIFIER_BAR (INST-05 /
     # D-12-08) and the anchor floor comes from --baselines-dir; accepting a
     # gates-config path here would imply eval_gates.yaml drives the falsifier
     # when it does not.
@@ -290,21 +290,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     # Lazy import — only used here, not at module level (D-12-06 artifact-reading only)
     from scripts.check_eval_gates import (  # noqa: PLC0415
-        _build_summary_from_baselines,
-        _load_baseline_eligibility,
+        build_summary_from_baselines,
+        load_baseline_eligibility,
     )
 
-    args = _parse_args(argv if argv is not None else sys.argv[1:])
+    args = parse_args(argv if argv is not None else sys.argv[1:])
 
     # ── Resolve the summary dict ────────────────────────────────────────────
     run_dir: Path | None = None
     try:
         if args.baselines_mode:
             # D-11-15 pattern: read committed baseline JSONs live-key-free
-            eligibility = _load_baseline_eligibility(args.eval_queries)
-            summary = _build_summary_from_baselines(Path(args.baselines_dir), eligibility)
+            eligibility = load_baseline_eligibility(args.eval_queries)
+            summary = build_summary_from_baselines(Path(args.baselines_dir), eligibility)
         else:
-            run_dir = Path(args.run_dir) if args.run_dir else _latest_run_dir(_DEFAULT_OUTPUT_BASE)
+            run_dir = Path(args.run_dir) if args.run_dir else latest_run_dir(DEFAULT_OUTPUT_BASE)
 
             summary_path = run_dir / "summary.json"
             if not summary_path.exists():
@@ -324,11 +324,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     # default eval_matrix.yaml (omakase-only). The guard reads whichever config
     # is given; the default is the production matrix.
     matrix_config_path: Path = (
-        Path(args.matrix_config) if args.matrix_config else _DEFAULT_MATRIX_CONFIG
+        Path(args.matrix_config) if args.matrix_config else DEFAULT_MATRIX_CONFIG
     )
 
     # ── Check 1: gpt-5-mini pooled committed_itinerary_rate >= 0.6 ─────────
-    gpt5_pooled, gpt5_per_scenario = _pooled_commit_rate(summary, _GPT5_KEY)
+    gpt5_pooled, gpt5_per_scenario = pooled_commit_rate(summary, GPT5_KEY)
 
     print(f"\n{'=' * 60}")
     print("eval_falsifier: INST-05 Milestone Falsifier Report")
@@ -340,7 +340,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"source: committed baselines at {args.baselines_dir}")
     else:
         print(f"source: run dir {run_dir}")
-        expected_scenarios = _expected_matrix_scenarios(matrix_config_path)
+        expected_scenarios = expected_matrix_scenarios(matrix_config_path)
         scenarios_block = summary.get("scenarios")
         found_scenarios = set(scenarios_block) if isinstance(scenarios_block, dict) else set()
         if expected_scenarios and not (found_scenarios & expected_scenarios):
@@ -359,7 +359,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
 
     # Per-scenario breakdown (D-12-08: always print)
-    print(f"\n[{_GPT5_KEY}] committed_itinerary_rate per scenario:")
+    print(f"\n[{GPT5_KEY}] committed_itinerary_rate per scenario:")
     for scenario_id, rate in gpt5_per_scenario.items():
         rate_str = f"{rate:.3f}" if rate is not None else "N/A"
         print(f"  {scenario_id}: {rate_str}")
@@ -367,24 +367,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     # D-13-04: forced-commit split annotation (run-dir mode only — baselines mode has no per-run files)
     gpt5_split_str = ""
     if run_dir is not None:
-        gpt5_mi, gpt5_fc = _commit_split_from_run_dir(run_dir, _GPT5_KEY)
+        gpt5_mi, gpt5_fc = commit_split_from_run_dir(run_dir, GPT5_KEY)
         gpt5_total = gpt5_mi + gpt5_fc
         gpt5_split_str = f" (model-initiated {gpt5_mi}/{gpt5_total}, forced {gpt5_fc}/{gpt5_total})"
 
     if gpt5_pooled is None:
         print(
-            f"\n{_GPT5_KEY}: median-weighted committed_itinerary_rate = N/A (no evaluable cells)  FAIL"
+            f"\n{GPT5_KEY}: median-weighted committed_itinerary_rate = N/A (no evaluable cells)  FAIL"
         )
         failed = True
-    elif gpt5_pooled >= _FALSIFIER_BAR:
+    elif gpt5_pooled >= FALSIFIER_BAR:
         print(
-            f"\n{_GPT5_KEY}: median-weighted committed_itinerary_rate = {gpt5_pooled:.3f}"
-            f" >= {_FALSIFIER_BAR}{gpt5_split_str}  PASS"
+            f"\n{GPT5_KEY}: median-weighted committed_itinerary_rate = {gpt5_pooled:.3f}"
+            f" >= {FALSIFIER_BAR}{gpt5_split_str}  PASS"
         )
     else:
         print(
-            f"\n{_GPT5_KEY}: median-weighted committed_itinerary_rate = {gpt5_pooled:.3f}"
-            f" < {_FALSIFIER_BAR}{gpt5_split_str}  FAIL"
+            f"\n{GPT5_KEY}: median-weighted committed_itinerary_rate = {gpt5_pooled:.3f}"
+            f" < {FALSIFIER_BAR}{gpt5_split_str}  FAIL"
         )
         failed = True
 
@@ -393,20 +393,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     # This means the anchor check is always grounded in the honest committed baseline,
     # not compared to itself when in --baselines-mode.
     try:
-        baseline_eligibility_for_anchor = _load_baseline_eligibility(args.eval_queries)
-        baselines_summary = _build_summary_from_baselines(
+        baseline_eligibility_for_anchor = load_baseline_eligibility(args.eval_queries)
+        baselines_summary = build_summary_from_baselines(
             Path(args.baselines_dir), baseline_eligibility_for_anchor
         )
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"eval_falsifier: could not load baselines for anchor check: {exc}\n")
         return 2
 
-    _, anchor_per_scenario = _pooled_commit_rate(summary, _ANCHOR_KEY)
-    baseline_pooled_full, baseline_per_scenario = _pooled_commit_rate(
-        baselines_summary, _ANCHOR_KEY
+    _, anchor_per_scenario = pooled_commit_rate(summary, ANCHOR_KEY)
+    baseline_pooled_full, baseline_per_scenario = pooled_commit_rate(
+        baselines_summary, ANCHOR_KEY
     )
 
-    print(f"\n[{_ANCHOR_KEY}] committed_itinerary_rate per scenario (run vs baseline):")
+    print(f"\n[{ANCHOR_KEY}] committed_itinerary_rate per scenario (run vs baseline):")
     all_scenario_ids = set(anchor_per_scenario) | set(baseline_per_scenario)
     for scenario_id in sorted(all_scenario_ids):
         run_rate = anchor_per_scenario.get(scenario_id)
@@ -421,11 +421,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Use the baseline value itself as the anchor floor for display
         if baseline_pooled_full is not None:
             print(
-                f"\n{_ANCHOR_KEY}: baselines-mode — median-weighted baseline = {baseline_pooled_full:.3f}"
+                f"\n{ANCHOR_KEY}: baselines-mode — median-weighted baseline = {baseline_pooled_full:.3f}"
                 f" (anchor regression check skipped in baselines-mode)"
             )
         else:
-            print(f"\n{_ANCHOR_KEY}: baselines-mode — median-weighted baseline = N/A")
+            print(f"\n{ANCHOR_KEY}: baselines-mode — median-weighted baseline = N/A")
     else:
         # Run-dir mode: compare run results against committed baseline floor.
         # CR-01: the run and the committed baselines cover DIFFERENT scenario
@@ -444,15 +444,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"\n  note: scenarios excluded from anchor comparison"
                 f" (missing on one side): {', '.join(excluded)}"
             )
-        anchor_pooled, _ = _pooled_commit_rate(summary, _ANCHOR_KEY, scenario_ids=common)
-        baseline_pooled, _ = _pooled_commit_rate(
-            baselines_summary, _ANCHOR_KEY, scenario_ids=common
+        anchor_pooled, _ = pooled_commit_rate(summary, ANCHOR_KEY, scenario_ids=common)
+        baseline_pooled, _ = pooled_commit_rate(
+            baselines_summary, ANCHOR_KEY, scenario_ids=common
         )
 
         # D-13-04: forced-commit split annotation for anchor (run-dir mode only)
         anchor_split_str = ""
         if run_dir is not None:
-            anchor_mi, anchor_fc = _commit_split_from_run_dir(run_dir, _ANCHOR_KEY)
+            anchor_mi, anchor_fc = commit_split_from_run_dir(run_dir, ANCHOR_KEY)
             anchor_total = anchor_mi + anchor_fc
             anchor_split_str = (
                 f" (model-initiated {anchor_mi}/{anchor_total}, forced {anchor_fc}/{anchor_total})"
@@ -461,22 +461,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         anchor_has_cells = any(v is not None for v in anchor_per_scenario.values())
         if not anchor_has_cells:
             print(
-                f"\n{_ANCHOR_KEY}: median-weighted committed_itinerary_rate = N/A (no evaluable cells)  FAIL"
+                f"\n{ANCHOR_KEY}: median-weighted committed_itinerary_rate = N/A (no evaluable cells)  FAIL"
             )
             failed = True
         elif not common or anchor_pooled is None or baseline_pooled is None:
             print(
-                f"\n{_ANCHOR_KEY}: WARNING — no scenario overlap between run and committed"
+                f"\n{ANCHOR_KEY}: WARNING — no scenario overlap between run and committed"
                 f" baselines; anchor floor is not comparable (treating as PASS — no floor set)"
             )
         elif anchor_pooled >= baseline_pooled:
             print(
-                f"\n{_ANCHOR_KEY}: median-weighted = {anchor_pooled:.3f}"
+                f"\n{ANCHOR_KEY}: median-weighted = {anchor_pooled:.3f}"
                 f" >= baseline {baseline_pooled:.3f}{anchor_split_str}  PASS"
             )
         else:
             print(
-                f"\n{_ANCHOR_KEY}: median-weighted = {anchor_pooled:.3f}"
+                f"\n{ANCHOR_KEY}: median-weighted = {anchor_pooled:.3f}"
                 f" < baseline {baseline_pooled:.3f}{anchor_split_str}  FAIL (anchor regression)"
             )
             failed = True

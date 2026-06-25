@@ -10,7 +10,7 @@ documented contract, ``ChatDeepSeek`` for ``deepseek-reasoner`` populates
 ``AIMessage.additional_kwargs["reasoning_content"]`` directly — unlike the
 gpt-5 family (Plan 09-01 PROV-01 Path B), no library-level reshape is needed.
 The factory-level carve-out flips ``extra_body={"thinking": {"type":
-"enabled"}}`` on ``deepseek-reasoner`` (see ``_DEEPSEEK_REASONER_THINKING_ENABLED``
+"enabled"}}`` on ``deepseek-reasoner`` (see ``DEEPSEEK_REASONER_THINKING_ENABLED``
 in ``app/llm_factory.py``) so the API actually emits the reasoning text;
 this adapter then captures + replays it via the documented additional_kwargs
 contract.

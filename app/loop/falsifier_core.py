@@ -1,15 +1,14 @@
-"""Pure falsifier core logic — no DB, no MLflow, no LLM, no network.
+"""Pure falsifier core logic: no DB, MLflow, LLM, or network calls.
 
 This module owns:
-- hit@k metric (k=5, N=5 as module constants, per D-05)
-- DB-diff target-set computation (D-03 / FALSIFY-01c)
-- Prod-safety guard: hard-assert SANDBOX_DATABASE_URL is set and differs from prod (D-12)
-- Non-circularity disjointness assertion (D-07)
-- Exit-code constants mirroring scripts/eval_falsifier.py (D-09)
+- hit@k metric calculation
+- newly-ingested target-set computation
+- sandbox-vs-production safety checks
+- non-circular paraphrase checks
+- exit-code constants mirrored by the orchestrator
 
-All functions are pure (no side effects, no I/O). The orchestrator (16-03) supplies
-live inputs and calls these functions; this module stays fully unit-testable at zero
-API cost.
+All functions are pure. The orchestrator supplies live inputs and handles I/O,
+keeping this module cheap to test and safe to import.
 
 Import contract: stdlib only + dataclasses. No mlflow, openai, psycopg2, app.db,
 or semantic_search imports here.
@@ -21,13 +20,13 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, unquote, urlsplit
 
 # ---------------------------------------------------------------------------
-# Module constants (D-05, D-09)
+# Module constants
 # ---------------------------------------------------------------------------
 
 #: Retrieval window used for hit@k — mirrors a realistic itinerary candidate window.
 K = 5  # int
 
-#: Number of held-out paraphrases per falsifier run (D-05).
+#: Number of held-out paraphrases per falsifier run.
 N = 5  # int
 
 #: Exit code: PASS — strictly-positive before→after delta confirmed.
@@ -102,7 +101,7 @@ def compute_hit_rate(
     Args:
         per_paraphrase_topk: One list of place_id strings per paraphrase.
             Each inner list must have at most K entries.
-        newly_ingested_ids: Set of place_ids that are newly ingested (DB-diff, D-03).
+        newly_ingested_ids: Set of place_ids newly added by the ingest step.
 
     Returns:
         HitRateResult with hit_count, n (= len(per_paraphrase_topk)), and hit_rate.
@@ -171,7 +170,7 @@ def compute_recall_at_k(
 
 
 def is_pass(after_hit_rate: float) -> bool:
-    """Return True iff after_hit_rate is strictly positive (D-04).
+    """Return True when after_hit_rate is strictly positive.
 
     PASS iff at least one paraphrase retrieved a newly-ingested place in top-K.
     This is the literal FALSIFY-01 'strictly positive delta' rule when the sandbox
@@ -181,7 +180,7 @@ def is_pass(after_hit_rate: float) -> bool:
 
 
 def is_strictly_positive_delta(before_hit_rate: float, after_hit_rate: float) -> bool:
-    """Return True iff (after - before) > 0.0 — the literal FALSIFY-01(f) rule (D-04).
+    """Return True when (after - before) > 0.0.
 
     Distinct from is_pass: this handles the general case where before may be non-zero
     (e.g. a non-empty sandbox). The orchestrator may call either depending on context;
@@ -242,7 +241,7 @@ def decide_loop_exit(
 
 
 def db_diff(before_ids: set[str], after_ids: set[str]) -> set[str]:
-    """Return the set of place_ids present after ingest but absent before (D-03 / FALSIFY-01c).
+    """Return place_ids present after ingest but absent before.
 
     This is the expected target set: newly-ingested places that the embed step should
     have made retrievable. NOT proposal `applied` status — this is a raw DB diff.
@@ -259,11 +258,11 @@ def build_premark_set(all_seed_queries: list[str], chosen_seed_query: str) -> se
     """Return catalog minus the chosen seed — the pre-mark set for the orchestrator.
 
     The orchestrator pre-marks the returned set as 'completed' in the proposals
-    table so the ingest script processes ONLY the chosen seed gap (Codex HIGH
-    seed-isolation fix). Pure set logic; the orchestrator supplies the catalog.
+    table so the ingest script processes only the chosen seed gap. Pure set
+    logic; the orchestrator supplies the catalog.
 
     If *chosen_seed_query* is not in the catalog, the full catalog is returned
-    (the orchestrator must treat this as a precondition error — see plan 16-03).
+    (the orchestrator must treat this as a precondition error).
 
     Duplicate entries in *all_seed_queries* collapse to a set.
     """
@@ -271,11 +270,11 @@ def build_premark_set(all_seed_queries: list[str], chosen_seed_query: str) -> se
 
 
 # ---------------------------------------------------------------------------
-# URL normalization helpers (Cloud SQL-aware, per D-12 / Codex MEDIUM)
+# URL normalization helpers
 # ---------------------------------------------------------------------------
 
 
-def _normalize_url(url: str) -> tuple[str, str, str, str]:
+def normalize_url(url: str) -> tuple[str, str, str, str]:
     """Normalize a PostgreSQL URL to (host, port, dbname, cloud_sql_instance).
 
     Handles both TCP URLs (postgresql://user:pw@host:port/dbname) and Cloud SQL
@@ -321,19 +320,18 @@ def check_prod_safety(
     resolvable_prod_url: str | None,
     allow_remote: bool = False,
 ) -> GuardResult:
-    """Assert that sandbox_url is safe to use (D-12).
+    """Assert that sandbox_url is safe to use.
 
     Returns a violation GuardResult when:
     - sandbox_url is None or empty (SANDBOX_DATABASE_URL unset)
-    - sandbox_url targets a Cloud SQL instance AND allow_remote is False (WR-01: mirrors
-      the shell provisioner guard; the falsifier sandbox must be a local Docker container)
+    - sandbox_url targets a Cloud SQL instance and allow_remote is False
     - sandbox_url's normalized target equals resolvable_prod_url's normalized target
     - both share the same non-empty cloud_sql_instance connection name
 
     Returns ok=True when resolvable_prod_url is None (prod URL unresolvable means no
     known collision; the provisioning script is the belt-and-suspenders).
 
-    Collision check semantics (WR-07 precision):
+    Collision check semantics:
     - TCP path: compares (host, dbname) — port is intentionally NOT included because the
       legitimate local workflow uses prod on :5432 (Postgres.app) and sandbox on :5433
       (Docker). Including port would cause false-negatives on that setup. Same-host +
@@ -351,7 +349,7 @@ def check_prod_safety(
             orchestrator could not resolve a prod URL; treated as no collision).
         allow_remote: When True, suppress the Cloud SQL sandbox URL rejection. Set via
             bool(os.environ.get("SANDBOX_ALLOW_REMOTE")) in the orchestrator — never read
-            os.environ here to keep this module import-pure and unit-testable. (WR-01)
+            os.environ here to keep this module import-pure and unit-testable.
     """
     if not sandbox_url:
         return GuardResult(
@@ -359,10 +357,10 @@ def check_prod_safety(
             message="SANDBOX_DATABASE_URL is unset or empty — refusing to run against an unknown database.",
         )
 
-    sb_host, sb_port, sb_dbname, sb_instance = _normalize_url(sandbox_url)
+    sb_host, sb_port, sb_dbname, sb_instance = normalize_url(sandbox_url)
 
-    # WR-01: Reject Cloud SQL sandbox URLs unless explicitly allowed.
-    # Mirrors the shell provisioner guard (provision_sandbox.sh:136-150).
+    # Reject Cloud SQL sandbox URLs unless explicitly allowed.
+    # Mirrors the shell provisioner guard.
     # A Cloud SQL socket sandbox on a DIFFERENT instance than prod would pass the
     # instance-collision check below but still be a remote write target — reject it.
     if sb_instance and not allow_remote:
@@ -380,7 +378,7 @@ def check_prod_safety(
             ok=True, message="ok (prod URL not resolvable; no collision check possible)"
         )
 
-    prod_host, prod_port, prod_dbname, prod_instance = _normalize_url(resolvable_prod_url)
+    prod_host, prod_port, prod_dbname, prod_instance = normalize_url(resolvable_prod_url)
 
     # Cloud SQL instance collision (same instance = same server regardless of dbname)
     if sb_instance and prod_instance and sb_instance == prod_instance:
@@ -409,14 +407,14 @@ def check_non_circularity(
     paraphrases: list[str],
     forbidden_queries: list[str],
 ) -> GuardResult:
-    """Assert that no paraphrase is an exact-string match of any forbidden query (D-07).
+    """Assert that no paraphrase is an exact-string match of any forbidden query.
 
     Non-circularity is enforced by exact-string, case- and whitespace-sensitive
     comparison. Semantic overlap is inherent and expected (same intent); this guard
     only catches literal string identity.
 
     The violation message names BOTH the offending paraphrase AND the forbidden source
-    query it collided with (Codex LOW — auditability).
+    query it collided with.
 
     Args:
         paraphrases: LLM-generated paraphrase strings (from the frozen paraphrase file).

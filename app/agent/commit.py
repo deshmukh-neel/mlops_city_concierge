@@ -20,7 +20,7 @@ from app.tools.retrieval import get_details_many
 logger = logging.getLogger(__name__)
 
 
-def _grounded_place_ids(scratch: dict[str, Any]) -> set[str]:
+def grounded_place_ids(scratch: dict[str, Any]) -> set[str]:
     """All place_ids the agent has actually seen via prior tool results."""
     grounded: set[str] = set()
     for entries in scratch.values():
@@ -51,7 +51,7 @@ def commit_stops(state: ItineraryState, raw_stops: Any) -> tuple[list[Stop], dic
     """
     if not isinstance(raw_stops, list):
         return [], {"error": "stops must be a list"}
-    grounded = _grounded_place_ids(state.scratch)
+    grounded = grounded_place_ids(state.scratch)
     committed: list[Stop] = []
     rejected: list[dict[str, Any]] = []
     for raw in raw_stops:

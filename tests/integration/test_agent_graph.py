@@ -31,14 +31,14 @@ from app.agent.graph import build_agent_graph  # noqa: E402
 from app.agent.state import ItineraryState  # noqa: E402
 
 
-class _SemanticSearchOnceLLM(BaseChatModel):
+class SemanticSearchOnceLLM(BaseChatModel):
     """Issues one semantic_search call against the real DB, then finalizes."""
 
     @property
     def _llm_type(self) -> str:
         return "semantic-search-once"
 
-    _step: int = 0
+    step_value: int = 0
 
     def _generate(
         self,
@@ -47,8 +47,8 @@ class _SemanticSearchOnceLLM(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        if self._step == 0:
-            self._step += 1
+        if self.step_value == 0:
+            self.step_value += 1
             msg = AIMessage(
                 content="",
                 tool_calls=[
@@ -63,12 +63,12 @@ class _SemanticSearchOnceLLM(BaseChatModel):
             msg = AIMessage(content="Done.", tool_calls=[])
         return ChatResult(generations=[ChatGeneration(message=msg)])
 
-    def bind_tools(self, tools: Any, **kwargs: Any) -> _SemanticSearchOnceLLM:
+    def bind_tools(self, tools: Any, **kwargs: Any) -> SemanticSearchOnceLLM:
         return self
 
 
 async def test_agent_graph_against_real_database() -> None:
-    graph = build_agent_graph(_SemanticSearchOnceLLM(), max_steps=4)
+    graph = build_agent_graph(SemanticSearchOnceLLM(), max_steps=4)
     out = await graph.ainvoke(
         ItineraryState(messages=[HumanMessage(content="cocktail bar tonight")])
     )

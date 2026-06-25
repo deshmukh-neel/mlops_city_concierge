@@ -77,7 +77,7 @@ fi
 
 # ─── Parse dbname from SANDBOX_DATABASE_URL (Python-delegated, WR-06) ────────
 #
-# WR-06: URL parsing is delegated to app.loop.falsifier_core._normalize_url via Python.
+# WR-06: URL parsing is delegated to app.loop.falsifier_core.normalize_url via Python.
 # The prior bash string-slicing parser mis-handled:
 #   - Passwords containing '@' (splits at the wrong '@')
 #   - Cloud SQL ?host= socket URLs (host lives in query string, not netloc)
@@ -87,16 +87,16 @@ fi
 # The Python call emits three tab-separated fields: dbname, host, cloud_sql_instance
 # (empty string when absent). On failure it prints ERROR to stderr and exits non-zero.
 
-_PARSED_FIELDS=$(
+PARSED_FIELDS=$(
   poetry run python -c "
 import sys, os
 try:
-    from app.loop.falsifier_core import _normalize_url
+    from app.loop.falsifier_core import normalize_url
     url = os.environ.get('SANDBOX_DATABASE_URL', '')
-    host, port, dbname, instance = _normalize_url(url)
+    host, port, dbname, instance = normalize_url(url)
     print(dbname + '\t' + host + '\t' + instance)
 except Exception as e:
-    print(f'ERROR: could not parse SANDBOX_DATABASE_URL via _normalize_url: {e}', file=sys.stderr)
+    print(f'ERROR: could not parse SANDBOX_DATABASE_URL via normalize_url: {e}', file=sys.stderr)
     sys.exit(1)
 " 2>/dev/null
 ) || {
@@ -105,26 +105,26 @@ except Exception as e:
   exit 1
 }
 
-_parsed_dbname=$(printf '%s' "${_PARSED_FIELDS}" | cut -f1)
-_parsed_host=$(printf '%s' "${_PARSED_FIELDS}" | cut -f2)
-_parsed_instance=$(printf '%s' "${_PARSED_FIELDS}" | cut -f3)
+parsed_dbname=$(printf '%s' "${PARSED_FIELDS}" | cut -f1)
+parsed_host=$(printf '%s' "${PARSED_FIELDS}" | cut -f2)
+parsed_instance=$(printf '%s' "${PARSED_FIELDS}" | cut -f3)
 
-if [[ -z "${_parsed_dbname}" ]]; then
+if [[ -z "${parsed_dbname}" ]]; then
   echo "ERROR: Could not parse dbname from SANDBOX_DATABASE_URL='${SANDBOX_DATABASE_URL}'." >&2
   echo "  Expected format: postgresql://user:pass@host:port/dbname" >&2
   exit 1
 fi
 
 # DB_NAME is the canonical variable for this script — every DDL step uses this.
-DB_NAME="${_parsed_dbname}"
+DB_NAME="${parsed_dbname}"
 
 # ─── Codex MEDIUM: assert URL-parsed dbname == DB_NAME ────────────────────────
 # (They are always equal here since DB_NAME is derived from the URL, but if
 # someone edits this script and introduces a separate DB_NAME constant, the
 # guard would catch the mismatch. Belt-and-suspenders check.)
 
-if [[ "${_parsed_dbname}" != "${DB_NAME}" ]]; then
-  echo "ERROR: URL-parsed dbname '${_parsed_dbname}' does not match DB_NAME '${DB_NAME}'." >&2
+if [[ "${parsed_dbname}" != "${DB_NAME}" ]]; then
+  echo "ERROR: URL-parsed dbname '${parsed_dbname}' does not match DB_NAME '${DB_NAME}'." >&2
   echo "  The script would CREATE/init/migrate different databases. Aborting." >&2
   exit 1
 fi
@@ -145,10 +145,10 @@ if [[ "${DB_NAME}" != *"${EXPECTED_SUFFIX}"* ]]; then
 fi
 
 # (b) Resolve prod URL and compare (host, dbname, instance) using Python.
-#     The Python check_prod_safety guard uses the same _normalize_url logic, so
+#     The Python check_prod_safety guard uses the same normalize_url logic, so
 #     the comparison here is consistent with the in-process guard.  (WR-06 DRY)
 if command -v poetry &>/dev/null; then
-  _GUARD_RESULT=$(
+  GUARD_RESULT=$(
     poetry run python -c "
 import sys, os
 try:
@@ -169,22 +169,22 @@ except Exception as e:
     print(f'WARN: prod-safety resolver raised: {e}', file=sys.stderr)
     print('WARN')
 " 2>/dev/null || echo "WARN"
-  ) || _GUARD_RESULT="WARN"
+  ) || GUARD_RESULT="WARN"
 else
-  _GUARD_RESULT="WARN"
+  GUARD_RESULT="WARN"
 fi
 
-if [[ "${_GUARD_RESULT}" == FAIL:* ]]; then
+if [[ "${GUARD_RESULT}" == FAIL:* ]]; then
   echo "ERROR: Prod-safety guard rejected SANDBOX_DATABASE_URL." >&2
-  echo "  Reason: ${_GUARD_RESULT#FAIL:}" >&2
+  echo "  Reason: ${GUARD_RESULT#FAIL:}" >&2
   echo "  Aborting — no DDL has been run." >&2
   exit 1
-elif [[ "${_GUARD_RESULT}" == "WARN" ]]; then
+elif [[ "${GUARD_RESULT}" == "WARN" ]]; then
   echo "WARN: Could not resolve prod DATABASE_URL (python/poetry resolver unavailable or .env absent)."
   echo "      Falling back to dbname suffix check only. Proceed with caution."
 fi
 
-echo "Prod-safety guard PASSED: dbname='${DB_NAME}', host='${_parsed_host}'."
+echo "Prod-safety guard PASSED: dbname='${DB_NAME}', host='${parsed_host}'."
 
 # ─── DROP+recreate (idempotent reset for --reset and --populated) ─────────────
 # Both --reset (schema-only) and --populated (schema+data) start with a clean DB.
@@ -232,12 +232,12 @@ echo "Postgres is ready."
 
 echo ""
 echo "Step 2: Creating database '${DB_NAME}' (idempotent)..."
-_db_exists=$(
+db_exists=$(
   docker exec "${CONTAINER_NAME}" psql -U postgres -d postgres \
     -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" 2>/dev/null || echo ""
 )
 
-if [[ "${_db_exists}" == "1" ]]; then
+if [[ "${db_exists}" == "1" ]]; then
   echo "Database '${DB_NAME}' already exists — skipping CREATE DATABASE."
 else
   docker exec "${CONTAINER_NAME}" psql -U postgres -d postgres \
@@ -253,10 +253,10 @@ echo "Step 3: Applying baseline schema (scripts/db/init.sql)..."
 echo "  (GOTCHA 1: init.sql MUST run before alembic — the baseline migration is a no-op stamp)"
 
 # Resolve the repo root (where Makefile lives) so the script is portable.
-_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 docker exec -i "${CONTAINER_NAME}" psql -U postgres -d "${DB_NAME}" \
-  < "${_repo_root}/scripts/db/init.sql"
+  < "${repo_root}/scripts/db/init.sql"
 
 echo "init.sql applied."
 
@@ -268,7 +268,7 @@ echo ""
 echo "Step 4: Applying Alembic migrations (alembic upgrade head)..."
 echo "  DATABASE_URL=${SANDBOX_DATABASE_URL}"
 
-cd "${_repo_root}"
+cd "${repo_root}"
 DATABASE_URL="${SANDBOX_DATABASE_URL}" poetry run alembic upgrade head
 
 echo "Alembic migrations applied."

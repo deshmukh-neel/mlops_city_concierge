@@ -19,7 +19,7 @@ from app.tools.retrieval import PlaceHit
 from tests._helpers.scripted_llm import RecordingScriptedLLM, ScriptedLLM
 
 
-def _stub_loaded_config() -> LoadedConfig:
+def stub_loaded_config() -> LoadedConfig:
     return LoadedConfig(
         chain=object(),
         llm=object(),
@@ -36,8 +36,8 @@ def _stub_loaded_config() -> LoadedConfig:
 
 def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [
             PlaceHit(
                 place_id="ChIJtest_p1_aaaaaaaa",
                 name="Trick Dog",
@@ -94,7 +94,7 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
     fake_llm = ScriptedLLM(scripted=list(scripted))
     real_graph = build_agent_graph(fake_llm, max_steps=4)
 
-    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+    mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
     # place_id "ChIJtest_p1_aaaaaaaa" doesn't exist in places_raw in the test environment; without
     # this patch, a real DB pool (activated by load_dotenv in ingest_places_sf.py
@@ -121,7 +121,7 @@ def test_chat_runs_real_graph_with_tool_call(monkeypatch, mocker) -> None:
 def test_commit_itinerary_rejects_ungrounded_place_ids(monkeypatch, mocker) -> None:
     """A place_id not seen via prior tool results must be dropped, not
     silently accepted — that's the anti-hallucination guarantee."""
-    monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
 
     scripted = [
         AIMessage(
@@ -157,7 +157,7 @@ def test_commit_itinerary_rejects_ungrounded_place_ids(monkeypatch, mocker) -> N
     ]
     real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=4)
 
-    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+    mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
 
     with TestClient(app) as client:
@@ -168,10 +168,10 @@ def test_commit_itinerary_rejects_ungrounded_place_ids(monkeypatch, mocker) -> N
     assert body["places"] == []
 
 
-_T0 = datetime(2024, 6, 1, 18, 0, 0, tzinfo=timezone.utc)  # 6pm UTC anchor for tests
+T0 = datetime(2024, 6, 1, 18, 0, 0, tzinfo=timezone.utc)  # 6pm UTC anchor for tests
 
 
-def _two_stop_script() -> list[AIMessage]:
+def two_stop_script() -> list[AIMessage]:
     return [
         AIMessage(
             content="",
@@ -193,7 +193,7 @@ def _two_stop_script() -> list[AIMessage]:
                                 "rationale": "start",
                                 "source": "google_places",
                                 "primary_type": "cocktail_bar",
-                                "arrival_time": _T0.isoformat(),
+                                "arrival_time": T0.isoformat(),
                                 "latitude": 37.770,
                                 "longitude": -122.410,
                             },
@@ -215,10 +215,10 @@ def _two_stop_script() -> list[AIMessage]:
     ]
 
 
-def _two_hits(monkeypatch) -> None:
+def two_hits(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [
             PlaceHit(
                 place_id="ChIJtest_p1_aaaaaaaa",
                 name="Bar One",
@@ -250,9 +250,9 @@ def _two_hits(monkeypatch) -> None:
 def test_chat_retimes_arrival_with_real_directions(monkeypatch, mocker) -> None:
     """The committed plan's arrival_time is overwritten by real Directions
     data — not the haversine estimate."""
-    _two_hits(monkeypatch)
+    two_hits(monkeypatch)
 
-    async def _slow_directions(stops, mode="walk"):
+    async def slow_directions(stops, mode="walk"):
         return DirectionsResult(
             legs=[DirectionsLeg(duration_s=2400, distance_m=3000.0)],
             total_duration_s=2400,
@@ -260,17 +260,17 @@ def test_chat_retimes_arrival_with_real_directions(monkeypatch, mocker) -> None:
             source="google",
         )
 
-    mocker.patch("app.agent.graph.route_legs", _slow_directions)
+    mocker.patch("app.agent.graph.route_legs", slow_directions)
     # Closure detection moved to the swap node; stub it "all open" so retime's
     # arrival-time projection is the only thing under test.
     mocker.patch(
-        "app.agent.swap._per_stop_closure_status",
+        "app.agent.swap.per_stop_closure_status",
         side_effect=lambda stops: [False] * len(stops),
     )
-    mocker.patch("app.agent.revision.itinerary_violations", lambda _s: [])
+    mocker.patch("app.agent.revision.itinerary_violations", lambda stop_obj: [])
 
-    real_graph = build_agent_graph(ScriptedLLM(scripted=_two_stop_script()), max_steps=6)
-    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+    real_graph = build_agent_graph(ScriptedLLM(scripted=two_stop_script()), max_steps=6)
+    mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
 
     with TestClient(app) as client:
@@ -289,9 +289,9 @@ def test_chat_retimes_arrival_with_real_directions(monkeypatch, mocker) -> None:
 def test_chat_directions_failure_keeps_haversine_reply(monkeypatch, mocker) -> None:
     """route_legs internally degrades to fallback -> /chat still 200, no
     spurious caveat, arrival_times come from the haversine fallback."""
-    _two_hits(monkeypatch)
+    two_hits(monkeypatch)
 
-    async def _fallback_directions(stops, mode="walk"):
+    async def fallback_directions(stops, mode="walk"):
         return DirectionsResult(
             legs=[DirectionsLeg(duration_s=120, distance_m=160.0)],
             total_duration_s=120,
@@ -299,17 +299,17 @@ def test_chat_directions_failure_keeps_haversine_reply(monkeypatch, mocker) -> N
             source="haversine_fallback",
         )
 
-    mocker.patch("app.agent.graph.route_legs", _fallback_directions)
+    mocker.patch("app.agent.graph.route_legs", fallback_directions)
     # Closure detection moved to the swap node; "all open" -> no rewrite,
     # reply is the synthesized summary.
     mocker.patch(
-        "app.agent.swap._per_stop_closure_status",
+        "app.agent.swap.per_stop_closure_status",
         side_effect=lambda stops: [False] * len(stops),
     )
-    mocker.patch("app.agent.revision.itinerary_violations", lambda _s: [])
+    mocker.patch("app.agent.revision.itinerary_violations", lambda stop_obj: [])
 
-    real_graph = build_agent_graph(ScriptedLLM(scripted=_two_stop_script()), max_steps=6)
-    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+    real_graph = build_agent_graph(ScriptedLLM(scripted=two_stop_script()), max_steps=6)
+    mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
 
     with TestClient(app) as client:
@@ -338,8 +338,8 @@ def test_chat_graph_injects_primary_type_family_for_slot(monkeypatch, mocker) ->
     captured_scratch: dict = {}
 
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [
             PlaceHit(
                 place_id="ChIJtest_p1_aaaaaaaa",
                 name="Sushi Spot",
@@ -362,13 +362,13 @@ def test_chat_graph_injects_primary_type_family_for_slot(monkeypatch, mocker) ->
     # pipeline. After 04-06 lands the handler writes `requested_primary_types=
     # extracted_types` unconditionally, so we override (not setdefault) the
     # empty list the intake fallback produces for the dummy `loaded.llm` here.
-    from app.agent.state import UserConstraints as _RealUserConstraints
+    from app.agent.state import UserConstraints as RealUserConstraints
 
-    def _make_constraints(**kwargs):
+    def make_constraints(**kwargs):
         kwargs["requested_primary_types"] = ["Sushi Restaurant"]
-        return _RealUserConstraints(**kwargs)
+        return RealUserConstraints(**kwargs)
 
-    monkeypatch.setattr("app.main.UserConstraints", _make_constraints)
+    monkeypatch.setattr("app.main.UserConstraints", make_constraints)
 
     scripted = [
         AIMessage(
@@ -409,16 +409,16 @@ def test_chat_graph_injects_primary_type_family_for_slot(monkeypatch, mocker) ->
     # graph.ainvoke so the captured scratch is the post-graph state.
     real_ainvoke = real_graph.ainvoke
 
-    async def _capturing_ainvoke(state, **kw):
+    async def capturing_ainvoke(state, **kw):
         result = await real_ainvoke(state, **kw)
         captured_scratch["scratch"] = (
             result.scratch if hasattr(result, "scratch") else result.get("scratch")
         )
         return result
 
-    real_graph.ainvoke = _capturing_ainvoke  # type: ignore[assignment]
+    real_graph.ainvoke = capturing_ainvoke  # type: ignore[assignment]
 
-    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+    mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
     # Per project memory full_suite_db_pool_contamination.md: the
     # itinerary_violations call activates the live DB pool in full-suite runs.
@@ -455,13 +455,13 @@ def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mock
     returns the per-slot Title-Case primary_types so we can assert exactly
     what the validation layer accepted.
     """
-    from typing import Any as _Any
+    from typing import Any as AnyAlias
 
     from app.agent.input_parsing import SlotExtractionResult
 
     monkeypatch.setattr(
-        "app.agent.tools._semantic_search",
-        lambda **_kw: [
+        "app.agent.tools.semantic_search_impl",
+        lambda **unused_kwargs: [
             PlaceHit(
                 place_id="ChIJtest_p1_aaaaaaaa",
                 name="Sushi Spot",
@@ -481,8 +481,8 @@ def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mock
 
     # Build a fake intake LLM that quacks for the production hybrid
     # pipeline: .bind(...).with_structured_output(...).ainvoke(...).
-    class _Structured:
-        async def ainvoke(self, prompt: str, *args: _Any, **kwargs: _Any):
+    class Structured:
+        async def ainvoke(self, prompt: str, *args: AnyAlias, **kwargs: AnyAlias):
             return SlotExtractionResult(
                 requested_primary_types=[
                     "Sushi Restaurant",
@@ -491,13 +491,13 @@ def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mock
                 ]
             )
 
-    class _Bound:
-        def with_structured_output(self, *args: _Any, **kwargs: _Any) -> _Structured:
-            return _Structured()
+    class Bound:
+        def with_structured_output(self, *args: AnyAlias, **kwargs: AnyAlias) -> Structured:
+            return Structured()
 
-    class _IntakeLLM:
-        def bind(self, **kwargs: _Any) -> _Bound:
-            return _Bound()
+    class IntakeLLM:
+        def bind(self, **kwargs: AnyAlias) -> Bound:
+            return Bound()
 
     # Pass a graph script that does a single semantic_search + commit_itinerary.
     scripted = [
@@ -536,20 +536,20 @@ def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mock
     graph_llm = ScriptedLLM(scripted=list(scripted))
     real_graph = build_agent_graph(graph_llm, max_steps=4)
 
-    captured: dict[str, _Any] = {}
+    captured: dict[str, AnyAlias] = {}
     real_ainvoke = real_graph.ainvoke
 
-    async def _capturing_ainvoke(state, **kw):
+    async def capturing_ainvoke(state, **kw):
         captured["state_in"] = state
         return await real_ainvoke(state, **kw)
 
-    real_graph.ainvoke = _capturing_ainvoke  # type: ignore[assignment]
+    real_graph.ainvoke = capturing_ainvoke  # type: ignore[assignment]
 
     # The intake pipeline reads app.state.agent_llm (set in lifespan from
     # loaded.llm). Override the loaded config so loaded.llm is the intake
     # fake.
-    cfg = _stub_loaded_config()
-    cfg.llm = type("ChatOpenAI", (_IntakeLLM,), {})()
+    cfg = stub_loaded_config()
+    cfg.llm = type("ChatOpenAI", (IntakeLLM,), {})()
     mocker.patch("app.main.load_registered_rag_chain", return_value=cfg)
     mocker.patch("app.main.build_agent_graph", return_value=real_graph)
     mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
@@ -573,7 +573,7 @@ def test_chat_intake_pipeline_populates_constraints_end_to_end(monkeypatch, mock
 # ─── Phase 6 / 06-01 — ConversationState.committed_stops round-trip ───
 #
 # Per D-06-01 / D-06-02: ConversationState carries `committed_stops: list[Stop]`
-# defaulted to [], and `_build_outbound_state` stamps it from the post-graph
+# defaulted to [], and `build_outbound_state` stamps it from the post-graph
 # stops list. The frontend treats `conversation_state` as opaque, so this
 # field's only job is to round-trip the prior turn's committed plan into the
 # next /chat call (so the refinement injection block in plan 06-05 has
@@ -595,8 +595,8 @@ class TestConversationStateCommittedStopsRoundTrip:
         """The /chat response's conversation_state.committed_stops is non-empty
         and mirrors the committed plan (place_id-equal to the response.places)."""
         monkeypatch.setattr(
-            "app.agent.tools._semantic_search",
-            lambda **_kw: [
+            "app.agent.tools.semantic_search_impl",
+            lambda **unused_kwargs: [
                 PlaceHit(
                     place_id="ChIJtest_round_trip_aaaaaaaa",
                     name="Trick Dog",
@@ -649,7 +649,7 @@ class TestConversationStateCommittedStopsRoundTrip:
         ]
         real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=4)
 
-        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
         mocker.patch("app.main.build_agent_graph", return_value=real_graph)
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
 
@@ -673,8 +673,8 @@ class TestConversationStateCommittedStopsRoundTrip:
         from app.main import ChatRequest, ConversationState
 
         monkeypatch.setattr(
-            "app.agent.tools._semantic_search",
-            lambda **_kw: [
+            "app.agent.tools.semantic_search_impl",
+            lambda **unused_kwargs: [
                 PlaceHit(
                     place_id="ChIJtest_round_trip_aaaaaaaa",
                     name="Trick Dog",
@@ -727,7 +727,7 @@ class TestConversationStateCommittedStopsRoundTrip:
         ]
         real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=4)
 
-        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
         mocker.patch("app.main.build_agent_graph", return_value=real_graph)
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
 
@@ -754,13 +754,13 @@ class TestConversationStateCommittedStopsRoundTrip:
         decoded ConversationState.committed_stops is []."""
         from app.main import ConversationState
 
-        monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+        monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
         scripted = [
             AIMessage(content="No matches.", tool_calls=[]),
         ]
         real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=2)
 
-        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
         mocker.patch("app.main.build_agent_graph", return_value=real_graph)
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
 
@@ -811,27 +811,27 @@ class TestChatRefinementInjection:
     """
 
     # Canonical fixture used by every test in this class.
-    _CANON_PLACE_ID = "ChIJtest_fixture_id_aaaaaa"
-    _CANON_PLACE_ID_2 = "ChIJtest_fixture_id_bbbbbb"
+    CANON_PLACE_ID = "ChIJtest_fixture_id_aaaaaa"
+    CANON_PLACE_ID_2 = "ChIJtest_fixture_id_bbbbbb"
     # Phase 7 plan 07-06 (PROMPT-01) — the replacement slot-2 place_id the
     # scripted refinement commit emits. Must match `^[A-Za-z0-9_-]{20,255}$`
     # per the plan-06-01 Task-3 validator (PATTERNS.md "Place_id fixture
     # convention"). 28 chars.
-    _NEW_SLOT2_PLACE_ID = "ChIJtest_fixture_NEW2_xxxxxx"
+    NEW_SLOT2_PLACE_ID = "ChIJtest_fixture_NEW2_xxxxxx"
 
     @classmethod
-    def _committed_stops_payload(cls) -> list[dict]:
+    def committed_stops_payload(cls) -> list[dict]:
         """Build a 3-stop committed_stops payload (matches "stop 2" target_slot
         bounds: 1 <= 2 <= 3 passes the MEDIUM target_slot-bounds guard)."""
         return [
             {
-                "place_id": cls._CANON_PLACE_ID,
+                "place_id": cls.CANON_PLACE_ID,
                 "name": "Stop One",
                 "rationale": "first",
                 "source": "google_places",
             },
             {
-                "place_id": cls._CANON_PLACE_ID_2,
+                "place_id": cls.CANON_PLACE_ID_2,
                 "name": "Stop Two",
                 "rationale": "second",
                 "source": "google_places",
@@ -845,7 +845,7 @@ class TestChatRefinementInjection:
         ]
 
     @staticmethod
-    def _make_recording_llm() -> RecordingScriptedLLM:
+    def make_recording_llm() -> RecordingScriptedLLM:
         """A `RecordingScriptedLLM` that ends the graph immediately (no
         tool calls) so we can inspect its `seen[0]` — what the LLM was
         prompted with on its first invocation — without running through
@@ -857,7 +857,7 @@ class TestChatRefinementInjection:
         )
 
     @classmethod
-    def _post_chat(
+    def post_chat(
         cls,
         *,
         mocker,
@@ -867,9 +867,9 @@ class TestChatRefinementInjection:
         recording_llm: RecordingScriptedLLM,
     ):
         """Drive a single POST /chat round-trip with the supplied scripted LLM."""
-        monkeypatch.setattr("app.agent.tools._semantic_search", lambda **_kw: [])
+        monkeypatch.setattr("app.agent.tools.semantic_search_impl", lambda **unused_kwargs: [])
         real_graph = build_agent_graph(recording_llm, max_steps=2)
-        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
         mocker.patch("app.main.build_agent_graph", return_value=real_graph)
         mocker.patch("app.agent.revision.itinerary_violations", return_value=[])
         with TestClient(app) as client:
@@ -884,10 +884,10 @@ class TestChatRefinementInjection:
     # signal. (The earlier sentinel `"current_plan"` is ambiguous because
     # the SYSTEM_PROMPT's addendum names the JSON field by name when telling
     # the model how to read the structured plan.)
-    _INJECTION_SENTINEL = "REFINEMENT TURN"
+    INJECTION_SENTINEL = "REFINEMENT TURN"
 
     @staticmethod
-    def _human_content_strings_seen(recording_llm) -> list[str]:
+    def human_content_strings_seen(recording_llm) -> list[str]:
         """Every HumanMessage.content across every invocation the LLM saw.
 
         Filters to HumanMessage so the SYSTEM_PROMPT's prose addendum (which
@@ -900,15 +900,15 @@ class TestChatRefinementInjection:
                     out.append(m.content)
         return out
 
-    def _assert_no_injection(self, recording_llm) -> None:
+    def assert_no_injection(self, recording_llm) -> None:
         """No HumanMessage anywhere in the seen sequence contains the
         helper's preamble sentinel. We assert across the FULL message list
         (not just position 0) because per HIGH-3 the structured plan is no
         longer at index 0 — searching the whole HumanMessage list is
         robust to ordering shifts."""
-        contents = self._human_content_strings_seen(recording_llm)
+        contents = self.human_content_strings_seen(recording_llm)
         for content in contents:
-            assert self._INJECTION_SENTINEL not in content, (
+            assert self.INJECTION_SENTINEL not in content, (
                 f"unexpected structured-plan injection: {content!r}"
             )
 
@@ -919,8 +919,8 @@ class TestChatRefinementInjection:
     ) -> None:
         """Cell 1: flag OFF, regex MATCH, committed_stops NON-EMPTY → no inject."""
         monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
-        recording_llm = self._make_recording_llm()
-        response = self._post_chat(
+        recording_llm = self.make_recording_llm()
+        response = self.post_chat(
             mocker=mocker,
             monkeypatch=monkeypatch,
             message="make stop 2 cheaper",
@@ -928,20 +928,20 @@ class TestChatRefinementInjection:
                 "schema_version": 1,
                 "closure_context": [],
                 "prior_stops": [],
-                "committed_stops": self._committed_stops_payload(),
+                "committed_stops": self.committed_stops_payload(),
             },
             recording_llm=recording_llm,
         )
         assert response.status_code == 200
-        self._assert_no_injection(recording_llm)
+        self.assert_no_injection(recording_llm)
 
     def test_flag_on_non_refinement_message_committed_stops_present_no_injection(
         self, monkeypatch, mocker
     ) -> None:
         """Cell 2: flag ON, regex NO-MATCH, committed_stops NON-EMPTY → no inject."""
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        recording_llm = self._make_recording_llm()
-        response = self._post_chat(
+        recording_llm = self.make_recording_llm()
+        response = self.post_chat(
             mocker=mocker,
             monkeypatch=monkeypatch,
             message="Plan a date night",
@@ -949,20 +949,20 @@ class TestChatRefinementInjection:
                 "schema_version": 1,
                 "closure_context": [],
                 "prior_stops": [],
-                "committed_stops": self._committed_stops_payload(),
+                "committed_stops": self.committed_stops_payload(),
             },
             recording_llm=recording_llm,
         )
         assert response.status_code == 200
-        self._assert_no_injection(recording_llm)
+        self.assert_no_injection(recording_llm)
 
     def test_flag_on_refinement_message_committed_stops_empty_no_injection(
         self, monkeypatch, mocker
     ) -> None:
         """Cell 3: flag ON, regex MATCH, committed_stops EMPTY → no inject."""
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        recording_llm = self._make_recording_llm()
-        response = self._post_chat(
+        recording_llm = self.make_recording_llm()
+        response = self.post_chat(
             mocker=mocker,
             monkeypatch=monkeypatch,
             message="make stop 2 cheaper",
@@ -975,7 +975,7 @@ class TestChatRefinementInjection:
             recording_llm=recording_llm,
         )
         assert response.status_code == 200
-        self._assert_no_injection(recording_llm)
+        self.assert_no_injection(recording_llm)
 
     def test_flag_on_refinement_message_committed_stops_present_injects(
         self, monkeypatch, mocker
@@ -991,9 +991,9 @@ class TestChatRefinementInjection:
         from app.agent.state import Stop
 
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        recording_llm = self._make_recording_llm()
-        committed_payload = self._committed_stops_payload()
-        response = self._post_chat(
+        recording_llm = self.make_recording_llm()
+        committed_payload = self.committed_stops_payload()
+        response = self.post_chat(
             mocker=mocker,
             monkeypatch=monkeypatch,
             message="make stop 2 cheaper",
@@ -1020,7 +1020,7 @@ class TestChatRefinementInjection:
         assert isinstance(injected_msg, HumanMessage)
         assert isinstance(injected_msg.content, str)
         # Both anchors must be present in the actual injected HumanMessage.
-        assert self._INJECTION_SENTINEL in injected_msg.content
+        assert self.INJECTION_SENTINEL in injected_msg.content
         assert "current_plan" in injected_msg.content
 
         # Caveat #5 byte-identity: the /chat-injected message equals a
@@ -1034,8 +1034,8 @@ class TestChatRefinementInjection:
         NON-EMPTY → no inject (the first-turn-style code path is unchanged
         when the flag is off, regardless of payload)."""
         monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
-        recording_llm = self._make_recording_llm()
-        response = self._post_chat(
+        recording_llm = self.make_recording_llm()
+        response = self.post_chat(
             mocker=mocker,
             monkeypatch=monkeypatch,
             message="Plan a date night",
@@ -1043,20 +1043,20 @@ class TestChatRefinementInjection:
                 "schema_version": 1,
                 "closure_context": [],
                 "prior_stops": [],
-                "committed_stops": self._committed_stops_payload(),
+                "committed_stops": self.committed_stops_payload(),
             },
             recording_llm=recording_llm,
         )
         assert response.status_code == 200
-        self._assert_no_injection(recording_llm)
+        self.assert_no_injection(recording_llm)
 
     def test_flag_off_refinement_message_committed_stops_empty_no_injection(
         self, monkeypatch, mocker
     ) -> None:
         """Cell 6: flag OFF, regex MATCH, committed_stops EMPTY → no inject."""
         monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
-        recording_llm = self._make_recording_llm()
-        response = self._post_chat(
+        recording_llm = self.make_recording_llm()
+        response = self.post_chat(
             mocker=mocker,
             monkeypatch=monkeypatch,
             message="make stop 2 cheaper",
@@ -1064,15 +1064,15 @@ class TestChatRefinementInjection:
             recording_llm=recording_llm,
         )
         assert response.status_code == 200
-        self._assert_no_injection(recording_llm)
+        self.assert_no_injection(recording_llm)
 
     def test_flag_on_non_refinement_message_committed_stops_empty_no_injection(
         self, monkeypatch, mocker
     ) -> None:
         """Cell 7: flag ON, regex NO-MATCH, committed_stops EMPTY → no inject."""
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        recording_llm = self._make_recording_llm()
-        response = self._post_chat(
+        recording_llm = self.make_recording_llm()
+        response = self.post_chat(
             mocker=mocker,
             monkeypatch=monkeypatch,
             message="Plan a date night",
@@ -1080,7 +1080,7 @@ class TestChatRefinementInjection:
             recording_llm=recording_llm,
         )
         assert response.status_code == 200
-        self._assert_no_injection(recording_llm)
+        self.assert_no_injection(recording_llm)
 
     def test_flag_off_non_refinement_message_committed_stops_empty_no_injection(
         self, monkeypatch, mocker
@@ -1088,8 +1088,8 @@ class TestChatRefinementInjection:
         """Cell 8 (turn-1 dominant case): flag OFF, regex NO-MATCH,
         committed_stops EMPTY → no inject."""
         monkeypatch.delenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", raising=False)
-        recording_llm = self._make_recording_llm()
-        response = self._post_chat(
+        recording_llm = self.make_recording_llm()
+        response = self.post_chat(
             mocker=mocker,
             monkeypatch=monkeypatch,
             message="Plan a date night",
@@ -1097,7 +1097,7 @@ class TestChatRefinementInjection:
             recording_llm=recording_llm,
         )
         assert response.status_code == 200
-        self._assert_no_injection(recording_llm)
+        self.assert_no_injection(recording_llm)
 
     # ─── Residual-2 fix — malformed conversation_state degrades, not 422 ──
 
@@ -1121,7 +1121,7 @@ class TestChatRefinementInjection:
               ran to completion).
         """
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
-        recording_llm = self._make_recording_llm()
+        recording_llm = self.make_recording_llm()
         malformed_payload = {
             "schema_version": 1,
             "closure_context": [],
@@ -1137,7 +1137,7 @@ class TestChatRefinementInjection:
                 }
             ],
         }
-        response = self._post_chat(
+        response = self.post_chat(
             mocker=mocker,
             monkeypatch=monkeypatch,
             message="make stop 2 cheaper",
@@ -1150,7 +1150,7 @@ class TestChatRefinementInjection:
         )
         # (2) Guard short-circuited (empty committed_stops after degrade)
         #     → no `current_plan` anywhere.
-        self._assert_no_injection(recording_llm)
+        self.assert_no_injection(recording_llm)
         # (3) The reply is a non-empty string (agent ran to completion).
         body = response.json()
         assert isinstance(body.get("reply"), str)
@@ -1180,10 +1180,10 @@ class TestChatRefinementInjection:
     # is the moral equivalent of "turn 0 already happened in a prior
     # conversation".
     #
-    # `_post_chat` is NOT used here because it hardcodes
-    # `_semantic_search → []` and `max_steps=2`. PROMPT-01 needs prior-
+    # `post_chat` is NOT used here because it hardcodes
+    # `semantic_search_impl → []` and `max_steps=2`. PROMPT-01 needs prior-
     # turn place_ids GROUNDED in scratch (the agent's anti-hallucination
-    # guard `_grounded_place_ids` in `app/agent/commit.py` rejects any
+    # guard `grounded_place_ids` in `app/agent/commit.py` rejects any
     # `place_id` not seen via a prior tool result) AND enough steps for
     # the agent to issue a semantic_search before `commit_itinerary`.
 
@@ -1205,19 +1205,19 @@ class TestChatRefinementInjection:
         """
         monkeypatch.setenv("REFINEMENT_STRUCTURED_PLAN_ENABLED", "true")
 
-        # Stub `_semantic_search` to return PlaceHits for ALL four place_ids
+        # Stub `semantic_search_impl` to return PlaceHits for ALL four place_ids
         # this test references — the three prior committed stops AND the new
-        # slot-2 replacement. The agent's `_grounded_place_ids` set is built
+        # slot-2 replacement. The agent's `grounded_place_ids` set is built
         # from every PlaceHit observed across scratch entries (commit.py:23-
         # 42), so a single semantic_search whose result list contains all
         # four place_ids grounds the entire post-refinement commit list at
         # once. This keeps the trajectory short (1 search + 1 commit) so
         # `max_steps=4` is plenty.
         monkeypatch.setattr(
-            "app.agent.tools._semantic_search",
-            lambda **_kw: [
+            "app.agent.tools.semantic_search_impl",
+            lambda **unused_kwargs: [
                 PlaceHit(
-                    place_id=self._CANON_PLACE_ID,
+                    place_id=self.CANON_PLACE_ID,
                     name="Stop One",
                     source="google_places",
                     similarity=0.9,
@@ -1229,7 +1229,7 @@ class TestChatRefinementInjection:
                     snippet=None,
                 ),
                 PlaceHit(
-                    place_id=self._NEW_SLOT2_PLACE_ID,
+                    place_id=self.NEW_SLOT2_PLACE_ID,
                     name="Cheap Stop Two",
                     source="google_places",
                     similarity=0.9,
@@ -1284,14 +1284,14 @@ class TestChatRefinementInjection:
                         "args": {
                             "stops": [
                                 {
-                                    "place_id": self._CANON_PLACE_ID,
+                                    "place_id": self.CANON_PLACE_ID,
                                     "name": "Stop One",
                                     "rationale": "first stop preserved",
                                     "source": "google_places",
                                     "primary_type": "cocktail_bar",
                                 },
                                 {
-                                    "place_id": self._NEW_SLOT2_PLACE_ID,
+                                    "place_id": self.NEW_SLOT2_PLACE_ID,
                                     "name": "Cheap Stop Two",
                                     "rationale": "cheaper alternative per user edit",
                                     "source": "google_places",
@@ -1315,7 +1315,7 @@ class TestChatRefinementInjection:
         # (commit) → act (commit) → critique → END (finalize-on-commit).
         real_graph = build_agent_graph(ScriptedLLM(scripted=list(scripted)), max_steps=4)
 
-        mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config())
+        mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config())
         mocker.patch("app.main.build_agent_graph", return_value=real_graph)
         # Per `project_full_suite_db_pool_contamination`: itinerary_violations
         # activates the live DB pool in full-suite runs. Stub to [] so the
@@ -1332,7 +1332,7 @@ class TestChatRefinementInjection:
                         "schema_version": 1,
                         "closure_context": [],
                         "prior_stops": [],
-                        "committed_stops": self._committed_stops_payload(),
+                        "committed_stops": self.committed_stops_payload(),
                     },
                 },
             )
@@ -1350,8 +1350,8 @@ class TestChatRefinementInjection:
         # (2) Same stop count as the prior committed plan.
         assert len(places) == 3, f"expected 3 stops post-refinement, got {len(places)}: {places}"
         # (3) Slot 1 byte-equal to the prior committed plan.
-        assert places[0]["place_id"] == self._CANON_PLACE_ID, (
-            f"slot 1 place_id changed: expected {self._CANON_PLACE_ID}, got {places[0]['place_id']}"
+        assert places[0]["place_id"] == self.CANON_PLACE_ID, (
+            f"slot 1 place_id changed: expected {self.CANON_PLACE_ID}, got {places[0]['place_id']}"
         )
         # (4) Slot 3 byte-equal to the prior committed plan.
         assert places[2]["place_id"] == "ChIJtest_fixture_id_cccccc", (
@@ -1359,13 +1359,13 @@ class TestChatRefinementInjection:
             f"got {places[2]['place_id']}"
         )
         # (5) Slot 2 is the new replacement place_id.
-        assert places[1]["place_id"] == self._NEW_SLOT2_PLACE_ID, (
-            f"slot 2 place_id mismatch: expected {self._NEW_SLOT2_PLACE_ID}, "
+        assert places[1]["place_id"] == self.NEW_SLOT2_PLACE_ID, (
+            f"slot 2 place_id mismatch: expected {self.NEW_SLOT2_PLACE_ID}, "
             f"got {places[1]['place_id']}"
         )
         # (6) Sanity guard: slot 2 is NOT the prior slot 2 (the edit was
         # actually applied, not a no-op preserving _CANON_PLACE_ID_2).
-        assert places[1]["place_id"] != self._CANON_PLACE_ID_2, (
+        assert places[1]["place_id"] != self.CANON_PLACE_ID_2, (
             "slot 2 place_id was not changed by the refinement turn — "
             "the edit was a no-op, violating PROMPT-01"
         )

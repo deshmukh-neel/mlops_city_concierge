@@ -1,9 +1,4 @@
-"""Structured state passed through every node of the agent graph.
-
-Keeping state as a Pydantic model (not just messages) lets the LLM revise
-specific stops or constraints without regenerating prose, and lets the
-critique node do deterministic checks (geographic coherence, hours).
-"""
+"""Pydantic state shared by the agent graph, critique checks, and HTTP layer."""
 
 from __future__ import annotations
 
@@ -64,8 +59,8 @@ class RevisionHint(BaseModel):
 class UserConstraints(BaseModel):
     """Parsed/inferred constraints from the user message.
 
-    These are SHARED across all stops: a "$$$" budget applies to dinner AND
-    drinks AND dessert. Per-stop constraints (cuisine, vibe) live on `Stop`.
+    These apply across the itinerary: a "$$$" budget constrains dinner,
+    drinks, and dessert. Per-stop constraints live on `Stop`.
     """
 
     party_size: int | None = None
@@ -96,10 +91,7 @@ class UserConstraints(BaseModel):
         description=(
             "Per-slot expected Google primary_type values when the user "
             "names category slots (e.g., 'omakase, then drinks, then "
-            "dessert'). Default [] preserves free-text behavior (D-01 / "
-            "D-03 contract: category_compliance scorer abstains when this "
-            "is empty). Read by app.agent.critique.checks.category_compliance "
-            "(EVAL-01) and by Phase 4's primary_type_family enforcement."
+            "dessert'). Empty means the request remains free-text."
         ),
     )
 
@@ -128,7 +120,7 @@ def default_duration_for(primary_type: str | None) -> int:
     return DEFAULT_STOP_DURATION_MIN.get(primary_type.lower(), DEFAULT_STOP_DURATION_MIN_FALLBACK)
 
 
-_PRICE_LEVEL_RANK: dict[str, int] = {
+PRICE_LEVEL_RANK: dict[str, int] = {
     "PRICE_LEVEL_FREE": 0,
     "PRICE_LEVEL_INEXPENSIVE": 1,
     "PRICE_LEVEL_MODERATE": 2,
@@ -137,37 +129,12 @@ _PRICE_LEVEL_RANK: dict[str, int] = {
 }
 
 
-# Phase 6 / 06-01 Task 3 — HIGH-4 residual fix from pass-2 review.
-#
-# Google Place IDs match `^[A-Za-z0-9_-]{20,255}$` (alphanumeric + underscore
-# + dash; typical real-world length is 20-255 chars). Enforcing this at the
-# Pydantic model boundary blocks prompt-injection-shaped strings (e.g.,
-# `place_id = "IGNORE PRIOR INSTRUCTIONS"`) BEFORE they reach
-# `build_refinement_prompt_message` (plan 06-05) or any other consumer of
-# Stop / ClosureContext / PlaceCard. `json.dumps` only escapes quotes and
-# backslashes, NOT arbitrary plain-string content — so without this
-# validator a crafted plain-string place_id flows through json-encoding
-# into the prompt unescaped. The validator is defense-in-depth on top of
-# HIGH-4 strategy (a) (field whitelisting in 06-05): even if a future
-# change re-introduces a client-tamperable field to the prompt, place_id
-# itself is no longer a viable injection vector.
-_PLACE_ID_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z0-9_-]{20,255}")
+PLACE_ID_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z0-9_-]{20,255}")
 
 
-def _validate_place_id_format(value: str) -> str:
-    """Validator helper shared by Stop, ClosureContext, and PlaceCard.
-
-    Raises ValueError on any string that does not match the Google Place ID
-    format (alphanumeric + underscore + dash, 20-255 chars). Returns the
-    input unchanged on a match.
-
-    Uses ``fullmatch`` (not ``match`` with ``$``) so trailing newline and
-    other content past the formatted body are rejected. ``re.match`` with
-    ``$`` accepts ``"A"*25 + "\\n"`` because Python's ``$`` matches before
-    a final newline by default — that's a defense-in-depth bypass
-    (CR-02 from phase 06 code review).
-    """
-    if not _PLACE_ID_PATTERN.fullmatch(value):
+def validate_place_id_format(value: str) -> str:
+    """Require a Google-Place-ID-shaped string at model boundaries."""
+    if not PLACE_ID_PATTERN.fullmatch(value):
         raise ValueError(
             "place_id must match Google Place ID format "
             "(alphanumeric + underscore + dash, 20-255 chars)"
@@ -184,7 +151,7 @@ def price_level_to_rank(value: str | None) -> int | None:
     """
     if value is None:
         return None
-    return _PRICE_LEVEL_RANK.get(value)
+    return PRICE_LEVEL_RANK.get(value)
 
 
 class Stop(BaseModel):
@@ -205,9 +172,8 @@ class Stop(BaseModel):
 
     @field_validator("place_id")
     @classmethod
-    def _validate_place_id(cls, value: str) -> str:
-        # HIGH-4 residual fix (pass-2 review). See `_validate_place_id_format`.
-        return _validate_place_id_format(value)
+    def validate_place_id(cls, value: str) -> str:
+        return validate_place_id_format(value)
 
 
 ClosureOutcome = Literal[
@@ -228,7 +194,7 @@ class ClosureContext(BaseModel):
     neighboring stops' place_ids rather than indices; `stop_index_hint` is the
     last-resort fallback used only when both anchors are absent from current
     stops. Resolution order is documented in
-    `app.agent.swap._resolve_insert_position`.
+    `app.agent.swap.resolve_insert_position`.
     """
 
     schema_version: int = 1
@@ -245,9 +211,8 @@ class ClosureContext(BaseModel):
 
     @field_validator("place_id")
     @classmethod
-    def _validate_place_id(cls, value: str) -> str:
-        # HIGH-4 residual fix (pass-2 review). See `_validate_place_id_format`.
-        return _validate_place_id_format(value)
+    def validate_place_id(cls, value: str) -> str:
+        return validate_place_id_format(value)
 
 
 MAX_CLOSURE_CONTEXT_ENTRIES = 10
@@ -278,37 +243,17 @@ class ItineraryState(BaseModel):
     step_telemetry: list[dict[str, Any]] = Field(
         default_factory=list,
         description=(
-            "Per-step raw timing and tool-call counts recorded in-graph. "
-            "Each entry is a plain dict (JSON-safe) with keys: "
-            "step (int), llm_call_seconds (float), tool_exec_seconds (float), "
-            "tool_calls_this_step (int). Appended by plan()/act() in graph.py. "
-            "INVARIANT (WR-07): exactly one entry per step index. Revision "
-            "loops (plan -> critique -> plan) run plan() more than once at "
-            "the same step_count; those LLM calls are merged into the "
-            "existing entry by summing llm_call_seconds, so consumers can "
-            "safely join on 'step' (e.g. against viable_candidates_per_step). "
-            "D-12-01: always-on; cheap enough for prod."
+            "Per-step timing and tool-call counts recorded in-graph. "
+            "Entries are JSON-safe dicts keyed by step index."
         ),
     )
-    # D-13-03 / D-13-04 (Plan 13-01): forced-commit telemetry fields.
-    # True only when the DEC-02 forced-commit branch synthesised a
-    # commit_itinerary call from best-so-far viable candidates.
-    # Both are plain JSON-safe primitives (never Pydantic instances).
     commit_forced: bool = Field(
         default=False,
-        description=(
-            "D-13-04: True when the DEC-02 forced-commit branch triggered a "
-            "synthetic commit_itinerary call.  False on default-path runs "
-            "(FORCED_COMMIT_STEP unset or 0).  Plain bool — JSON-safe invariant."
-        ),
+        description="True when the graph synthesized a commit from viable candidates.",
     )
     forced_commit_step: int | None = Field(
         default=None,
-        description=(
-            "D-13-04: Step index at which a forced commit was synthesised by "
-            "the DEC-02 mechanism.  None when commit_forced is False.  "
-            "Plain int | None — JSON-safe invariant."
-        ),
+        description="Step index for a synthesized commit, or None when not used.",
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -333,6 +278,5 @@ class PlaceCard(BaseModel):
 
     @field_validator("place_id")
     @classmethod
-    def _validate_place_id(cls, value: str) -> str:
-        # HIGH-4 residual fix (pass-2 review). See `_validate_place_id_format`.
-        return _validate_place_id_format(value)
+    def validate_place_id(cls, value: str) -> str:
+        return validate_place_id_format(value)

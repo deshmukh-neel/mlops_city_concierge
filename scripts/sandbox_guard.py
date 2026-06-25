@@ -21,8 +21,8 @@ from app.db import get_conn
 # Constants
 # ---------------------------------------------------------------------------
 
-_KNOWN_SANDBOX_NAME = "city_concierge_sandbox"
-_KNOWN_PROD_NAMES = frozenset({"city_concierge"})
+KNOWN_SANDBOX_NAME = "city_concierge_sandbox"
+KNOWN_PROD_NAMES = frozenset({"city_concierge"})
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@ def assert_sandbox_write_target(conn=None) -> None:
         cur.execute("SELECT current_database()")
         row = cur.fetchone()
     live_dbname: str = row[0] if row else ""
-    _require_sandbox(live_dbname)
+    require_sandbox(live_dbname)
 
 
 # ---------------------------------------------------------------------------
@@ -60,25 +60,25 @@ def assert_sandbox_write_target(conn=None) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _require_sandbox(live_dbname: str) -> None:
+def require_sandbox(live_dbname: str) -> None:
     """Raise RuntimeError unless *live_dbname* is an accepted sandbox name.
 
     Pass condition (in priority order):
-    1. ``live_dbname == _KNOWN_SANDBOX_NAME`` (canonical sandbox)
-    2. ``"sandbox" in live_dbname`` AND ``live_dbname not in _KNOWN_PROD_NAMES``
+    1. ``live_dbname == KNOWN_SANDBOX_NAME`` (canonical sandbox)
+    2. ``"sandbox" in live_dbname`` AND ``live_dbname not in KNOWN_PROD_NAMES``
        (configurable-name support for e.g. "my_sandbox_db")
 
     The decision is SOLELY based on *live_dbname* — the caller must supply
     the value returned by ``SELECT current_database()`` on the real write
     connection.  No env-var equality check is performed here.
     """
-    if live_dbname == _KNOWN_SANDBOX_NAME:
+    if live_dbname == KNOWN_SANDBOX_NAME:
         return
-    if "sandbox" in live_dbname and live_dbname not in _KNOWN_PROD_NAMES:
+    if "sandbox" in live_dbname and live_dbname not in KNOWN_PROD_NAMES:
         return
     raise RuntimeError(
         f"assert_sandbox_write_target: refusing to write — live database is "
         f"{live_dbname!r}, which is not an accepted sandbox name "
-        f"(expected {_KNOWN_SANDBOX_NAME!r} or a name containing 'sandbox'). "
+        f"(expected {KNOWN_SANDBOX_NAME!r} or a name containing 'sandbox'). "
         f"Set DATABASE_URL / SANDBOX_DATABASE_URL to the sandbox DB and retry."
     )

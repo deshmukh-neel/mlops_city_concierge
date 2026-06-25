@@ -32,8 +32,8 @@ from app.agent.revision import LOW_SIMILARITY_THRESHOLD
 from app.agent.state import ItineraryState, Stop, UserConstraints
 
 # Valid Google Place ID (>= 20 chars, alphanumeric + _ + -)
-_VALID_PLACE_ID = "ChIJxxx_sushi_test_0001"
-_VALID_PLACE_ID_2 = "ChIJxxx_ramen_test_0002"
+VALID_PLACE_ID = "ChIJxxx_sushi_test_0001"
+VALID_PLACE_ID_2 = "ChIJxxx_ramen_test_0002"
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ _VALID_PLACE_ID_2 = "ChIJxxx_ramen_test_0002"
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_llm_two_tools_then_commit() -> MagicMock:
+def make_mock_llm_two_tools_then_commit() -> MagicMock:
     """Mock LLM: step 0 emits two search tool calls, step 1 commits, step 2 finalizes."""
     call_count = 0
     two_tools_ai = AIMessage(
@@ -69,7 +69,7 @@ def _make_mock_llm_two_tools_then_commit() -> MagicMock:
                 "args": {
                     "stops": [
                         {
-                            "place_id": _VALID_PLACE_ID,
+                            "place_id": VALID_PLACE_ID,
                             "name": "Sushi Place",
                             "rationale": "Great sushi",
                             "source": "google_places",
@@ -98,7 +98,7 @@ def _make_mock_llm_two_tools_then_commit() -> MagicMock:
     return mock
 
 
-def _make_mock_llm_commit_only() -> MagicMock:
+def make_mock_llm_commit_only() -> MagicMock:
     """Mock LLM that emits a commit_itinerary tool call then finalizes immediately."""
     call_count = 0
     commit_ai = AIMessage(
@@ -109,7 +109,7 @@ def _make_mock_llm_commit_only() -> MagicMock:
                 "args": {
                     "stops": [
                         {
-                            "place_id": _VALID_PLACE_ID,
+                            "place_id": VALID_PLACE_ID,
                             "name": "Sushi Place",
                             "rationale": "Great sushi",
                             "source": "google_places",
@@ -136,7 +136,7 @@ def _make_mock_llm_commit_only() -> MagicMock:
     return mock
 
 
-def _run_graph_sync(graph: Any, initial_state: ItineraryState) -> dict[str, Any]:
+def run_graph_sync(graph: Any, initial_state: ItineraryState) -> dict[str, Any]:
     """Run the compiled LangGraph synchronously and return the final state dict."""
     loop = asyncio.new_event_loop()
     try:
@@ -146,7 +146,7 @@ def _run_graph_sync(graph: Any, initial_state: ItineraryState) -> dict[str, Any]
     return result  # type: ignore[return-value]
 
 
-def _make_state_with_scratch() -> ItineraryState:
+def make_state_with_scratch() -> ItineraryState:
     """State with existing viable scratch so commit can be grounded."""
     return ItineraryState(
         messages=[HumanMessage(content="Find me sushi and ramen")],
@@ -158,13 +158,13 @@ def _make_state_with_scratch() -> ItineraryState:
                     "result": [
                         {
                             "name": "Sushi Place",
-                            "place_id": _VALID_PLACE_ID,
+                            "place_id": VALID_PLACE_ID,
                             "similarity": LOW_SIMILARITY_THRESHOLD + 0.05,
                             "primary_type": "sushi_restaurant",
                         },
                         {
                             "name": "Ramen Place",
-                            "place_id": _VALID_PLACE_ID_2,
+                            "place_id": VALID_PLACE_ID_2,
                             "similarity": LOW_SIMILARITY_THRESHOLD + 0.05,
                             "primary_type": "ramen_restaurant",
                         },
@@ -180,9 +180,9 @@ def _make_state_with_scratch() -> ItineraryState:
     )
 
 
-def _make_committed_stop() -> Stop:
+def make_committed_stop() -> Stop:
     return Stop(
-        place_id=_VALID_PLACE_ID,
+        place_id=VALID_PLACE_ID,
         name="Sushi Place",
         primary_type="sushi_restaurant",
         rationale="Great sushi",
@@ -221,7 +221,7 @@ def test_parallel_tool_execution_commit_branch(
 
     import app.agent.graph as graph_module
 
-    committed_stop = _make_committed_stop()
+    committed_stop = make_committed_stop()
 
     with (
         patch.object(
@@ -229,7 +229,7 @@ def test_parallel_tool_execution_commit_branch(
             "commit_stops",
             return_value=(
                 [committed_stop],
-                {"committed": [_VALID_PLACE_ID], "rejected": []},
+                {"committed": [VALID_PLACE_ID], "rejected": []},
             ),
         ),
         patch.object(
@@ -244,14 +244,14 @@ def test_parallel_tool_execution_commit_branch(
         ),
         patch.object(graph_module, "swap_closed_stops", new=AsyncMock(return_value={})),
     ):
-        mock_llm = _make_mock_llm_commit_only()
+        mock_llm = make_mock_llm_commit_only()
         graph = build_agent_graph(mock_llm, max_steps=8)
 
-        final = _run_graph_sync(graph, _make_state_with_scratch())
+        final = run_graph_sync(graph, make_state_with_scratch())
 
     # Commit branch must still work under parallel path
     assert final.get("stops"), "Parallel path must still commit stops via commit branch"
-    assert final.get("stops")[0].place_id == _VALID_PLACE_ID
+    assert final.get("stops")[0].place_id == VALID_PLACE_ID
 
 
 def test_parallel_tool_execution_order_stability(
@@ -274,33 +274,33 @@ def test_parallel_tool_execution_order_stability(
 
     import app.agent.graph as graph_module
 
-    committed_stop = _make_committed_stop()
+    committed_stop = make_committed_stop()
 
     # Simulate out-of-order async completion using real asyncio.sleep
-    _call_order: list[str] = []
+    call_order: list[str] = []
 
     async def fake_to_thread(fn: Any, args: Any) -> list[dict[str, Any]]:
         query = args.get("query", "")
         if query == "sushi":
             await asyncio.sleep(0.02)  # tc_a is slower
-            _call_order.append("tc_a")
+            call_order.append("tc_a")
             return [
                 {
                     "name": "Sushi Result",
                     "primary_type": "sushi_restaurant",
                     "similarity": 0.8,
-                    "place_id": _VALID_PLACE_ID,
+                    "place_id": VALID_PLACE_ID,
                 }
             ]
         else:
             await asyncio.sleep(0.001)  # tc_b is faster
-            _call_order.append("tc_b")
+            call_order.append("tc_b")
             return [
                 {
                     "name": "Ramen Result",
                     "primary_type": "ramen_restaurant",
                     "similarity": 0.8,
-                    "place_id": _VALID_PLACE_ID_2,
+                    "place_id": VALID_PLACE_ID_2,
                 }
             ]
 
@@ -310,7 +310,7 @@ def test_parallel_tool_execution_order_stability(
             "commit_stops",
             return_value=(
                 [committed_stop],
-                {"committed": [_VALID_PLACE_ID], "rejected": []},
+                {"committed": [VALID_PLACE_ID], "rejected": []},
             ),
         ),
         patch.object(
@@ -327,16 +327,16 @@ def test_parallel_tool_execution_order_stability(
         # Patch asyncio.to_thread inside graph.py for the search tool calls
         patch.object(asyncio, "to_thread", side_effect=fake_to_thread),
     ):
-        mock_llm = _make_mock_llm_two_tools_then_commit()
+        mock_llm = make_mock_llm_two_tools_then_commit()
         graph = build_agent_graph(mock_llm, max_steps=8)
 
-        final = _run_graph_sync(graph, _make_state_with_scratch())
+        final = run_graph_sync(graph, make_state_with_scratch())
 
     # tc_b completed before tc_a (verified by _call_order), but tool messages
     # must be in ORIGINAL tool_call order (tc_a first, tc_b second)
-    assert "tc_b" in _call_order and "tc_a" in _call_order, "Both tool calls must have completed"
-    tc_b_pos = _call_order.index("tc_b")
-    tc_a_pos = _call_order.index("tc_a")
+    assert "tc_b" in call_order and "tc_a" in call_order, "Both tool calls must have completed"
+    tc_b_pos = call_order.index("tc_b")
+    tc_a_pos = call_order.index("tc_a")
     assert tc_b_pos < tc_a_pos, "tc_b must complete before tc_a (out-of-order simulation)"
 
     # Find the two search ToolMessages in the final message list
@@ -369,7 +369,7 @@ def test_parallel_flag_off_sequential_behavior(
 
     import app.agent.graph as graph_module
 
-    committed_stop = _make_committed_stop()
+    committed_stop = make_committed_stop()
 
     with (
         patch.object(
@@ -377,7 +377,7 @@ def test_parallel_flag_off_sequential_behavior(
             "commit_stops",
             return_value=(
                 [committed_stop],
-                {"committed": [_VALID_PLACE_ID], "rejected": []},
+                {"committed": [VALID_PLACE_ID], "rejected": []},
             ),
         ),
         patch.object(
@@ -393,10 +393,10 @@ def test_parallel_flag_off_sequential_behavior(
         patch.object(graph_module, "swap_closed_stops", new=AsyncMock(return_value={})),
         patch("app.agent.graph.asyncio.to_thread", new=AsyncMock(return_value=[])),
     ):
-        mock_llm = _make_mock_llm_two_tools_then_commit()
+        mock_llm = make_mock_llm_two_tools_then_commit()
         graph = build_agent_graph(mock_llm, max_steps=8)
 
-        final = _run_graph_sync(graph, _make_state_with_scratch())
+        final = run_graph_sync(graph, make_state_with_scratch())
 
     # Sequential path: both tool calls from the first plan step are in messages
     tool_messages = [
@@ -422,7 +422,7 @@ def test_parallel_tool_exec_seconds_recorded(
 
     import app.agent.graph as graph_module
 
-    committed_stop = _make_committed_stop()
+    committed_stop = make_committed_stop()
 
     with (
         patch.object(
@@ -430,7 +430,7 @@ def test_parallel_tool_exec_seconds_recorded(
             "commit_stops",
             return_value=(
                 [committed_stop],
-                {"committed": [_VALID_PLACE_ID], "rejected": []},
+                {"committed": [VALID_PLACE_ID], "rejected": []},
             ),
         ),
         patch.object(
@@ -446,10 +446,10 @@ def test_parallel_tool_exec_seconds_recorded(
         patch.object(graph_module, "swap_closed_stops", new=AsyncMock(return_value={})),
         patch("app.agent.graph.asyncio.to_thread", new=AsyncMock(return_value=[])),
     ):
-        mock_llm = _make_mock_llm_commit_only()
+        mock_llm = make_mock_llm_commit_only()
         graph = build_agent_graph(mock_llm, max_steps=8)
 
-        final = _run_graph_sync(graph, _make_state_with_scratch())
+        final = run_graph_sync(graph, make_state_with_scratch())
 
     telemetry = final.get("step_telemetry", [])
     assert len(telemetry) > 0, "step_telemetry must have at least one entry"

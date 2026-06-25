@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.main import ActiveModelConfig, LoadedConfig, app
 
 
-def _stub_loaded_config(fake_chain) -> LoadedConfig:
+def stub_loaded_config(fake_chain) -> LoadedConfig:
     return LoadedConfig(
         chain=fake_chain,
         llm=object(),
@@ -40,7 +40,7 @@ def test_predict_returns_chain_result_and_sources(mocker) -> None:
         ],
     }
 
-    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config(fake_chain))
+    mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config(fake_chain))
     mocker.patch("app.main.build_agent_graph", return_value=object())
 
     with TestClient(app) as client:
@@ -66,7 +66,7 @@ def test_predict_uses_chain_even_when_agent_graph_is_built(mocker) -> None:
     fake_graph = mocker.Mock()
     fake_graph.ainvoke = mocker.AsyncMock()
 
-    mocker.patch("app.main.load_registered_rag_chain", return_value=_stub_loaded_config(fake_chain))
+    mocker.patch("app.main.load_registered_rag_chain", return_value=stub_loaded_config(fake_chain))
     mocker.patch("app.main.build_agent_graph", return_value=fake_graph)
 
     with TestClient(app) as client:

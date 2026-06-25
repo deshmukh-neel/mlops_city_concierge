@@ -203,7 +203,7 @@ def build_similar_vector(conn: connection) -> int:
         return cur.rowcount
 
 
-_SUB_BUILDERS = {
+SUB_BUILDERS = {
     "NEAR": build_near,
     "SAME_NEIGHBORHOOD": build_same_neighborhood,
     "CONTAINED_IN": build_contained_in,
@@ -212,9 +212,9 @@ _SUB_BUILDERS = {
 }
 
 
-def _parse_only(value: str) -> list[str]:
+def parse_only(value: str) -> list[str]:
     selected = [v.strip().upper() for v in value.split(",") if v.strip()]
-    unknown = [v for v in selected if v not in _SUB_BUILDERS]
+    unknown = [v for v in selected if v not in SUB_BUILDERS]
     if unknown:
         raise argparse.ArgumentTypeError(
             f"unknown relation type(s): {', '.join(unknown)}; valid: {', '.join(RELATION_TYPES)}"
@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the place_relations knowledge-graph edges.")
     parser.add_argument(
         "--only",
-        type=_parse_only,
+        type=parse_only,
         default=list(RELATION_TYPES),
         metavar="RELATION_TYPE[,...]",
         help=(
@@ -250,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
         for relation_type in selected:
-            builder = _SUB_BUILDERS[relation_type]
+            builder = SUB_BUILDERS[relation_type]
             try:
                 n = builder(conn)
                 conn.commit()

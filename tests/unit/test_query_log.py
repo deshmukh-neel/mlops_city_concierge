@@ -37,11 +37,11 @@ class FakeCursor:
 
 class FakeConnection:
     def __init__(self, cursor: FakeCursor) -> None:
-        self._cursor = cursor
+        self.cursor_obj = cursor
         self.commit_called: bool = False
 
-    def cursor(self, **_kwargs: Any) -> FakeCursor:
-        return self._cursor
+    def cursor(self, **unused_kwargs: Any) -> FakeCursor:
+        return self.cursor_obj
 
     def commit(self) -> None:
         self.commit_called = True
@@ -127,7 +127,7 @@ def test_param_safety_message_not_interpolated(fake_conn_and_cursor) -> None:
     """The raw message must NOT appear in the SQL string itself (proves %s parameterisation, not interpolation)."""
     conn, cur = fake_conn_and_cursor
 
-    message = "INJECTION_MARKER_DO_NOT_APPEAR_IN_SQL"
+    message = "INJECTION_MARKER_DO_NOTAPPEAR_IN_SQL"
     log_user_query(
         message=message,
         requested_primary_types=[],

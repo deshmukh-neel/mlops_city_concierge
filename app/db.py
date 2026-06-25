@@ -9,7 +9,7 @@ from .db_pool import get_connection, return_connection
 logger = logging.getLogger(__name__)
 
 
-def _return_connection_safely(conn: connection) -> None:
+def return_connection_safely(conn: connection) -> None:
     close_connection = False
     try:
         if conn.closed:
@@ -30,7 +30,7 @@ def get_db() -> Generator[connection, None, None]:
     try:
         yield conn
     finally:
-        _return_connection_safely(conn)
+        return_connection_safely(conn)
 
 
 @contextmanager
@@ -43,4 +43,4 @@ def get_conn() -> Generator[connection, None, None]:
     try:
         yield conn
     finally:
-        _return_connection_safely(conn)
+        return_connection_safely(conn)

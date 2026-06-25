@@ -452,7 +452,7 @@ class TestPremarkSeedIsolation:
         "burritos in Mission San Francisco",
     ]
 
-    def _make_mock_conn(self):
+    def make_mock_conn(self):
         """Build a minimal mock psycopg2 connection."""
         mock_cur = MagicMock()
         mock_cur.__enter__ = lambda s: s
@@ -465,7 +465,7 @@ class TestPremarkSeedIsolation:
     def test_premark_upsertes_catalog_minus_seed(self, mock_bsq):
         """UPSERTs completed rows for catalog-minus-seed; inserts SEED as pending."""
         mock_bsq.return_value = self.MINI_CATALOG
-        mock_conn, mock_cur = self._make_mock_conn()
+        mock_conn, mock_cur = self.make_mock_conn()
 
         # Simulate: count of stale pending rows = 0
         mock_cur.fetchone.return_value = (0,)
@@ -483,7 +483,7 @@ class TestPremarkSeedIsolation:
         """If SEED_QUERY is not in the catalog, exit EXIT_INFRA."""
         # Catalog does NOT contain the seed
         mock_bsq.return_value = ["pho restaurants in San Francisco", "burritos in Mission SF"]
-        mock_conn, mock_cur = self._make_mock_conn()
+        mock_conn, mock_cur = self.make_mock_conn()
         mock_cur.fetchone.return_value = (0,)
         mock_cur.fetchall.return_value = []
 
@@ -495,7 +495,7 @@ class TestPremarkSeedIsolation:
     def test_premark_clears_stale_pending_proposals(self, mock_bsq):
         """Stale pending proposals != SEED_QUERY are updated to 'rejected'."""
         mock_bsq.return_value = self.MINI_CATALOG
-        mock_conn, mock_cur = self._make_mock_conn()
+        mock_conn, mock_cur = self.make_mock_conn()
 
         # Simulate: fetchone returns stale count = 0 (after clearing)
         # But we should see the UPDATE call for 'rejected'
@@ -513,7 +513,7 @@ class TestPremarkSeedIsolation:
     def test_premark_exits_infra_when_stale_pending_remain(self, mock_bsq):
         """If stale pending rows remain after clearing, exit EXIT_INFRA."""
         mock_bsq.return_value = self.MINI_CATALOG
-        mock_conn, mock_cur = self._make_mock_conn()
+        mock_conn, mock_cur = self.make_mock_conn()
 
         # Simulate: stale pending rows still exist after clearing (count = 2)
         mock_cur.fetchone.return_value = (2,)

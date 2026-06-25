@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # The concierge is San Francisco-only; a naive open_at unambiguously means
 # SF local time.
-_CITY_TZ = ZoneInfo("America/Los_Angeles")
+CITY_TZ = ZoneInfo("America/Los_Angeles")
 
 
 class SearchFilters(BaseModel):
@@ -126,7 +126,7 @@ class SearchFilters(BaseModel):
 
     @field_validator("open_at")
     @classmethod
-    def _ensure_tz_aware(cls, v: datetime | None) -> datetime | None:
+    def ensure_tz_aware(cls, v: datetime | None) -> datetime | None:
         # A naive datetime would be interpreted in Postgres's session timezone,
         # silently producing wrong DOW/hour answers across DST boundaries.
         # Hard-rejecting it derailed models that omit the offset (a very common
@@ -134,11 +134,11 @@ class SearchFilters(BaseModel):
         # is SF-only, so a naive time unambiguously means SF local: attach the
         # city tz instead of rejecting. Same correctness, no derailment.
         if v is not None and v.tzinfo is None:
-            return v.replace(tzinfo=_CITY_TZ)
+            return v.replace(tzinfo=CITY_TZ)
         return v
 
 
-_BOOL_COLUMNS: tuple[str, ...] = (
+BOOL_COLUMNS: tuple[str, ...] = (
     "serves_cocktails",
     "serves_beer",
     "serves_wine",
@@ -165,7 +165,7 @@ _BOOL_COLUMNS: tuple[str, ...] = (
 # either or both. The `serves_dessert` helper and the `primary_type_family`
 # filter both compile to `(types && %s OR primary_type = ANY(%s))` against
 # these two lists so the row matches on either column.
-_PRIMARY_TYPE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = {
+PRIMARY_TYPE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = {
     "dessert": {
         "types": (
             "dessert_shop",
@@ -264,7 +264,7 @@ _PRIMARY_TYPE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = {
 # when *identifying* a closed stop's category for the closure-aware swap,
 # we want the more specific family — a closed "Cafe" should swap to another
 # cafe, not arbitrarily into the dessert family. Order: most specific first.
-_FAMILY_LOOKUP_PRIORITY: tuple[str, ...] = ("bar", "restaurant", "cafe", "dessert")
+FAMILY_LOOKUP_PRIORITY: tuple[str, ...] = ("bar", "restaurant", "cafe", "dessert")
 
 
 # Free-text keywords that signal each family in an agent-issued query string.
@@ -272,8 +272,8 @@ _FAMILY_LOOKUP_PRIORITY: tuple[str, ...] = ("bar", "restaurant", "cafe", "desser
 # omits `slot_index`. Lowercase, matched on whole words. Kept deliberately
 # tight (high-precision) so an ambiguous query infers nothing rather than the
 # wrong family — the fail-open default (no filter) is preferable to a wrong
-# filter. Walked in `_FAMILY_LOOKUP_PRIORITY` order by the caller.
-_FAMILY_QUERY_KEYWORDS: dict[str, tuple[str, ...]] = {
+# filter. Walked in `FAMILY_LOOKUP_PRIORITY` order by the caller.
+FAMILY_QUERY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "bar": ("drinks", "drink", "cocktail", "cocktails", "bar", "wine", "pub", "nightcap"),
     "restaurant": ("dinner", "lunch", "restaurant", "eat", "meal", "dining", "brunch", "supper"),
     "cafe": ("coffee", "cafe", "espresso", "latte"),
@@ -285,15 +285,15 @@ def family_of(primary_type: str | None) -> str | None:
     """Reverse lookup: scalar primary_type column value -> family name.
 
     Case-preserving comparison — the DB column preserves Title Case verbatim,
-    and `_PRIMARY_TYPE_FAMILIES` stores both casings exactly as the columns do.
-    Returns the first match in `_FAMILY_LOOKUP_PRIORITY` order so overlapping
+    and `PRIMARY_TYPE_FAMILIES` stores both casings exactly as the columns do.
+    Returns the first match in `FAMILY_LOOKUP_PRIORITY` order so overlapping
     categories (Cafe is in both "cafe" and "dessert") resolve deterministically.
     Returns None for unknown / empty / None inputs.
     """
     if not primary_type:
         return None
-    for family in _FAMILY_LOOKUP_PRIORITY:
-        if primary_type in _PRIMARY_TYPE_FAMILIES[family]["primary_types"]:
+    for family in FAMILY_LOOKUP_PRIORITY:
+        if primary_type in PRIMARY_TYPE_FAMILIES[family]["primary_types"]:
             return family
     return None
 
@@ -302,14 +302,14 @@ def family_of_types(types: list[str] | None) -> str | None:
     """Reverse lookup: types[] array values -> family name.
 
     Returns the first family that overlaps the input list, walking families
-    in `_FAMILY_LOOKUP_PRIORITY` order. Lets the swap node fall back when
+    in `FAMILY_LOOKUP_PRIORITY` order. Lets the swap node fall back when
     `primary_type` isn't in the index but `types[]` is populated. Returns
     None for an empty list.
     """
     if not types:
         return None
-    for family in _FAMILY_LOOKUP_PRIORITY:
-        if any(t in _PRIMARY_TYPE_FAMILIES[family]["types"] for t in types):
+    for family in FAMILY_LOOKUP_PRIORITY:
+        if any(t in PRIMARY_TYPE_FAMILIES[family]["types"] for t in types):
             return family
     return None
 
@@ -317,7 +317,7 @@ def family_of_types(types: list[str] | None) -> str | None:
 def family_from_query(query: str | None, requested_primary_types: list[str] | None) -> str | None:
     """Infer a slot family from free-text query when the model omits `slot_index`.
 
-    `_inject_primary_type_family` only binds a per-slot family filter when the
+    `inject_primary_type_family` only binds a per-slot family filter when the
     model voluntarily emits `slot_index`. Live traces (2026-06-15) show the
     models (incl. gpt-4o-mini and the reasoning models) routinely DON'T — they
     emit thin, unfiltered queries like "drinks in Hayes Valley", so the
@@ -326,7 +326,7 @@ def family_from_query(query: str | None, requested_primary_types: list[str] | No
 
     This is the slot-index-free fallback: derive the family from the query
     text, but ONLY return a family the user actually requested. The query's
-    words are matched (lowercased, whole-word) against `_FAMILY_QUERY_KEYWORDS`
+    words are matched (lowercased, whole-word) against `FAMILY_QUERY_KEYWORDS`
     for each requested type's family. It never invents a family outside
     `requested_primary_types`, so a "coffee shop" query cannot smuggle in the
     `cafe` family when the user asked only for Restaurant + Bar.
@@ -350,12 +350,12 @@ def family_from_query(query: str | None, requested_primary_types: list[str] | No
     # Collect EVERY requested family whose keywords appear. If more than one
     # matches, the query is ambiguous (e.g. "dinner and drinks" → restaurant AND
     # bar) — return None rather than silently filtering out a requested category
-    # (Codex PR#110 finding 3). Only an unambiguous single match injects a filter.
+    # Only an unambiguous single match injects a filter.
     matched_families = [
         family
-        for family in _FAMILY_LOOKUP_PRIORITY
+        for family in FAMILY_LOOKUP_PRIORITY
         if family in requested_families
-        and any(kw in q_words for kw in _FAMILY_QUERY_KEYWORDS.get(family, ()))
+        and any(kw in q_words for kw in FAMILY_QUERY_KEYWORDS.get(family, ()))
     ]
     return matched_families[0] if len(matched_families) == 1 else None
 
@@ -397,14 +397,14 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
         params.append(f.neighborhood)
         params.append(f"%{f.neighborhood}%")
 
-    for column in _BOOL_COLUMNS:
+    for column in BOOL_COLUMNS:
         value = getattr(f, column)
         if value is not None:
             clauses.append(f"{column} = %s")
             params.append(value)
 
     if f.serves_dessert is not None:
-        dessert = _PRIMARY_TYPE_FAMILIES["dessert"]
+        dessert = PRIMARY_TYPE_FAMILIES["dessert"]
         dessert_clause = "(types && %s OR primary_type = ANY(%s))"
         if f.serves_dessert:
             clauses.append(dessert_clause)
@@ -418,7 +418,7 @@ def compile_filters(f: SearchFilters) -> tuple[str, list]:
         params.append(f.types_any)
 
     if f.primary_type_family is not None:
-        family = _PRIMARY_TYPE_FAMILIES[f.primary_type_family]
+        family = PRIMARY_TYPE_FAMILIES[f.primary_type_family]
         clauses.append("(types && %s OR primary_type = ANY(%s))")
         params.append(list(family["types"]))
         params.append(list(family["primary_types"]))

@@ -190,7 +190,7 @@ def test_repo_eval_queries_yaml_is_valid() -> None:
 # ─── EvalQuery.turns multi-turn scripted scenarios (EVAL-03) ───
 
 
-def _minimal_query_payload(**overrides: object) -> dict:
+def minimal_query_payload(**overrides: object) -> dict:
     """Return the smallest valid EvalQuery payload; tests override fields."""
     payload: dict = {
         "id": "x",
@@ -204,14 +204,14 @@ def _minimal_query_payload(**overrides: object) -> dict:
 
 def test_eval_query_turns_defaults_to_none() -> None:
     """Backward compat: existing 29 cases omit `turns` and load unchanged."""
-    case = EvalQuery.model_validate(_minimal_query_payload())
+    case = EvalQuery.model_validate(minimal_query_payload())
     assert case.turns is None
 
 
 def test_eval_query_turns_accepts_non_empty_list_of_strings() -> None:
     """A multi-turn scenario carries one follow-up message per turn after the
     first. The runner thread `conversation_state` between turns (EVAL-06)."""
-    case = EvalQuery.model_validate(_minimal_query_payload(turns=["follow-up 1", "follow-up 2"]))
+    case = EvalQuery.model_validate(minimal_query_payload(turns=["follow-up 1", "follow-up 2"]))
     assert case.turns == ["follow-up 1", "follow-up 2"]
 
 
@@ -219,19 +219,19 @@ def test_eval_query_rejects_empty_turns_list() -> None:
     """An explicit empty list is meaningless — either omit `turns` (None) or
     provide at least one follow-up. No in-between state."""
     with pytest.raises(ValidationError, match="turns"):
-        EvalQuery.model_validate(_minimal_query_payload(turns=[]))
+        EvalQuery.model_validate(minimal_query_payload(turns=[]))
 
 
 def test_eval_query_rejects_blank_turn_string() -> None:
     """Blank-string turns would send empty messages to the agent — reject
     them at config load time. Mirrors strip_non_empty_list usage."""
     with pytest.raises(ValidationError, match="turns"):
-        EvalQuery.model_validate(_minimal_query_payload(turns=["   "]))
+        EvalQuery.model_validate(minimal_query_payload(turns=["   "]))
 
 
 def test_eval_query_turns_strips_whitespace() -> None:
     """Non-blank turns are trimmed (consistent with strip_non_empty_list)."""
-    case = EvalQuery.model_validate(_minimal_query_payload(turns=["  hello  ", "world"]))
+    case = EvalQuery.model_validate(minimal_query_payload(turns=["  hello  ", "world"]))
     assert case.turns == ["hello", "world"]
 
 
@@ -306,7 +306,7 @@ def test_matrix_entry_accepts_single_dash_anywhere() -> None:
 # ─── EvalMatrixConfig top-level loader (EVAL-04) ───
 
 
-def _valid_matrix_payload(**overrides: object) -> dict:
+def valid_matrix_payload(**overrides: object) -> dict:
     """Minimal-but-valid matrix payload for tests."""
     payload: dict = {
         "entries": [
@@ -322,7 +322,7 @@ def _valid_matrix_payload(**overrides: object) -> dict:
 def test_eval_matrix_config_round_trips_minimal_valid_payload() -> None:
     """The two locked anchors (D-06) plus one scenario id is the smallest
     matrix the runner will execute."""
-    matrix = EvalMatrixConfig.model_validate(_valid_matrix_payload())
+    matrix = EvalMatrixConfig.model_validate(valid_matrix_payload())
     assert len(matrix.entries) == 2
     assert matrix.entries[0].provider == "openai"
     assert matrix.entries[1].provider == "deepseek"
@@ -332,25 +332,25 @@ def test_eval_matrix_config_round_trips_minimal_valid_payload() -> None:
 def test_eval_matrix_config_rejects_empty_entries() -> None:
     """`entries` is the cross-product dimension — empty would mean 'run nothing'."""
     with pytest.raises(ValidationError, match="entries"):
-        EvalMatrixConfig.model_validate(_valid_matrix_payload(entries=[]))
+        EvalMatrixConfig.model_validate(valid_matrix_payload(entries=[]))
 
 
 def test_eval_matrix_config_rejects_empty_scenarios() -> None:
     """`scenarios` is the other cross-product dimension — both must be non-empty."""
     with pytest.raises(ValidationError, match="scenarios"):
-        EvalMatrixConfig.model_validate(_valid_matrix_payload(scenarios=[]))
+        EvalMatrixConfig.model_validate(valid_matrix_payload(scenarios=[]))
 
 
 def test_eval_matrix_config_rejects_blank_scenario_id() -> None:
     """Scenario ids reference EvalQuery.id — blanks would never resolve."""
     with pytest.raises(ValidationError, match="scenarios"):
-        EvalMatrixConfig.model_validate(_valid_matrix_payload(scenarios=["   "]))
+        EvalMatrixConfig.model_validate(valid_matrix_payload(scenarios=["   "]))
 
 
 def test_eval_matrix_config_rejects_duplicate_entries() -> None:
     """Same (provider, model) twice would double-bill the same run and skew
     the cross-provider median. Mirror EvalQueriesConfig.ids_are_unique."""
-    payload = _valid_matrix_payload(
+    payload = valid_matrix_payload(
         entries=[
             {"provider": "openai", "model": "gpt-4o-mini"},
             {"provider": "openai", "model": "gpt-4o-mini"},
@@ -362,7 +362,7 @@ def test_eval_matrix_config_rejects_duplicate_entries() -> None:
 
 def test_eval_matrix_config_rejects_extra_keys() -> None:
     """extra='forbid' parity with EvalQueriesConfig."""
-    payload = _valid_matrix_payload(extra_key="nope")
+    payload = valid_matrix_payload(extra_key="nope")
     with pytest.raises(ValidationError):
         EvalMatrixConfig.model_validate(payload)
 
@@ -379,7 +379,7 @@ def write_matrix_config(tmp_path: Path, payload: dict) -> Path:
 
 def test_load_eval_matrix_loads_valid_yaml(tmp_path: Path) -> None:
     """Mirrors load_eval_queries: YAML safe_load -> model_validate."""
-    config_path = write_matrix_config(tmp_path, _valid_matrix_payload())
+    config_path = write_matrix_config(tmp_path, valid_matrix_payload())
 
     matrix = load_eval_matrix(config_path)
 
@@ -485,7 +485,7 @@ def test_omakase_case_tags_include_category_compliance() -> None:
 # (default values preserve current behavior).
 
 
-def _phase6_query_payload(**overrides: object) -> dict:
+def phase6_query_payload(**overrides: object) -> dict:
     """Smallest valid EvalQuery payload for Phase 6 schema tests."""
     payload: dict = {
         "id": "x",
@@ -505,43 +505,43 @@ class TestPhase6EvalConfigAdditions:
     def test_threading_mode_default_is_legacy(self) -> None:
         """Default is 'legacy' so the 30 existing YAML cases keep their behavior
         (opt-in flip per D-06-05 / D-06-06)."""
-        case = EvalQuery.model_validate(_phase6_query_payload())
+        case = EvalQuery.model_validate(phase6_query_payload())
         assert case.threading_mode == "legacy"
 
     def test_threading_mode_accepts_prod(self) -> None:
         """`refinement_cheaper` flips to 'prod' in plan 06-07 — must validate now."""
-        case = EvalQuery.model_validate(_phase6_query_payload(threading_mode="prod"))
+        case = EvalQuery.model_validate(phase6_query_payload(threading_mode="prod"))
         assert case.threading_mode == "prod"
 
     def test_threading_mode_rejects_invalid_literal(self) -> None:
         """Literal enforces membership at validation time — only 'legacy' or 'prod'."""
         with pytest.raises(ValidationError, match="threading_mode"):
-            EvalQuery.model_validate(_phase6_query_payload(threading_mode="invalid"))
+            EvalQuery.model_validate(phase6_query_payload(threading_mode="invalid"))
 
     # --- EvalQuery.expected_refinement + ExpectedRefinement (D-06-08) ---
 
     def test_expected_refinement_default_is_none(self) -> None:
         """`None` default = backward compat for non-refinement scenarios."""
-        case = EvalQuery.model_validate(_phase6_query_payload())
+        case = EvalQuery.model_validate(phase6_query_payload())
         assert case.expected_refinement is None
 
     def test_expected_refinement_validates_target_slot_ge_1(self) -> None:
         """target_slot is 1-indexed (matches user prose + is_refinement_request +
         refinement_minimal_edit scorer convention). 0 must be rejected."""
         case = EvalQuery.model_validate(
-            _phase6_query_payload(expected_refinement={"target_slot": 2})
+            phase6_query_payload(expected_refinement={"target_slot": 2})
         )
         assert case.expected_refinement is not None
         assert case.expected_refinement.target_slot == 2
 
         with pytest.raises(ValidationError, match="target_slot"):
-            EvalQuery.model_validate(_phase6_query_payload(expected_refinement={"target_slot": 0}))
+            EvalQuery.model_validate(phase6_query_payload(expected_refinement={"target_slot": 0}))
 
     def test_expected_refinement_forbids_extra_fields(self) -> None:
         """`extra='forbid'` on the nested model — typos must fail loudly."""
         with pytest.raises(ValidationError):
             EvalQuery.model_validate(
-                _phase6_query_payload(expected_refinement={"target_slot": 2, "extra_field": "x"})
+                phase6_query_payload(expected_refinement={"target_slot": 2, "extra_field": "x"})
             )
 
     def test_expected_refinement_round_trips_via_expected_refinement_class(self) -> None:

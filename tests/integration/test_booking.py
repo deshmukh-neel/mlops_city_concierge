@@ -25,7 +25,7 @@ from app.tools.booking import propose_booking  # noqa: E402
 from app.tools.retrieval import get_details, semantic_search  # noqa: E402
 
 
-def _any_real_place_id() -> str:
+def any_real_place_id() -> str:
     """Pick any place_id from the live DB so we don't hard-code a fixture
     that drifts. semantic_search is the same path the agent uses."""
     hits = semantic_search(query="restaurant", k=1)
@@ -38,7 +38,7 @@ def test_propose_booking_against_real_database() -> None:
     """Real DB lookup + real URL construction. The exact provider depends on
     what's seeded; whichever tier we land on, the assertions for THAT tier's
     contract must hold (params present, URL pointing at the right thing)."""
-    place_id = _any_real_place_id()
+    place_id = any_real_place_id()
     when = datetime(2026, 5, 7, 19, 30)
     proposal = propose_booking(place_id, when, party_size=2)
 

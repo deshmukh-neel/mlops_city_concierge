@@ -30,18 +30,18 @@ class FakeCursor:
 
 class FakeConnection:
     def __init__(self, cursor: FakeCursor) -> None:
-        self._cursor = cursor
+        self.cursor_obj = cursor
 
-    def cursor(self, **_kwargs: Any) -> FakeCursor:  # ignore cursor_factory
-        return self._cursor
+    def cursor(self, **unused_kwargs: Any) -> FakeCursor:  # ignore cursor_factory
+        return self.cursor_obj
 
 
 @pytest.fixture
 def patch_get_conn(mocker):
-    """Patch get_conn() (resolved inside app.tools.retrieval._execute) to yield
+    """Patch get_conn() (resolved inside app.tools.retrieval.execute_query) to yield
     a FakeConnection over the given rows; returns the FakeCursor for asserts."""
 
-    def _patch(rows: list[dict]) -> FakeCursor:
+    def patch(rows: list[dict]) -> FakeCursor:
         cursor = FakeCursor(rows)
         connection = FakeConnection(cursor)
 
@@ -52,10 +52,10 @@ def patch_get_conn(mocker):
         mocker.patch("app.tools.retrieval.get_conn", fake_get_conn)
         return cursor
 
-    return _patch
+    return patch
 
 
-def _row(**overrides: Any) -> dict:
+def row(**overrides: Any) -> dict:
     base = {
         "place_id": "ChIJtest_p2_aaaaaaaa",
         "name": "Test",
@@ -83,7 +83,7 @@ def test_invalid_relation_raises() -> None:
 
 
 def test_related_place_shape(patch_get_conn) -> None:
-    patch_get_conn([_row(relation_type="NEAR", weight=42.0, relation_metadata={"k": "v"})])
+    patch_get_conn([row(relation_type="NEAR", weight=42.0, relation_metadata={"k": "v"})])
     out = kg_traverse("ChIJtest_p1_aaaaaaaa", "NEAR", k=5)
     assert len(out) == 1
     rp = out[0]
@@ -116,7 +116,7 @@ def test_join_drops_missing_dst(patch_get_conn) -> None:
 
 
 def test_view_name_resolved(patch_get_conn, monkeypatch) -> None:
-    monkeypatch.setattr("app.tools.graph._view_name", lambda: "place_documents_v2")
+    monkeypatch.setattr("app.tools.graph.view_name", lambda: "place_documents_v2")
     cursor = patch_get_conn([])
     kg_traverse("ChIJtest_p1_aaaaaaaa", "NEAR", k=5)
     assert "place_documents_v2" in cursor.executed_sql

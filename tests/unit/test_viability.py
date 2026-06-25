@@ -17,7 +17,7 @@ from app.agent.state import ItineraryState, UserConstraints
 THRESHOLD = LOW_SIMILARITY_THRESHOLD  # 0.55
 
 
-def _hit(
+def hit(
     similarity: float,
     primary_type: str,
     place_id: str,
@@ -31,7 +31,7 @@ def _hit(
     }
 
 
-def _state_with_hits(
+def state_with_hits(
     hits: list[dict[str, Any]],
     requested_types: list[str] | None = None,
     num_stops: int = 1,
@@ -82,10 +82,10 @@ def test_all_slots_viable_true_when_each_type_has_viable_hit() -> None:
     """Returns True when every requested type has one distinct viable candidate."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.8, "Sushi Restaurant", "pid1"),
-            _hit(0.7, "Coffee Shop", "pid2"),
+            hit(0.8, "Sushi Restaurant", "pid1"),
+            hit(0.7, "Coffee Shop", "pid2"),
         ],
         requested_types=["Sushi Restaurant", "Coffee Shop"],
     )
@@ -97,9 +97,9 @@ def test_all_slots_viable_false_when_one_slot_has_no_hit() -> None:
     """Returns False when one requested type has no viable candidate."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.8, "Sushi Restaurant", "pid1"),
+            hit(0.8, "Sushi Restaurant", "pid1"),
             # No Coffee Shop hit
         ],
         requested_types=["Sushi Restaurant", "Coffee Shop"],
@@ -119,11 +119,11 @@ def test_all_slots_viable_matches_requested_type_by_family() -> None:
     """
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.8, "Italian Restaurant", "pid1"),  # satisfies "Restaurant" slot (restaurant fam)
-            _hit(0.7, "Wine Bar", "pid2"),  # satisfies "Cocktail Bar" slot (bar family)
-            _hit(0.7, "Bakery", "pid3"),  # satisfies "Dessert Shop" slot (dessert family)
+            hit(0.8, "Italian Restaurant", "pid1"),  # satisfies "Restaurant" slot (restaurant fam)
+            hit(0.7, "Wine Bar", "pid2"),  # satisfies "Cocktail Bar" slot (bar family)
+            hit(0.7, "Bakery", "pid3"),  # satisfies "Dessert Shop" slot (dessert family)
         ],
         requested_types=["Restaurant", "Cocktail Bar", "Dessert Shop"],
     )
@@ -138,10 +138,10 @@ def test_all_slots_viable_two_same_family_slots_need_two_distinct_places() -> No
     slot by mapping both hits to the first requested type."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.8, "Bar", "b1"),
-            _hit(0.7, "Bar", "b2"),
+            hit(0.8, "Bar", "b1"),
+            hit(0.7, "Bar", "b2"),
         ],
         requested_types=["Cocktail Bar", "Wine Bar"],
         num_stops=2,
@@ -153,8 +153,8 @@ def test_all_slots_viable_two_same_family_slots_false_with_one_place() -> None:
     """Same family, two slots, but only ONE distinct viable place → not covered."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
-        hits=[_hit(0.8, "Bar", "b1"), _hit(0.7, "Bar", "b1")],  # same place_id twice
+    state = state_with_hits(
+        hits=[hit(0.8, "Bar", "b1"), hit(0.7, "Bar", "b1")],  # same place_id twice
         requested_types=["Cocktail Bar", "Wine Bar"],
         num_stops=2,
     )
@@ -166,10 +166,10 @@ def test_all_slots_viable_family_match_still_requires_correct_family() -> None:
     Cocktail Bar (bar) slot."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.8, "Italian Restaurant", "pid1"),  # Restaurant slot OK
-            _hit(0.7, "Bakery", "pid2"),  # dessert family — wrong for a Cocktail Bar slot
+            hit(0.8, "Italian Restaurant", "pid1"),  # Restaurant slot OK
+            hit(0.7, "Bakery", "pid2"),  # dessert family — wrong for a Cocktail Bar slot
         ],
         requested_types=["Restaurant", "Cocktail Bar"],
     )
@@ -181,8 +181,8 @@ def test_all_slots_viable_false_when_hit_below_threshold() -> None:
     """Returns False when the only hit has cosine < threshold."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
-        hits=[_hit(THRESHOLD - 0.01, "Sushi Restaurant", "pid1")],
+    state = state_with_hits(
+        hits=[hit(THRESHOLD - 0.01, "Sushi Restaurant", "pid1")],
         requested_types=["Sushi Restaurant"],
     )
 
@@ -193,8 +193,8 @@ def test_all_slots_viable_true_at_exact_threshold() -> None:
     """Returns True when cosine == threshold exactly (boundary inclusive)."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
-        hits=[_hit(THRESHOLD, "Sushi Restaurant", "pid1")],
+    state = state_with_hits(
+        hits=[hit(THRESHOLD, "Sushi Restaurant", "pid1")],
         requested_types=["Sushi Restaurant"],
     )
 
@@ -206,10 +206,10 @@ def test_all_slots_viable_multiset_needs_distinct_ids() -> None:
     from app.agent.viability import all_slots_viable
 
     # Same place_id returned twice — cannot cover two restaurant slots.
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.9, "Restaurant", "pid1"),
-            _hit(0.8, "Restaurant", "pid1"),  # duplicate!
+            hit(0.9, "Restaurant", "pid1"),
+            hit(0.8, "Restaurant", "pid1"),  # duplicate!
         ],
         requested_types=["Restaurant", "Restaurant"],
     )
@@ -221,10 +221,10 @@ def test_all_slots_viable_multiset_true_with_distinct_ids() -> None:
     """Two slots of same type satisfied by two distinct place_ids."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.9, "Restaurant", "pid1"),
-            _hit(0.8, "Restaurant", "pid2"),
+            hit(0.9, "Restaurant", "pid1"),
+            hit(0.8, "Restaurant", "pid2"),
         ],
         requested_types=["Restaurant", "Restaurant"],
     )
@@ -239,10 +239,10 @@ def test_all_slots_viable_untyped_uses_num_stops() -> None:
     """Without requested types, requires num_stops distinct viable place_ids."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.9, "Restaurant", "pid1"),
-            _hit(0.8, "Restaurant", "pid2"),
+            hit(0.9, "Restaurant", "pid1"),
+            hit(0.8, "Restaurant", "pid2"),
         ],
         requested_types=[],
         num_stops=2,
@@ -255,8 +255,8 @@ def test_all_slots_viable_untyped_false_not_enough_distinct() -> None:
     """Without requested types, requires num_stops distinct; one hit fails."""
     from app.agent.viability import all_slots_viable
 
-    state = _state_with_hits(
-        hits=[_hit(0.9, "Restaurant", "pid1")],
+    state = state_with_hits(
+        hits=[hit(0.9, "Restaurant", "pid1")],
         requested_types=[],
         num_stops=2,
     )
@@ -301,7 +301,7 @@ def test_all_slots_viable_nearby_ignored() -> None:
                 {
                     "step": 0,
                     "args": {},
-                    "result": [_hit(0.9, "Sushi Restaurant", "pid1")],
+                    "result": [hit(0.9, "Sushi Restaurant", "pid1")],
                     "id": "tc1",
                 }
             ]
@@ -328,10 +328,10 @@ def test_all_slots_viable_agrees_with_rule8_met_per_step_from_state() -> None:
 
     requested_types = ["Sushi Restaurant", "Coffee Shop"]
     hits = [
-        _hit(0.9, "Sushi Restaurant", "pid1"),
-        _hit(0.8, "Coffee Shop", "pid2"),
+        hit(0.9, "Sushi Restaurant", "pid1"),
+        hit(0.8, "Coffee Shop", "pid2"),
     ]
-    state = _state_with_hits(hits, requested_types=requested_types)
+    state = state_with_hits(hits, requested_types=requested_types)
 
     # Build the harness result.
     viable_per_step = viable_candidates_per_step_from_state(state, THRESHOLD, requested_types)
@@ -349,8 +349,8 @@ def test_all_slots_viable_agrees_rule8_false_case() -> None:
     )
 
     requested_types = ["Sushi Restaurant"]
-    hits = [_hit(THRESHOLD - 0.01, "Sushi Restaurant", "pid1")]
-    state = _state_with_hits(hits, requested_types=requested_types)
+    hits = [hit(THRESHOLD - 0.01, "Sushi Restaurant", "pid1")]
+    state = state_with_hits(hits, requested_types=requested_types)
 
     viable_per_step = viable_candidates_per_step_from_state(state, THRESHOLD, requested_types)
     rule8_bools = rule8_met_per_step_from_state(state, viable_per_step, requested_types, THRESHOLD)
@@ -365,11 +365,11 @@ def test_best_viable_candidate_per_slot_returns_highest_cosine_per_type() -> Non
     """Returns the highest-cosine hit for each requested type."""
     from app.agent.viability import best_viable_candidate_per_slot
 
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.9, "Sushi Restaurant", "pid1"),
-            _hit(0.7, "Sushi Restaurant", "pid2"),
-            _hit(0.8, "Coffee Shop", "pid3"),
+            hit(0.9, "Sushi Restaurant", "pid1"),
+            hit(0.7, "Sushi Restaurant", "pid2"),
+            hit(0.8, "Coffee Shop", "pid3"),
         ],
         requested_types=["Sushi Restaurant", "Coffee Shop"],
     )
@@ -387,8 +387,8 @@ def test_best_viable_candidate_per_slot_none_for_uncovered_slot() -> None:
     """Returns None for a slot with no viable candidate."""
     from app.agent.viability import best_viable_candidate_per_slot
 
-    state = _state_with_hits(
-        hits=[_hit(0.9, "Sushi Restaurant", "pid1")],
+    state = state_with_hits(
+        hits=[hit(0.9, "Sushi Restaurant", "pid1")],
         requested_types=["Sushi Restaurant", "Coffee Shop"],
     )
 
@@ -404,8 +404,8 @@ def test_best_viable_candidate_per_slot_returns_plain_dicts() -> None:
 
     from app.agent.viability import best_viable_candidate_per_slot
 
-    state = _state_with_hits(
-        hits=[_hit(0.9, "Sushi Restaurant", "pid1")],
+    state = state_with_hits(
+        hits=[hit(0.9, "Sushi Restaurant", "pid1")],
         requested_types=["Sushi Restaurant"],
     )
 
@@ -436,11 +436,11 @@ def test_best_viable_candidate_per_slot_multiset_two_distinct() -> None:
     """For two slots of the same type, picks the top-2 distinct place_ids."""
     from app.agent.viability import best_viable_candidate_per_slot
 
-    state = _state_with_hits(
+    state = state_with_hits(
         hits=[
-            _hit(0.95, "Restaurant", "pid1"),
-            _hit(0.85, "Restaurant", "pid2"),
-            _hit(0.75, "Restaurant", "pid3"),
+            hit(0.95, "Restaurant", "pid1"),
+            hit(0.85, "Restaurant", "pid2"),
+            hit(0.75, "Restaurant", "pid3"),
         ],
         requested_types=["Restaurant", "Restaurant"],
     )
@@ -482,7 +482,7 @@ def test_itinerary_state_new_fields_json_safe() -> None:
 # ── Task 1 (CR-01): PlaceHit typed-path regression tests ─────────────────────
 
 
-def _placehit_scratch(
+def placehit_scratch(
     similarity: float,
     primary_type: str,
     place_id: str,
@@ -582,14 +582,14 @@ def test_best_viable_candidate_per_slot_unknown_shape_is_skipped() -> None:
     """
     from app.agent.viability import best_viable_candidate_per_slot
 
-    class _UnknownHit:
+    class UnknownHit:
         place_id = "ChIJxxx_unknown_001"
         name = "Unknown Hit"
         primary_type = "coffee_shop"
         source = "google_places"
         similarity = THRESHOLD + 0.2
 
-    unknown_hit = _UnknownHit()
+    unknown_hit = UnknownHit()
     state = ItineraryState(
         scratch={
             "semantic_search": [{"step": 0, "args": {}, "result": [unknown_hit], "id": "tc0"}]

@@ -28,7 +28,7 @@ load_dotenv()
 SF = ZoneInfo("America/Los_Angeles")
 
 
-def _print_hits(label: str, hits: list) -> None:
+def print_hits(label: str, hits: list) -> None:
     print(f"\n=== {label} ({len(hits)} hits) ===")
     for h in hits:
         rating = f"{h.rating:>3.1f}" if h.rating is not None else "  ?"
@@ -43,7 +43,7 @@ def smoke_basic_neighborhood() -> list:
         SearchFilters(min_rating=4.3, neighborhood="North Beach"),
         k=5,
     )
-    _print_hits("1. romantic italian in North Beach (rating>=4.3)", hits)
+    print_hits("1. romantic italian in North Beach (rating>=4.3)", hits)
     assert all(h.rating is None or h.rating >= 4.3 for h in hits), "min_rating violated"
     return hits
 
@@ -55,7 +55,7 @@ def smoke_price_filter() -> list:
         SearchFilters(price_level_max=2, min_user_rating_count=100),
         k=5,
     )
-    _print_hits("2. casual lunch (price_level <= MODERATE, raters >= 100)", hits)
+    print_hits("2. casual lunch (price_level <= MODERATE, raters >= 100)", hits)
     allowed = {None, "PRICE_LEVEL_FREE", "PRICE_LEVEL_INEXPENSIVE", "PRICE_LEVEL_MODERATE"}
     assert all(h.price_level in allowed for h in hits), (
         f"price_level filter violated: {[h.price_level for h in hits]}"
@@ -70,7 +70,7 @@ def smoke_amenities() -> list:
         SearchFilters(serves_wine=True, outdoor_seating=True),
         k=5,
     )
-    _print_hits("3. wine bar (serves_wine + outdoor_seating)", hits)
+    print_hits("3. wine bar (serves_wine + outdoor_seating)", hits)
     return hits
 
 
@@ -82,7 +82,7 @@ def smoke_open_at_tz_aware() -> list:
         SearchFilters(serves_cocktails=True, open_at=sf_friday_8pm),
         k=5,
     )
-    _print_hits(f"4. cocktail bar open at {sf_friday_8pm.isoformat()}", hits)
+    print_hits(f"4. cocktail bar open at {sf_friday_8pm.isoformat()}", hits)
     return hits
 
 
@@ -101,7 +101,7 @@ def smoke_get_details_and_nearby(seed_hits: list) -> None:
     print(f"  has hours: {bool(details.regular_opening_hours)}")
 
     neighbors = nearby(seed.place_id, radius_m=500, k=5)
-    _print_hits(f"5b. nearby {seed.name} (500m)", neighbors)
+    print_hits(f"5b. nearby {seed.name} (500m)", neighbors)
     assert all(h.place_id != seed.place_id for h in neighbors), "anchor leaked into nearby"
 
 

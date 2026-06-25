@@ -41,7 +41,7 @@ from app.agent.revision import (
     short_circuit_max_steps,
 )
 from app.agent.state import ItineraryState, Stop
-from app.agent.swap import _inject_closure_exclusions, swap_closed_stops
+from app.agent.swap import inject_closure_exclusions, swap_closed_stops
 from app.agent.tools import COMMIT_ITINERARY_TOOL_NAME, all_tools
 from app.agent.viability import all_slots_viable, best_viable_candidate_per_slot
 from app.config import env_flag
@@ -51,15 +51,14 @@ from app.tools.filters import SearchFilters, family_from_query, family_of
 logger = logging.getLogger(__name__)
 
 
-def _inject_primary_type_family(
+def inject_primary_type_family(
     tool_name: str,
     args: dict[str, Any],
     requested_primary_types: list[str],
 ) -> dict[str, Any]:
-    """Phase 4 D-04-04: write `filters.primary_type_family` for the slot when
-    the model cooperated by emitting `slot_index`.
+    """Write `filters.primary_type_family` for the slot named by `slot_index`.
 
-    Mirrors `_inject_closure_exclusions` (app/agent/swap.py:456-510) exactly
+    Mirrors `inject_closure_exclusions` (app/agent/swap.py:456-510) exactly
     in shape and JSON-safety invariants:
 
       - Returns a NEW args dict (never mutates the input).
@@ -67,9 +66,8 @@ def _inject_primary_type_family(
         `SearchFilters` instance — the caller stores effective_args inside
         AIMessage scratch, and `json.dumps(args)` must not crash on the next
         plan() step (project memory `aimessage_tool_call_args_json_safe.md`).
-      - Noop on every defensive branch (D-04-06 trust boundary, fail-open on
-        unmappable types) so the model can decline cooperation without the
-        graph silently substituting a guess.
+      - Noop on every defensive branch so the model can decline cooperation
+        without the graph silently substituting a guess.
 
     Routing rules:
 
@@ -78,8 +76,7 @@ def _inject_primary_type_family(
         only place_id. None of these accept primary_type_family.
       - requested_primary_types empty -> noop (the user didn't structure their
         request as per-slot categories).
-      - slot_index missing / None / not int -> noop (D-04-06 trust boundary;
-        the model declined to declare which slot this retrieval is for).
+      - slot_index missing / None / not int -> noop.
       - slot_index < 0 or >= len(requested_primary_types) -> noop (defensive
         against bad model output).
       - family_of(requested_primary_types[slot_index]) is None -> noop
@@ -87,17 +84,15 @@ def _inject_primary_type_family(
 
     Otherwise: build `effective_args` with `filters.primary_type_family` set
     to the family derived from the slot. When the model already wrote a
-    different `primary_type_family` into filters, the graph OVERWRITES it —
-    explicit enforcement per D-04-04 (T-04-03-05).
+    different `primary_type_family` into filters, the graph overwrites it.
     """
     if tool_name not in ("semantic_search", "nearby"):
         return dict(args)
     if not requested_primary_types:
         return dict(args)
     slot_index = args.get("slot_index")
-    # Primary path (Phase 4): the model declared which slot this retrieval is
-    # for via `slot_index`. `bool` is a subclass of `int` — reject it
-    # explicitly so True/False don't sneak in as indices.
+    # Primary path: the model declared which slot this retrieval is for via
+    # `slot_index`. `bool` is a subclass of `int`, so reject it explicitly.
     target_family: str | None = None
     if (
         slot_index is not None
@@ -107,12 +102,9 @@ def _inject_primary_type_family(
     ):
         target_family = family_of(requested_primary_types[slot_index])
 
-    # Fallback (2026-06-15 refinement_cheaper fix): the models routinely omit
-    # `slot_index` and emit thin queries like "drinks in Hayes Valley", which
-    # leaves every slot below the viability threshold and the agent never
-    # commits. When no usable slot_index was supplied, infer the family from
-    # the query text — but ONLY a family the user actually requested
-    # (family_from_query enforces that). Ambiguous queries still no-op.
+    # Fallback: models often omit `slot_index` and emit thin queries like
+    # "drinks in Hayes Valley". Infer only a family the user actually
+    # requested; ambiguous queries still no-op.
     if target_family is None:
         query = args.get("query")
         target_family = family_from_query(
@@ -143,11 +135,11 @@ def _inject_primary_type_family(
     return new_args
 
 
-_RECENT_TOOL_EXCHANGES_KEPT = 2
-_EXPLICIT_STOP_COUNT_RETRY_KEY = "explicit_num_stops_clarification"
+RECENT_TOOL_EXCHANGES_KEPT = 2
+EXPLICIT_STOP_COUNT_RETRY_KEY = "explicit_num_stops_clarification"
 
 
-def _constraints_context(state: ItineraryState) -> str:
+def constraints_context(state: ItineraryState) -> str:
     """Human-readable deterministic constraints appended to the system prompt.
 
     Two sources contribute:
@@ -175,7 +167,7 @@ def _constraints_context(state: ItineraryState) -> str:
     return "\n\nDETERMINISTIC REQUEST CONTEXT:\n" + "\n".join(parts)
 
 
-def _retry_unnecessary_stop_count_clarification(
+def retry_unnecessary_stop_count_clarification(
     state: ItineraryState,
 ) -> dict[str, Any] | None:
     """One-shot nudge when the user gave an explicit count but the model
@@ -189,10 +181,10 @@ def _retry_unnecessary_stop_count_clarification(
         return None
     if state.stops:
         return None
-    if state.revision_counts.get(_EXPLICIT_STOP_COUNT_RETRY_KEY, 0) > 0:
+    if state.revision_counts.get(EXPLICIT_STOP_COUNT_RETRY_KEY, 0) > 0:
         return None
     counts = dict(state.revision_counts)
-    counts[_EXPLICIT_STOP_COUNT_RETRY_KEY] = 1
+    counts[EXPLICIT_STOP_COUNT_RETRY_KEY] = 1
     return {
         "revision_counts": counts,
         "messages": [
@@ -208,7 +200,7 @@ def _retry_unnecessary_stop_count_clarification(
     }
 
 
-def _prune_for_llm(
+def prune_for_llm(
     messages: list[BaseMessage],
     *,
     preserve_content_blocks: bool = False,
@@ -217,16 +209,14 @@ def _prune_for_llm(
 
     Strategy: keep all SystemMessages and HumanMessages, plus the AIMessages.
     For ToolMessages — which dominate token cost as the agent loops — keep
-    only those paired with the last `_RECENT_TOOL_EXCHANGES_KEPT` AIMessages
+    only those paired with the last `RECENT_TOOL_EXCHANGES_KEPT` AIMessages
     that issued tool_calls. Earlier tool results are dropped together with
     their issuing AIMessage's tool_calls, so the LLM never sees an unanswered
     tool_call (which would violate the OpenAI/Gemini conversation contract).
 
-    ``preserve_content_blocks`` (REPLAY-02 / D-14-06): when True, pre-cutoff
-    AIMessage content shape is preserved verbatim (list or str) instead of
-    the default str() collapse. tool_calls are still stripped regardless.
-    Flag-off path (preserve_content_blocks=False) is byte-identical to the
-    Phase-13 plateau.
+    When ``preserve_content_blocks`` is True, pre-cutoff AIMessage content
+    shape is preserved verbatim (list or str) instead of the default str()
+    collapse. tool_calls are still stripped regardless.
     """
     if not messages:
         return messages
@@ -235,11 +225,11 @@ def _prune_for_llm(
     tool_caller_indices = [
         i for i, m in enumerate(messages) if isinstance(m, AIMessage) and m.tool_calls
     ]
-    if len(tool_caller_indices) <= _RECENT_TOOL_EXCHANGES_KEPT:
+    if len(tool_caller_indices) <= RECENT_TOOL_EXCHANGES_KEPT:
         return messages
 
     # Cutoff: keep messages from this index onward in their original form.
-    keep_from = tool_caller_indices[-_RECENT_TOOL_EXCHANGES_KEPT]
+    keep_from = tool_caller_indices[-RECENT_TOOL_EXCHANGES_KEPT]
 
     # Before the cutoff: drop tool_calls from AIMessages and drop ToolMessages
     # entirely. After: keep as-is.
@@ -253,11 +243,11 @@ def _prune_for_llm(
         if isinstance(m, AIMessage) and m.tool_calls:
             # Replace with a content-only AIMessage so we don't strand the
             # LLM thinking it issued tool_calls that were never answered.
-            # D-08-07: preserve additional_kwargs (e.g. _reasoning_state)
-            # across the cutoff window so adapter capture/replay can survive.
+            # Preserve additional_kwargs (e.g. _reasoning_state) across the
+            # cutoff window so adapter capture/replay can survive.
             if preserve_content_blocks:
-                # D-14-06: preserve original content shape (list or str) verbatim
-                # instead of collapsing to str. tool_calls excluded by constructor default.
+                # Preserve original content shape instead of collapsing to str.
+                # tool_calls are excluded by the constructor default.
                 pruned.append(
                     AIMessage(
                         content=m.content,
@@ -265,7 +255,7 @@ def _prune_for_llm(
                     )
                 )
             else:
-                # Flag-off: existing str() collapse (byte-identical to Phase-13 plateau)
+                # Default path: collapse non-string content for older providers.
                 pruned.append(
                     AIMessage(
                         content=m.content if isinstance(m.content, str) else str(m.content),
@@ -277,7 +267,7 @@ def _prune_for_llm(
     return pruned
 
 
-def _serialize_tool_result(result: Any) -> str:
+def serialize_tool_result(result: Any) -> str:
     """Emit JSON the LLM can parse, regardless of underlying tool return type.
 
     Pydantic models -> model_dump(mode='json'). Lists of pydantic models too.
@@ -308,49 +298,39 @@ def build_agent_graph(
     `provider` (keyword-only, default "openai") selects the
     `ProviderAdapter` that `plan()` closes over for reasoning-state
     round-trip. Resolved ONCE via the ADAPTERS registry (with NoOpAdapter
-    fallback) at graph-build time (D-08-04, D-08-16). Unknown providers
-    fall back to `NoOpAdapter` rather than raise — defensive default for
-    Phase 8 where every registered entry is `NoOpAdapter` anyway (D-08-08);
-    Phase 9 sub-phases may add stricter validation when real adapters land.
+    fallback) at graph-build time. Unknown providers fall back to `NoOpAdapter`
+    rather than raise.
     """
     tools = all_tools()
     llm_with_tools = llm.bind_tools(tools)
     tool_by_name = {t.name: t for t in tools}
-    # D-08-04 / D-08-16: resolve the ProviderAdapter once at graph-build time
-    # and close it over plan(). Phase 8 ships NoOpAdapter for every provider
-    # in SUPPORTED_PROVIDERS (D-08-08), so this is byte-identical to pre-Phase-8
-    # behavior on the gpt-4o-mini path.
+    # Resolve the ProviderAdapter once at graph-build time and close it over plan().
     adapter: ProviderAdapter = ADAPTERS.get(provider, NoOpAdapter())
     if judge_llm is None and vibe.is_enabled():
         judge_llm = vibe.make_judge()
 
-    # Phase 13 / DEC arm-flag reads — resolved ONCE at graph-build time and
-    # closed over the inner functions. With all three flags unset/0, behavior
-    # is byte-identical to the baseline path (flag-off is the default state).
+    # Optional graph behaviors are resolved once at graph-build time and closed
+    # over the inner functions. All default to off.
     #
-    # FORCED_COMMIT_STEP (int, default 0 = off): A2 arm — at step N, if the
-    #   model has not committed AND every slot has a viable candidate, synthesize
-    #   a commit from best-so-far and route it through the normal commit path.
-    #   Default value documented here: 6 (max_steps=8, leaves headroom for
-    #   revision loops); the firing condition reads the env value, never hardcodes.
+    # FORCED_COMMIT_STEP (int, default 0 = off): at step N, if the model has
+    #   not committed and every slot has a viable candidate, synthesize a commit
+    #   from best-so-far and route it through the normal commit path.
     #
-    # VIABILITY_CONTRACT_ENABLED (bool, default off): A1 arm — appends the
+    # VIABILITY_CONTRACT_ENABLED (bool, default off): appends the
     #   rule8_viability_addendum to the system prompt so the model sees the exact
     #   cosine threshold that determines viability.
     #
-    # PARALLEL_TOOL_EXECUTION_ENABLED (bool, default off): A3 arm — runs all
+    # PARALLEL_TOOL_EXECUTION_ENABLED (bool, default off): runs all
     #   tool calls in one act() step concurrently via asyncio.gather with
     #   results appended in ORIGINAL tool_call order.
-    _forced_commit_step: int = int(os.environ.get("FORCED_COMMIT_STEP", "0") or "0")
-    _viability_contract_enabled: bool = env_flag("VIABILITY_CONTRACT_ENABLED")
-    _parallel_tool_execution_enabled: bool = env_flag("PARALLEL_TOOL_EXECUTION_ENABLED")
+    forced_commit_step: int = int(os.environ.get("FORCED_COMMIT_STEP", "0") or "0")
+    viability_contract_enabled: bool = env_flag("VIABILITY_CONTRACT_ENABLED")
+    parallel_tool_execution_enabled: bool = env_flag("PARALLEL_TOOL_EXECUTION_ENABLED")
     # Pre-compute the prompt addendum at build time (pure string; empty when flag off).
-    _viability_prompt_addendum: str = rule8_viability_addendum(_viability_contract_enabled)
+    viability_prompt_addendum: str = rule8_viability_addendum(viability_contract_enabled)
 
-    # Phase 14 / REPLAY arm-flag reads — same build-time resolve + closure pattern.
-    # Flag-off path must be byte-identical to the Phase-13 plateau (re-verify before merge).
-    _replay_multi_message_enabled: bool = env_flag("REPLAY_MULTI_MESSAGE_ENABLED")
-    _replay_content_blocks_enabled: bool = env_flag("REPLAY_CONTENT_BLOCKS_ENABLED")
+    replay_multi_message_enabled: bool = env_flag("REPLAY_MULTI_MESSAGE_ENABLED")
+    replay_content_blocks_enabled: bool = env_flag("REPLAY_CONTENTBLOCKS_ENABLED")
 
     async def plan(state: ItineraryState) -> dict[str, Any]:
         messages_in: list[BaseMessage] = list(state.messages)
@@ -361,32 +341,24 @@ def build_agent_graph(
                         max_steps=max_steps,
                         current_datetime=current_datetime_str(),
                     )
-                    + _viability_prompt_addendum
-                    + _constraints_context(state)
+                    + viability_prompt_addendum
+                    + constraints_context(state)
                 ),
                 *messages_in,
             ]
         # Send the LLM a curated view: keep only the most recent ToolMessage
         # per tool name so token cost stays linear in tool *kinds*, not in
         # tool *calls*. Full history is preserved on state.messages for tracing.
-        messages_for_llm = _prune_for_llm(
-            messages_in, preserve_content_blocks=_replay_content_blocks_enabled
+        messages_for_llm = prune_for_llm(
+            messages_in, preserve_content_blocks=replay_content_blocks_enabled
         )
 
-        # D-08-05 / D-08-06: POST-PRUNE reasoning-state replay. Read the most
-        # recent AIMessage's _reasoning_state kwarg (stashed by the previous
-        # turn's capture, preserved across the _RECENT_TOOL_EXCHANGES_KEPT
-        # cutoff by D-08-07's additional_kwargs forwarding in _prune_for_llm).
-        # The adapter decides how to inject it; NoOpAdapter returns the list
-        # unchanged so this is byte-identical for non-reasoning providers.
-        #
-        # REPLAY-01 (D-14-03): when _replay_multi_message_enabled is True,
-        # replay per-message _reasoning_state for every in-window AIMessage
-        # instead of injecting only the most recent one.
-        if _replay_multi_message_enabled:
+        # Replay captured reasoning state after pruning. The adapter decides
+        # how to inject it; NoOpAdapter returns the list unchanged.
+        if replay_multi_message_enabled:
             messages_for_llm = adapter.replay_reasoning_state_multi(messages_for_llm)
         else:
-            # Flag-off: existing single-message path (byte-identical to Phase-13 plateau)
+            # Default path: inject only the most recent captured state.
             captured_state = None
             for m in reversed(messages_for_llm):
                 if isinstance(m, AIMessage):
@@ -394,16 +366,13 @@ def build_agent_graph(
                     break
             messages_for_llm = adapter.replay_reasoning_state(messages_for_llm, captured_state)
 
-        # D-12-01: record LLM-call wall time for INST-04 latency decomposition.
-        _llm_start = time.monotonic()
+        # Record LLM-call wall time for telemetry.
+        llm_start = time.monotonic()
         ai = await llm_with_tools.ainvoke(messages_for_llm)
-        _llm_elapsed = time.monotonic() - _llm_start
+        llm_elapsed = time.monotonic() - llm_start
 
-        # D-08-05 / D-08-06: capture the new turn's reasoning state and stash
-        # it on the just-returned AIMessage's additional_kwargs. Storage lives
-        # on the AIMessage (NOT on ItineraryState, NOT in a module-level dict)
-        # so it survives the LangGraph add_messages reducer between turns —
-        # load-bearing for the REASON-05 conformance gate in Plan 04.
+        # Capture the new turn's reasoning state on the returned AIMessage so
+        # it survives LangGraph's add_messages reducer between turns.
         state_payload = adapter.capture_reasoning_state(ai)
         if state_payload is not None:
             ai.additional_kwargs["_reasoning_state"] = state_payload
@@ -416,24 +385,19 @@ def build_agent_graph(
         # Append a step_telemetry entry. tool_exec_seconds is 0.0 here (plan has
         # no tool execution); act() will patch the entry with the tool time.
         #
-        # WR-07: step_count increments only in act(), so revision loops
-        # (plan -> critique -> plan, e.g. a finalize rejected by
-        # critique_final_with_stops or the stop-count clarification retry) run
-        # plan() more than once at the SAME step_count. Merge those into the
-        # existing trailing entry (summing llm_call_seconds) so step_telemetry
-        # keeps exactly one entry per step index — Phase 13 consumers join on
-        # "step" against viable_candidates_per_step and would double-count
-        # llm_call_seconds on duplicate entries.
+        # step_count increments only in act(), so revision loops can run plan()
+        # more than once at the same step_count. Merge into the trailing entry
+        # to keep one telemetry row per step index.
         new_telemetry = list(state.step_telemetry)
         if new_telemetry and new_telemetry[-1].get("step") == state.step_count:
             merged = dict(new_telemetry[-1])
-            merged["llm_call_seconds"] = merged.get("llm_call_seconds", 0.0) + _llm_elapsed
+            merged["llm_call_seconds"] = merged.get("llm_call_seconds", 0.0) + llm_elapsed
             new_telemetry[-1] = merged
         else:
             new_telemetry.append(
                 {
                     "step": state.step_count,
-                    "llm_call_seconds": _llm_elapsed,
+                    "llm_call_seconds": llm_elapsed,
                     "tool_exec_seconds": 0.0,
                     "tool_calls_this_step": 0,
                 }
@@ -449,8 +413,8 @@ def build_agent_graph(
         scratch_updates: dict[str, list[dict[str, Any]]] = {}
         committed_stops: list[Stop] | None = None
 
-        # A3: inner async helper for one tool call — used by both paths.
-        # Returns a tuple of (ToolMessage, scratch_name|None, scratch_entry|None,
+        # Inner async helper for one tool call, used by both paths. Returns a
+        # tuple of (ToolMessage, scratch_name|None, scratch_entry|None,
         # committed_stops|None, was_commit: bool).
         # CRITICAL: never reassign `tc["args"]`. `tc` references a dict INSIDE
         # the AIMessage stored on state.messages — the next plan() step
@@ -458,12 +422,12 @@ def build_agent_graph(
         # Pydantic SearchFilters instance there crashes with "Object of type
         # SearchFilters is not JSON serializable". Compute `effective_args`
         # locally instead (project memory `aimessage_tool_call_args_json_safe`).
-        async def _exec_one(
+        async def exec_one(
             tc: Any,
         ) -> tuple[ToolMessage, str | None, dict[str, Any] | None, list[Stop] | None, bool]:
             if tc["name"] == COMMIT_ITINERARY_TOOL_NAME:
                 stops, payload = commit_stops(state, tc["args"].get("stops"))
-                msg = ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
+                msg = ToolMessage(content=serialize_tool_result(payload), tool_call_id=tc["id"])
                 entry: dict[str, Any] = {
                     "args": tc["args"],
                     "result": payload,
@@ -482,21 +446,17 @@ def build_agent_graph(
 
             # Belt-and-suspenders: merge closure-context exclusions AND
             # per-slot primary_type_family into the tool args at the SQL
-            # layer. The prompt guidance in _constraints_context is an
+            # layer. The prompt guidance in constraints_context is an
             # optimization; this is enforcement.
             #
-            # Phase 4 D-04-04: chain the primary_type_family helper on top of
-            # closure-exclusions. Both helpers emit JSON-safe dicts so the
-            # chain composition stays JSON-safe end-to-end. The slot_index
-            # strip then drops the marker arg before tool.invoke because the
-            # underlying retrieval functions don't take it (and the strip is
-            # a NO-OP for tool calls without a slot_index key, e.g.,
-            # kg_traverse — see ADVISORY 4).
+            # Chain primary_type_family on top of closure exclusions. Both
+            # helpers emit JSON-safe dicts. Drop slot_index before tool.invoke
+            # because the retrieval functions do not accept it.
             if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
-                effective_args = _inject_closure_exclusions(
+                effective_args = inject_closure_exclusions(
                     tc["name"], tc["args"], state.closure_context
                 )
-                effective_args = _inject_primary_type_family(
+                effective_args = inject_primary_type_family(
                     tc["name"],
                     effective_args,
                     list(state.constraints.requested_primary_types),
@@ -512,7 +472,7 @@ def build_agent_graph(
             except Exception as e:  # noqa: BLE001
                 result = {"error": str(e)}
 
-            msg = ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
+            msg = ToolMessage(content=serialize_tool_result(result), tool_call_id=tc["id"])
             scratch_entry: dict[str, Any] = {
                 "args": effective_args,
                 "result": result,
@@ -521,16 +481,14 @@ def build_agent_graph(
             }
             return msg, tc["name"], scratch_entry, None, False
 
-        # D-12-01: measure tool-execution wall time for INST-04.
-        _tool_start = time.monotonic()
+        # Measure tool-execution wall time for telemetry.
+        tool_start = time.monotonic()
         tool_calls_this_step = 0
 
-        if _parallel_tool_execution_enabled:
-            # A3: run all tool calls concurrently. asyncio.gather preserves INPUT
-            # ORDER in the results list (D-13-08) — results[i] corresponds to
-            # ai.tool_calls[i], so re-assembling in iteration order preserves the
-            # ORIGINAL tool_call order regardless of completion order.
-            par_results = await asyncio.gather(*[_exec_one(tc) for tc in ai.tool_calls])
+        if parallel_tool_execution_enabled:
+            # asyncio.gather preserves input order, so re-assembling in
+            # iteration order preserves the original tool_call order.
+            par_results = await asyncio.gather(*[exec_one(tc) for tc in ai.tool_calls])
             for msg, scratch_name, scratch_entry, stops, was_commit in par_results:
                 new_messages.append(msg)
                 if scratch_name is not None and scratch_entry is not None:
@@ -541,13 +499,13 @@ def build_agent_graph(
                     # Count all non-unknown-tool calls (mirrors sequential logic)
                     tool_calls_this_step += 1
         else:
-            # Sequential path — identical to pre-A3 behavior; branch is untouched.
+            # Sequential path.
             for tc in ai.tool_calls:
                 if tc["name"] == COMMIT_ITINERARY_TOOL_NAME:
                     stops, payload = commit_stops(state, tc["args"].get("stops"))
                     committed_stops = stops
                     new_messages.append(
-                        ToolMessage(content=_serialize_tool_result(payload), tool_call_id=tc["id"])
+                        ToolMessage(content=serialize_tool_result(payload), tool_call_id=tc["id"])
                     )
                     scratch_updates.setdefault(tc["name"], []).append(
                         {
@@ -570,10 +528,10 @@ def build_agent_graph(
                     )
                     continue
                 if tc["name"] in ("semantic_search", "nearby", "kg_traverse"):
-                    effective_args = _inject_closure_exclusions(
+                    effective_args = inject_closure_exclusions(
                         tc["name"], tc["args"], state.closure_context
                     )
-                    effective_args = _inject_primary_type_family(
+                    effective_args = inject_primary_type_family(
                         tc["name"],
                         effective_args,
                         list(state.constraints.requested_primary_types),
@@ -586,7 +544,7 @@ def build_agent_graph(
                 except Exception as e:  # noqa: BLE001
                     result = {"error": str(e)}
                 new_messages.append(
-                    ToolMessage(content=_serialize_tool_result(result), tool_call_id=tc["id"])
+                    ToolMessage(content=serialize_tool_result(result), tool_call_id=tc["id"])
                 )
                 scratch_updates.setdefault(tc["name"], []).append(
                     {
@@ -598,7 +556,7 @@ def build_agent_graph(
                 )
                 tool_calls_this_step += 1
 
-        _tool_elapsed = time.monotonic() - _tool_start
+        tool_elapsed = time.monotonic() - tool_start
 
         merged_scratch = dict(state.scratch)
         for name, entries in scratch_updates.items():
@@ -612,14 +570,12 @@ def build_agent_graph(
         if committed_stops is not None:
             update["stops"] = committed_stops
 
-        # Patch the current step's telemetry entry (written by plan()) with actual
-        # tool-execution time and tool-call count. If the entry is missing (edge
-        # case where act() runs without a preceding plan() telemetry write),
-        # append a fresh entry. All values are plain int/float (D-12-01 JSON-safe).
+        # Patch the current step's telemetry entry with actual tool-execution
+        # time and tool-call count. If it is missing, append a fresh entry.
         telemetry = list(state.step_telemetry)
         if telemetry and telemetry[-1]["step"] == state.step_count:
             last = dict(telemetry[-1])
-            last["tool_exec_seconds"] = _tool_elapsed
+            last["tool_exec_seconds"] = tool_elapsed
             last["tool_calls_this_step"] = tool_calls_this_step
             telemetry[-1] = last
         else:
@@ -627,7 +583,7 @@ def build_agent_graph(
                 {
                     "step": state.step_count,
                     "llm_call_seconds": 0.0,
-                    "tool_exec_seconds": _tool_elapsed,
+                    "tool_exec_seconds": tool_elapsed,
                     "tool_calls_this_step": tool_calls_this_step,
                 }
             )
@@ -641,7 +597,7 @@ def build_agent_graph(
         + vibe) → finalizing-without-stops (clarifying question) → post-act
         per-step diagnose. Each branch is a pure function returning the
         LangGraph update dict."""
-        # A2: forced-commit gate (DEC-02 arm) — fires BEFORE the max_steps check.
+        # Forced-commit gate, evaluated before the max_steps check.
         #
         # Conditions: flag enabled (_forced_commit_step > 0) AND the model has not
         # committed yet (state.stops is empty) AND step_count has reached the
@@ -653,8 +609,8 @@ def build_agent_graph(
         # on a state copy that carries the newly committed stops — the same
         # deterministic gauntlet as a model-driven commit.
         #
-        # CRITICAL state-threading: critique() returns an update dict and must NOT
-        # mutate `state`. Pass state.model_copy(update={"stops": committed_stops}) as
+        # critique() returns an update dict and must not mutate `state`. Pass
+        # state.model_copy(update={"stops": committed_stops}) as
         # the state argument to critique_final_with_stops so itinerary_violations sees
         # the committed plan. Calling it with the original (stops=[]) state would make
         # violations vacuously empty and skip all hard checks.
@@ -662,8 +618,8 @@ def build_agent_graph(
         # When NOT firing (all_slots_viable is False at step N): fall through to the
         # existing max_steps path, leaving commit_forced=False, forced_commit_step=None.
         if (
-            _forced_commit_step > 0
-            and state.step_count >= _forced_commit_step
+            forced_commit_step > 0
+            and state.step_count >= forced_commit_step
             and not state.stops
             and all_slots_viable(state, LOW_SIMILARITY_THRESHOLD)
         ):
@@ -672,7 +628,7 @@ def build_agent_graph(
             # name, primary_type, similarity, source from model_dump(mode="json").
             # Stop.rationale is REQUIRED (no default) — synthesize a provenance string
             # so commit_stops can construct Stop(**raw) without ValidationError.
-            # Skip candidates that lack a truthy place_id (WR-07 admission consistency).
+            # Skip candidates that lack a truthy place_id.
             raw_stops: list[dict[str, Any]] = []
             for c in candidates:
                 if c is None:
@@ -695,7 +651,7 @@ def build_agent_graph(
                         ),
                     }
                 )
-            committed_stops, _payload = commit_stops(state, raw_stops)
+            committed_stops, payload = commit_stops(state, raw_stops)
             if committed_stops:
                 # Route through critique_final_with_stops with the committed stops wired in.
                 critique_state = state.model_copy(update={"stops": committed_stops})
@@ -732,7 +688,7 @@ def build_agent_graph(
         if (finalizing or committed_this_step) and state.stops:
             return critique_final_with_stops(state, last, judge_llm)
         if finalizing:
-            retry = _retry_unnecessary_stop_count_clarification(state)
+            retry = retry_unnecessary_stop_count_clarification(state)
             if retry is not None:
                 return retry
             return finalize_as_is(state, last)

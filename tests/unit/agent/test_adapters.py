@@ -98,7 +98,7 @@ def test_noop_adapter_replay_with_none_state_returns_outbound_unchanged() -> Non
 #      SUPPORTED_PROVIDERS has the canonical name.
 # When PROV-FUT-* adds a new provider, this mapping is the one edit-site
 # that pins the expected wiring.
-_EXPECTED_REGISTRY_MAPPING: dict[str, type] = {
+EXPECTED_REGISTRY_MAPPING: dict[str, type] = {
     "openai": OpenAIReasoningAdapter,
     "deepseek": DeepSeekReasonerAdapter,
     "anthropic": AnthropicAdapter,
@@ -127,7 +127,7 @@ def test_adapters_registry_keys_match_supported_providers() -> None:
     SUPPORTED_PROVIDERS coverage" + "every provider is wired to the
     expected adapter class".
 
-    WR-03 (2026-06-05): refactored to iterate `_EXPECTED_REGISTRY_MAPPING`
+    WR-03 (2026-06-05): refactored to iterate `EXPECTED_REGISTRY_MAPPING`
     instead of a hardcoded skip-list tuple. The previous shape silently
     accepted typo'd ADAPTERS entries that matched SUPPORTED_PROVIDERS via
     set-equality but then `continue`'d past the per-provider check; it
@@ -140,20 +140,20 @@ def test_adapters_registry_keys_match_supported_providers() -> None:
     assert set(ADAPTERS.keys()) == set(SUPPORTED_PROVIDERS)
     # Cross-check: the expected mapping table mirrors SUPPORTED_PROVIDERS.
     # If a Phase 9.5/10 PR adds a provider to SUPPORTED_PROVIDERS without
-    # updating _EXPECTED_REGISTRY_MAPPING, this fails — forcing an explicit
+    # updating EXPECTED_REGISTRY_MAPPING, this fails — forcing an explicit
     # wiring decision rather than silent NoOp drift.
-    assert set(_EXPECTED_REGISTRY_MAPPING.keys()) == set(SUPPORTED_PROVIDERS), (
-        "_EXPECTED_REGISTRY_MAPPING is out of sync with SUPPORTED_PROVIDERS. "
+    assert set(EXPECTED_REGISTRY_MAPPING.keys()) == set(SUPPORTED_PROVIDERS), (
+        "EXPECTED_REGISTRY_MAPPING is out of sync with SUPPORTED_PROVIDERS. "
         "When adding a new provider, also add it here with its expected "
         "adapter class (NoOpAdapter is a valid choice when intentionally "
         "deferred). "
-        f"Missing from mapping: {set(SUPPORTED_PROVIDERS) - set(_EXPECTED_REGISTRY_MAPPING)}, "
-        f"extra in mapping: {set(_EXPECTED_REGISTRY_MAPPING) - set(SUPPORTED_PROVIDERS)}."
+        f"Missing from mapping: {set(SUPPORTED_PROVIDERS) - set(EXPECTED_REGISTRY_MAPPING)}, "
+        f"extra in mapping: {set(EXPECTED_REGISTRY_MAPPING) - set(SUPPORTED_PROVIDERS)}."
     )
     # Per-provider class check: every entry must match the expected class.
     # Catches "ADAPTERS entry typo'd or accidentally swapped to wrong class"
     # AND "expected mapping forgot a new provider".
-    for provider, expected_cls in _EXPECTED_REGISTRY_MAPPING.items():
+    for provider, expected_cls in EXPECTED_REGISTRY_MAPPING.items():
         assert isinstance(ADAPTERS[provider], expected_cls), (
             f"ADAPTERS[{provider!r}] expected {expected_cls.__name__}, "
             f"got {type(ADAPTERS[provider]).__name__}"

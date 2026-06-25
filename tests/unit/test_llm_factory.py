@@ -11,7 +11,7 @@ from app.llm_factory import SUPPORTED_PROVIDERS, build_chat_model
         ("openai", "app.llm_factory.ChatOpenAI"),
         ("gemini", "app.llm_factory.ChatGoogleGenerativeAI"),
         ("deepseek", "app.llm_factory.ChatDeepSeek"),
-        ("kimi", "app.llm_factory._ToolLoopChatMoonshot"),
+        ("kimi", "app.llm_factory.ToolLoopChatMoonshot"),
     ],
 )
 def test_build_chat_model_dispatches_per_provider(
@@ -91,7 +91,7 @@ def test_deepseek_chat_keeps_thinking_disabled(mocker, monkeypatch) -> None:
     """PROV-02 / T-09-02-T4 regression guard: the model-level carve-out for
     deepseek-reasoner must NOT spill onto deepseek-chat. The default
     extra_body={'thinking': {'type': 'disabled'}} policy stays for every
-    DeepSeek model not in `_DEEPSEEK_REASONER_THINKING_ENABLED`.
+    DeepSeek model not in `DEEPSEEK_REASONER_THINKING_ENABLED`.
     """
     monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
     from app.config import get_settings
@@ -111,7 +111,7 @@ def test_deepseek_reasoner_enables_thinking(mocker, monkeypatch) -> None:
     `extra_body={'thinking': {'type': 'enabled'}}` so the API emits
     `reasoning_content` for `DeepSeekReasonerAdapter` to round-trip.
 
-    Mirrors the `_KIMI_FORCED_TEMPERATURE` / `_GEMINI_THINKING_ONLY` per-model
+    Mirrors the `KIMI_FORCED_TEMPERATURE` / `GEMINI_THINKING_ONLY` per-model
     policy pattern at `app/llm_factory.py:65-78`.
     """
     monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
@@ -137,7 +137,7 @@ def test_build_chat_model_anthropic_returns_chatanthropic_with_thinking_enabled(
     constructs `ChatAnthropic` with `temperature=1.0`, `model="claude-sonnet-4-6"`,
     and `thinking={"type": "enabled", "budget_tokens": 4096}` per the carve-out
     from `feedback_temp1_reasoning_off_all_models` documented in
-    `_ANTHROPIC_THINKING_BUDGET`.
+    `ANTHROPIC_THINKING_BUDGET`.
 
     Patches `langchain_anthropic.ChatAnthropic` at its import site (the lazy
     import inside the anthropic branch) and `resolve_llm_api_key` so the test
@@ -192,7 +192,7 @@ def test_anthropic_branch_sets_max_tokens_above_thinking_budget(mocker, monkeypa
         "and the API 400s with `max_tokens must be greater than "
         "thinking.budget_tokens` on every call."
     )
-    # Default matches the _ANTHROPIC_MAX_TOKENS dict for claude-sonnet-4-6.
+    # Default matches the ANTHROPIC_MAX_TOKENS dict for claude-sonnet-4-6.
     assert kwargs["max_tokens"] == 8192
     # Strictly > thinking.budget_tokens — the Anthropic API constraint.
     assert kwargs["max_tokens"] > kwargs["thinking"]["budget_tokens"], (
@@ -214,8 +214,8 @@ def test_anthropic_branch_clamps_temperature_to_1_0_when_thinking_enabled(
     anthropic branch (D-09-06 already mandates temp=1.0; this enforces it
     mechanically so callers don't have to know the API constraint).
 
-    Mirrors the `_KIMI_FORCED_TEMPERATURE` clamp pattern at
-    `app/llm_factory.py:_KIMI_FORCED_TEMPERATURE`.
+    Mirrors the `KIMI_FORCED_TEMPERATURE` clamp pattern at
+    `app/llm_factory.py:KIMI_FORCED_TEMPERATURE`.
     """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
     from app.config import get_settings
@@ -234,11 +234,11 @@ def test_anthropic_branch_clamps_temperature_to_1_0_when_thinking_enabled(
 
 
 def test_anthropic_branch_max_tokens_falls_back_for_unknown_model(mocker, monkeypatch) -> None:
-    """The `_ANTHROPIC_MAX_TOKENS.get(chat_model, 8192)` fallback applies for any
+    """The `ANTHROPIC_MAX_TOKENS.get(chat_model, 8192)` fallback applies for any
     Claude model not explicitly listed (e.g. a future Opus / Haiku build) so
     new model strings don't silently regress to langchain-anthropic's too-low
     default. 8192 (2× the default 4096 budget) keeps the API invariant
-    satisfied for any model that also falls through `_ANTHROPIC_THINKING_BUDGET`.
+    satisfied for any model that also falls through `ANTHROPIC_THINKING_BUDGET`.
     """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
     from app.config import get_settings
@@ -256,7 +256,7 @@ def test_anthropic_branch_max_tokens_falls_back_for_unknown_model(mocker, monkey
 def test_build_chat_model_anthropic_uses_default_budget_when_model_not_in_dict(
     mocker, monkeypatch
 ) -> None:
-    """PROV-03 / D-09-06: the `_ANTHROPIC_THINKING_BUDGET.get(chat_model, 4096)`
+    """PROV-03 / D-09-06: the `ANTHROPIC_THINKING_BUDGET.get(chat_model, 4096)`
     fallback applies for any Claude model not explicitly listed (e.g. a future
     Opus / Haiku build). 4096 is the Claude's-Discretion default; Phase 10
     baseline regen may tune this per model.
@@ -290,7 +290,7 @@ def test_kimi_disables_thinking_for_tool_calls(mocker, monkeypatch) -> None:
     from app.config import get_settings
 
     get_settings.cache_clear()
-    cls = mocker.patch("app.llm_factory._ToolLoopChatMoonshot", return_value="kimi")
+    cls = mocker.patch("app.llm_factory.ToolLoopChatMoonshot", return_value="kimi")
 
     build_chat_model("kimi", "kimi-k2.6", temperature=1.0)
 
@@ -306,7 +306,7 @@ def test_kimi_k2_6_temperature_clamped_to_0_6(mocker, monkeypatch) -> None:
     from app.config import get_settings
 
     get_settings.cache_clear()
-    cls = mocker.patch("app.llm_factory._ToolLoopChatMoonshot", return_value="kimi")
+    cls = mocker.patch("app.llm_factory.ToolLoopChatMoonshot", return_value="kimi")
 
     build_chat_model("kimi", "kimi-k2.6", temperature=1.0)
 
@@ -380,7 +380,7 @@ def test_kimi_empty_assistant_content_gets_placeholder(monkeypatch) -> None:
 
 
 def test_kimi_empty_content_only_assistant_gets_placeholder(monkeypatch) -> None:
-    """The real agent failure: _prune_for_llm reconstructs Kimi's empty
+    """The real agent failure: prune_for_llm reconstructs Kimi's empty
     tool-call turns as content-only AIMessages (tool_calls dropped, content
     still ''). Kimi rejects THAT too. Empty assistant content must be
     backfilled even when there are no tool_calls."""
@@ -575,7 +575,7 @@ def test_scripted_chat_model_default_scripted_list_is_per_instance() -> None:
     )
 
 
-# ─── Phase 9 / WR-01: OpenAIReasoningChatModel._lift_reasoning_blocks ────────
+# ─── Phase 9 / WR-01: OpenAIReasoningChatModel.lift_reasoning_blocks ────────
 #
 # The lift is the sole bridge between the OpenAI Responses-API content-block
 # shape and the documented additional_kwargs["reasoning_content"] contract
@@ -587,7 +587,7 @@ def test_scripted_chat_model_default_scripted_list_is_per_instance() -> None:
 
 
 def test_openai_reasoning_chat_model_lifts_reasoning_blocks_into_kwargs() -> None:
-    """WR-01 Test 1: `_lift_reasoning_blocks` copies `{"type": "reasoning"}`
+    """WR-01 Test 1: `lift_reasoning_blocks` copies `{"type": "reasoning"}`
     blocks from `AIMessage.content` to `additional_kwargs["reasoning_content"]`
     when content is a list. This is the path the gpt-5 family Responses-API
     response goes through to surface reasoning state on the documented
@@ -605,7 +605,7 @@ def test_openai_reasoning_chat_model_lifts_reasoning_blocks_into_kwargs() -> Non
         ]
     )
     result = ChatResult(generations=[ChatGeneration(message=msg)])
-    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    lifted = OpenAIReasoningChatModel.lift_reasoning_blocks(result)
     out_msg = lifted.generations[0].message
     # Only the reasoning block is lifted — the text block stays in content.
     assert out_msg.additional_kwargs["reasoning_content"] == [
@@ -626,7 +626,7 @@ def test_openai_reasoning_chat_model_lift_is_noop_on_str_content() -> None:
 
     msg = AIMessage(content="plain string response")
     result = ChatResult(generations=[ChatGeneration(message=msg)])
-    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    lifted = OpenAIReasoningChatModel.lift_reasoning_blocks(result)
     assert "reasoning_content" not in lifted.generations[0].message.additional_kwargs
 
 
@@ -646,7 +646,7 @@ def test_openai_reasoning_chat_model_lift_isolates_inner_block_dicts() -> None:
 
     msg = AIMessage(content=[{"type": "reasoning", "summary": "original"}])
     result = ChatResult(generations=[ChatGeneration(message=msg)])
-    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    lifted = OpenAIReasoningChatModel.lift_reasoning_blocks(result)
     out_msg = lifted.generations[0].message
     # Mutate the lifted inner-dict — content's inner dict must NOT be aliased.
     out_msg.additional_kwargs["reasoning_content"][0]["summary"] = "TAMPERED"
@@ -668,7 +668,7 @@ def test_openai_reasoning_chat_model_lift_noop_when_no_reasoning_blocks() -> Non
 
     msg = AIMessage(content=[{"type": "text", "text": "answer"}])
     result = ChatResult(generations=[ChatGeneration(message=msg)])
-    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    lifted = OpenAIReasoningChatModel.lift_reasoning_blocks(result)
     assert "reasoning_content" not in lifted.generations[0].message.additional_kwargs
 
 
@@ -685,13 +685,13 @@ def test_openai_reasoning_chat_model_lift_handles_non_aimessage_generations() ->
     # HumanMessage is not an AIMessage — lift should skip it without raising.
     msg = HumanMessage(content="not an AI message")
     result = ChatResult(generations=[ChatGeneration(message=msg)])
-    lifted = OpenAIReasoningChatModel._lift_reasoning_blocks(result)
+    lifted = OpenAIReasoningChatModel.lift_reasoning_blocks(result)
     # Returned unchanged (identity preserved).
     assert lifted is result
 
 
 def test_openai_reasoning_chat_model_generate_wires_through_lift(mocker) -> None:
-    """WR-01 Test 6 (sync parity): `_generate` calls `_lift_reasoning_blocks`
+    """WR-01 Test 6 (sync parity): `_generate` calls `lift_reasoning_blocks`
     on the result returned by the parent `ChatOpenAI._generate`. Verifies
     the gpt-5 lift hook is wired into the sync codepath.
     """
@@ -784,7 +784,7 @@ async def test_scripted_chat_model_ainvoke_works() -> None:
 
 
 async def test_openai_reasoning_chat_model_agenerate_wires_through_lift(mocker) -> None:
-    """WR-01 Test 7 (async parity): `_agenerate` calls `_lift_reasoning_blocks`
+    """WR-01 Test 7 (async parity): `_agenerate` calls `lift_reasoning_blocks`
     on the result returned by the parent `ChatOpenAI._agenerate`. Without
     this wire, async tool-loop traffic would silently drop reasoning state
     while sync traffic preserved it — exactly the asymmetric-coverage
@@ -808,12 +808,12 @@ async def test_openai_reasoning_chat_model_agenerate_wires_through_lift(mocker) 
         ]
     )
 
-    async def _fake_agenerate(self, *args, **kwargs):  # noqa: ANN001
+    async def fake_agenerate(self, *args, **kwargs):  # noqa: ANN001
         return parent_result
 
     mocker.patch(
         "langchain_openai.ChatOpenAI._agenerate",
-        _fake_agenerate,
+        fake_agenerate,
     )
     model = OpenAIReasoningChatModel(model="gpt-5-mini", api_key="test")
     out = await model._agenerate(messages=[])

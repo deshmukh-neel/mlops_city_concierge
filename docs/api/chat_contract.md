@@ -249,8 +249,9 @@ Mainly for ops / readiness probes. The frontend doesn't need to call this.
 
 ## CORS
 
-`app/main.py` configures CORS via the `cors_allow_origins` setting. Allowed
-methods: `GET`, `POST`, `OPTIONS`. Allowed headers: `*`.
+`app/main.py` configures CORS via `CORS_ALLOW_ORIGINS` and
+`CORS_ALLOW_ORIGIN_REGEX`. Defaults allow local Vite dev and generated Vercel
+URLs. Allowed methods: `GET`, `POST`, `OPTIONS`. Allowed headers: `*`.
 
 If you serve the frontend from a new origin (preview deploy, custom domain),
 update the backend allowlist before going live or browser requests will fail

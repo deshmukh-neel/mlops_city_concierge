@@ -33,7 +33,7 @@ depends_on: str | Sequence[str] | None = None
 
 # duplicates W1's neighborhood_of body
 # (4c4789a14f8f:35-50); keep in sync.
-_NEIGHBORHOOD_OF_FN = """
+NEIGHBORHOOD_OF_FN = """
 CREATE OR REPLACE FUNCTION neighborhood_of(source_json JSONB)
 RETURNS TEXT AS $$
 DECLARE component JSONB;
@@ -78,7 +78,7 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_place_relations_type ON place_relations(relation_type);"
     )
-    op.execute(_NEIGHBORHOOD_OF_FN)
+    op.execute(NEIGHBORHOOD_OF_FN)
 
 
 def downgrade() -> None:

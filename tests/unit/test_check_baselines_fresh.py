@@ -12,7 +12,7 @@ The four branches of the truth table (per plan 03-07 task 1 <behavior>):
     |     F         |        *          |       *         |  0   |  ← no agent change
     |     T         |        F          |       T         |  0   |  ← explicit bypass
 
-Tests use monkeypatching of `_run_git` (the thin subprocess wrapper inside
+Tests use monkeypatching of `run_git` (the thin subprocess wrapper inside
 the script) so they don't need a real git repo state. This mirrors the
 testing pattern used elsewhere in tests/unit/ (e.g. test_eval_matrix.py)
 and keeps the test suite hermetic.
@@ -32,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "check_baselines_fresh.py"
 
 
-def _load_script() -> ModuleType:
+def load_script() -> ModuleType:
     """Load scripts/check_baselines_fresh.py as a module.
 
     The script lives under scripts/ which isn't a package, so we load it
@@ -51,19 +51,19 @@ def _load_script() -> ModuleType:
 @pytest.fixture
 def script() -> ModuleType:
     """The check_baselines_fresh module under test."""
-    return _load_script()
+    return load_script()
 
 
-def _stub_git(
+def stub_git(
     monkeypatch: pytest.MonkeyPatch,
     script: ModuleType,
     *,
     changed_paths: list[str],
     last_commit_message: str,
 ) -> None:
-    """Replace `_run_git` with a deterministic stub.
+    """Replace `run_git` with a deterministic stub.
 
-    `_run_git(args)` is the thin subprocess wrapper inside the script. It
+    `run_git(args)` is the thin subprocess wrapper inside the script. It
     must return whatever stdout `git` would have produced — newline-joined
     for `git diff --name-only`, and the raw commit message body for
     `git log -1 --format=%B`. The stub routes by the first arg after `git`
@@ -81,7 +81,7 @@ def _stub_git(
             return last_commit_message
         return ""
 
-    monkeypatch.setattr(script, "_run_git", fake_run_git)
+    monkeypatch.setattr(script, "run_git", fake_run_git)
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ def test_agent_changed_and_no_baseline_fails(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], script: ModuleType
 ) -> None:
     """RULE 1 (the gate): agent/ touched, baseline NOT touched, no bypass → exit 1."""
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=["app/agent/graph.py", "app/agent/state.py"],
@@ -114,7 +114,7 @@ def test_agent_changed_with_baseline_passes(
     monkeypatch: pytest.MonkeyPatch, script: ModuleType
 ) -> None:
     """RULE 2: agent/ touched AND configs/eval_baselines/*.json touched → exit 0."""
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=[
@@ -129,7 +129,7 @@ def test_agent_changed_with_baseline_passes(
 
 def test_no_agent_change_passes(monkeypatch: pytest.MonkeyPatch, script: ModuleType) -> None:
     """RULE 3: nothing under app/agent/ changed → exit 0 regardless of bypass."""
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=[
@@ -153,7 +153,7 @@ def test_skip_baseline_bypass_passes(
     Mid-sentence mentions in commit prose are NOT a bypass (see
     test_incidental_skip_baseline_mention_does_not_bypass).
     """
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=["app/agent/graph.py"],
@@ -175,7 +175,7 @@ def test_skip_baseline_at_subject_line_start_bypasses(
     monkeypatch: pytest.MonkeyPatch, script: ModuleType
 ) -> None:
     """IN-04: trailer-style token at the very start of the message bypasses."""
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=["app/agent/graph.py"],
@@ -192,7 +192,7 @@ def test_incidental_skip_baseline_mention_does_not_bypass(
     docs explaining how the bypass works) must NOT trip the gate. The
     previous substring match would silently let such a PR through.
     """
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=["app/agent/graph.py"],
@@ -230,7 +230,7 @@ def test_main_accepts_positional_base_sha(
             return "chore: no-op"
         return ""
 
-    monkeypatch.setattr(script, "_run_git", fake_run_git)
+    monkeypatch.setattr(script, "run_git", fake_run_git)
     rc = script.main(["abc1234"])
     assert rc == 0
     # The first git invocation must be `git diff --name-only abc1234...HEAD`.
@@ -251,7 +251,7 @@ def test_main_accepts_merge_base_flag(monkeypatch: pytest.MonkeyPatch, script: M
             return ""
         return ""
 
-    monkeypatch.setattr(script, "_run_git", fake_run_git)
+    monkeypatch.setattr(script, "run_git", fake_run_git)
     rc = script.main(["--merge-base", "deadbeef"])
     assert rc == 0
     diff_invocations = [a for a in captured_args if a and a[0] == "diff"]
@@ -272,7 +272,7 @@ def test_main_defaults_to_origin_main_when_no_args(
             return ""
         return ""
 
-    monkeypatch.setattr(script, "_run_git", fake_run_git)
+    monkeypatch.setattr(script, "run_git", fake_run_git)
     rc = script.main([])
     assert rc == 0
     diff_invocations = [a for a in captured_args if a and a[0] == "diff"]
@@ -288,7 +288,7 @@ def test_only_baseline_changed_is_not_a_gate_violation(
     monkeypatch: pytest.MonkeyPatch, script: ModuleType
 ) -> None:
     """Baseline-only refresh PRs (no agent/ change) are always allowed."""
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=[
@@ -309,7 +309,7 @@ def test_non_baseline_json_under_eval_baselines_does_not_satisfy_gate(
     A stray README.md or .gitkeep under that dir must not satisfy the gate
     because it doesn't carry the scorer numbers Phase 4-6 merge rules need.
     """
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=[
@@ -324,9 +324,9 @@ def test_non_baseline_json_under_eval_baselines_does_not_satisfy_gate(
 
 # ─── WR-02 loud-fail regression tests (Plan 03-10) ────────────────────────
 #
-# Unlike the truth-table tests above (which monkeypatch `_run_git` wholesale
+# Unlike the truth-table tests above (which monkeypatch `run_git` wholesale
 # to drive the four pass/fail branches), the tests in this section exercise
-# the real `_run_git` itself by patching one level deeper — `subprocess.run`
+# the real `run_git` itself by patching one level deeper — `subprocess.run`
 # inside the script module's namespace. This pins the loud-fail contract:
 #
 #   - rc != 0 from git           → RuntimeError naming the argv + stderr
@@ -338,7 +338,7 @@ def test_non_baseline_json_under_eval_baselines_does_not_satisfy_gate(
 def test_run_git_raises_on_nonzero_return_code(
     monkeypatch: pytest.MonkeyPatch, script: ModuleType
 ) -> None:
-    """`_run_git` must raise RuntimeError when git exits non-zero.
+    """`run_git` must raise RuntimeError when git exits non-zero.
 
     Current behaviour silently swallows the rc and returns stdout (which is
     empty when git failed) — meaning a missing/shallow `origin/main` ref or
@@ -353,7 +353,7 @@ def test_run_git_raises_on_nonzero_return_code(
 
     monkeypatch.setattr(script.subprocess, "run", fake_subprocess_run)
     with pytest.raises(RuntimeError) as excinfo:
-        script._run_git(["diff", "--name-only", "abc...HEAD"])
+        script.run_git(["diff", "--name-only", "abc...HEAD"])
 
     msg = str(excinfo.value)
     assert "128" in msg, f"rc not surfaced in error: {msg!r}"
@@ -364,7 +364,7 @@ def test_run_git_raises_on_nonzero_return_code(
 def test_run_git_raises_actionable_error_when_git_binary_missing(
     monkeypatch: pytest.MonkeyPatch, script: ModuleType
 ) -> None:
-    """`_run_git` must convert FileNotFoundError into an actionable RuntimeError.
+    """`run_git` must convert FileNotFoundError into an actionable RuntimeError.
 
     On a CI image without git installed (or with a $PATH mangled by an env
     block), `subprocess.run(["git", ...])` raises FileNotFoundError. The
@@ -378,7 +378,7 @@ def test_run_git_raises_actionable_error_when_git_binary_missing(
 
     monkeypatch.setattr(script.subprocess, "run", fake_subprocess_run)
     with pytest.raises(RuntimeError) as excinfo:
-        script._run_git(["status"])
+        script.run_git(["status"])
 
     msg = str(excinfo.value)
     assert "git" in msg.lower(), f"git not named in error: {msg!r}"
@@ -392,7 +392,7 @@ def test_main_exits_non_zero_when_base_sha_is_empty_string(
     A misconfigured CI workflow could conceivably emit the empty string from
     `${{ github.event.pull_request.base.sha }}` (e.g. on workflow_dispatch
     where pull_request context is absent). Current behaviour: the empty
-    string is falsy so `_resolve_base` silently returns `origin/main`. New
+    string is falsy so `resolve_base` silently returns `origin/main`. New
     contract: empty-string positional is rejected loudly with a non-zero
     exit code (no subprocess invocation needed — should fail before the
     first git call).
@@ -411,16 +411,16 @@ def test_run_git_still_returns_stdout_on_success(
 ) -> None:
     """Backward-compat pin: rc == 0 still returns stdout verbatim.
 
-    The 9 existing tests monkeypatch `_run_git` wholesale (they never reach
+    The 9 existing tests monkeypatch `run_git` wholesale (they never reach
     the real `subprocess.run` path), so without this test the rc == 0 happy
-    path inside `_run_git` itself is untested after the WR-02 refactor.
+    path inside `run_git` itself is untested after the WR-02 refactor.
     """
 
     def fake_subprocess_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
         return SimpleNamespace(returncode=0, stdout="path1.py\npath2.py\n", stderr="")
 
     monkeypatch.setattr(script.subprocess, "run", fake_subprocess_run)
-    out = script._run_git(["diff", "--name-only", "abc...HEAD"])
+    out = script.run_git(["diff", "--name-only", "abc...HEAD"])
     assert out == "path1.py\npath2.py\n"
 
 
@@ -446,7 +446,7 @@ def test_llm_factory_change_triggers_stale_gate(
     Provider branches, thinking policies, and temperature clamps live in
     llm_factory.py — these affect measured behavior just as much as agent/ files.
     """
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=["app/llm_factory.py"],
@@ -463,7 +463,7 @@ def test_eval_matrix_yaml_change_triggers_stale_gate(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], script: ModuleType
 ) -> None:
     """D-11-21: a diff touching configs/eval_matrix.yaml without a baseline refresh exits 1."""
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=["configs/eval_matrix.yaml"],
@@ -480,7 +480,7 @@ def test_eval_matrix_refinement_yaml_change_triggers_stale_gate(
 
     The 'configs/eval_matrix' bare prefix matches both *.yaml files.
     """
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=["configs/eval_matrix_refinement.yaml"],
@@ -496,7 +496,7 @@ def test_agent_file_change_still_triggers_stale_gate_no_regression(
     monkeypatch: pytest.MonkeyPatch, script: ModuleType
 ) -> None:
     """D-11-21: app/agent/ prefix still triggers the gate (no regression on existing behavior)."""
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=["app/agent/agent.py"],
@@ -510,7 +510,7 @@ def test_llm_factory_change_with_baseline_refresh_passes(
     monkeypatch: pytest.MonkeyPatch, script: ModuleType
 ) -> None:
     """D-11-21: app/llm_factory.py change WITH a baseline refresh exits 0."""
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=[
@@ -525,7 +525,7 @@ def test_llm_factory_change_with_baseline_refresh_passes(
 
 def test_unrelated_change_still_passes(monkeypatch: pytest.MonkeyPatch, script: ModuleType) -> None:
     """D-11-21: an unrelated diff (e.g. README.md only) still exits 0."""
-    _stub_git(
+    stub_git(
         monkeypatch,
         script,
         changed_paths=["README.md", "docs/some_doc.md"],

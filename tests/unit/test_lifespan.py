@@ -11,7 +11,7 @@ TEST_DATABASE_URL = "postgresql://postgres:test@localhost:5432/city_concierge_te
 
 
 @pytest.fixture(autouse=True)
-def _force_test_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def force_test_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
     get_settings.cache_clear()
     yield

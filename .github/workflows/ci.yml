@@ -228,7 +228,7 @@ jobs:
       - name: Check gates against committed baselines (D-11-15)
         # D-11-15 / BASE-03: reads configs/eval_baselines/*.json; no live keys needed.
         # Hard gate: a committed regression below a hard gate fails CI.
-        # Uses check_eval_gates.py --baselines-mode (input-source swap; _check_gate unchanged).
+        # Uses check_eval_gates.py --baselines-mode (input-source swap; check_gate unchanged).
         # Advisory entries (WR-05) print ADVISORY/WARN lines but never block CI.
         # This job installs with poetry install --with dev --no-interaction (no --no-root)
         # per project_ci_no_root_eval_matrix: check_eval_gates.py imports app transitively.
@@ -237,7 +237,7 @@ jobs:
       - name: Run reasoning conformance tests (required — D-11-19)
         # D-11-19: promoted from quarantined to required CI (D-08-14 resolution).
         # Mock-driven (no live keys needed); fixtures SKIP gracefully when absent (D-10-12).
-        # reasoning_conformance marker covers _prune_for_llm / adapter round-trip tests.
+        # reasoning_conformance marker covers prune_for_llm / adapter round-trip tests.
         run: make test-reasoning-conformance
 
       - name: Upload eval matrix report
@@ -315,7 +315,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ vars.GCP_SERVICEACCOUNT }}
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
@@ -369,11 +369,11 @@ jobs:
           # conftest setdefault stub leaks through and the test 401s. Other
           # integration tests don't touch OpenAI; this is just for booking.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        # The CI service account is provisioned as a CLOUD_IAM_SERVICE_ACCOUNT
+        # The CI service account is provisioned as a CLOUD_IAM_SERVICEACCOUNT
         # DB user named with the .gserviceaccount.com suffix dropped. We
         # URL-encode the @ in the user, and the IAM token is the password.
         run: |
-          SA_USER="${{ vars.GCP_SERVICE_ACCOUNT }}"
+          SA_USER="${{ vars.GCP_SERVICEACCOUNT }}"
           DB_USER="${SA_USER%.gserviceaccount.com}"
           ENCODED_USER=$(printf '%s' "$DB_USER" | sed 's/@/%40/g')
           TOKEN=$(gcloud sql generate-login-token)

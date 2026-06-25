@@ -308,7 +308,7 @@ by reading existing committed run JSONs in `eval_reports/2026-06-12T07-27-03Z/`.
 
 **Run dir:** `eval_reports/2026-06-14T23-44-15Z`
 **summary.json:** `eval_reports/2026-06-14T23-44-15Z/summary.json`
-**Invocation:** `APP_ENV=eval env -u VIABILITY_CONTRACT_ENABLED -u PARALLEL_TOOL_EXECUTION_ENABLED -u REPLAY_MULTI_MESSAGE_ENABLED -u REPLAY_CONTENT_BLOCKS_ENABLED -u LOW_SIMILARITY_THRESHOLD_OVERRIDE FORCED_COMMIT_STEP=6 make eval-matrix-arm RUNS=5`
+**Invocation:** `APP_ENV=eval env -u VIABILITY_CONTRACT_ENABLED -u PARALLEL_TOOL_EXECUTION_ENABLED -u REPLAY_MULTI_MESSAGE_ENABLED -u REPLAY_CONTENTBLOCKS_ENABLED -u LOW_SIMILARITY_THRESHOLD_OVERRIDE FORCED_COMMIT_STEP=6 make eval-matrix-arm RUNS=5`
 **Date:** 2026-06-14 (16:44–17:34 PDT)
 
 ### Smoke arm_flags Dict (Run #1, inspected BEFORE n=5 spend)
@@ -421,7 +421,7 @@ Notes on falsifier output:
 
 **Run dir:** `eval_reports/2026-06-15T00-46-43Z`
 **summary.json:** `eval_reports/2026-06-15T00-46-43Z/summary.json`
-**Invocation:** `APP_ENV=eval env -u FORCED_COMMIT_STEP -u VIABILITY_CONTRACT_ENABLED -u PARALLEL_TOOL_EXECUTION_ENABLED -u REPLAY_MULTI_MESSAGE_ENABLED -u REPLAY_CONTENT_BLOCKS_ENABLED -u LOW_SIMILARITY_THRESHOLD_OVERRIDE make eval-matrix-arm RUNS=5`
+**Invocation:** `APP_ENV=eval env -u FORCED_COMMIT_STEP -u VIABILITY_CONTRACT_ENABLED -u PARALLEL_TOOL_EXECUTION_ENABLED -u REPLAY_MULTI_MESSAGE_ENABLED -u REPLAY_CONTENTBLOCKS_ENABLED -u LOW_SIMILARITY_THRESHOLD_OVERRIDE make eval-matrix-arm RUNS=5`
 **Date:** 2026-06-14 (17:46–18:40 PDT)
 **Note:** This is the flag-off prod-config run. write_baselines.py will use this run dir in Plan 03 (D-15-05 regen-last) — NOT Run #1.
 

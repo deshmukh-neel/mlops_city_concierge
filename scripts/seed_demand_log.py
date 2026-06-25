@@ -28,7 +28,7 @@ from scripts.sandbox_guard import assert_sandbox_write_target
 # <type>.replace(" Restaurant", "").lower().
 # ---------------------------------------------------------------------------
 
-_SEED_ROWS: list[dict] = [
+SEED_ROWS: list[dict] = [
     {
         "message": "Vietnamese restaurants in Outer Sunset",
         "requested_primary_types": ["Vietnamese Restaurant"],
@@ -67,12 +67,12 @@ _SEED_ROWS: list[dict] = [
 ]
 
 # Verify fixture stays inside the catalog at import time (fail-fast).
-for _row in _SEED_ROWS:
-    for _pt in _row["requested_primary_types"]:
-        _key = _pt.replace(" Restaurant", "").replace(" restaurant", "").lower()
-        assert _key in CUISINES, f"seed row type {_pt!r} → {_key!r} not in CUISINES"
-    assert any(n in _row["message"] for n in NEIGHBORHOODS), (
-        f"seed row message {_row['message']!r} contains no NEIGHBORHOODS member"
+for row in SEED_ROWS:
+    for primary_type in row["requested_primary_types"]:
+        key = primary_type.replace(" Restaurant", "").replace(" restaurant", "").lower()
+        assert key in CUISINES, f"seed row type {primary_type!r} → {key!r} not in CUISINES"
+    assert any(n in row["message"] for n in NEIGHBORHOODS), (
+        f"seed row message {row['message']!r} contains no NEIGHBORHOODS member"
     )
 
 
@@ -89,7 +89,7 @@ def seed_demand_rows() -> list[dict]:
     affecting the module-level constant (CDX-L2 — a shallow ``list()`` copy
     would share the inner dicts/lists).
     """
-    return copy.deepcopy(_SEED_ROWS)
+    return copy.deepcopy(SEED_ROWS)
 
 
 def insert_demand_rows(rows: list[dict], conn=None) -> int:

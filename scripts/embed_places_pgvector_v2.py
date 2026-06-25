@@ -89,11 +89,11 @@ class PlaceRow:
     text: str
 
 
-def _join_nonempty(values: list[str]) -> str:
+def join_nonempty(values: list[str]) -> str:
     return ", ".join(value for value in values if value)
 
 
-def _localized_text(value: object) -> str:
+def localized_text(value: object) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
@@ -103,7 +103,7 @@ def _localized_text(value: object) -> str:
     return ""
 
 
-def _humanize_key(key: str) -> str:
+def humanize_key(key: str) -> str:
     words: list[str] = []
     current = ""
     for char in key:
@@ -117,23 +117,23 @@ def _humanize_key(key: str) -> str:
     return " ".join(words)
 
 
-def _enabled_features(source_json: dict, fields: dict[str, str]) -> str:
-    return _join_nonempty([label for key, label in fields.items() if source_json.get(key) is True])
+def enabled_features(source_json: dict, fields: dict[str, str]) -> str:
+    return join_nonempty([label for key, label in fields.items() if source_json.get(key) is True])
 
 
-def _json_flags(source_json: dict, key: str) -> str:
+def json_flags(source_json: dict, key: str) -> str:
     value = source_json.get(key) or {}
     if not isinstance(value, dict):
         return ""
-    return _join_nonempty(
-        [_humanize_key(field) for field, enabled in value.items() if enabled is True]
+    return join_nonempty(
+        [humanize_key(field) for field, enabled in value.items() if enabled is True]
     )
 
 
 # ---- text composition ------------------------------------------------------
 
 
-def _summary_object_text(value: object) -> str:
+def summary_object_text(value: object) -> str:
     """Extract the human-readable text from Places v1 summary objects.
 
     Shape: {"text": {"text": "...", "languageCode": "en-US"},
@@ -153,7 +153,7 @@ def _summary_object_text(value: object) -> str:
     return ""
 
 
-def _neighborhood_from_address_components(source_json: dict) -> str:
+def neighborhood_from_address_components(source_json: dict) -> str:
     """Extract the structured neighborhood from addressComponents.
 
     Shape: addressComponents: [{"types": ["neighborhood", "political"],
@@ -173,7 +173,7 @@ def _neighborhood_from_address_components(source_json: dict) -> str:
     return ""
 
 
-def _containing_area_names(source_json: dict) -> str:
+def containing_area_names(source_json: dict) -> str:
     """Names of containing areas from addressDescriptor.areas[].displayName.
 
     Shape: addressDescriptor.areas: [{"displayName": {"text": "Mission Bay", ...},
@@ -189,13 +189,13 @@ def _containing_area_names(source_json: dict) -> str:
     for area in areas:
         if not isinstance(area, dict):
             continue
-        text = _localized_text(area.get("displayName"))
+        text = localized_text(area.get("displayName"))
         if text and text not in names:
             names.append(text)
     return ", ".join(names)
 
 
-def _nearby_landmark_names(source_json: dict, max_landmarks: int = 5) -> str:
+def nearby_landmark_names(source_json: dict, max_landmarks: int = 5) -> str:
     """Names of nearby landmarks (no distances, no place IDs).
 
     Distance + place IDs are consumed by W7 (knowledge graph) directly from
@@ -211,7 +211,7 @@ def _nearby_landmark_names(source_json: dict, max_landmarks: int = 5) -> str:
     for landmark in landmarks[:max_landmarks]:
         if not isinstance(landmark, dict):
             continue
-        text = _localized_text(landmark.get("displayName"))
+        text = localized_text(landmark.get("displayName"))
         if text:
             names.append(text)
     return ", ".join(names)
@@ -246,41 +246,41 @@ def compose_embedding_text_v2(record: dict) -> str:
         parts.append(f"Types: {', '.join(types)}")
 
     # --- geographic context (names only, never numbers) ---------------------
-    neighborhood = _neighborhood_from_address_components(source_json)
+    neighborhood = neighborhood_from_address_components(source_json)
     if neighborhood:
         parts.append(f"Neighborhood: {neighborhood}")
-    containing = _containing_area_names(source_json)
+    containing = containing_area_names(source_json)
     if containing:
         parts.append(f"Containing Areas: {containing}")
-    landmarks = _nearby_landmark_names(source_json)
+    landmarks = nearby_landmark_names(source_json)
     if landmarks:
         parts.append(f"Nearby Landmarks: {landmarks}")
 
     # --- editorial / generative / review prose ------------------------------
-    editorial = record.get("editorial_summary") or _summary_object_text(
+    editorial = record.get("editorial_summary") or summary_object_text(
         source_json.get("editorialSummary")
     )
     if editorial:
         parts.append(f"Editorial Summary: {editorial}")
-    generative = _summary_object_text(source_json.get("generativeSummary"))
+    generative = summary_object_text(source_json.get("generativeSummary"))
     if generative:
         parts.append(f"Generative Summary: {generative}")
-    review_summary = _summary_object_text(source_json.get("reviewSummary"))
+    review_summary = summary_object_text(source_json.get("reviewSummary"))
     if review_summary:
         parts.append(f"Review Summary: {review_summary}")
 
     # --- amenities (boolean labels only — no values, no JSON) ---------------
-    service = _enabled_features(source_json, SERVICE_FEATURES)
+    service = enabled_features(source_json, SERVICE_FEATURES)
     if service:
         parts.append(f"Service Options: {service}")
-    dining = _enabled_features(source_json, DINING_FEATURES)
+    dining = enabled_features(source_json, DINING_FEATURES)
     if dining:
         parts.append(f"Dining Features: {dining}")
-    food_drink = _enabled_features(source_json, FOOD_DRINK_FEATURES)
+    food_drink = enabled_features(source_json, FOOD_DRINK_FEATURES)
     if food_drink:
         parts.append(f"Food and Drink: {food_drink}")
     for label, key in JSON_FLAG_GROUPS.items():
-        flags = _json_flags(source_json, key)
+        flags = json_flags(source_json, key)
         if flags:
             parts.append(f"{label}: {flags}")
 
@@ -291,7 +291,7 @@ def compose_embedding_text_v2(record: dict) -> str:
         for review in reviews[:5]:
             if not isinstance(review, dict):
                 continue
-            text = _localized_text(review.get("text"))
+            text = localized_text(review.get("text"))
             if text:
                 review_texts.append(text)
         if review_texts:

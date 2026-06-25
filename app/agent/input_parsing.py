@@ -13,10 +13,10 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-_MAX_EXPLICIT_STOPS = 10
-_STOP_NOUN = r"(?:stop|stops|spot|spots|place|places)"
-_DIGIT_STOP_RE = re.compile(rf"\b([1-9]|10)\s*[- ]?\s*{_STOP_NOUN}\b", re.IGNORECASE)
-_WORD_TO_INT: dict[str, int] = {
+MAX_EXPLICIT_STOPS = 10
+STOP_NOUN = r"(?:stop|stops|spot|spots|place|places)"
+DIGIT_STOP_RE = re.compile(rf"\b([1-9]|10)\s*[- ]?\s*{STOP_NOUN}\b", re.IGNORECASE)
+WORD_TO_INT: dict[str, int] = {
     "one": 1,
     "two": 2,
     "three": 3,
@@ -28,8 +28,8 @@ _WORD_TO_INT: dict[str, int] = {
     "nine": 9,
     "ten": 10,
 }
-_WORD_STOP_RE = re.compile(
-    rf"\b({'|'.join(_WORD_TO_INT)})\s*[- ]?\s*{_STOP_NOUN}\b",
+WORD_STOP_RE = re.compile(
+    rf"\b({'|'.join(WORD_TO_INT)})\s*[- ]?\s*{STOP_NOUN}\b",
     re.IGNORECASE,
 )
 
@@ -37,35 +37,22 @@ _WORD_STOP_RE = re.compile(
 # Conservative — requires both an interrogative phrase ("how many") and a
 # stop-noun nearby, so a stray "how many drinks?" or a comment like
 # "I'd want 3 stops" doesn't activate the bare-number capture below.
-_ASSISTANT_STOPS_QUESTION_RE = re.compile(
-    rf"how\s+many\s+\w*\s*{_STOP_NOUN}\b",
+ASSISTANT_STOPS_QUESTION_RE = re.compile(
+    rf"how\s+many\s+\w*\s*{STOP_NOUN}\b",
     re.IGNORECASE,
 )
 
-# Bare-integer or bare-word-integer in [1, _MAX_EXPLICIT_STOPS]. Used only
+# Bare-integer or bare-word-integer in [1, MAX_EXPLICIT_STOPS]. Used only
 # when the prior assistant turn was a stops-count question.
-_BARE_NUMBER_RE = re.compile(r"^\s*([1-9]|10)\s*[.!]?\s*$")
-_BARE_WORD_NUMBER_RE = re.compile(
-    rf"^\s*({'|'.join(_WORD_TO_INT)})\s*[.!]?\s*$",
+BARE_NUMBER_RE = re.compile(r"^\s*([1-9]|10)\s*[.!]?\s*$")
+BARE_WORD_NUMBER_RE = re.compile(
+    rf"^\s*({'|'.join(WORD_TO_INT)})\s*[.!]?\s*$",
     re.IGNORECASE,
 )
 
 
-# ─── Slot-indicator pre-check (Phase 4 / D-04-01) ────────────────────────
-#
-# Conservative gate that decides whether the /chat handler should burn one
-# extra LLM call to extract per-slot `requested_primary_types` from the
-# user message. False negatives are fine (free-text path is unchanged);
-# false positives waste one LLM call but never break correctness — the
-# Pydantic structured-output schema + family_of validation drop unmappable
-# entries either way.
-#
-# Patterns mirror `explicit_num_stops_from_text`'s style: compile-once at
-# module load, no per-call regex construction. See CONTEXT.md <specifics>
-# (D-04-01 starting set).
-
-# Single-word slot vocabulary. Two or more DISTINCT matches → slot list.
-_SLOT_VOCABULARY: frozenset[str] = frozenset(
+# Gate the extra intake LLM call to messages that look slot-structured.
+SLOT_VOCABULARY: frozenset[str] = frozenset(
     {
         "dinner",
         "drinks",
@@ -85,110 +72,52 @@ _SLOT_VOCABULARY: frozenset[str] = frozenset(
         "cafe",
     }
 )
-_SLOT_VOCAB_RE = re.compile(
-    rf"\b(?:{'|'.join(sorted(_SLOT_VOCABULARY))})\b",
+SLOT_VOCAB_RE = re.compile(
+    rf"\b(?:{'|'.join(sorted(SLOT_VOCABULARY))})\b",
     re.IGNORECASE,
 )
-# "X then Y" / "X followed by Y" / "X -> Y" / "X > Y"
-_THEN_PATTERN_RE = re.compile(
+THEN_PATTERN_RE = re.compile(
     r"\b\w+\s+(?:then|followed\s+by|->|>)\s+\w+",
     re.IGNORECASE,
 )
-# Numbered list "1. ... 2. ..." or "1) ... 2) ...". DOTALL so the gap
-# between markers can contain anything.
-_NUMBERED_SLOT_RE = re.compile(r"\b1[.)]\s.*?\b2[.)]", re.IGNORECASE | re.DOTALL)
-# Planning-verb co-occurrence (catches "Plan an omakase night, 3 stops"
-# where there's only one vocab word but the planning intent is clear).
-_PLANNING_VERB_RE = re.compile(
+NUMBERED_SLOT_RE = re.compile(r"\b1[.)]\s.*?\b2[.)]", re.IGNORECASE | re.DOTALL)
+PLANNING_VERB_RE = re.compile(
     r"\b(?:plan|schedule|book|do)\b",
     re.IGNORECASE,
 )
 
 
-# ─── Refinement-request pre-check (Phase 6 / D-06-03) ────────────────────
-#
-# Deterministic regex helper that decides whether the /chat handler
-# should inject the structured-plan HumanMessage on a given turn
-# (plan 06-05). Conservative on purpose: false negatives are cheaper
-# than false positives. A false positive on turn 1 (no committed_stops
-# yet) would clobber first-turn behavior (REF-04); a false negative
-# just falls back to free-text behavior, which is the v1.0 baseline.
-#
-# Four pattern families cover the common shapes the user types:
-#   1. "make stop N <mod>"        - "make stop 2 cheaper"
-#   2. "stop N <mod|instead>"     - "stop 1 different", "stop 2 instead ..."
-#   3. "swap stop N"              - "swap stop 3"
-#   4. "(instead|different) (for|in) stop N" - "different for stop 1"
-#
-# All patterns require a literal digit slot number; "make it cheaper"
-# (no slot) deliberately returns (False, None) per D-06-03 conservatism.
-# Word boundaries (\b) prevent matching "nonstop" / "stops".
-_REFINE_MAKE_STOP_RE = re.compile(
+# Refinement detection stays literal: the user must name a numbered stop.
+REFINE_MAKE_STOP_RE = re.compile(
     r"\bmake\s+stop\s+([1-9])\s+(?:cheaper|different|fancier|earlier|later)\b",
     re.IGNORECASE,
 )
-_REFINE_STOP_BARE_RE = re.compile(
+REFINE_STOP_BARE_RE = re.compile(
     r"\bstop\s+([1-9])\s+(?:cheaper|different|fancier|earlier|later|instead)\b",
     re.IGNORECASE,
 )
-_REFINE_SWAP_STOP_RE = re.compile(
+REFINE_SWAP_STOP_RE = re.compile(
     r"\bswap\s+stop\s+([1-9])\b",
     re.IGNORECASE,
 )
-_REFINE_INSTEAD_FOR_STOP_RE = re.compile(
+REFINE_INSTEAD_FOR_STOP_RE = re.compile(
     r"\b(?:instead|different)\s+(?:for|in)\s+stop\s+([1-9])\b",
     re.IGNORECASE,
 )
 
-_REFINE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    _REFINE_MAKE_STOP_RE,
-    _REFINE_STOP_BARE_RE,
-    _REFINE_SWAP_STOP_RE,
-    _REFINE_INSTEAD_FOR_STOP_RE,
+REFINE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    REFINE_MAKE_STOP_RE,
+    REFINE_STOP_BARE_RE,
+    REFINE_SWAP_STOP_RE,
+    REFINE_INSTEAD_FOR_STOP_RE,
 )
 
 
 def is_refinement_request(text: str) -> tuple[bool, int | None]:
-    """Detect a refinement turn + extract the 1-indexed target slot.
-
-    Conservative-on-purpose deterministic pre-check (D-06-03). False
-    negatives are cheaper than false positives because a false positive
-    on turn 1 (when `committed_stops` is empty) would clobber first-turn
-    behavior (REF-04); a false negative just falls back to free-text
-    behavior. No LLM call, no DB, pure regex.
-
-    Returns ``(True, slot)`` when `text` matches one of the four refinement
-    pattern families and the slot number is extractable; otherwise
-    ``(False, None)``. The slot number is 1-indexed to match the
-    user-facing prose ("make stop 2 cheaper") and the YAML
-    ``expected_refinement.target_slot: 2`` convention from D-06-08.
-
-    Pattern families (one example each):
-      1. ``make stop N (cheaper|different|fancier|earlier|later)``
-         -> ``is_refinement_request("make stop 2 cheaper")`` == ``(True, 2)``
-      2. ``stop N (cheaper|different|fancier|earlier|later|instead)``
-         -> ``is_refinement_request("stop 1 different")`` == ``(True, 1)``
-      3. ``swap stop N``
-         -> ``is_refinement_request("swap stop 3")`` == ``(True, 3)``
-      4. ``(instead|different) (for|in) stop N``
-         -> ``is_refinement_request("different for stop 1")`` == ``(True, 1)``
-
-    Edge cases:
-      - Empty or whitespace input returns ``(False, None)``.
-      - ``"make it cheaper"`` (no slot number) returns ``(False, None)`` -
-        we do NOT assume slot 1; the user must name the slot explicitly.
-      - Word boundaries (``\\b``) prevent matching ``nonstop`` / ``stops``.
-      - Matching is case-insensitive.
-
-    Called from ``app/main.py:chat()`` (plan 06-05) to gate the
-    structured-plan ``HumanMessage`` injection. Downstream injection is
-    additionally gated on ``incoming.committed_stops`` being non-empty,
-    so a hypothetical false positive on turn 1 still cannot inject
-    (defense in depth).
-    """
+    """Detect a refinement turn and return its 1-indexed target slot."""
     if not text or not text.strip():
         return False, None
-    for pattern in _REFINE_PATTERNS:
+    for pattern in REFINE_PATTERNS:
         match = pattern.search(text)
         if match:
             return True, int(match.group(1))
@@ -196,44 +125,21 @@ def is_refinement_request(text: str) -> tuple[bool, int | None]:
 
 
 def has_slot_structure(text: str) -> bool:
-    """Return True when `text` looks like a per-slot category structure.
-
-    Deliberately conservative. Fires on:
-      (a) "X then Y [then Z]" / "X followed by Y" / "X -> Y" patterns
-      (b) Numbered structure ("1. dinner spot 2. drinks")
-      (c) Two or more DISTINCT slot-vocabulary words (e.g.
-          "dinner, drinks, dessert")
-      (d) At least one slot-vocabulary word in proximity to a planning
-          verb ("plan an omakase night ..."), which catches the
-          single-vocab + planning-intent case.
-
-    Empty / whitespace inputs return False. Single-vocab free text
-    ("find good tacos") and non-vocab comma lists ("San Francisco, CA,
-    USA") return False — the LLM intake call has a hard cost so we only
-    pay it when the slot signal is reasonably strong. Repeated SAME
-    vocab word ("dinner dinner dinner") does NOT count as multiple
-    distinct slots.
-    """
+    """Return True when `text` looks like ordered category slots."""
     if not text or not text.strip():
         return False
-    if _THEN_PATTERN_RE.search(text):
+    if THEN_PATTERN_RE.search(text):
         return True
-    if _NUMBERED_SLOT_RE.search(text):
+    if NUMBERED_SLOT_RE.search(text):
         return True
-    vocab_hits = {m.group(0).lower() for m in _SLOT_VOCAB_RE.finditer(text)}
+    vocab_hits = {m.group(0).lower() for m in SLOT_VOCAB_RE.finditer(text)}
     if len(vocab_hits) >= 2:
         return True
-    return bool(vocab_hits and _PLANNING_VERB_RE.search(text))
+    return bool(vocab_hits and PLANNING_VERB_RE.search(text))
 
 
 class SlotExtractionResult(BaseModel):
-    """Pydantic schema for the intake LLM's structured-output call.
-
-    Single field — a list of Google `primary_type` Title-Case strings,
-    one per slot in the order the user named them. Empty list is the
-    fail-open default; the /chat handler treats an empty list as "no
-    slot enforcement" and the agent runs on free-text behavior.
-    """
+    """Structured-output shape for the intake LLM."""
 
     requested_primary_types: list[str] = Field(
         default_factory=list,
@@ -246,7 +152,7 @@ class SlotExtractionResult(BaseModel):
     )
 
 
-class _HasRoleContent(Protocol):
+class HasRoleContent(Protocol):
     # Read-only attribute protocol so concrete classes with narrower types
     # (e.g. ChatMessage with role: Literal["user", "assistant"]) still match.
     @property
@@ -256,26 +162,9 @@ class _HasRoleContent(Protocol):
 
 
 def explicit_num_stops_from_conversation(
-    history: Iterable[_HasRoleContent], current_message: str
+    history: Iterable[HasRoleContent], current_message: str
 ) -> int | None:
-    """The latest explicit user-stated stop count across the whole turn.
-
-    /chat is stateless — each POST rebuilds ItineraryState — so parsing only
-    `current_message` loses the count on every follow-up turn. Walks history's
-    user messages in order, then the current message; the LAST hit wins so a
-    mid-conversation revision ("actually make it 4") overrides an earlier "3".
-
-    Bare-number fallback (current_message only): if the prior assistant turn
-    was clearly a how-many-stops question (e.g. "How many stops would you
-    like?") and the current message is a bare integer or bare word-integer
-    (e.g. "3", "three", "3.", "Three!"), treat it as the count. This
-    closes the gap where gpt-4o-mini asked the count question and the user
-    replied with just a number — without it, no count guardrail kicks in
-    and the model can over-loop into the step-limit short-circuit. The
-    bare-number rule applies ONLY to the current message, not to history,
-    because old assistant turns are no longer the prompt at the front of
-    the model's attention.
-    """
+    """Return the latest explicit stop count from history plus this turn."""
     history_list = list(history)
     latest: int | None = None
     for m in history_list:
@@ -286,8 +175,6 @@ def explicit_num_stops_from_conversation(
     found = explicit_num_stops_from_text(current_message)
     if found is not None:
         return found
-    # Bare-number fallback: only activate if the LAST assistant turn (the
-    # one the user is replying to) was a how-many-stops question.
     last_assistant = next(
         (
             getattr(m, "content", "") or ""
@@ -296,26 +183,26 @@ def explicit_num_stops_from_conversation(
         ),
         None,
     )
-    if last_assistant and _ASSISTANT_STOPS_QUESTION_RE.search(last_assistant):
-        bare = _parse_bare_count(current_message)
+    if last_assistant and ASSISTANT_STOPS_QUESTION_RE.search(last_assistant):
+        bare = parse_bare_count(current_message)
         if bare is not None:
             return bare
     return latest
 
 
-def _parse_bare_count(text: str) -> int | None:
+def parse_bare_count(text: str) -> int | None:
     """Bare digit / word number in [1, 10], or None.
 
     Anchored match (`^...$`): "3 places" doesn't qualify (the noun-based
     parser handles that); only standalone numbers or word-numbers.
     """
-    m = _BARE_NUMBER_RE.match(text)
+    m = BARE_NUMBER_RE.match(text)
     if m:
         value = int(m.group(1))
-        return value if 1 <= value <= _MAX_EXPLICIT_STOPS else None
-    m = _BARE_WORD_NUMBER_RE.match(text)
+        return value if 1 <= value <= MAX_EXPLICIT_STOPS else None
+    m = BARE_WORD_NUMBER_RE.match(text)
     if m:
-        return _WORD_TO_INT[m.group(1).lower()]
+        return WORD_TO_INT[m.group(1).lower()]
     return None
 
 
@@ -326,14 +213,14 @@ def explicit_num_stops_from_text(text: str) -> int | None:
     are intentionally ignored because the current itinerary agent is optimized
     for small walking plans, not all-day route generation.
     """
-    digit_match = _DIGIT_STOP_RE.search(text)
+    digit_match = DIGIT_STOP_RE.search(text)
     if digit_match:
         value = int(digit_match.group(1))
-        return value if 1 <= value <= _MAX_EXPLICIT_STOPS else None
+        return value if 1 <= value <= MAX_EXPLICIT_STOPS else None
 
-    word_match = _WORD_STOP_RE.search(text)
+    word_match = WORD_STOP_RE.search(text)
     if word_match:
-        return _WORD_TO_INT[word_match.group(1).lower()]
+        return WORD_TO_INT[word_match.group(1).lower()]
 
     return None
 
@@ -344,8 +231,8 @@ def explicit_num_stops_from_text(text: str) -> int | None:
 # separately by `explicit_num_stops_from_conversation`) while
 # "find something cheaper" — a question disguised as a hint — routes to
 # alternative for the LLM to interpret in context.
-_ACCEPT_TOKENS: frozenset[str] = frozenset({"yes", "yeah", "yep", "sure", "ok", "okay", "y", "👍"})
-_DECLINE_TOKENS: frozenset[str] = frozenset({"no", "nope", "n", "nah"})
+ACCEPT_TOKENS: frozenset[str] = frozenset({"yes", "yeah", "yep", "sure", "ok", "okay", "y", "👍"})
+DECLINE_TOKENS: frozenset[str] = frozenset({"no", "nope", "n", "nah"})
 
 
 def parse_closure_decision(text: str) -> Literal["accept", "decline", "alternative"]:
@@ -361,8 +248,8 @@ def parse_closure_decision(text: str) -> Literal["accept", "decline", "alternati
     first = text.strip().split()[0].lower()
     # Strip surrounding punctuation so "Yes!" / "yes," / "ok." also match.
     stripped = first.strip(".,!?;:\"'()[]{}")
-    if stripped in _ACCEPT_TOKENS or first in _ACCEPT_TOKENS:
+    if stripped in ACCEPT_TOKENS or first in ACCEPT_TOKENS:
         return "accept"
-    if stripped in _DECLINE_TOKENS or first in _DECLINE_TOKENS:
+    if stripped in DECLINE_TOKENS or first in DECLINE_TOKENS:
         return "decline"
     return "alternative"

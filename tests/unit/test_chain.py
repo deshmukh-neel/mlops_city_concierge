@@ -77,14 +77,14 @@ def test_build_rag_chain_rejects_invalid_provider() -> None:
         )
 
 
-class _FakeRetriever:
+class FakeRetriever:
     """Minimal retriever stub exposing the BaseRetriever.invoke() contract."""
 
     def __init__(self, docs: list[Document]) -> None:
-        self._docs = docs
+        self.docs = docs
 
     def invoke(self, query: str) -> list[Document]:  # noqa: ARG002
-        return self._docs
+        return self.docs
 
 
 def test_build_retrieval_qa_preserves_legacy_output_contract() -> None:
@@ -94,7 +94,7 @@ def test_build_retrieval_qa_preserves_legacy_output_contract() -> None:
     ]
     llm = FakeListChatModel(responses=["You should try Taqueria Example."])
 
-    chain = build_retrieval_qa(retriever=_FakeRetriever(docs), llm=llm)
+    chain = build_retrieval_qa(retriever=FakeRetriever(docs), llm=llm)
     out = chain.invoke({"query": "Best tacos?"})
 
     assert out == {

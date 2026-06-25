@@ -8,14 +8,14 @@ import pytest
 from app.config import ALLOWED_EMBEDDING_TABLES
 from app.tools.filters import SearchFilters
 from app.tools.retrieval import (
-    _VIEW_FOR_TABLE,
+    VIEW_FOR_TABLE,
     PlaceDetails,
     PlaceHit,
-    _view_name,
     get_details,
     get_details_many,
     nearby,
     semantic_search,
+    view_name,
 )
 
 # --- contract test for the view mapping ------------------------------------
@@ -23,7 +23,7 @@ from app.tools.retrieval import (
 
 def test_view_for_table_covers_allowlist() -> None:
     """Every entry in ALLOWED_EMBEDDING_TABLES must have a view in the map."""
-    assert set(_VIEW_FOR_TABLE.keys()) == set(ALLOWED_EMBEDDING_TABLES)
+    assert set(VIEW_FOR_TABLE.keys()) == set(ALLOWED_EMBEDDING_TABLES)
 
 
 # --- smoke tests -----------------------------------------------------------
@@ -67,10 +67,10 @@ class FakeCursor:
 
 class FakeConnection:
     def __init__(self, cursor: FakeCursor) -> None:
-        self._cursor = cursor
+        self.cursor_obj = cursor
 
-    def cursor(self, **_kwargs: Any) -> FakeCursor:  # ignore cursor_factory
-        return self._cursor
+    def cursor(self, **unused_kwargs: Any) -> FakeCursor:  # ignore cursor_factory
+        return self.cursor_obj
 
 
 @pytest.fixture
@@ -78,7 +78,7 @@ def patch_get_conn(mocker):
     """Returns a helper that patches get_conn() to yield a FakeConnection
     over the given rows, and exposes the FakeCursor for assertions."""
 
-    def _patch(rows: list[dict]) -> FakeCursor:
+    def patch(rows: list[dict]) -> FakeCursor:
         cursor = FakeCursor(rows)
         connection = FakeConnection(cursor)
 
@@ -89,7 +89,7 @@ def patch_get_conn(mocker):
         mocker.patch("app.tools.retrieval.get_conn", fake_get_conn)
         return cursor
 
-    return _patch
+    return patch
 
 
 # --- semantic_search -------------------------------------------------------
@@ -121,14 +121,14 @@ def test_semantic_search_builds_expected_sql_with_no_filters(patch_get_conn, moc
     # business_status default OPERATIONAL + min_user_rating_count default 50
     # are both present unless explicitly disabled. Assert the *configured*
     # view (default-independent: v1 or v2 depending on EMBEDDING_TABLE).
-    assert f"FROM {_view_name()}" in cursor.executed_sql
+    assert f"FROM {view_name()}" in cursor.executed_sql
     assert "ORDER BY embedding <=> %s::vector" in cursor.executed_sql
     assert "embedding_model = %s" in cursor.executed_sql
     assert "business_status = %s" in cursor.executed_sql
     assert "user_rating_count >= %s" in cursor.executed_sql
 
     # Last two params should be the vector literal and the LIMIT.
-    assert cursor.executed_params[-1] == 5  # k * _OVERFETCH_FACTOR == 5*1
+    assert cursor.executed_params[-1] == 5  # k * OVERFETCH_FACTOR == 5*1
     assert cursor.executed_params[-2].startswith("[")  # vector literal
 
     assert len(hits) == 1
@@ -189,7 +189,7 @@ def test_nearby_excludes_anchor_and_filters_distance(patch_get_conn) -> None:
     # Anchor reads from places_raw (P15).
     assert "FROM places_raw" in sql
     # Candidate query reads from the configured view (default-independent).
-    assert f"FROM {_view_name()} pd" in sql
+    assert f"FROM {view_name()} pd" in sql
     # Distance filtering moved to outer WHERE per CTE rewrite (Issue #8).
     assert "WHERE dist_m <= %s" in sql
     assert "ORDER BY dist_m ASC" in sql
@@ -244,7 +244,7 @@ def test_get_details_returns_place_details_when_found(patch_get_conn) -> None:
 # --- get_details_many ------------------------------------------------------
 
 
-def _details_row(place_id: str) -> dict:
+def details_row(place_id: str) -> dict:
     return {
         "place_id": place_id,
         "name": f"Place {place_id}",
@@ -279,7 +279,7 @@ def test_get_details_many_returns_keyed_dict(patch_get_conn) -> None:
     """The contract: input list of N place_ids → output dict of up-to-N rows
     keyed by place_id. Order doesn't matter; presence does."""
     cursor = patch_get_conn(
-        [_details_row("ChIJtest_p1_aaaaaaaa"), _details_row("ChIJtest_p2_aaaaaaaa")]
+        [details_row("ChIJtest_p1_aaaaaaaa"), details_row("ChIJtest_p2_aaaaaaaa")]
     )
     out = get_details_many(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
 
@@ -297,7 +297,7 @@ def test_get_details_many_omits_missing_ids_silently(patch_get_conn) -> None:
     """If a requested place_id isn't in the DB, it's simply absent from the
     result dict — no error, no None placeholder. Callers (booking enrichment)
     use `dict.get(...)` and skip on miss."""
-    patch_get_conn([_details_row("ChIJtest_p1_aaaaaaaa")])  # p2 not in DB
+    patch_get_conn([details_row("ChIJtest_p1_aaaaaaaa")])  # p2 not in DB
     out = get_details_many(["ChIJtest_p1_aaaaaaaa", "ChIJtest_p2_aaaaaaaa"])
     assert "ChIJtest_p1_aaaaaaaa" in out
     assert "ChIJtest_p2_aaaaaaaa" not in out

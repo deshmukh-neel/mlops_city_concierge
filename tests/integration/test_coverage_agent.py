@@ -32,7 +32,7 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture
-def _proposals_table_or_skip() -> None:
+def proposals_table_or_skip() -> None:
     """Skip if the proposals table isn't deployed OR the current role can't
     write to it. Existence alone isn't enough — main went red because the
     table was created before the GRANT migration applied."""
@@ -51,7 +51,7 @@ def _proposals_table_or_skip() -> None:
             pytest.skip("current DB role lacks INSERT/DELETE on proposals table")
 
 
-def _purge_test_proposals(prefix: str) -> None:
+def purge_test_proposals(prefix: str) -> None:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             "DELETE FROM places_ingest_query_proposals WHERE query_text LIKE %s",
@@ -60,7 +60,7 @@ def _purge_test_proposals(prefix: str) -> None:
         conn.commit()
 
 
-def _stub_synthetic_gap(monkeypatch: pytest.MonkeyPatch) -> None:
+def stub_synthetic_gap(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace gather_stats with a fixed sparse-cuisine gap so tests don't
     need INSERT on places_raw."""
     monkeypatch.setattr(
@@ -70,7 +70,7 @@ def _stub_synthetic_gap(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _stub_mlflow(monkeypatch: pytest.MonkeyPatch) -> None:
+def stub_mlflow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(coverage_agent.mlflow, "set_experiment", MagicMock())
     start_run = MagicMock()
     start_run.return_value.__enter__ = MagicMock(return_value=None)
@@ -81,11 +81,11 @@ def _stub_mlflow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(coverage_agent.mlflow, "log_dict", MagicMock())
 
 
-def test_proposals_table_exists(_proposals_table_or_skip) -> None:
+def test_proposals_table_exists(proposals_table_or_skip) -> None:
     """Schema-deploy gate: passes once the table is deployed, skips before."""
 
 
-def test_apply_inserts_proposal_row(_proposals_table_or_skip, monkeypatch) -> None:
+def test_apply_inserts_proposal_row(proposals_table_or_skip, monkeypatch) -> None:
     """End-to-end: stubbed gap → propose (mocked LLM) → real INSERT lands a row.
 
     Also asserts that an LLM proposal that collides with the static seed list
@@ -112,8 +112,8 @@ def test_apply_inserts_proposal_row(_proposals_table_or_skip, monkeypatch) -> No
         ]
     )
     monkeypatch.setattr(coverage_agent.vibe, "make_judge", lambda: fake_llm)
-    _stub_synthetic_gap(monkeypatch)
-    _stub_mlflow(monkeypatch)
+    stub_synthetic_gap(monkeypatch)
+    stub_mlflow(monkeypatch)
 
     try:
         rc = coverage_agent.main(["--days", "30"])
@@ -135,10 +135,10 @@ def test_apply_inserts_proposal_row(_proposals_table_or_skip, monkeypatch) -> No
         assert "burmese" in row[1]
         assert collision_row is None, "seed-list collision should have been filtered before insert"
     finally:
-        _purge_test_proposals(marker)
+        purge_test_proposals(marker)
 
 
-def test_dry_run_inserts_nothing(_proposals_table_or_skip, monkeypatch) -> None:
+def test_dry_run_inserts_nothing(proposals_table_or_skip, monkeypatch) -> None:
     """Dry-run path emits MLflow artifacts but never writes proposal rows."""
     marker = f"w5-dry-{uuid.uuid4().hex[:8]}"
     proposal_text = f"{marker} thai restaurants in San Francisco"
@@ -154,8 +154,8 @@ def test_dry_run_inserts_nothing(_proposals_table_or_skip, monkeypatch) -> None:
         ]
     )
     monkeypatch.setattr(coverage_agent.vibe, "make_judge", lambda: fake_llm)
-    _stub_synthetic_gap(monkeypatch)
-    _stub_mlflow(monkeypatch)
+    stub_synthetic_gap(monkeypatch)
+    stub_mlflow(monkeypatch)
 
     try:
         rc = coverage_agent.main(["--dry-run", "--days", "30"])
@@ -168,4 +168,4 @@ def test_dry_run_inserts_nothing(_proposals_table_or_skip, monkeypatch) -> None:
             )
             assert cur.fetchone() is None
     finally:
-        _purge_test_proposals(marker)
+        purge_test_proposals(marker)

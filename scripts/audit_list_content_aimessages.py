@@ -2,7 +2,7 @@
 
 Zero-spend audit that determines whether the three RUN models
 (openai/gpt-5-mini, openai/gpt-4o-mini, deepseek/deepseek-reasoner) ever
-produce list-content AIMessages that ``_prune_for_llm``'s ``str()`` collapse
+produce list-content AIMessages that ``prune_for_llm``'s ``str()`` collapse
 at ``app/agent/graph.py:232`` would have observably altered.
 
 This script does TWO complementary halves:
@@ -79,7 +79,7 @@ KNOWN_ARM_RUN_DIRS: list[str] = [
 # ---------------------------------------------------------------------------
 
 
-def _scan_run_dir(run_dir: pathlib.Path) -> dict[str, Any]:
+def scan_run_dir(run_dir: pathlib.Path) -> dict[str, Any]:
     """Scan one run dir and return a findings dict.
 
     Returns::
@@ -163,7 +163,7 @@ def _scan_run_dir(run_dir: pathlib.Path) -> dict[str, Any]:
 
 # Per-adapter classification for all four Phase-9 adapters.
 # source: app/agent/adapters/*.py — read during audit preparation.
-_ADAPTER_CLASSIFICATIONS: list[dict[str, str]] = [
+ADAPTER_CLASSIFICATIONS: list[dict[str, str]] = [
     {
         "provider_slug": "openai",
         "model_family": "gpt-5 family (gpt-5-mini, gpt-4o-mini with reasoning adapter)",
@@ -209,13 +209,13 @@ _ADAPTER_CLASSIFICATIONS: list[dict[str, str]] = [
 ]
 
 
-def _structural_analysis() -> dict[str, Any]:
+def structural_analysis() -> dict[str, Any]:
     """Derive the verdict from adapter design, independent of run-dir data."""
     run_model_classifications = [
-        c for c in _ADAPTER_CLASSIFICATIONS if c["run_model"].startswith("YES")
+        c for c in ADAPTER_CLASSIFICATIONS if c["run_model"].startswith("YES")
     ]
     list_content_adapters = [
-        c for c in _ADAPTER_CLASSIFICATIONS if c["list_content"].startswith("YES")
+        c for c in ADAPTER_CLASSIFICATIONS if c["list_content"].startswith("YES")
     ]
     deferred_list_content_adapters = [
         c for c in list_content_adapters if not c["run_model"].startswith("YES")
@@ -231,14 +231,14 @@ def _structural_analysis() -> dict[str, Any]:
         "deferred_list_content_adapters": [
             c["provider_slug"] for c in deferred_list_content_adapters
         ],
-        "classifications": _ADAPTER_CLASSIFICATIONS,
+        "classifications": ADAPTER_CLASSIFICATIONS,
         "verdict": (
             "EXPECTED-NULL: str() collapse was a NO-OP for the three RUN models. "
             "None of gpt-5-mini, gpt-4o-mini, or deepseek-reasoner emit list-content "
             "AIMessages — their .content is always a plain string. "
             "Only AnthropicAdapter uses a content block list, and anthropic is "
             "deferred (D-12-09) and NOT in the run matrix. "
-            "R2 (REPLAY_CONTENT_BLOCKS_ENABLED) is therefore EXPECTED-NULL on the "
+            "R2 (REPLAY_CONTENTBLOCKS_ENABLED) is therefore EXPECTED-NULL on the "
             "tested cells. R2 still runs — roadmap criterion 2 requires a measured "
             "delta, not an assumption."
         ),
@@ -252,7 +252,7 @@ def _structural_analysis() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _smoke_check_adapters() -> list[str]:
+def smoke_check_adapters() -> list[str]:
     """Import the four adapters and verify the content-shape assumption.
 
     Returns a list of warning strings (empty = all checks passed).
@@ -326,15 +326,15 @@ def _smoke_check_adapters() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _print_section(title: str) -> None:
+def print_section(title: str) -> None:
     print()
     print("=" * 70)
     print(f"  {title}")
     print("=" * 70)
 
 
-def _print_run_dir_findings(findings_list: list[dict[str, Any]]) -> None:
-    _print_section("Half (a): Run-Dir Scan")
+def print_run_dir_findings(findings_list: list[dict[str, Any]]) -> None:
+    print_section("Half (a): Run-Dir Scan")
     if not findings_list:
         print("  No run dirs scanned.")
         return
@@ -374,8 +374,8 @@ def _print_run_dir_findings(findings_list: list[dict[str, Any]]) -> None:
         )
 
 
-def _print_structural_analysis(analysis: dict[str, Any]) -> None:
-    _print_section("Half (b): Structural Adapter Analysis")
+def print_structural_analysis(analysis: dict[str, Any]) -> None:
+    print_section("Half (b): Structural Adapter Analysis")
 
     print()
     print("  Per-adapter content-shape classification:")
@@ -421,12 +421,12 @@ def _print_structural_analysis(analysis: dict[str, Any]) -> None:
         print(f"    {line}")
 
 
-def _print_overall_verdict(
+def print_overall_verdict(
     run_dir_findings: list[dict[str, Any]],
     structural: dict[str, Any],
     adapter_warnings: list[str],
 ) -> None:
-    _print_section("Overall Verdict (D-14-05 / REPLAY-02 Evidence Audit)")
+    print_section("Overall Verdict (D-14-05 / REPLAY-02 Evidence Audit)")
 
     any_surprise = any(f["has_message_content"] for f in run_dir_findings)
 
@@ -470,7 +470,7 @@ def _print_overall_verdict(
         )
         print()
         print(
-            "  ACTION: R2 (REPLAY_CONTENT_BLOCKS_ENABLED) still runs per roadmap "
+            "  ACTION: R2 (REPLAY_CONTENTBLOCKS_ENABLED) still runs per roadmap "
             "criterion 2 — a measured delta is required even when the effect is "
             "expected-null. The audit result is written into docs/replay_arm_verdicts.md "
             "before any live R2 spend."
@@ -488,7 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "REPLAY-02 evidence audit (D-14-05): determine whether the three RUN models "
-            "ever produce list-content AIMessages that _prune_for_llm str() collapse "
+            "ever produce list-content AIMessages that prune_for_llm str() collapse "
             "would have altered. Zero API spend."
         )
     )
@@ -535,24 +535,24 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
         else:
-            run_dir_findings.append(_scan_run_dir(rd))
+            run_dir_findings.append(scan_run_dir(rd))
 
     # Half (b): structural analysis.
-    structural = _structural_analysis()
+    structural = structural_analysis()
 
     # Adapter smoke check.
     adapter_warnings: list[str] = []
     if not args.skip_adapter_check:
-        adapter_warnings = _smoke_check_adapters()
+        adapter_warnings = smoke_check_adapters()
 
     # Print results.
-    _print_run_dir_findings(run_dir_findings)
-    _print_structural_analysis(structural)
+    print_run_dir_findings(run_dir_findings)
+    print_structural_analysis(structural)
     if adapter_warnings:
-        _print_section("Adapter Smoke-Check Warnings")
+        print_section("Adapter Smoke-Check Warnings")
         for w in adapter_warnings:
             print(f"  - {w}")
-    _print_overall_verdict(run_dir_findings, structural, adapter_warnings)
+    print_overall_verdict(run_dir_findings, structural, adapter_warnings)
 
     print()
     return 0

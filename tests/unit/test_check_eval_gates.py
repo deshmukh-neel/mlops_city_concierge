@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "check_eval_gates.py"
 
 
-def _load_script() -> ModuleType:
+def load_script() -> ModuleType:
     """Load scripts/check_eval_gates.py as a module without sys.path mutation."""
     spec = importlib.util.spec_from_file_location("check_eval_gates", SCRIPT_PATH)
     if spec is None or spec.loader is None:
@@ -40,14 +40,14 @@ def _load_script() -> ModuleType:
 @pytest.fixture
 def script() -> ModuleType:
     """The check_eval_gates module under test."""
-    return _load_script()
+    return load_script()
 
 
 # ---------------------------------------------------------------------------
 # Synthetic YAML / JSON helpers
 # ---------------------------------------------------------------------------
 
-_MINIMAL_GATES_YAML = """\
+MINIMAL_GATES_YAML = """\
 gates:
   - family: openai/gpt-4o-mini
     status: active
@@ -81,9 +81,9 @@ gates:
 """
 
 
-_SYNTHETIC_SCENARIO_ID = "refinement_cheaper"
+SYNTHETIC_SCENARIO_ID = "refinement_cheaper"
 
-_INTEGRATION_GATES_YAML = """\
+INTEGRATION_GATES_YAML = """\
 gates:
   - family: openai/gpt-4o-mini
     status: active
@@ -96,7 +96,7 @@ gates:
 """
 
 
-def _make_summary(
+def make_summary(
     provider_cells: dict[str, dict],
     extra_top_level: dict | None = None,
 ) -> dict:
@@ -113,7 +113,7 @@ def _make_summary(
     """
     out: dict = {
         "scenarios": {
-            _SYNTHETIC_SCENARIO_ID: {
+            SYNTHETIC_SCENARIO_ID: {
                 "providers": provider_cells,
             }
         },
@@ -124,7 +124,7 @@ def _make_summary(
     return out
 
 
-def _cell_with_rate(rate: float, n: int = 5) -> dict:
+def cell_with_rate(rate: float, n: int = 5) -> dict:
     """A cell dict with committed_itinerary_rate populated."""
     return {
         "scorers": {
@@ -136,7 +136,7 @@ def _cell_with_rate(rate: float, n: int = 5) -> dict:
     }
 
 
-def _cell_no_rate(n: int = 5) -> dict:
+def cell_no_rate(n: int = 5) -> dict:
     """A cell dict WITHOUT committed_itinerary_rate — metric not yet wired."""
     return {
         "scorers": {
@@ -160,14 +160,14 @@ def test_all_gates_pass_returns_exit_0(
 ) -> None:
     """All active/provisional hard gates satisfied → exit 0."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
-    summary = _make_summary(
+    summary = make_summary(
         {
-            "openai/gpt-4o-mini": _cell_with_rate(1.0),
-            "openai/gpt-5-mini": _cell_with_rate(0.7),  # above aspirational floor too
-            "deepseek/deepseek-chat": _cell_with_rate(0.2),  # logged; ignored
-            "late_night_closure_cascade": _cell_with_rate(0.0),  # quarantined; ignored
+            "openai/gpt-4o-mini": cell_with_rate(1.0),
+            "openai/gpt-5-mini": cell_with_rate(0.7),  # above aspirational floor too
+            "deepseek/deepseek-chat": cell_with_rate(0.2),  # logged; ignored
+            "late_night_closure_cascade": cell_with_rate(0.0),  # quarantined; ignored
         }
     )
     summary_file = tmp_path / "summary.json"
@@ -191,12 +191,12 @@ def test_active_hard_gate_violation_returns_exit_1_with_family_in_stderr(
 ) -> None:
     """Active gpt-4o-mini cell below gate → exit 1 with family name in stderr."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
-    summary = _make_summary(
+    summary = make_summary(
         {
-            "openai/gpt-4o-mini": _cell_with_rate(0.4),  # BELOW 0.8 gate
-            "openai/gpt-5-mini": _cell_with_rate(0.7),
+            "openai/gpt-4o-mini": cell_with_rate(0.4),  # BELOW 0.8 gate
+            "openai/gpt-5-mini": cell_with_rate(0.7),
         }
     )
     summary_file = tmp_path / "summary.json"
@@ -225,12 +225,12 @@ def test_aspirational_gate_miss_returns_exit_0_with_aspirational_line(
 ) -> None:
     """Aspirational gpt-5-mini below its floor → exit 0, ASPIRATIONAL line in stdout."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
-    summary = _make_summary(
+    summary = make_summary(
         {
-            "openai/gpt-4o-mini": _cell_with_rate(1.0),  # passes active gate
-            "openai/gpt-5-mini": _cell_with_rate(0.4),  # BELOW aspirational 0.6
+            "openai/gpt-4o-mini": cell_with_rate(1.0),  # passes active gate
+            "openai/gpt-5-mini": cell_with_rate(0.4),  # BELOW aspirational 0.6
         }
     )
     summary_file = tmp_path / "summary.json"
@@ -259,7 +259,7 @@ def test_missing_gates_yaml_returns_exit_2(
     script: ModuleType,
 ) -> None:
     """Missing gates YAML → exit 2 (infrastructure failure)."""
-    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(1.0)})
+    summary = make_summary({"openai/gpt-4o-mini": cell_with_rate(1.0)})
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
@@ -276,7 +276,7 @@ def test_missing_summary_json_returns_exit_2(
 ) -> None:
     """Missing summary.json → exit 2 (infrastructure failure)."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
     nonexistent = tmp_path / "nonexistent_summary.json"
 
@@ -291,7 +291,7 @@ def test_malformed_summary_json_returns_exit_2(
 ) -> None:
     """Malformed (non-JSON) summary.json → exit 2 (fail-closed, not silent pass)."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
     summary_file = tmp_path / "summary.json"
     summary_file.write_text("this is not valid JSON {{{")
@@ -311,12 +311,12 @@ def test_logged_family_with_low_rate_never_blocks(
 ) -> None:
     """logged families are skipped entirely — even a 0.0 rate must not block."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
-    summary = _make_summary(
+    summary = make_summary(
         {
-            "openai/gpt-4o-mini": _cell_with_rate(1.0),
-            "deepseek/deepseek-chat": _cell_with_rate(0.0),  # logged; must not block
+            "openai/gpt-4o-mini": cell_with_rate(1.0),
+            "deepseek/deepseek-chat": cell_with_rate(0.0),  # logged; must not block
         }
     )
     summary_file = tmp_path / "summary.json"
@@ -332,12 +332,12 @@ def test_quarantined_family_never_blocks(
 ) -> None:
     """quarantined-legacy-threading families are skipped entirely."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
-    summary = _make_summary(
+    summary = make_summary(
         {
-            "openai/gpt-4o-mini": _cell_with_rate(1.0),
-            "late_night_closure_cascade": _cell_with_rate(0.0),  # quarantined; must not block
+            "openai/gpt-4o-mini": cell_with_rate(1.0),
+            "late_night_closure_cascade": cell_with_rate(0.0),  # quarantined; must not block
         }
     )
     summary_file = tmp_path / "summary.json"
@@ -360,12 +360,12 @@ def test_metric_not_in_summary_is_not_evaluable_not_silent_pass(
     """When committed_itinerary_rate is absent from the cell, the gate is
     reported as not-evaluable — not treated as a silent pass (T-10-04-01)."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
     # Cell only has refinement_minimal_edit; committed_itinerary_rate absent
-    summary = _make_summary(
+    summary = make_summary(
         {
-            "openai/gpt-4o-mini": _cell_no_rate(),
+            "openai/gpt-4o-mini": cell_no_rate(),
         }
     )
     summary_file = tmp_path / "summary.json"
@@ -388,12 +388,12 @@ def test_active_gate_with_boolean_median_fails_closed(
     script: ModuleType,
 ) -> None:
     """Codex PR#110 finding B: a boolean median must NOT be coerced to 1.0 and
-    satisfy a >= gate. `_get_metric_value` rejects bool → the metric reads as
+    satisfy a >= gate. `get_metric_value` rejects bool → the metric reads as
     absent → the active gate is not-evaluable → exit 2 (fail closed)."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
-    summary = _make_summary(
+    summary = make_summary(
         {
             "openai/gpt-4o-mini": {
                 "scorers": {"committed_itinerary_rate": {"median": True, "mean": True}},
@@ -412,12 +412,12 @@ def test_active_gate_with_boolean_median_fails_closed(
 
 def test_get_metric_value_rejects_bool() -> None:
     """Unit-level guard for finding B: float(True)==1.0 must not leak through."""
-    from scripts.check_eval_gates import _get_metric_value
+    from scripts.check_eval_gates import get_metric_value
 
-    assert _get_metric_value({"scorers": {"m": {"median": True}}}, "m") is None
-    assert _get_metric_value({"scorers": {"m": True}}, "m") is None
+    assert get_metric_value({"scorers": {"m": {"median": True}}}, "m") is None
+    assert get_metric_value({"scorers": {"m": True}}, "m") is None
     # real numbers still work
-    assert _get_metric_value({"scorers": {"m": {"median": 0.9}}}, "m") == 0.9
+    assert get_metric_value({"scorers": {"m": {"median": 0.9}}}, "m") == 0.9
 
 
 # ---------------------------------------------------------------------------
@@ -433,12 +433,12 @@ def test_family_absent_from_summary_is_not_evaluable(
     """If a family with an active hard gate has no cell in the summary,
     the gate is not-evaluable (not a silent pass)."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
     # gpt-4o-mini is missing from summary entirely
-    summary = _make_summary(
+    summary = make_summary(
         {
-            "openai/gpt-5-mini": _cell_with_rate(0.7),
+            "openai/gpt-5-mini": cell_with_rate(0.7),
         }
     )
     summary_file = tmp_path / "summary.json"
@@ -459,7 +459,7 @@ def test_family_absent_from_summary_is_not_evaluable(
 # ---------------------------------------------------------------------------
 
 
-_SCOPED_GATES_YAML = """\
+SCOPED_GATES_YAML = """\
 gates:
   - family: openai/gpt-4o-mini
     status: active
@@ -484,11 +484,11 @@ def test_scoped_active_gate_missing_scoped_cell_fails_closed(
     a refinement_cheaper cell, so the scoped gate is not-evaluable — and for a
     hard-status gate that is an infrastructure failure (exit 2), never exit 0."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_SCOPED_GATES_YAML)
+    gates_file.write_text(SCOPED_GATES_YAML)
 
-    # _make_summary nests cells under _SYNTHETIC_SCENARIO_ID == "refinement_cheaper";
+    # make_summary nests cells under SYNTHETIC_SCENARIO_ID == "refinement_cheaper";
     # the gate is scoped to "omakase_mission_open_ended" which is absent.
-    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(1.0)})
+    summary = make_summary({"openai/gpt-4o-mini": cell_with_rate(1.0)})
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
@@ -504,8 +504,8 @@ def test_scoped_active_gate_missing_scoped_cell_fails_closed(
 def test_main_returns_int(tmp_path: Path, script: ModuleType) -> None:
     """main(argv) must return an int (not raise SystemExit directly)."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
-    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(1.0)})
+    gates_file.write_text(MINIMAL_GATES_YAML)
+    summary = make_summary({"openai/gpt-4o-mini": cell_with_rate(1.0)})
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
@@ -529,14 +529,14 @@ def test_integration_real_aggregate_output_fires_hard_gate(
     aggregate_cell_jsons shape, so make eval-gates-check always exited 0.
 
     Uses category_compliance as the gated scorer because it is registered in
-    CRITIQUE_THRESHOLDS and therefore survives the _scorer_means_from_cell
+    CRITIQUE_THRESHOLDS and therefore survives the scorer_means_from_cell
     whitelist (committed_itinerary_rate is wired in Phase 11 BASE-01; until
     then, testing the end-to-end path with a whitelisted scorer is sufficient
     to prove the nested-shape fix closes CR-01).
     """
     from scripts.eval_matrix import aggregate_cell_jsons
 
-    # Write the per-cell JSON that _write_cell_with_aggregate would produce.
+    # Write the per-cell JSON that write_cell_with_aggregate would produce.
     # The aggregator reads aggregate.{scorer}_mean and strips the _mean suffix.
     cell_dir = tmp_path / "cells"
     cell_dir.mkdir()
@@ -561,7 +561,7 @@ def test_integration_real_aggregate_output_fires_hard_gate(
     scenario_block = summary["scenarios"]["refinement_cheaper"]
     provider_block = scenario_block["providers"]["openai/gpt-4o-mini"]
     assert "category_compliance" in provider_block["scorers"], (
-        "category_compliance scorer must survive the _scorer_means_from_cell whitelist"
+        "category_compliance scorer must survive the scorer_means_from_cell whitelist"
     )
     assert provider_block["scorers"]["category_compliance"]["median"] == pytest.approx(0.4)
 
@@ -571,7 +571,7 @@ def test_integration_real_aggregate_output_fires_hard_gate(
 
     # Write the integration gate config.
     gates_file = tmp_path / "integration_gates.yaml"
-    gates_file.write_text(_INTEGRATION_GATES_YAML)
+    gates_file.write_text(INTEGRATION_GATES_YAML)
 
     # The gate must fire (exit 1) against the real aggregator output.
     rc = script.main([str(summary_file), "--gates-config", str(gates_file)])
@@ -583,12 +583,12 @@ def test_integration_real_aggregate_output_fires_hard_gate(
 
 
 # ---------------------------------------------------------------------------
-# TDD RED: _check_gate must walk nested scenarios->providers shape (CR-01)
+# TDD RED: check_gate must walk nested scenarios->providers shape (CR-01)
 # ---------------------------------------------------------------------------
 
 
 def test_check_gate_fires_on_nested_scenarios_providers_shape(script: ModuleType) -> None:
-    """_check_gate must locate a cell under summary['scenarios'][*]['providers'][family].
+    """check_gate must locate a cell under summary['scenarios'][*]['providers'][family].
 
     CR-01: the old flat summary.get('providers', {}) lookup never finds the cell
     because aggregate_cell_jsons writes the nested shape.  This test is the RED
@@ -609,19 +609,19 @@ def test_check_gate_fires_on_nested_scenarios_providers_shape(script: ModuleType
         "scenarios": {
             "refinement_cheaper": {
                 "providers": {
-                    "openai/gpt-4o-mini": _cell_with_rate(0.4),
+                    "openai/gpt-4o-mini": cell_with_rate(0.4),
                 }
             }
         },
     }
-    result = script._check_gate(gate, nested_summary)
+    result = script.check_gate(gate, nested_summary)
     assert result == "violation", (
-        f"_check_gate must return 'violation' for below-gate cell in nested shape; got {result!r}"
+        f"check_gate must return 'violation' for below-gate cell in nested shape; got {result!r}"
     )
 
 
 def test_check_gate_passes_on_nested_shape_above_gate(script: ModuleType) -> None:
-    """_check_gate returns 'pass' when cell is at or above gate in nested shape."""
+    """check_gate returns 'pass' when cell is at or above gate in nested shape."""
     gate = {
         "family": "openai/gpt-4o-mini",
         "status": "active",
@@ -635,14 +635,14 @@ def test_check_gate_passes_on_nested_shape_above_gate(script: ModuleType) -> Non
         "scenarios": {
             "refinement_cheaper": {
                 "providers": {
-                    "openai/gpt-4o-mini": _cell_with_rate(1.0),
+                    "openai/gpt-4o-mini": cell_with_rate(1.0),
                 }
             }
         }
     }
-    result = script._check_gate(gate, nested_summary)
+    result = script.check_gate(gate, nested_summary)
     assert result == "pass", (
-        f"_check_gate must return 'pass' for above-gate cell in nested shape; got {result!r}"
+        f"check_gate must return 'pass' for above-gate cell in nested shape; got {result!r}"
     )
 
 
@@ -650,7 +650,7 @@ def test_check_gate_not_evaluable_when_family_absent_from_all_scenarios(
     script: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """_check_gate returns 'not_evaluable' when no scenario's providers map contains the family."""
+    """check_gate returns 'not_evaluable' when no scenario's providers map contains the family."""
     gate = {
         "family": "openai/gpt-4o-mini",
         "status": "active",
@@ -664,12 +664,12 @@ def test_check_gate_not_evaluable_when_family_absent_from_all_scenarios(
         "scenarios": {
             "refinement_cheaper": {
                 "providers": {
-                    "deepseek/deepseek-chat": _cell_with_rate(0.9),
+                    "deepseek/deepseek-chat": cell_with_rate(0.9),
                 }
             }
         }
     }
-    result = script._check_gate(gate, nested_summary)
+    result = script.check_gate(gate, nested_summary)
     # Codex PR#110 finding 1: an ACTIVE (hard-status) gate whose cell is absent is
     # a fail-closed infrastructure error, not a silent pass.
     assert result == "not_evaluable_hard", (
@@ -685,7 +685,7 @@ def test_check_gate_not_evaluable_when_family_absent_from_all_scenarios(
 
 
 def test_check_gate_skips_quarantined_scenario_for_cell_lookup(script: ModuleType) -> None:
-    """_check_gate must skip scenarios where baseline_eligible is explicitly False.
+    """check_gate must skip scenarios where baseline_eligible is explicitly False.
 
     A quarantined scenario's cell must not satisfy a gate — if the only cell
     for the family is in a quarantined scenario, the result is not_evaluable.
@@ -704,12 +704,12 @@ def test_check_gate_skips_quarantined_scenario_for_cell_lookup(script: ModuleTyp
             "late_night_closure_cascade": {
                 "baseline_eligible": False,
                 "providers": {
-                    "openai/gpt-4o-mini": _cell_with_rate(1.0),  # above gate but quarantined
+                    "openai/gpt-4o-mini": cell_with_rate(1.0),  # above gate but quarantined
                 },
             }
         }
     }
-    result = script._check_gate(gate, nested_summary)
+    result = script.check_gate(gate, nested_summary)
     # Active gate + only-cell-quarantined → cannot be evaluated; for a hard-status
     # gate that is fail-closed (Codex PR#110 finding 1), not a silent pass.
     assert result == "not_evaluable_hard", (
@@ -732,10 +732,10 @@ def test_hard_gate_fires_when_any_eligible_scenario_violates_regardless_of_order
     alphabetical scenario naming, which a merge gate must never do.
     """
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
-    passing = _cell_with_rate(1.0)
-    failing = _cell_with_rate(0.4)  # below the 0.8 active gate
+    passing = cell_with_rate(1.0)
+    failing = cell_with_rate(0.4)  # below the 0.8 active gate
 
     for label, (first_cell, second_cell) in {
         "pass_then_fail": (passing, failing),
@@ -764,12 +764,12 @@ def test_hard_gate_passes_when_all_eligible_scenarios_pass(
 ) -> None:
     """WR-02 complement: multiple eligible scenarios all above the gate → exit 0."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
     summary = {
         "scenarios": {
-            "a_first": {"providers": {"openai/gpt-4o-mini": _cell_with_rate(0.9)}},
-            "b_second": {"providers": {"openai/gpt-4o-mini": _cell_with_rate(1.0)}},
+            "a_first": {"providers": {"openai/gpt-4o-mini": cell_with_rate(0.9)}},
+            "b_second": {"providers": {"openai/gpt-4o-mini": cell_with_rate(1.0)}},
         },
         "errors": [],
     }
@@ -809,7 +809,7 @@ gates:
 """
     )
 
-    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(0.0)})
+    summary = make_summary({"openai/gpt-4o-mini": cell_with_rate(0.0)})
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
@@ -883,7 +883,7 @@ def test_malformed_gates_yaml_exits_2_not_1(
     gates_file = tmp_path / "eval_gates.yaml"
     gates_file.write_text(gates_yaml)
 
-    summary = _make_summary({"openai/gpt-4o-mini": _cell_with_rate(1.0)})
+    summary = make_summary({"openai/gpt-4o-mini": cell_with_rate(1.0)})
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
@@ -898,7 +898,7 @@ def test_null_median_in_summary_exits_2_not_traceback(
     """WR-04: a null median in the summary (float(None) → TypeError) must be
     reported as infra failure exit 2, not escape as a traceback."""
     gates_file = tmp_path / "eval_gates.yaml"
-    gates_file.write_text(_MINIMAL_GATES_YAML)
+    gates_file.write_text(MINIMAL_GATES_YAML)
 
     cell = {
         "scorers": {"committed_itinerary_rate": {"median": None}},
@@ -906,7 +906,7 @@ def test_null_median_in_summary_exits_2_not_traceback(
         "n_errored": 0,
         "cell_valid": True,
     }
-    summary = _make_summary({"openai/gpt-4o-mini": cell})
+    summary = make_summary({"openai/gpt-4o-mini": cell})
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
@@ -919,7 +919,7 @@ def test_null_median_in_summary_exits_2_not_traceback(
 # ---------------------------------------------------------------------------
 
 
-def _make_baseline_json(scenario_id: str, providers: dict) -> dict:
+def make_baseline_json(scenario_id: str, providers: dict) -> dict:
     """Build a minimal committed-baseline JSON payload."""
     return {
         "scenario_id": scenario_id,
@@ -929,7 +929,7 @@ def _make_baseline_json(scenario_id: str, providers: dict) -> dict:
     }
 
 
-def _baseline_provider_cell(rate: float, n: int = 5) -> dict:
+def baseline_provider_cell(rate: float, n: int = 5) -> dict:
     """A provider cell as written into a baseline JSON by write_baselines.py."""
     return {
         "scorers": {
@@ -948,9 +948,9 @@ def test_build_summary_from_baselines_produces_correct_shape(
     tmp_path: Path,
     script: ModuleType,
 ) -> None:
-    """_build_summary_from_baselines synthesises summary shape from baseline JSONs.
+    """build_summary_from_baselines synthesises summary shape from baseline JSONs.
 
-    D-11-15: The output must match aggregate_cell_jsons exactly so _check_gate
+    D-11-15: The output must match aggregate_cell_jsons exactly so check_gate
     can consume it without modification.
     """
     baselines_dir = tmp_path / "eval_baselines"
@@ -961,13 +961,13 @@ def test_build_summary_from_baselines_produces_correct_shape(
     rate = 0.8
     n = 5
 
-    payload = _make_baseline_json(scenario_id, {provider_key: _baseline_provider_cell(rate, n)})
+    payload = make_baseline_json(scenario_id, {provider_key: baseline_provider_cell(rate, n)})
     (baselines_dir / f"{scenario_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
-    summary = script._build_summary_from_baselines(baselines_dir)
+    summary = script.build_summary_from_baselines(baselines_dir)
 
     # Top-level key
-    assert "scenarios" in summary, "_build_summary_from_baselines must produce 'scenarios' key"
+    assert "scenarios" in summary, "build_summary_from_baselines must produce 'scenarios' key"
     assert scenario_id in summary["scenarios"], f"scenario_id '{scenario_id}' must be present"
 
     scenario_block = summary["scenarios"][scenario_id]
@@ -990,31 +990,31 @@ def test_build_summary_from_baselines_skips_snapshots_subdir(
     tmp_path: Path,
     script: ModuleType,
 ) -> None:
-    """_build_summary_from_baselines must skip any file inside _snapshots/."""
+    """build_summary_from_baselines must skip any file inside _snapshots/."""
     baselines_dir = tmp_path / "eval_baselines"
     baselines_dir.mkdir()
     snapshots_dir = baselines_dir / "_snapshots"
     snapshots_dir.mkdir()
 
     # Write a JSON in _snapshots that would fail the gate if synthesised
-    snap_payload = _make_baseline_json(
+    snap_payload = make_baseline_json(
         "refinement_cheaper",
-        {"openai/gpt-4o-mini": _baseline_provider_cell(0.0, 5)},
+        {"openai/gpt-4o-mini": baseline_provider_cell(0.0, 5)},
     )
     (snapshots_dir / "refinement_cheaper.pre-phase11.json").write_text(
         json.dumps(snap_payload), encoding="utf-8"
     )
 
     # Also write a clean baseline in the real dir — should be the only one found
-    real_payload = _make_baseline_json(
+    real_payload = make_baseline_json(
         "omakase_mission_open_ended",
-        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+        {"openai/gpt-4o-mini": baseline_provider_cell(1.0, 5)},
     )
     (baselines_dir / "omakase_mission_open_ended.json").write_text(
         json.dumps(real_payload), encoding="utf-8"
     )
 
-    summary = script._build_summary_from_baselines(baselines_dir)
+    summary = script.build_summary_from_baselines(baselines_dir)
     scenarios = summary["scenarios"]
     assert "refinement_cheaper" not in scenarios, "_snapshots content must be excluded"
     assert "omakase_mission_open_ended" in scenarios, "real baseline must be present"
@@ -1035,9 +1035,9 @@ def test_baselines_mode_hard_gate_regression_exits_1(
     baselines_dir.mkdir()
 
     # gpt-4o-mini: 0.4 < 0.8 (active hard gate) → violation on omakase (the gated scenario)
-    payload = _make_baseline_json(
+    payload = make_baseline_json(
         "omakase_mission_open_ended",
-        {"openai/gpt-4o-mini": _baseline_provider_cell(0.4, 5)},
+        {"openai/gpt-4o-mini": baseline_provider_cell(0.4, 5)},
     )
     (baselines_dir / "omakase_mission_open_ended.json").write_text(
         json.dumps(payload), encoding="utf-8"
@@ -1065,9 +1065,9 @@ def test_baselines_mode_aspirational_miss_exits_0(
     baselines_dir.mkdir()
 
     # gpt-5-mini: 0.0 < 0.6 (aspirational) — must NOT block
-    payload = _make_baseline_json(
+    payload = make_baseline_json(
         "refinement_cheaper",
-        {"openai/gpt-5-mini": _baseline_provider_cell(0.0, 5)},
+        {"openai/gpt-5-mini": baseline_provider_cell(0.0, 5)},
     )
     (baselines_dir / "refinement_cheaper.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -1075,9 +1075,9 @@ def test_baselines_mode_aspirational_miss_exits_0(
     # omakase cell so the anchor gate is EVALUABLE (else it now fail-closes per
     # Codex PR#110 finding 1, which would conflate this aspirational-miss test
     # with a not-evaluable infra failure).
-    omakase_payload = _make_baseline_json(
+    omakase_payload = make_baseline_json(
         "omakase_mission_open_ended",
-        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+        {"openai/gpt-4o-mini": baseline_provider_cell(1.0, 5)},
     )
     (baselines_dir / "omakase_mission_open_ended.json").write_text(
         json.dumps(omakase_payload), encoding="utf-8"
@@ -1108,9 +1108,9 @@ def test_baselines_mode_no_positional_summary_does_not_error(
     baselines_dir.mkdir()
     # CR-02: an empty baselines dir now exits 2 (fail-closed), so seed one
     # valid baseline — this test is about the missing positional arg only.
-    payload = _make_baseline_json(
+    payload = make_baseline_json(
         "omakase_mission_open_ended",
-        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+        {"openai/gpt-4o-mini": baseline_provider_cell(1.0, 5)},
     )
     (baselines_dir / "omakase_mission_open_ended.json").write_text(
         json.dumps(payload), encoding="utf-8"
@@ -1135,7 +1135,7 @@ def test_load_baseline_eligibility_resolves_quarantine_from_eval_queries(
     tmp_path: Path,
     script: ModuleType,
 ) -> None:
-    """WR-03: _load_baseline_eligibility reads baseline_eligible per scenario id."""
+    """WR-03: load_baseline_eligibility reads baseline_eligible per scenario id."""
     eval_queries = tmp_path / "eval_queries.yaml"
     eval_queries.write_text(
         """\
@@ -1149,7 +1149,7 @@ hand_written:
         encoding="utf-8",
     )
 
-    lookup = script._load_baseline_eligibility(str(eval_queries))
+    lookup = script.load_baseline_eligibility(str(eval_queries))
 
     assert lookup["late_night_closure_cascade"] is False
     assert lookup["omakase_mission_open_ended"] is True
@@ -1162,7 +1162,7 @@ def test_baselines_mode_quarantined_scenario_neither_satisfies_nor_violates(
     """WR-03: a D-10-09 quarantined scenario's committed baseline must not
     satisfy or violate hard gates in baselines-mode.
 
-    Before the fix, _build_summary_from_baselines hardcoded
+    Before the fix, build_summary_from_baselines hardcoded
     baseline_eligible=True for every file — the moment a quarantined file
     (late_night_closure_cascade.json) gained committed_itinerary_rate, its
     legacy-threading numbers would start driving CI hard gates.
@@ -1171,17 +1171,17 @@ def test_baselines_mode_quarantined_scenario_neither_satisfies_nor_violates(
     baselines_dir.mkdir()
 
     # Quarantined scenario with a HARD-FAILING rate (0.0 < 0.8) for the anchor.
-    quarantined = _make_baseline_json(
+    quarantined = make_baseline_json(
         "late_night_closure_cascade",
-        {"openai/gpt-4o-mini": _baseline_provider_cell(0.0, 5)},
+        {"openai/gpt-4o-mini": baseline_provider_cell(0.0, 5)},
     )
     (baselines_dir / "late_night_closure_cascade.json").write_text(
         json.dumps(quarantined), encoding="utf-8"
     )
     # Eligible scenario with a passing rate so the gate stays evaluable.
-    eligible = _make_baseline_json(
+    eligible = make_baseline_json(
         "omakase_mission_open_ended",
-        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+        {"openai/gpt-4o-mini": baseline_provider_cell(1.0, 5)},
     )
     (baselines_dir / "omakase_mission_open_ended.json").write_text(
         json.dumps(eligible), encoding="utf-8"
@@ -1226,9 +1226,9 @@ def test_baselines_mode_missing_eval_queries_exits_2(
     the quarantine record would be unenforceable, so fail closed."""
     baselines_dir = tmp_path / "eval_baselines"
     baselines_dir.mkdir()
-    payload = _make_baseline_json(
+    payload = make_baseline_json(
         "omakase_mission_open_ended",
-        {"openai/gpt-4o-mini": _baseline_provider_cell(1.0, 5)},
+        {"openai/gpt-4o-mini": baseline_provider_cell(1.0, 5)},
     )
     (baselines_dir / "omakase_mission_open_ended.json").write_text(
         json.dumps(payload), encoding="utf-8"
@@ -1340,7 +1340,7 @@ gates:
         "n_errored": 0,
         "cell_valid": True,
     }
-    summary = _make_summary({"openai/gpt-4o-mini": cell})
+    summary = make_summary({"openai/gpt-4o-mini": cell})
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
@@ -1362,7 +1362,7 @@ def test_advisory_only_family_with_null_hard_still_reports_advisory_miss(
 ) -> None:
     """WR-05: `hard: null` + non-empty advisory must still evaluate and report.
 
-    Before the fix, `if hard is None: return "pass"` exited _check_gate before
+    Before the fix, `if hard is None: return "pass"` exited check_gate before
     the advisory loop ran, so a schema-conforming advisory-only entry (e.g.
     the anthropic promotion path's intermediate state) produced zero ADVISORY
     output with no warning.
@@ -1387,7 +1387,7 @@ gates:
         "n_errored": 0,
         "cell_valid": True,
     }
-    summary = _make_summary({"anthropic/claude-sonnet-4-6": cell})
+    summary = make_summary({"anthropic/claude-sonnet-4-6": cell})
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 
@@ -1435,7 +1435,7 @@ gates:
         "n_errored": 0,
         "cell_valid": True,
     }
-    summary = _make_summary({"openai/gpt-4o-mini": cell})
+    summary = make_summary({"openai/gpt-4o-mini": cell})
     summary_file = tmp_path / "summary.json"
     summary_file.write_text(json.dumps(summary))
 

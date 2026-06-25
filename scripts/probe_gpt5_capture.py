@@ -60,10 +60,10 @@ PROBE_QUERY = "search for a bar in mission"
 
 # Match anything that LOOKS like an OpenAI secret. Defensive scan against
 # accidentally writing a key into the artifact (T-09-01-T1).
-_SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9_-]{20,}")
+SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9_-]{20,}")
 
 
-def _redact(value: object) -> str:
+def redact(value: object) -> str:
     """Stringify `value` and redact anything that matches an OpenAI secret pattern.
 
     Defensive only — the fields we dump here (additional_kwargs.keys(),
@@ -72,10 +72,10 @@ def _redact(value: object) -> str:
     want it written to disk.
     """
     s = str(value)
-    return _SECRET_PATTERN.sub("sk-REDACTED", s)
+    return SECRET_PATTERN.sub("sk-REDACTED", s)
 
 
-def _content_shape(content: object) -> str:
+def content_shape(content: object) -> str:
     """Return a short human description of an AIMessage.content shape."""
     if isinstance(content, str):
         return f"str (len={len(content)})"
@@ -85,7 +85,7 @@ def _content_shape(content: object) -> str:
     return f"{type(content).__name__}"
 
 
-def _sanitize_response_metadata(metadata: dict[str, object]) -> dict[str, object]:
+def sanitize_response_metadata(metadata: dict[str, object]) -> dict[str, object]:
     """Strip well-known token-bearing fields from `response_metadata` before dump.
 
     We keep the keys and structural shape — that's what the probe is for — but
@@ -115,12 +115,12 @@ def main() -> int:
     # Extract the fields the artifact records. None of these should contain
     # raw secrets, but we redact defensively before write.
     add_kwargs_keys = sorted(message.additional_kwargs.keys())
-    add_kwargs_repr = {key: _redact(message.additional_kwargs[key]) for key in add_kwargs_keys}
-    response_metadata = _sanitize_response_metadata(dict(message.response_metadata or {}))
-    content_shape = _content_shape(message.content)
+    add_kwargs_repr = {key: redact(message.additional_kwargs[key]) for key in add_kwargs_keys}
+    response_metadata = sanitize_response_metadata(dict(message.response_metadata or {}))
+    message_content_shape = content_shape(message.content)
     usage_metadata = getattr(message, "usage_metadata", None)
     tool_calls = getattr(message, "tool_calls", None) or []
-    raw_dict_dump = _redact(dict(message))
+    raw_dict_dump = redact(dict(message))
 
     # Verdict heuristic. The executor / user can override this in review, but a
     # data-driven first guess helps:
@@ -175,7 +175,7 @@ Values (redacted for sk- patterns):
 
 ## AIMessage content shape
 
-{content_shape}
+{message_content_shape}
 
 ## AIMessage usage_metadata
 
@@ -224,7 +224,7 @@ Phase 9 PR cannot ship per D-09-02; we open `09-PROV-01-BLOCKER.md`.
 
     # Final defensive scan — if a secret pattern slipped through anywhere,
     # blow up before the user commits the artifact.
-    if _SECRET_PATTERN.search(PROBE_ARTIFACT.read_text(encoding="utf-8")):
+    if SECRET_PATTERN.search(PROBE_ARTIFACT.read_text(encoding="utf-8")):
         print(
             f"FATAL: probe artifact at {PROBE_ARTIFACT} contains an sk- pattern "
             "(T-09-01-T1 secret-redaction check failed). NOT committing.",

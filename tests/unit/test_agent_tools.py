@@ -4,8 +4,8 @@ import pytest
 from langchain_core.tools import BaseTool
 
 from app.agent.tools import (
-    _args_schema_for,
     all_tools,
+    args_schema_for,
     semantic_search,
 )
 
@@ -37,11 +37,11 @@ def test_all_tools_returns_cached_instances() -> None:
 def test_semantic_search_tool_invokes_underlying(monkeypatch) -> None:
     captured: dict = {}
 
-    def _fake(**kwargs):
+    def fake(**kwargs):
         captured.update(kwargs)
         return []
 
-    monkeypatch.setattr("app.agent.tools._semantic_search", _fake)
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", fake)
     tools = {t.name: t for t in all_tools()}
     tools["semantic_search"].invoke({"query": "italian", "k": 3})
     assert captured == {"query": "italian", "filters": None, "k": 3}
@@ -50,11 +50,11 @@ def test_semantic_search_tool_invokes_underlying(monkeypatch) -> None:
 def test_semantic_search_tool_accepts_serves_dessert_filter(monkeypatch) -> None:
     captured: dict = {}
 
-    def _fake(**kwargs):
+    def fake(**kwargs):
         captured.update(kwargs)
         return []
 
-    monkeypatch.setattr("app.agent.tools._semantic_search", _fake)
+    monkeypatch.setattr("app.agent.tools.semantic_search_impl", fake)
     tools = {t.name: t for t in all_tools()}
     tools["semantic_search"].invoke(
         {"query": "dessert in Japantown", "filters": {"serves_dessert": True}}
@@ -74,11 +74,11 @@ def test_semantic_search_tool_rejects_unknown_filter_field() -> None:
 def test_nearby_tool_invokes_underlying(monkeypatch) -> None:
     captured: dict = {}
 
-    def _fake(**kwargs):
+    def fake(**kwargs):
         captured.update(kwargs)
         return []
 
-    monkeypatch.setattr("app.agent.tools._nearby", _fake)
+    monkeypatch.setattr("app.agent.tools.nearby_impl", fake)
     tools = {t.name: t for t in all_tools()}
     tools["nearby"].invoke({"place_id": "ChIJtest_p1_aaaaaaaa", "radius_m": 500, "k": 4})
     assert captured == {
@@ -92,11 +92,11 @@ def test_nearby_tool_invokes_underlying(monkeypatch) -> None:
 def test_get_details_tool_invokes_underlying(monkeypatch) -> None:
     captured: dict = {}
 
-    def _fake(**kwargs):
+    def fake(**kwargs):
         captured.update(kwargs)
         return None
 
-    monkeypatch.setattr("app.agent.tools._get_details", _fake)
+    monkeypatch.setattr("app.agent.tools.get_details_impl", fake)
     tools = {t.name: t for t in all_tools()}
     tools["get_details"].invoke({"place_id": "ChIJtest_p1_aaaaaaaa"})
     assert captured == {"place_id": "ChIJtest_p1_aaaaaaaa"}
@@ -107,7 +107,7 @@ def test_kg_traverse_tool_delegates_to_graph(monkeypatch) -> None:
     (lazy-imported inside the wrapper body)."""
     captured: dict = {}
 
-    def _fake(
+    def fake(
         place_id: str,
         relation_type: str = "SIMILAR_VECTOR",
         k: int = 5,
@@ -121,7 +121,7 @@ def test_kg_traverse_tool_delegates_to_graph(monkeypatch) -> None:
         )
         return []
 
-    monkeypatch.setattr("app.tools.graph.kg_traverse", _fake)
+    monkeypatch.setattr("app.tools.graph.kg_traverse", fake)
     tools = {t.name: t for t in all_tools()}
     result = tools["kg_traverse"].invoke(
         {"place_id": "ChIJtest_p1_aaaaaaaa", "relation_type": "NEAR", "k": 3}
@@ -137,15 +137,15 @@ def test_kg_traverse_tool_delegates_to_graph(monkeypatch) -> None:
 
 
 def test_args_schema_includes_all_params() -> None:
-    schema = _args_schema_for(semantic_search)
+    schema = args_schema_for(semantic_search)
     fields = schema.model_fields
     assert set(fields.keys()) == {"query", "filters", "k", "slot_index"}
     assert fields["slot_index"].default is None
 
 
 def test_args_schema_raises_on_missing_annotation() -> None:
-    def _bad(query, k: int = 5):  # `query` has no annotation
+    def bad(query, k: int = 5):  # `query` has no annotation
         return []
 
     with pytest.raises(TypeError, match="missing a type annotation"):
-        _args_schema_for(_bad)
+        args_schema_for(bad)

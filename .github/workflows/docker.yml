@@ -12,7 +12,7 @@ name: Docker build, scan & deploy
 #   Variables (not secrets — no credentials, safe to store as vars):
 #     GCP_PROJECT_ID                  = mlops-491820
 #     GCP_WORKLOAD_IDENTITY_PROVIDER  = projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-#     GCP_SERVICE_ACCOUNT             = github-actions-deployer@mlops-491820.iam.gserviceaccount.com
+#     GCP_SERVICEACCOUNT             = github-actions-deployer@mlops-491820.iam.gserviceaccount.com
 #
 # The Cloud Run deploy step is commented out. Uncomment it after you have
 # created the Cloud Run service manually once with the env vars / secrets
@@ -59,7 +59,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ vars.GCP_SERVICEACCOUNT }}
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
@@ -143,7 +143,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ vars.GCP_SERVICEACCOUNT }}
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
@@ -237,7 +237,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ vars.GCP_SERVICEACCOUNT }}
 
       # ----- Cloud Run config (W0 — agent product) -----
       # Sizing/concurrency flags (replace just the named fields):

@@ -18,7 +18,7 @@ Optional env vars:
     CLOUD_SQL_SOCKET_DIR      Cloud SQL Unix socket directory (default: /cloudsql)
     POSTGRES_SSLMODE          Optional sslmode for env-built direct DB connections
     PLACES_EMBED_MODEL       (default: text-embedding-3-small)
-    PLACES_EMBED_BATCH_SIZE  (default: 50)
+    PLACES_EMBEDBATCH_SIZE  (default: 50)
 """
 
 from __future__ import annotations
@@ -86,11 +86,11 @@ class PlaceRow:
     text: str
 
 
-def _join_nonempty(values: list[str]) -> str:
+def join_nonempty(values: list[str]) -> str:
     return ", ".join(value for value in values if value)
 
 
-def _localized_text(value: object) -> str:
+def localized_text(value: object) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
@@ -100,7 +100,7 @@ def _localized_text(value: object) -> str:
     return ""
 
 
-def _humanize_key(key: str) -> str:
+def humanize_key(key: str) -> str:
     words: list[str] = []
     current = ""
     for char in key:
@@ -114,20 +114,20 @@ def _humanize_key(key: str) -> str:
     return " ".join(words)
 
 
-def _enabled_features(source_json: dict, fields: dict[str, str]) -> str:
-    return _join_nonempty([label for key, label in fields.items() if source_json.get(key) is True])
+def enabled_features(source_json: dict, fields: dict[str, str]) -> str:
+    return join_nonempty([label for key, label in fields.items() if source_json.get(key) is True])
 
 
-def _json_flags(source_json: dict, key: str) -> str:
+def json_flags(source_json: dict, key: str) -> str:
     value = source_json.get(key) or {}
     if not isinstance(value, dict):
         return ""
-    return _join_nonempty(
-        [_humanize_key(field) for field, enabled in value.items() if enabled is True]
+    return join_nonempty(
+        [humanize_key(field) for field, enabled in value.items() if enabled is True]
     )
 
 
-def _opening_hours_text(source_json: dict, key: str) -> str:
+def opening_hours_text(source_json: dict, key: str) -> str:
     value = source_json.get(key) or {}
     if not isinstance(value, dict):
         return ""
@@ -137,7 +137,7 @@ def _opening_hours_text(source_json: dict, key: str) -> str:
     return ""
 
 
-def _price_range_text(source_json: dict) -> str:
+def price_range_text(source_json: dict) -> str:
     price_range = source_json.get("priceRange") or {}
     if not isinstance(price_range, dict):
         return ""
@@ -158,7 +158,7 @@ def _price_range_text(source_json: dict) -> str:
     return " to ".join(prices)
 
 
-def _collect_text_values(value: object, *, limit: int = 8) -> list[str]:
+def collect_text_values(value: object, *, limit: int = 8) -> list[str]:
     texts: list[str] = []
 
     def visit(item: object) -> None:
@@ -173,7 +173,7 @@ def _collect_text_values(value: object, *, limit: int = 8) -> list[str]:
                 visit(child)
             return
         if isinstance(item, dict):
-            text = _localized_text(item)
+            text = localized_text(item)
             if text:
                 texts.append(text)
             for child in item.values():
@@ -183,9 +183,9 @@ def _collect_text_values(value: object, *, limit: int = 8) -> list[str]:
     return list(dict.fromkeys(texts))
 
 
-def _summary_text(source_json: dict, key: str) -> str:
+def summary_text(source_json: dict, key: str) -> str:
     value = source_json.get(key)
-    return " | ".join(_collect_text_values(value))
+    return " | ".join(collect_text_values(value))
 
 
 def compose_embedding_text(record: dict) -> str:
@@ -216,25 +216,25 @@ def compose_embedding_text(record: dict) -> str:
         richer_parts = [
             f"Short Address: {source_json.get('shortFormattedAddress') or ''}",
             f"Primary Type ID: {source_json.get('primaryType') or ''}",
-            f"Price Range: {_price_range_text(source_json)}",
-            f"Current Opening Hours: {_opening_hours_text(source_json, 'currentOpeningHours')}",
-            f"Regular Secondary Hours: {_opening_hours_text(source_json, 'regularSecondaryOpeningHours')}",
-            f"Current Secondary Hours: {_opening_hours_text(source_json, 'currentSecondaryOpeningHours')}",
-            f"Service Options: {_enabled_features(source_json, SERVICE_FEATURES)}",
-            f"Dining Features: {_enabled_features(source_json, DINING_FEATURES)}",
-            f"Food and Drink: {_enabled_features(source_json, FOOD_DRINK_FEATURES)}",
+            f"Price Range: {price_range_text(source_json)}",
+            f"Current Opening Hours: {opening_hours_text(source_json, 'currentOpeningHours')}",
+            f"Regular Secondary Hours: {opening_hours_text(source_json, 'regularSecondaryOpeningHours')}",
+            f"Current Secondary Hours: {opening_hours_text(source_json, 'currentSecondaryOpeningHours')}",
+            f"Service Options: {enabled_features(source_json, SERVICE_FEATURES)}",
+            f"Dining Features: {enabled_features(source_json, DINING_FEATURES)}",
+            f"Food and Drink: {enabled_features(source_json, FOOD_DRINK_FEATURES)}",
             f"National Phone: {source_json.get('nationalPhoneNumber') or ''}",
             f"International Phone: {source_json.get('internationalPhoneNumber') or ''}",
-            f"Google Maps Links: {_summary_text(source_json, 'googleMapsLinks')}",
-            f"Generative Summary: {_summary_text(source_json, 'generativeSummary')}",
-            f"Review Summary: {_summary_text(source_json, 'reviewSummary')}",
-            f"Neighborhood Summary: {_summary_text(source_json, 'neighborhoodSummary')}",
-            f"Reviews: {_summary_text(source_json, 'reviews')}",
-            f"EV Charging: {_summary_text(source_json, 'evChargeAmenitySummary')}",
-            f"Fuel Options: {_summary_text(source_json, 'fuelOptions')}",
+            f"Google Maps Links: {summary_text(source_json, 'googleMapsLinks')}",
+            f"Generative Summary: {summary_text(source_json, 'generativeSummary')}",
+            f"Review Summary: {summary_text(source_json, 'reviewSummary')}",
+            f"Neighborhood Summary: {summary_text(source_json, 'neighborhoodSummary')}",
+            f"Reviews: {summary_text(source_json, 'reviews')}",
+            f"EV Charging: {summary_text(source_json, 'evChargeAmenitySummary')}",
+            f"Fuel Options: {summary_text(source_json, 'fuelOptions')}",
         ]
         for label, key in JSON_FLAG_GROUPS.items():
-            richer_parts.append(f"{label}: {_json_flags(source_json, key)}")
+            richer_parts.append(f"{label}: {json_flags(source_json, key)}")
         parts.extend(richer_parts)
 
     return "\n".join(part for part in parts if not part.endswith(": "))

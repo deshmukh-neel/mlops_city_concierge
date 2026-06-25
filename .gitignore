@@ -175,6 +175,11 @@ celerybeat.pid
 .venv
 # Vite per-mode local overrides (frontend/.env.development.local etc.)
 *.local
+# Vercel local project linkage contains account/project ids; keep only the
+# portable deployment config.
+.vercel/
+frontend/.vercel/
+!frontend/vercel.json
 env/
 venv/
 ENV/

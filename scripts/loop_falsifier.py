@@ -442,7 +442,7 @@ def main() -> None:  # noqa: C901
     # Validate BOTH code paths that resolve the database URL:
     #   (a) resolve_database_url(os.environ) — the free function (existing check)
     #   (b) get_settings().resolved_database_url — the SAME path the DB pool uses
-    # The pool calls _ensure_db_pool() -> get_settings().resolved_database_url.
+    # The pool calls ensure_db_pool() -> get_settings().resolved_database_url.
     # The prior code only checked (a), which always sees the coerced env and
     # passes — giving FALSE assurance while the pool still targets the stale
     # cached Settings = prod (FALSIFY-01 gate crash root cause).
@@ -487,8 +487,8 @@ def main() -> None:  # noqa: C901
 
     # ── Step 7a: Capture before-snapshot (empty sandbox -> hit_rate must be 0) ──
     print(f"[before-snapshot] Probing {N} paraphrases with k={K} ...")
-    before_raw_ids_result = _snapshot_ids_from_url(sandbox_url, "places_raw")
-    before_v2_ids_result = _snapshot_ids_from_url(sandbox_url, "place_embeddings_v2")
+    before_raw_ids_result = snapshot_ids_from_url(sandbox_url, "places_raw")
+    before_v2_ids_result = snapshot_ids_from_url(sandbox_url, "place_embeddings_v2")
 
     # CR-01: Assert sandbox is actually empty in-process before running any probes.
     # The integration smoke test checked this via APP_ENV=integration, but the live
@@ -551,8 +551,8 @@ def main() -> None:  # noqa: C901
     print("[embed-v2] Done.")
 
     # ── Step 7d: Compute DB-diff ─────────────────────────────────────────────
-    after_raw_ids_result = _snapshot_ids_from_url(sandbox_url, "places_raw")
-    after_v2_ids_result = _snapshot_ids_from_url(sandbox_url, "place_embeddings_v2")
+    after_raw_ids_result = snapshot_ids_from_url(sandbox_url, "places_raw")
+    after_v2_ids_result = snapshot_ids_from_url(sandbox_url, "place_embeddings_v2")
 
     new_place_ids = db_diff(before_raw_ids_result, after_raw_ids_result)
     new_v2_ids = db_diff(before_v2_ids_result, after_v2_ids_result)
@@ -647,7 +647,7 @@ def main() -> None:  # noqa: C901
     raise SystemExit(exit_code)
 
 
-def _snapshot_ids_from_url(db_url: str, table: str) -> set[str]:
+def snapshot_ids_from_url(db_url: str, table: str) -> set[str]:
     """Capture a set of place_ids from a table using a direct psycopg2 connection.
 
     Uses a direct connection (not the pool) to avoid dependency on the

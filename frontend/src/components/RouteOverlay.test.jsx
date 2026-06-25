@@ -52,17 +52,17 @@ beforeEach(() => {
       },
       DirectionsRenderer: class {
         constructor() {
-          this._map = null
-          this._directions = null
+          this.map = null
+          this.directions = null
         }
         setMap(m) {
-          this._map = m
+          this.map = m
         }
         getMap() {
-          return this._map
+          return this.map
         }
         setDirections(d) {
-          this._directions = d
+          this.directions = d
           lastRenderer = this
         }
       },

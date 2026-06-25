@@ -32,21 +32,21 @@ class RunConfig(BaseModel):
 
     @field_validator("llm_provider", mode="before")
     @classmethod
-    def _lowercase_provider(cls, value: object) -> object:
+    def lowercase_provider(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
         return value
 
     @field_validator("chat_model", mode="before")
     @classmethod
-    def _strip_chat_model(cls, value: object) -> object:
+    def strip_chat_model(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip()
         return value
 
     @field_validator("k", "temperature", mode="before")
     @classmethod
-    def _reject_bools(cls, value: object) -> object:
+    def reject_bools(cls, value: object) -> object:
         if isinstance(value, bool):
             raise ValueError("must be a number, not a bool")
         return value
@@ -59,14 +59,14 @@ class ExperimentConfig(BaseModel):
 
     @field_validator("experiment_name", mode="before")
     @classmethod
-    def _strip_experiment_name(cls, value: object) -> object:
+    def strip_experiment_name(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip()
         return value
 
     @field_validator("sample_queries")
     @classmethod
-    def _sample_queries_non_empty(cls, value: list[str]) -> list[str]:
+    def sample_queries_non_empty(cls, value: list[str]) -> list[str]:
         cleaned: list[str] = []
         for index, query in enumerate(value):
             if not isinstance(query, str) or not query.strip():
@@ -186,7 +186,7 @@ def log_rag_experiment(
     tracking_uri = tracking_uri or settings.mlflow_tracking_uri
     model_name = model_name or settings.mlflow_model_name
 
-    os.environ.setdefault("MLFLOW_ARTIFACTS_URI", settings.mlflow_artifacts_uri)
+    os.environ.setdefault("MLFLOWARTIFACTS_URI", settings.mlflow_artifacts_uri)
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
 
@@ -263,7 +263,7 @@ def log_rag_experiments_from_config(
     resolved_sample_queries = sample_queries or config.sample_queries
     resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
 
-    os.environ.setdefault("MLFLOW_ARTIFACTS_URI", settings.mlflow_artifacts_uri)
+    os.environ.setdefault("MLFLOWARTIFACTS_URI", settings.mlflow_artifacts_uri)
     mlflow.set_tracking_uri(resolved_tracking_uri)
     mlflow.set_experiment(resolved_experiment_name)
 
@@ -313,7 +313,7 @@ def run_config_mode(args: argparse.Namespace) -> None:
     print("\n".join(lines))
 
 
-def _load_default_sample_queries() -> list[str]:
+def load_default_sample_queries() -> list[str]:
     try:
         config = load_experiment_config(DEFAULT_CONFIG_PATH)
     except FileNotFoundError as exc:
@@ -325,7 +325,7 @@ def _load_default_sample_queries() -> list[str]:
 
 
 def run_ad_hoc_mode(args: argparse.Namespace) -> None:
-    sample_queries = args.sample_queries or _load_default_sample_queries()
+    sample_queries = args.sample_queries or load_default_sample_queries()
     experiment_name = args.experiment_name or DEFAULT_EXPERIMENT_NAME
     run_id = log_rag_experiment(
         llm_provider=args.llm_provider,
